@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import atexit
 import os
+from pathlib import Path
 import shutil
 import tempfile
 from tempfile import mkdtemp
@@ -17,7 +18,8 @@ from PySide6.QtCore import QCoreApplication, QEvent, QSettings, QStandardPaths
 from PySide6.QtWidgets import QApplication
 
 
-_TEST_LOCAL_APP_DATA = mkdtemp(prefix="playlist-canvas-tests-")
+# Windows runners can supply 8.3 temp paths; keep every fixture on the canonical path.
+_TEST_LOCAL_APP_DATA = str(Path(mkdtemp(prefix="playlist-canvas-tests-")).resolve())
 atexit.register(shutil.rmtree, _TEST_LOCAL_APP_DATA, ignore_errors=True)
 # Assigned, not setdefault: Windows always defines LOCALAPPDATA, so setdefault
 # left the AutoMix cache, presets, language packs and logs writing into the
@@ -34,7 +36,7 @@ QSettings.setPath(
 # landed in the real %TEMP% (2.4 GB of project-cache in two weeks) and every
 # package load then rescanned them all. One folder per test process, removed
 # at exit; child processes (FFmpeg) inherit it through TEMP/TMP.
-_TEST_TEMP = mkdtemp(prefix="playlist-canvas-tests-tmp-")
+_TEST_TEMP = str(Path(mkdtemp(prefix="playlist-canvas-tests-tmp-")).resolve())
 atexit.register(shutil.rmtree, _TEST_TEMP, ignore_errors=True)
 os.environ["TEMP"] = os.environ["TMP"] = os.environ["TMPDIR"] = _TEST_TEMP
 tempfile.tempdir = _TEST_TEMP
