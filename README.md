@@ -20,6 +20,11 @@
 
 ![Playlist Canvas 편집 화면 — 가운데 캔버스, 왼쪽 요소와 레이어, 오른쪽 속성, 아래 플레이리스트](app/resources/help/ko/canvas_workspace.png)
 
+## 예시 영상
+
+- 가사/자막, 오디오 비쥬얼라이저등의 요소를 활용한 [영상](https://www.youtube.com/watch?v=q3IhKdsTLmM)
+- AutoMix을 활용한 [영상](https://www.youtube.com/watch?v=k2-e5Nhj7RY)
+
 ## 어떤 영상을 만들 수 있나요?
 
 | 만들고 싶은 영상 | 사용할 수 있는 기능 |
