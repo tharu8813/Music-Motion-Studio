@@ -593,6 +593,9 @@ class FunctionalRegressionTests(unittest.TestCase):
             media_player=player,
             _active_track_index=0,
             _last_media_position_ms=5000,
+            _closing=False,
+            _scrubbing=False,
+            _live_mix=None,
         )
         preview._track_at = lambda seconds: ExportPreviewDialog._track_at(
             preview, seconds
