@@ -1,0 +1,29 @@
+{
+  "fixture": "90 frames, 1280x720, 2000 bilingual cues; 22 rapid edits, 13 horizontal cues",
+  "cases": {
+    "rise": {
+      "median_ms": 2.9940499225631356,
+      "p95_ms": 29.774100054055452,
+      "gaussian_calls": 389,
+      "all_frames_sha256": "f80df0a2803b31165412b2b43b756e9c37c536bb03a52812e08749fb7819bca5"
+    },
+    "glow": {
+      "median_ms": 6.694650044664741,
+      "p95_ms": 68.87670001015067,
+      "gaussian_calls": 452,
+      "all_frames_sha256": "1e001b342ebcc8e8dd74a87fde57c1b21fa0213697a2b6edd0a16ea71b8655fb"
+    },
+    "karaoke": {
+      "median_ms": 6.183150107972324,
+      "p95_ms": 43.53580018505454,
+      "gaussian_calls": 384,
+      "all_frames_sha256": "ca541fc5bc3d7d7bba1deab35e38020f836863c8792e5b9955f18f679a6ffb48"
+    },
+    "rapid_settings": {
+      "elapsed_ms": 12.427599867805839,
+      "preview_renders": 1,
+      "final_distance": 40.0,
+      "preview_image_width": 780
+    }
+  }
+}

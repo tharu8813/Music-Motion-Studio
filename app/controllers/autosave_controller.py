@@ -13,6 +13,7 @@ tests which monkeypatch a specific window method keep intercepting it.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from pathlib import Path
 
 from PySide6.QtWidgets import QMessageBox
 
@@ -78,12 +79,12 @@ class AutosaveController:
             window._autosave_worker = None
         worker.deleteLater()
 
-    def offer_recovery(self) -> bool:
+    def offer_recovery(self, *, snapshot_path: Path | None = None, confirm: bool = True) -> bool:
         """Offer recovery of the most recently autosaved workspace on startup."""
         window = self.window
         try:
-            snapshot = None
-            for candidate in window.autosave.recoveries():
+            snapshot = window.autosave.load_snapshot(snapshot_path) if snapshot_path is not None else None
+            for candidate in (() if snapshot_path is not None else window.autosave.recoveries()):
                 project_path = candidate.project_path
                 if project_path is not None and project_path.is_file():
                     try:
@@ -118,7 +119,7 @@ class AutosaveController:
             else "Restore your most recently autosaved work?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
-        )
+        ) if confirm else QMessageBox.StandardButton.Yes
         if answer == QMessageBox.StandardButton.Yes:
             media_reference = snapshot.project_path or snapshot.path
             if not window._resolve_project_media(snapshot.document, media_reference):
@@ -136,8 +137,10 @@ class AutosaveController:
                 window.history.reset(window._project_document().to_dict())
             finally:
                 window._history_restoring = False
-            window._project_dirty = True
-            window._autosave_debounce_timer.start()
+            window._project_dirty = snapshot.dirty
+            if snapshot.dirty:
+                window._autosave_debounce_timer.start()
+            window._update_project_status()
             if snapshot.project_path is not None:
                 window.recent_projects.add(snapshot.project_path)
             return True

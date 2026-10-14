@@ -10,7 +10,7 @@ import sys
 import threading
 
 from mutagen import File as MutagenFile
-from PySide6.QtCore import QProcess, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QProcess, QSettings, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
@@ -100,12 +100,15 @@ class TrackDetailsDialog(QDialog):
         analysis: TrackAnalysis | None = None,
         structure: TrackStructureAnalysis | None = None,
         ffmpeg_executable: Path | None = None,
+        karaoke_source=None,
     ) -> None:
         super().__init__(parent)
         install_help_shortcut(
             self, lambda dialog: ("track", _TAB_HELP_TOPICS[max(0, dialog.tabs.currentIndex())]), translator,
         )
         self.track = track
+        self.karaoke_source = karaoke_source
+        self.selected_karaoke_settings = None
         # EQ preview: the player swaps to a copy of the track rendered with the
         # current volume/EQ (Qt Multimedia cannot filter audio itself).
         self.ffmpeg_executable = ffmpeg_executable
@@ -262,6 +265,7 @@ class TrackDetailsDialog(QDialog):
         self.content_lyrics_button.setVisible(bool(self._content_lyrics))
         self.edit_lrc_button = QPushButton()
         self.export_lrc_button = QPushButton()
+        self.align_words_button = QPushButton()
         self.clear_button = QPushButton()
         path_row.addWidget(self.lyrics_path, 1)
         path_row.addWidget(self.content_lyrics_button)
@@ -270,6 +274,7 @@ class TrackDetailsDialog(QDialog):
         lyrics_layout.addLayout(path_row)
         lyrics_action_row = QHBoxLayout()
         lyrics_action_row.addStretch(1)
+        lyrics_action_row.addWidget(self.align_words_button)
         lyrics_action_row.addWidget(self.edit_lrc_button)
         lyrics_action_row.addWidget(self.export_lrc_button)
         lyrics_layout.addLayout(lyrics_action_row)
@@ -466,6 +471,7 @@ class TrackDetailsDialog(QDialog):
         self.content_lyrics_button.clicked.connect(self._show_content_lyrics_menu)
         self.edit_lrc_button.clicked.connect(self._edit_in_lrc_generator)
         self.export_lrc_button.clicked.connect(self._export_current_lyrics_as_lrc)
+        self.align_words_button.clicked.connect(self._align_words_to_audio)
         self.clear_button.clicked.connect(self._clear_lyrics)
         self.change_cover_button.clicked.connect(self._choose_cover)
         self.reset_cover_button.clicked.connect(self._reset_cover)
@@ -952,6 +958,13 @@ class TrackDetailsDialog(QDialog):
         except LyricsError as error:
             self.preview.setPlainText(str(error))
             return False
+        if not cues:
+            self.preview.setPlainText(
+                "인식할 수 있는 시간 정보가 없습니다. LRC/SRT/VTT 타임코드를 확인하세요. 기존 가사는 유지됩니다."
+                if self.translator.is_korean else
+                "No timed lyrics found. Check the LRC/SRT/VTT timestamps. Existing lyrics are retained."
+            )
+            return False
         self.selected_lyrics_path = str(Path(path).resolve())
         self.selected_lyrics = [cue.copy() for cue in cues]
         self._refresh_preview()
@@ -961,6 +974,32 @@ class TrackDetailsDialog(QDialog):
         self.selected_lyrics_path = ""
         self.selected_lyrics = []
         self._refresh_preview()
+
+    def _align_words_to_audio(self) -> None:
+        from copy import deepcopy
+        from app.dialogs.lyrics_alignment_dialog import LyricsAlignmentDialog
+
+        self.media_player.pause()
+        snapshot = deepcopy(self.track)
+        snapshot.lyrics = deepcopy(self.selected_lyrics)
+        snapshot.lyrics_timing_offset_seconds = self.timing_offset_spin.value()
+        ffmpeg = self.ffmpeg_executable or QSettings().value("export/ffmpeg_path", "") or None
+        korean = self.translator.is_korean
+        dialog = LyricsAlignmentDialog(snapshot, ffmpeg, korean, self, source=self.karaoke_source)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            result = dialog.result_data
+            self.selected_lyrics = result.cues
+            self.selected_karaoke_settings = dialog.karaoke_settings() if hasattr(dialog, "karaoke_settings") else {"subtitle_karaoke_enabled": True}
+            self._refresh_preview()
+            QMessageBox.information(self, "단어 시간 분석" if korean else "Word alignment",
+                (f"선택한 {result.matched}줄의 단어 시간을 반영했습니다.\n"
+                 "곡 설정의 적용을 누르면 가사 시간·노래방 표시·색상을 함께 저장합니다."
+                 if result.matched else "기존 줄 시간으로 노래방 표시를 설정했습니다. 곡 설정의 적용을 눌러 저장하세요.") if korean else
+                (f"Staged word times for {result.matched} selected lines.\n"
+                 "Apply in track settings to save word times, karaoke display and colors together."
+                 if result.matched else "Karaoke display uses existing cue times. Apply in track settings to save."))
+        elif dialog.error:
+            QMessageBox.warning(self, "단어 시간 분석 실패" if korean else "Word alignment failed", dialog.error)
 
     def _choose_cover(self) -> None:
         korean = self.translator.is_korean
@@ -1081,6 +1120,11 @@ class TrackDetailsDialog(QDialog):
                 "end": end,
                 "text": LyricsService.decode_line_breaks(cue.get("text", "")),
             })
+            if cue.get("words"):
+                adjusted_cues[-1]["words"] = [word | {
+                    "start": max(0.0, float(word["start"]) - offset),
+                    "end": max(0.0, float(word["end"]) - offset),
+                } for word in cue["words"]]
         try:
             saved = LyricsService.save_lrc(
                 selected,
@@ -1221,6 +1265,9 @@ class TrackDetailsDialog(QDialog):
         self.clear_button.setEnabled(bool(self.selected_lyrics_path or self.selected_lyrics))
         self.edit_lrc_button.setEnabled(self._audio_available or bool(self.selected_lyrics))
         self.export_lrc_button.setEnabled(bool(self.selected_lyrics))
+        self.align_words_button.setEnabled(self._audio_available and any(
+            str(cue.get("text", "")).strip() for cue in self.selected_lyrics
+        ))
         count = len(self.selected_lyrics)
         self.cue_summary.setText(
             f"{count}개 타임코드 · 보정 적용 미리보기"
@@ -1395,6 +1442,15 @@ class TrackDetailsDialog(QDialog):
         )
         self.export_lrc_button.setText(
             "LRC로 내보내기…" if korean else "Export as LRC…"
+        )
+        self.align_words_button.setText("자동 노래방 (베타)…" if korean else "Automatic karaoke (Beta)…")
+        self.align_words_button.setToolTip(
+            "원문·번역 줄을 선택하고 분석 결과를 확인한 뒤 체크한 줄만 적용합니다. 1번째 줄만 기본 선택됩니다. "
+            "줄 시간으로 바로 적용하면 다운로드 없이 표시합니다. 선택 사항인 오디오 분석은 최초 1회 약 36 MB 도구를 받습니다. "
+            "줄 시간이 크게 어긋나면 먼저 타이밍을 보정하세요. 가사 표시의 단어별 노래방 옵션에서 사용됩니다."
+            if korean else "Choose original/translation lines, review, then apply checked results. Only line 1 is selected initially. "
+            "Apply cue times without downloads. Optional audio analysis downloads about 36 MB on first use. "
+            "Correct large line timing errors first. Used by the word karaoke display option."
         )
         self.export_lrc_button.setToolTip(
             "현재 곡의 타이밍 보정을 적용하고 여러 줄 가사는 문자 \\n으로 저장합니다."

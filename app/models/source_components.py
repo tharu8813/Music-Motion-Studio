@@ -144,7 +144,13 @@ class LyricsComponent(TextComponent):
     timing_offset: float = _legacy("subtitle_timing_offset")
     current_scale: float = _legacy("subtitle_current_scale")
     accent_enabled: bool = _legacy("subtitle_accent_enabled")
+    karaoke_enabled: bool = _legacy("subtitle_karaoke_enabled")
+    karaoke_offset: float = _legacy("subtitle_karaoke_offset")
     accent_color: str = _legacy("subtitle_accent_color")
+    karaoke_pending_mode: str = _legacy("subtitle_karaoke_pending_mode")
+    karaoke_pending_color: str = _legacy("subtitle_karaoke_pending_color")
+    karaoke_pending_brightness: float = _legacy("subtitle_karaoke_pending_brightness")
+    karaoke_lines: list[int] = _legacy("subtitle_karaoke_lines")
     line_styles: list[dict[str, object]] = _legacy("subtitle_line_styles")
 
 

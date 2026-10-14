@@ -58,10 +58,12 @@ class LyricsIntroState:
 def resolve_lyrics_intro_state(track: PlaylistTrack, source: Source, elapsed: float,
                               instrumental_spans=()) -> LyricsIntroState | None:
     """First-cue wait or a measured instrumental interlude, on the audio clock."""
-    cues = [cue for cue in track.lyrics if str(cue.get("text", "")).strip()]
-    if not cues:
+    if not (source.subtitle_intro_enabled or source.subtitle_intro_midtrack):
+        return None
+    first_cue = next((cue for cue in track.lyrics if str(cue.get("text", "")).strip()), None)
+    if first_cue is None:
         return None  # Missing lyrics are not an intro.
-    first = float(cues[0]["start"]) - track.lyrics_timing_offset_seconds - source.subtitle_timing_offset
+    first = float(first_cue["start"]) - track.lyrics_timing_offset_seconds - source.subtitle_timing_offset
     duration = source.subtitle_animation_duration if source.subtitle_animation != "none" else 0.0
     before_first = source.subtitle_intro_enabled and first > 0 and 0.0 <= elapsed < first + duration
     window = (0.0, first) if before_first else None
@@ -153,6 +155,22 @@ def resolve_lyrics_cue_state(
         cue_start_seconds=cue_start_seconds,
         release_progress=release_progress,
         previous_emphasis=previous_emphasis,
+    )
+
+
+def resolve_lyrics_word_reveal(
+    track: PlaylistTrack, source: Source, elapsed: float,
+    cue_state: LyricsCueState, intro_state: LyricsIntroState | None,
+) -> tuple[float, ...]:
+    """Use the same word clock and interlude suppression in preview and export."""
+    if (not source.subtitle_karaoke_enabled or cue_state.cue_index is None
+            or (intro_state is not None and not intro_state.exiting)):
+        return ()
+    return LyricsService.word_reveal(
+        track.lyrics[cue_state.cue_index],
+        max(0.0, elapsed + track.lyrics_timing_offset_seconds
+            + source.subtitle_timing_offset + source.subtitle_karaoke_offset),
+        line_positions=tuple(source.subtitle_karaoke_lines),
     )
 
 

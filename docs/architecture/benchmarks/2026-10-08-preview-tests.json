@@ -1,0 +1,130 @@
+[
+  {
+    "module": "tests.test_adaptive_preview_quality",
+    "status": "pass",
+    "seconds": 0.24,
+    "returncode": 0,
+    "tests": 4,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_content_preview_dialog",
+    "status": "pass",
+    "seconds": 0.53,
+    "returncode": 0,
+    "tests": 3,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_export_frame_equivalence",
+    "status": "pass",
+    "seconds": 1.54,
+    "returncode": 0,
+    "tests": 14,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_ffmpeg_streaming_integration",
+    "status": "pass",
+    "seconds": 3.32,
+    "returncode": 0,
+    "tests": 6,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_frame_state",
+    "status": "pass",
+    "seconds": 0.32,
+    "returncode": 0,
+    "tests": 16,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_gpu_preview_health",
+    "status": "pass",
+    "seconds": 0.31,
+    "returncode": 0,
+    "tests": 3,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_main_window_preview",
+    "status": "pass",
+    "seconds": 86.66,
+    "returncode": 0,
+    "tests": 76,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_mix_visual_transitions",
+    "status": "pass",
+    "seconds": 1.69,
+    "returncode": 0,
+    "tests": 9,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_preview_audio_controller",
+    "status": "pass",
+    "seconds": 0.67,
+    "returncode": 0,
+    "tests": 12,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_preview_layout",
+    "status": "pass",
+    "seconds": 1.51,
+    "returncode": 0,
+    "tests": 1,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_preview_proxy",
+    "status": "pass",
+    "seconds": 0.63,
+    "returncode": 0,
+    "tests": 6,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_preview_responsiveness",
+    "status": "pass",
+    "seconds": 1.87,
+    "returncode": 0,
+    "tests": 10,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_preview_worker_lifecycle",
+    "status": "pass",
+    "seconds": 1.65,
+    "returncode": 0,
+    "tests": 2,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_real_video_preview_performance",
+    "status": "pass",
+    "seconds": 55.88,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_subtitle_export",
+    "status": "pass",
+    "seconds": 5.78,
+    "returncode": 0,
+    "tests": 13,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_video_preview_decoder",
+    "status": "pass",
+    "seconds": 0.23,
+    "returncode": 0,
+    "tests": 2,
+    "skipped": 0
+  }
+]

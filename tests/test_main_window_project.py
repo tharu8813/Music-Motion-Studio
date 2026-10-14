@@ -28,7 +28,7 @@ from app.dialogs.project_settings_dialog import ProjectSettingsDialog
 from app.dialogs.project_crash_report_dialog import ProjectCrashReportDialog
 from app.dialogs.lrc_generator_dialog import LrcGeneratorDialog
 from app.dialogs.track_details_dialog import TrackDetailsDialog
-from app.services.autosave_service import RecoverySnapshot
+from app.services.autosave_service import AutosaveService, RecoverySnapshot
 from app.services.project_service import ProjectError, ProjectService
 from app.services.update_service import ReleaseInfo
 from app.services.playlist_service import AudioImportCandidate, PlaylistService
@@ -213,6 +213,90 @@ class MainWindowProjectTests(MainWindowTestCase):
                 self.assertTrue(self.window.show_startup_dialog())
         offer.assert_called_once_with()
         startup_dialog.assert_not_called()
+
+    def test_update_backs_up_and_resumes_workspace_without_confirmation(self) -> None:
+        from main import open_initial_workspace
+
+        with TemporaryDirectory(prefix="pvs-unattended-update-") as directory:
+            root = Path(directory)
+            installer = root / "Playlist Canvas setup.exe"
+            installer.write_bytes(b"verified by download worker")
+            self.window.autosave = AutosaveService(root)
+            self.window.store.replace([Source(SourceType.TEXT, "Unsaved update work")])
+            self.window.playlist_service.replace([])
+            for dirty, project_path in ((True, None), (False, root / "saved.pvsproj")):
+                with self.subTest(dirty=dirty):
+                    if project_path is not None:
+                        project_path.write_bytes(b"original project is never overwritten")
+                    self.window.current_project_path = project_path
+                    self.window._project_dirty = dirty
+                    expected = self.window._project_document().to_dict()
+                    with patch("app.ui.main_window.QProcess.startDetached", return_value=(True, 1234)) as launch, \
+                         patch.object(self.window, "close") as close, \
+                         patch.object(QMessageBox, "question", side_effect=AssertionError("Extra confirmation")), \
+                         patch.object(QMessageBox, "warning", side_effect=AssertionError("Extra save prompt")):
+                        self.window._launch_update_setup(installer)
+                        arguments = launch.call_args.args[1]
+                        recovery_path = Path(next(value.split("=", 1)[1] for value in arguments if value.startswith("/UPDATERECOVERY=")))
+                        snapshot = self.window.autosave.load_snapshot(recovery_path)
+                        self.assertEqual(snapshot.document.to_dict(), expected)
+                        self.assertEqual(snapshot.project_path, project_path)
+                        self.assertEqual(snapshot.dirty, dirty)
+                        self.assertTrue(self.window._update_install_authorized)
+                        close.assert_called_once()
+                        self.window.store.replace([])
+                        self.assertTrue(open_initial_workspace(self.window, None, update_recovery=recovery_path))
+                        self.assertEqual(self.window._project_document().to_dict(), expected)
+                        self.assertEqual(self.window.current_project_path, project_path)
+                        self.assertEqual(self.window._project_dirty, dirty)
+                    if project_path is not None:
+                        self.assertEqual(project_path.read_bytes(), b"original project is never overwritten")
+            self.window._update_install_authorized = False
+
+    def test_update_save_failure_and_setup_start_failure_keep_editor_open(self) -> None:
+        with TemporaryDirectory(prefix="pvs-update-errors-") as directory:
+            installer = Path(directory) / "setup.exe"
+            installer.write_bytes(b"verified")
+            self.window._project_dirty = True
+            with patch.object(self.window.autosave, "save", side_effect=ProjectError("disk full")), \
+                 patch.object(self.window, "_show_project_error") as error, \
+                 patch("app.ui.main_window.QProcess.startDetached") as launch, \
+                 patch.object(self.window, "close") as close:
+                self.window._launch_update_setup(installer)
+                error.assert_called_once()
+                launch.assert_not_called()
+                close.assert_not_called()
+            self.window.autosave = AutosaveService(Path(directory))
+            with patch("app.ui.main_window.QProcess.startDetached", return_value=(False, -1)), \
+                 patch.object(QMessageBox, "critical") as error, patch.object(self.window, "close") as close:
+                self.window._launch_update_setup(installer)
+                error.assert_called_once()
+                close.assert_not_called()
+                self.assertFalse(self.window._update_install_authorized)
+                self.assertIsNotNone(self.window.autosave.latest_recovery())
+
+    def test_update_waits_for_busy_work_instead_of_canceling_it(self) -> None:
+        render = MagicMock()
+        render.isRunning.return_value = True
+        with patch.object(self.window, "_render_worker", render), \
+             patch("app.ui.main_window.QTimer.singleShot") as retry, \
+             patch("app.ui.main_window.QProcess.startDetached") as launch:
+            self.window._launch_update_setup(Path("setup.exe"))
+            self.assertEqual(retry.call_args.args[0], 500)
+            render.cancel.assert_not_called()
+            launch.assert_not_called()
+        self.window._pending_update_installer = None
+
+    def test_update_shutdown_preserves_the_recovery_and_skips_save_prompt(self) -> None:
+        self.window._project_dirty = True
+        self.window._update_install_authorized = True
+        with patch.object(self.window, "_clear_recovery") as clear, \
+             patch.object(QMessageBox, "warning", side_effect=AssertionError("Unexpected save prompt")):
+            event = QCloseEvent()
+            self.window.closeEvent(event)
+            self.assertTrue(event.isAccepted())
+            clear.assert_not_called()
+        self.window._update_install_authorized = False
 
     def test_help_menu_exposes_localized_manual_update_check(self) -> None:
         original_language = self.window.translator.language
@@ -1147,6 +1231,10 @@ class MainWindowProjectTests(MainWindowTestCase):
         dialog.selected_lyrics_path = ""
         dialog.selected_lyrics = []
         dialog.selected_timing_offset = 0.0
+        dialog.selected_video_paths = []
+        dialog.selected_volume_db = 0.0
+        dialog.selected_eq_db = []
+        dialog.selected_karaoke_settings = None
 
         with patch("app.ui.main_window.TrackDetailsDialog", return_value=dialog):
             self.window._show_track_details(track.id)
@@ -1156,6 +1244,32 @@ class MainWindowProjectTests(MainWindowTestCase):
             (updated.title, updated.artist, updated.album),
             ("After", "After artist", "After album"),
         )
+
+    def test_automatic_karaoke_shortcut_saves_lyrics_colors_and_enable_together(self):
+        from app.services.lyrics_alignment_service import AlignmentResult
+        source = Source(SourceType.LYRICS, "Lyrics")
+        self.window.store.replace([source])
+        self.window.store.select(source.id)
+        track = PlaylistTrack("track.wav", "Track", duration_seconds=5,
+                              lyrics=[{"start": 0, "end": 5, "text": "hello world"}])
+        self.window.playlist_service.replace([track])
+        aligned = [{"start": 1, "end": 3, "text": "hello world", "words": [
+            {"offset": 0, "text": "hello", "start": 1, "end": 2},
+            {"offset": 6, "text": "world", "start": 2, "end": 3}]}]
+        dialog = MagicMock()
+        dialog.exec.return_value = QDialog.DialogCode.Rejected
+        dialog.error = ""
+        dialog.result_data = AlignmentResult(aligned, 1, 1)
+        dialog.karaoke_settings.return_value = {"subtitle_karaoke_enabled": True, "subtitle_accent_color": "#22AAFF"}
+        with patch("app.dialogs.lyrics_alignment_dialog.LyricsAlignmentDialog", return_value=dialog):
+            self.window._configure_karaoke()
+            self.assertFalse(source.subtitle_karaoke_enabled)
+            self.assertNotIn("words", self.window.playlist_service.tracks[0].lyrics[0])
+            dialog.exec.return_value = QDialog.DialogCode.Accepted
+            self.window.inspector.lyrics_karaoke_button.click()
+        self.assertEqual(self.window.playlist_service.tracks[0].lyrics, aligned)
+        self.assertTrue(source.subtitle_karaoke_enabled)
+        self.assertEqual(source.subtitle_accent_color, "#22AAFF")
 
     def test_lrc_generator_track_edit_mode_skips_audio_and_file_save_controls(self) -> None:
         with TemporaryDirectory() as directory:

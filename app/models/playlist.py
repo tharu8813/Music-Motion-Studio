@@ -126,5 +126,25 @@ class PlaylistTrack:
             if float(cue["end"]) < float(cue["start"]):
                 raise ValueError(f"Track '{track.title}' lyric cue ends before it starts.")
             cue["text"] = str(cue.get("text", "")).replace("\\n", "\n")
+            words = cue.get("words", [])
+            if not isinstance(words, list):
+                raise ValueError(f"Track '{track.title}' has invalid word timing data.")
+            previous_end, previous_offset = float(cue["start"]), 0
+            for word in words:
+                if not isinstance(word, dict) or not isinstance(word.get("text"), str) or not word["text"]:
+                    raise ValueError(f"Track '{track.title}' contains an invalid lyric word.")
+                for key in ("start", "end"):
+                    value = word.get(key)
+                    if (not isinstance(value, (int, float)) or isinstance(value, bool)
+                            or not isfinite(float(value))):
+                        raise ValueError(f"Track '{track.title}' has an invalid word timestamp.")
+                offset = word.get("offset")
+                if isinstance(offset, int) and "\n" in cue["text"][previous_offset:offset]:
+                    previous_end = float(cue["start"])
+                if (not previous_end <= word["start"] <= word["end"] <= float(cue["end"])
+                        or not isinstance(offset, int) or isinstance(offset, bool) or offset < previous_offset
+                        or cue["text"][offset:offset + len(word["text"])] != word["text"]):
+                    raise ValueError(f"Track '{track.title}' has invalid word timing or text offsets.")
+                previous_end, previous_offset = word["end"], offset + len(word["text"])
         track.lyrics.sort(key=lambda cue: (float(cue["start"]), float(cue["end"])))
         return track

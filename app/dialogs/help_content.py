@@ -1900,12 +1900,14 @@ Transitions shorten the video by the overlaps.</li>
        """<p>시작 후 공식 GitHub 저장소의 최신 안정 릴리즈를 백그라운드에서 확인합니다. 새 버전이 있으면 릴리즈 노트와 현재·최신 버전을 보여 줍니다.</p>
 <ol><li><b>다운로드 및 업데이트</b>를 고릅니다.</li>
 <li>Setup 다운로드와 파일 크기·SHA-256 검증이 끝날 때까지 기다립니다.</li>
-<li>저장하지 않은 프로젝트를 저장·버리기·취소 중에서 처리하면 프로그램이 종료되고 Setup이 실행됩니다.</li></ol>
+<li>작업 내용을 복구본으로 자동 보관하고 프로그램을 종료합니다. 추가 확인이나 설치 버튼 없이 설치를 마친 뒤 다시 실행해 같은 작업을 엽니다. 진행 중인 내보내기·저장은 먼저 완료될 때까지 기다립니다.</li></ol>
+<p>관리자 승인 없이 업데이트할 수 있도록 사용자 폴더에 설치합니다. 원본 프로젝트는 덮어쓰지 않으며 저장되지 않은 변경도 그대로 복구합니다.</p>
 <p>시작 알림을 닫으면 그 버전은 다시 자동으로 알리지 않습니다. <b>도움말 → 업데이트 확인</b>으로 언제든 수동으로 확인·설치할 수 있습니다. 초안·사전 릴리즈는 대상이 아닙니다.</p>""",
        """<p>After startup the app checks the official GitHub repository for the latest stable release in the background. A newer one shows its release notes with the current and latest versions.</p>
 <ol><li>Choose <b>Download and update</b>.</li>
 <li>Wait for the Setup download and its size and SHA-256 check.</li>
-<li>Save, discard or cancel for unsaved work; the app then closes and runs Setup.</li></ol>
+<li>The workspace is backed up automatically and the app closes. Installation and restart require no further clicks, and the same workspace reopens. Active exports and saves finish first.</li></ol>
+<p>Setup uses the current user's folder without requesting administrator approval. The original project file is kept, including its unsaved changes in the recovered workspace.</p>
 <p>Dismissing the startup notice stops automatic reminders for that version. <b>Help → Check for updates</b> checks and installs any time. Drafts and pre-releases are ignored.</p>""",
        ("maintenance",),
        ("업데이트 최신 버전 github 릴리즈 setup 건너뛰기 확인", "update latest version github release setup skip check")),

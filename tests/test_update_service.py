@@ -14,6 +14,7 @@ from app.services.update_service import (
     UpdateError,
     is_newer_version,
     normalized_version,
+    automatic_setup_arguments,
 )
 
 
@@ -80,6 +81,18 @@ class UpdateServiceTests(unittest.TestCase):
             self.assertEqual(destination.read_bytes(), data)
             self.assertFalse(destination.with_suffix(".exe.download").exists())
         self.assertEqual(updates[-1][0], 1.0)
+
+    def test_automatic_install_has_no_prompt_or_machine_restart_and_resumes_exact_snapshot(self) -> None:
+        installer = Path("한글 경로/Playlist Canvas-setup.exe").resolve()
+        snapshot = Path("다른 작업/unsaved.recovery.json").resolve()
+        arguments = automatic_setup_arguments(installer, snapshot, 1234, korean=True)
+        for flag in ("/SP-", "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART",
+                     "/NOCLOSEAPPLICATIONS", "/NORESTARTAPPLICATIONS", "/AUTOMATICUPDATE=1"):
+            self.assertIn(flag, arguments)
+        self.assertIn(f"/UPDATERECOVERY={snapshot}", arguments)
+        self.assertIn("/UPDATEPID=1234", arguments)
+        self.assertIn(r"/DIR=expand:{localappdata}\Programs\Playlist Canvas", arguments)
+        self.assertIn("/LANG=korean", arguments)
 
 
 if __name__ == "__main__":

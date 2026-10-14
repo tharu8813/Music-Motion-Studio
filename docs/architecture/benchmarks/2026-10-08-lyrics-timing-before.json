@@ -1,0 +1,8 @@
+{
+  "timing_editor": {
+    "playback_median_ms": 20.397800020873547,
+    "playback_p95_ms": 20.88159997947514,
+    "single_time_edit_ms": 45.921399956569076,
+    "unchanged_cell_reused": false
+  }
+}

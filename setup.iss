@@ -1,11 +1,11 @@
 ; ============================================================================
-; Playlist Canvas 1.3.1.1 Windows 설치 프로그램
+; Playlist Canvas 1.3.1.2 Windows 설치 프로그램
 ; ChatGPT Codex와 Claude Code를 활용해 제작한 Playlist Canvas의 Inno Setup 스크립트입니다.
 ; ============================================================================
 
 #define MyAppName "Playlist Canvas"
-#define MyAppVersion "1.3.1.1"
-#define MyAppFileVersion "1.3.1.1"
+#define MyAppVersion "1.3.1.2"
+#define MyAppFileVersion "1.3.1.2"
 #define MyAppPublisher "Ji Beak min(tharu8813)"
 #define MyAppCopyright "© 2026 Ji Beak min(tharu8813). All rights reserved."
 #define MyAppDescription "음악, 가사와 비주얼 요소를 편집해 플레이리스트 영상을 만드는 Windows 데스크톱 편집기"
@@ -41,8 +41,8 @@ AppUpdatesURL={#MyAppURL}
 #endif
 AppCopyright={#MyAppCopyright}
 AppComments={#MyAppComments}
-DefaultDirName={commonpf}\{#MyAppName}
-PrivilegesRequired=admin
+DefaultDirName={localappdata}\Programs\{#MyAppName}
+PrivilegesRequired=lowest
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=output-setup
@@ -64,7 +64,7 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 Uninstallable=yes
 AlwaysRestart=no
 DisableDirPage=no
-CloseApplications=force
+CloseApplications=yes
 CloseApplicationsFilter=*.exe,*.dll
 RestartApplications=no
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -93,6 +93,7 @@ Source: "LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Check: UpdateDesktopShortcut
 
 [Registry]
 ; Windows 탐색기에서 .pvsproj를 더블클릭하면 설치된 앱으로 프로젝트를 엽니다.
@@ -104,90 +105,60 @@ Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeName}\SupportedTypes
 Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeName}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Flags: uninsdeletekey
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent; Check: not IsAutomaticUpdate
+Filename: "{app}\{#MyAppExeName}"; Parameters: "{code:UpdateLaunchArguments}"; Flags: nowait runasoriginaluser; Check: IsAutomaticUpdate
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
 
 [Code]
-{ 이전 버전 제거를 위한 함수들 }
+function OpenProcess(Access: Cardinal; Inherit: Integer; ProcessId: Cardinal): THandle;
+  external 'OpenProcess@kernel32.dll stdcall';
+function WaitForSingleObject(Handle: THandle; Milliseconds: Cardinal): Cardinal;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
+function CloseHandle(Handle: THandle): Boolean;
+  external 'CloseHandle@kernel32.dll stdcall';
 
-function GetUninstallString(): String;
-var
-  sUnInstPath: String;
-  sUnInstallString: String;
+function IsAutomaticUpdate(): Boolean;
 begin
-  sUnInstPath := ExpandConstant('Software\Microsoft\Windows\CurrentVersion\Uninstall\{#emit SetupSetting("AppId")}_is1');
-  sUnInstallString := '';
-  if not RegQueryStringValue(HKLM, sUnInstPath, 'UninstallString', sUnInstallString) then
-    RegQueryStringValue(HKCU, sUnInstPath, 'UninstallString', sUnInstallString);
-  Result := sUnInstallString;
+  Result := ExpandConstant('{param:AUTOMATICUPDATE|0}') = '1';
 end;
 
-function IsUpgrade(): Boolean;
+function UpdateDesktopShortcut(): Boolean;
 begin
-  Result := (GetUninstallString() <> '');
+  Result := IsAutomaticUpdate() and not WizardIsTaskSelected('desktopicon') and
+    (FileExists(ExpandConstant('{userdesktop}\{#MyAppName}.lnk')) or
+     FileExists(ExpandConstant('{commondesktop}\{#MyAppName}.lnk')));
 end;
 
-function UnInstallOldVersion(): Integer;
-var
-  sUnInstallString: String;
-  iResultCode: Integer;
+function UpdateLaunchArguments(Param: String): String;
 begin
-  { Return Values: }
-  { 1 - uninstall string is empty }
-  { 2 - error executing the UnInstallString }
-  { 3 - successfully executed the UnInstallString }
-
-  Result := 0;
-  sUnInstallString := GetUninstallString();
-  
-  if sUnInstallString <> '' then begin
-    sUnInstallString := RemoveQuotes(sUnInstallString);
-    if Exec(sUnInstallString, '/SILENT /NORESTART /SUPPRESSMSGBOXES', '', SW_HIDE, ewWaitUntilTerminated, iResultCode) then
-      Result := 3
-    else
-      Result := 2;
-  end else
-    Result := 1;
+  Result := '--resume-update ' + AddQuotes(ExpandConstant('{param:UPDATERECOVERY|}'));
 end;
 
-{ 실행 중인 프로세스 종료 }
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  ResultCode: Integer;
+  ParentId: Integer;
+  ParentHandle: THandle;
 begin
   Result := '';
-  
-  { 프로그램이 실행 중인 경우 종료 시도 }
-  if CheckForMutexes('{#MyAppName}') then
-  begin
-    if MsgBox('설치를 계속하려면 {#MyAppName}을(를) 종료해야 합니다.' + #13#10 + '지금 종료하시겠습니까?', 
-              mbConfirmation, MB_YESNO) = IDYES then
-    begin
-      Exec('taskkill.exe', '/F /IM {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-      Sleep(1000);
-    end else
-      Result := '설치가 취소되었습니다.';
+  if not IsAutomaticUpdate() then Exit;
+  ParentId := StrToIntDef(ExpandConstant('{param:UPDATEPID|0}'), 0);
+  if ParentId <= 0 then begin
+    Result := 'The update parent process is missing.';
+    Exit;
   end;
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-begin
-  if (CurStep = ssInstall) then
-  begin
-    if (IsUpgrade()) then
-    begin
-      UnInstallOldVersion();
-    end;
+  ParentHandle := OpenProcess($00100000, 0, ParentId);
+  if ParentHandle = 0 then begin
+    { ERROR_INVALID_PARAMETER means the parent has already exited. }
+    if DLLGetLastError() <> 87 then
+      Result := 'Could not wait for Playlist Canvas to close.';
+    Exit;
   end;
-end;
-
-{ 설치 완료 후 정보 }
-procedure CurPageChanged(CurPageID: Integer);
-begin
-  if CurPageID = wpFinished then
-  begin
-    { 필요시 추가 작업 }
+  try
+    if WaitForSingleObject(ParentHandle, 120000) <> 0 then
+      Result := 'Playlist Canvas did not finish closing. No update was installed.';
+  finally
+    CloseHandle(ParentHandle);
   end;
 end;

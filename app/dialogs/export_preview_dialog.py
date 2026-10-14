@@ -63,6 +63,8 @@ from app.services.source_store import SourceStore
 from app.services.preview_audio_settings import preview_volume, save_preview_volume
 from app.services.playlist_service import PlaylistService
 from app.timeline.compiler import compile_playlist
+from app.timeline.crossfade import compile_crossfade
+from app.preview.live_mix_player import LiveMixPlayer
 from app.timeline.models import TransitionType
 from app.timeline.render_plan import (
     AudioRenderTransition, CompiledRenderPlan, reactive_layer_windows, visual_segment_at,
@@ -71,7 +73,7 @@ from app.timeline.render_plan import (
 from app.preview.frame_state import (
     MixJunction, resolve_mix_phase, segment_junction,
 )
-from app.preview.album_art import track_cover_thumbnail
+from app.preview.album_art import prewarm_cover_thumbnail
 from app.video.timeline import resolve_video_position, source_video_paths
 from app.video.frame_filter import VideoFrameFilterSettings, filter_video_frame
 from app.video.decoder_backpressure import VideoDecoderBackpressure
@@ -86,6 +88,7 @@ TIMELINE_SCALE = 100
 VIDEO_PROXY_ACTIVITY = "preview_video_proxy"
 AUDIO_ANALYSIS_ACTIVITY = "preview_audio_analysis"
 _BLENDED_AUDIO_TRACK_INDEX = -2
+_LIVE_MIX_TRACK_INDEX = -3
 """Sentinel for `_active_track_index` when playing the pre-rendered AutoMix/crossfade mix."""
 
 
@@ -111,6 +114,30 @@ def _transition_display_regions(
     )
 LOGGER = logging.getLogger(__name__)
 OverlaySignature = tuple[int, ...]
+
+
+class PreviewCoverWorker(QThread):
+    """Read artwork off the GUI thread; only the receiver creates icons."""
+
+    ready = Signal(int, QImage)
+
+    def __init__(self, tracks, parent=None):
+        super().__init__(parent)
+        self.paths = tuple((track.file_path, track.cover_path) for track in tracks)
+
+    def run(self) -> None:
+        for index, (audio_path, cover_path) in enumerate(self.paths):
+            if self.isInterruptionRequested():
+                return
+            try:
+                image = prewarm_cover_thumbnail(audio_path, cover_path)
+            except Exception as error:
+                LOGGER.warning("Preview cover could not load for %s: %s", audio_path, error)
+                continue
+            if self.isInterruptionRequested():
+                return
+            if not image.isNull():
+                self.ready.emit(index, image)
 
 
 class CpuPreviewSurface(QWidget):
@@ -246,6 +273,7 @@ class PlaylistTimeline(QSlider):
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
         if event.button() == Qt.MouseButton.LeftButton:
             self._dragging = True
+            self.setSliderDown(True)
             self._set_value_from_position(event.position().x())
             event.accept()
             return
@@ -262,7 +290,7 @@ class PlaylistTimeline(QSlider):
         if event.button() == Qt.MouseButton.LeftButton and self._dragging:
             self._set_value_from_position(event.position().x())
             self._dragging = False
-            self.sliderReleased.emit()
+            self.setSliderDown(False)
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -566,6 +594,7 @@ class ExportPreviewDialog(QDialog):
         self._compiled_plan = (
             preloaded_blended_audio[1] if preloaded_blended_audio is not None
             else latest_partial[1] if latest_partial is not None
+            else compile_crossfade(tracks, crossfade_seconds) if transition_mode in {"crossfade", "automix"}
             else compile_playlist(tracks)
         )
         self._track_schedule = self._build_track_schedule()
@@ -687,6 +716,7 @@ class ExportPreviewDialog(QDialog):
             tuple[OverlaySignature, float, int], tuple[VisualizerOverlay, ...]
         ] = {}
         self._playing = False
+        self._scrubbing = False
         self._advancing_playhead = False
         self._force_video_seek = False
         self._playhead_seconds = 0.0
@@ -714,6 +744,9 @@ class ExportPreviewDialog(QDialog):
         self._overlay_content_revision = 0
         self._idle_overlay_analyses: dict[int, dict[str, np.ndarray]] = {}
         self._refresh_queued = False
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.timeout.connect(self._run_scheduled_refresh)
         self._gpu_refresh_deferred = False
         self._video_duration_cache: dict[str, float] = {}
         self._video_probe_queue: list[str] = []
@@ -741,6 +774,12 @@ class ExportPreviewDialog(QDialog):
         self.media_player.setAudioOutput(self.audio_output)
         self.media_player.mediaStatusChanged.connect(self._on_media_status_changed)
         self.media_player.seekableChanged.connect(self._on_media_seekable_changed)
+        self._live_mix = LiveMixPlayer(tracks, self) if transition_mode != "none" else None
+        if self._live_mix is not None:
+            self._live_mix.failed.connect(lambda message: self._show_preview_error(
+                "오디오를 재생할 수 없습니다" if self.translator.is_korean else "Audio could not play",
+                message, warning=True,
+            ) if not self._closing else None)
         self.play_timer = QTimer(self)
         self.play_timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.play_timer.setInterval(33)
@@ -1035,6 +1074,8 @@ class ExportPreviewDialog(QDialog):
         layout.addWidget(self.transport_card)
 
         self.timeline.valueChanged.connect(self._on_seeked)
+        self.timeline.sliderPressed.connect(self._start_scrubbing)
+        self.timeline.sliderReleased.connect(self._finish_scrubbing)
         self.play_button.toggled.connect(self._toggle_playback)
         self.previous_button.clicked.connect(lambda: self._skip_track(-1))
         self.rewind_button.clicked.connect(lambda: self._seek_relative(-5.0))
@@ -1058,6 +1099,9 @@ class ExportPreviewDialog(QDialog):
             self.source_store.sources_replaced.connect(self._invalidate_source_partitions)
         self.retranslate()
         self.refresh_preview()
+        self._cover_worker = PreviewCoverWorker(self.tracks, self)
+        self._cover_worker.ready.connect(self._store_track_cover)
+        QTimer.singleShot(0, self, self._start_cover_loading)
 
     def build_embedded_controls_page(self) -> QWidget:
         """Build editor-native Canvas stage and bottom transport arrangements."""
@@ -1235,17 +1279,17 @@ class ExportPreviewDialog(QDialog):
         """Build a read-only navigator for the complete preview playlist."""
         current = self._highlighted_track_index
         korean = self.translator.is_korean
-        self.track_list.clear()
         for index, track in enumerate(self.tracks):
             title = track.title or Path(track.file_path).stem or (
                 "제목 없음" if korean else "Untitled track"
             )
             detail = _track_details(track, " · ")
-            item = QListWidgetItem(title)
+            item = self.track_list.item(index)
+            if item is None:
+                item = QListWidgetItem()
+                self.track_list.addItem(item)
+            item.setText(title)
             item.setData(TRACK_ROW_ROLE, (detail, format_timestamp(track.duration_seconds)))
-            cover = track_cover_thumbnail(track.file_path, track.cover_path)
-            if not cover.isNull():
-                item.setIcon(QIcon(cover))
             item.setData(Qt.ItemDataRole.UserRole, index)
             item.setData(
                 Qt.ItemDataRole.UserRole + 1,
@@ -1254,15 +1298,26 @@ class ExportPreviewDialog(QDialog):
             item.setToolTip(
                 f"{title}\n{detail}\n{Path(track.file_path)}"
             )
-            self.track_list.addItem(item)
         self.track_list_count_label.setText(str(len(self.tracks)))
         if 0 <= current < self.track_list.count():
             self.track_list.setCurrentRow(current)
+
+    def _start_cover_loading(self) -> None:
+        if not self._closing:
+            self._cover_worker.start()
+
+    def _store_track_cover(self, index: int, image: QImage) -> None:
+        if not self._closing:
+            item = self.track_list.item(index)
+            if item is not None:
+                item.setIcon(QIcon(QPixmap.fromImage(image)))
 
     def _highlight_track(self, index: int) -> None:
         if index == self._highlighted_track_index:
             return
         self._highlighted_track_index = index
+        self.previous_button.setEnabled(index > 0)
+        self.next_button.setEnabled(index < len(self.tracks) - 1)
         if 0 <= index < self.track_list.count():
             self.track_list.setCurrentRow(index)
             item = self.track_list.item(index)
@@ -1284,10 +1339,8 @@ class ExportPreviewDialog(QDialog):
 
     @property
     def _active_render_scale(self) -> float:
-        """Return adaptive GPU scale without changing the selected quality."""
-        if self.gpu_preview_enabled:
-            return self._adaptive_quality.scale
-        return self.preview_render_scale
+        """Return adaptive preview scale without changing export quality."""
+        return self._adaptive_quality.scale
 
     @staticmethod
     def _selection_has_audio(
@@ -1396,14 +1449,43 @@ class ExportPreviewDialog(QDialog):
         if not self._advancing_playhead:
             self._playhead_seconds = self.timeline.value() / TIMELINE_SCALE
             self._force_video_seek = True
+            if self._scrubbing:
+                self._schedule_refresh(max(8, round(1000 / self.preview_fps)))
+                return
             if getattr(self, "_progressive", False):
                 # A user seek restarts audio anyway: the natural moment to take
                 # a waiting mix, and to re-prioritize rendering around the new spot.
                 self._try_apply_pending_swap(force=True)
                 self._report_playhead(force=True)
+            elif self._pending_swap is not None:
+                self._try_apply_pending_swap(force=True)
         self.refresh_preview()
         if self._playing and not self._advancing_playhead:
             self._start_audio_at_playhead()
+
+    def _start_scrubbing(self) -> None:
+        if self._closing:
+            return
+        self._scrubbing = True
+        self.play_timer.stop()
+        self.media_player.pause()
+        if self._live_mix is not None:
+            self._live_mix.pause()
+        self._refresh_source_partitions()
+        for item in self._cached_video_items:
+            item.set_video_preview_playback(False, item.source.video_speed)
+
+    def _finish_scrubbing(self) -> None:
+        if self._closing:
+            return
+        self._scrubbing = False
+        self._refresh_timer.stop()
+        self._refresh_queued = False
+        self._on_seeked(self.timeline.value())
+        self._reset_frame_statistics()
+        if self._playing:
+            self.play_clock.start()
+            self.play_timer.start()
 
     @timed("preview.refresh_seconds")
     def refresh_preview(self) -> None:
@@ -1716,7 +1798,7 @@ class ExportPreviewDialog(QDialog):
                 source_elapsed = timeline_seconds - source.timeline_start
             position = resolve_video_position(source, paths, durations, source_elapsed)
             item.set_video_preview_playback(
-                getattr(self, "_playing", False), source.video_speed,
+                getattr(self, "_playing", False) and not getattr(self, "_scrubbing", False), source.video_speed,
             )
             if position is not None:
                 proxy_resolver = getattr(self, "_preview_video_path", None)
@@ -1950,9 +2032,11 @@ class ExportPreviewDialog(QDialog):
             )
 
     def _video_frame_ready(self) -> None:
-        """Present an asynchronously decoded seek frame while transport is paused."""
+        """Present an asynchronously decoded seek frame while paused or dragging."""
         if not self._playing:
             self._schedule_refresh()
+        elif self._scrubbing:
+            self._schedule_refresh(max(8, round(1000 / self.preview_fps)))
 
     def _refresh_source_partitions(self) -> None:
         """Cache source partitions; rebuilding them per playback frame is wasteful."""
@@ -2855,12 +2939,12 @@ class ExportPreviewDialog(QDialog):
                 round(overlay.y * self._active_render_scale), layer,
             )
 
-    def _schedule_refresh(self) -> None:
+    def _schedule_refresh(self, delay_ms: int = 0) -> None:
         """Coalesce worker completions into one GUI-thread preview composition."""
         if self._closing or self._refresh_queued:
             return
         self._refresh_queued = True
-        QTimer.singleShot(0, self._run_scheduled_refresh)
+        self._refresh_timer.start(delay_ms)
 
     def _run_scheduled_refresh(self) -> None:
         self._refresh_queued = False
@@ -3150,8 +3234,8 @@ class ExportPreviewDialog(QDialog):
         self._playing = playing
         self._refresh_source_partitions()
         for item in self._cached_video_items:
-            item.set_video_preview_playback(playing, item.source.video_speed)
-        if playing:
+            item.set_video_preview_playback(playing and not self._scrubbing, item.source.video_speed)
+        if playing and not self._scrubbing:
             self._reset_decoder_backpressure()
             self._playhead_seconds = self.timeline.value() / TIMELINE_SCALE
             self._reset_frame_statistics()
@@ -3161,8 +3245,12 @@ class ExportPreviewDialog(QDialog):
         else:
             self.play_timer.stop()
             self.media_player.pause()
+            if self._live_mix is not None:
+                self._live_mix.pause()
         if getattr(self, "_progressive", False):
             self._report_playhead(force=True)
+            self._try_apply_pending_swap()
+        elif self._pending_swap is not None:
             self._try_apply_pending_swap()
         self._set_play_text()
 
@@ -3200,9 +3288,7 @@ class ExportPreviewDialog(QDialog):
 
     def _set_volume(self, value: int) -> None:
         value = save_preview_volume(value)
-        self.audio_output.setVolume(value / 100.0 * (
-            1.0 if self._active_track_index == _BLENDED_AUDIO_TRACK_INDEX else getattr(self, "_per_track_gain", 1.0)
-        ))
+        self._apply_output_volume()
         self.volume_value_label.setText(f"{value}%")
 
     def _set_gpu_preview(self, enabled: bool) -> None:
@@ -3323,11 +3409,24 @@ class ExportPreviewDialog(QDialog):
         (not a value captured before the wait) and respecting whatever
         play/pause state is current when it fires.
         """
+        if self._closing or self._scrubbing:
+            return
         playlist_seconds = self.timeline.value() / TIMELINE_SCALE
         selected = self._track_at(playlist_seconds)
         if selected is None:
             return
         self._playhead_seconds = playlist_seconds
+        if self._live_mix is not None and (
+            self._blended_audio_path is None or playlist_seconds >= self._blended_audio_until
+        ):
+            self.media_player.stop()
+            self._pending_media_seek_ms = None
+            self._active_track_index = _LIVE_MIX_TRACK_INDEX
+            self._live_mix.sync(self._compiled_plan, playlist_seconds, self._playing,
+                                self.volume_slider.value() / 100.0 * self._per_track_gain, seek=True)
+            return
+        if self._live_mix is not None:
+            self._live_mix.stop()
         if not ExportPreviewDialog._has_audio(self, selected, playlist_seconds):
             # `_track_at` intentionally retains the nearest track so Canvas text
             # and artwork remain meaningful in a silent gap. Audio transport must
@@ -3408,7 +3507,7 @@ class ExportPreviewDialog(QDialog):
         self._try_apply_pending_swap()  # a mix that arrived mid-swap waited for this
 
     def _advance_playback(self) -> None:
-        if not self._playing:
+        if not self._playing or self._scrubbing:
             return
         elapsed_milliseconds = max(1, self.play_clock.restart())
         previous_seconds = self._playhead_seconds
@@ -3419,7 +3518,7 @@ class ExportPreviewDialog(QDialog):
         predicted_seconds = self._playhead_seconds + elapsed_milliseconds / 1000.0
         player_milliseconds = self.media_player.position()
         blended_audio_active = self._active_track_index == _BLENDED_AUDIO_TRACK_INDEX
-        if (audio_was_active and (selected_before is not None or blended_audio_active)
+        if (self._active_track_index != _LIVE_MIX_TRACK_INDEX and audio_was_active and (selected_before is not None or blended_audio_active)
                 and player_milliseconds > 0
                 and player_milliseconds != self._last_media_position_ms):
             self._last_media_position_ms = player_milliseconds
@@ -3448,11 +3547,14 @@ class ExportPreviewDialog(QDialog):
         finally:
             self._advancing_playhead = False
         new_index = self._track_at(next_value / TIMELINE_SCALE)
+        if self._active_track_index == _LIVE_MIX_TRACK_INDEX and self._live_mix is not None:
+            self._live_mix.sync(self._compiled_plan, self._playhead_seconds, True,
+                                self.volume_slider.value() / 100.0 * self._per_track_gain)
         audio_is_active = ExportPreviewDialog._has_audio(self,
             new_index, next_value / TIMELINE_SCALE
         )
         if (
-            not blended_audio_active
+            not blended_audio_active and self._active_track_index != _LIVE_MIX_TRACK_INDEX
             and old_index and new_index
             and (old_index[0] != new_index[0] or audio_was_active != audio_is_active)
         ) or (blended_audio_active and self._playhead_seconds >= getattr(self, "_blended_audio_until", math.inf)):
@@ -3461,6 +3563,8 @@ class ExportPreviewDialog(QDialog):
             self._start_audio_at_playhead()
         if getattr(self, "_progressive", False):
             self._report_playhead()
+            self._try_apply_pending_swap()
+        elif self._pending_swap is not None:
             self._try_apply_pending_swap()
 
     def _animation_state(
@@ -3540,7 +3644,7 @@ class ExportPreviewDialog(QDialog):
 
     def _record_presented_frame(self) -> None:
         """Show the cadence actually achieved by CPU/GPU frame presentation."""
-        if not self._playing:
+        if not self._playing or self._scrubbing:
             return
         if PROFILE_ENABLED:
             now = monotonic()
@@ -3557,21 +3661,21 @@ class ExportPreviewDialog(QDialog):
         self._actual_preview_fps = self._presented_frames * 1000.0 / elapsed
         self._frame_stats_clock.restart()
         self._presented_frames = 0
+        dropped = 0
         if self.gpu_preview_enabled and self.gpu_surface is not None:
             stats = getattr(self.gpu_surface, "upload_stats", None)
-            dropped = 0
             if stats is not None:
                 dropped = max(
                     0, stats.dropped_pending_frames - self._last_gpu_dropped_frames,
                 )
                 self._last_gpu_dropped_frames = stats.dropped_pending_frames
-            state = self._adaptive_quality.observe(
-                self._actual_preview_fps, self.preview_fps,
-                dropped_frames=dropped,
-            )
-            if state.changed:
-                self._invalidate_preview_render_cache()
-                self._gpu_refresh_deferred = True
+        state = self._adaptive_quality.observe(
+            self._actual_preview_fps, self.preview_fps,
+            dropped_frames=dropped,
+        )
+        if state.changed:
+            self._invalidate_preview_render_cache()
+            self._gpu_refresh_deferred = self.gpu_preview_enabled
         self._observe_decoder_backpressure()
         self._update_frame_rate_label()
 
@@ -3762,7 +3866,14 @@ class ExportPreviewDialog(QDialog):
         if self._closing:
             return
         self._closing = True
+        self._cover_worker.requestInterruption()
+        if self._cover_worker.isRunning():
+            self._finish_or_detach_worker(self._cover_worker)
+        else:
+            self._cover_worker.deleteLater()
         self._refresh_queued = False
+        self._refresh_timer.stop()
+        self._scrubbing = False
         self._gpu_refresh_deferred = False
         self._gpu_watchdog.stop()
         self._gpu_health.cancel_wait()
@@ -3780,6 +3891,8 @@ class ExportPreviewDialog(QDialog):
         self._pending_media_generation = -1
         self.media_player.stop()
         self.media_player.setSource(QUrl())
+        if self._live_mix is not None:
+            self._live_mix.stop()
         for item in self.scene.items():
             if isinstance(item, SourceItem):
                 item.reset_video_preview()
@@ -3811,7 +3924,7 @@ class ExportPreviewDialog(QDialog):
     def _on_blended_audio_ready(self, path_str: str, plan) -> None:
         if self._closing:
             return
-        if getattr(self, "_progressive", False):
+        if getattr(self, "_progressive", False) or self._transition_mode != "none":
             # The final export-pipeline mix covers everything; still wait for
             # a safe moment so a transition that is already sounding keeps its audio.
             self._pending_swap = (Path(path_str), plan, math.inf, None)
@@ -3843,7 +3956,7 @@ class ExportPreviewDialog(QDialog):
         swap's pending seek/generation handshake must finish first.
         """
         pending = self._pending_swap
-        if pending is None or self._closing:
+        if pending is None or self._closing or self._scrubbing:
             return
         if self._active_track_index == _BLENDED_AUDIO_TRACK_INDEX and not self._media_source_ready:
             return  # _resume_pending_media_seek() retries once the previous swap is seekable
@@ -3878,6 +3991,10 @@ class ExportPreviewDialog(QDialog):
         gain = 1.0 if self._active_track_index == _BLENDED_AUDIO_TRACK_INDEX else (
             getattr(self, "_per_track_gain", 1.0) * getattr(self, "_active_track_gain", 1.0))
         self.audio_output.setVolume(min(1.0, slider.value() / 100.0 * gain))
+        if self._active_track_index == _LIVE_MIX_TRACK_INDEX and self._live_mix is not None:
+            self._live_mix.sync(self._compiled_plan, self._playhead_seconds,
+                                self._playing and not self._scrubbing,
+                                slider.value() / 100.0 * self._per_track_gain)
 
     def _apply_blended_audio(self, path: Path, plan, covered_until: float = math.inf,
                              *, playhead: float | None = None) -> None:
@@ -3995,6 +4112,12 @@ class ExportPreviewDialog(QDialog):
         )
         self.transport_card.setToolTip(self.shortcut_hint_label.text())
         self.timeline.setAccessibleName("재생 위치" if korean else "Playback position")
+        self.timeline.setToolTip(
+            "드래그하며 화면을 확인하세요. 오디오는 잠시 멈추고, 재생 중이었다면 놓은 위치에서 이어집니다. ←/→: 5초 이동."
+            if korean else
+            "Drag to preview a position. Audio pauses during the drag and resumes on release if it was playing. Left/Right: seek 5 seconds."
+        )
+        self.timeline.setAccessibleDescription(self.timeline.toolTip())
         self.volume_slider.setAccessibleName("음량" if korean else "Volume")
         self.previous_button.setAccessibleName("이전 곡" if korean else "Previous track")
         self.next_button.setAccessibleName("다음 곡" if korean else "Next track")

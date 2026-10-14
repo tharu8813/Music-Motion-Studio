@@ -25,7 +25,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QEvent, QTimer, QUrl
 from PySide6.QtTest import QTest
-from PySide6.QtMultimedia import QAudioBufferOutput
+from PySide6.QtMultimedia import QAudioBufferOutput, QMediaPlayer
 from PySide6.QtWidgets import QApplication, QStackedWidget, QVBoxLayout, QWidget
 
 from app.canvas.live_canvas import CanvasScene
@@ -259,6 +259,55 @@ class RealVideoPreviewPerformanceTests(unittest.TestCase):
             "The real video decoder did not deliver enough preview frames "
             f"within {timeout_seconds:.1f}s: {stats}"
         )
+
+    def test_real_video_and_karaoke_drag_preserves_playback_intent(self) -> None:
+        with TemporaryDirectory(prefix="playlist-preview-drag-") as directory:
+            preview, video = self._create_preview(Path(directory), timeline_seconds=8, backend="cpu")
+            preview.scene.set_artboard_size(640, 360)
+            source = Source(SourceType.LYRICS, "Bilingual karaoke", x=20, y=20, width=600,
+                            height=320, font_size=18, fill_color="#00000000", z_index=10,
+                            subtitle_karaoke_enabled=True, subtitle_karaoke_lines=[0],
+                            subtitle_animation="glow", subtitle_glow_radius=6)
+            preview.scene.addItem(SourceItem(source))
+            preview.source_store.add(source)
+            preview.tracks[0].lyrics = [
+                {"start": index * 2, "end": index * 2 + 2,
+                 "text": f"{index}: 음악이 흐르는 밤\nMusic brings us together"}
+                for index in range(4)
+            ]
+            try:
+                preview.show()
+                preview.play_button.setChecked(True)
+                QTest.qWait(500)
+                preview.timeline.setSliderDown(True)
+                for seconds in (1, 2, 4):
+                    preview.timeline.setValue(seconds * 100)
+                    QTest.qWait(100)
+                self.assertEqual(preview.timeline.value(), 400)
+                self.assertNotEqual(preview.media_player.playbackState(), QMediaPlayer.PlaybackState.PlayingState)
+                self.assertFalse(preview.play_timer.isActive())
+                preview.timeline.setSliderDown(False)
+                QTest.qWait(500)
+                self.assertTrue(preview._playing)
+                self.assertTrue(preview.play_timer.isActive())
+                self.assertGreater(preview.timeline.value(), 400)
+                self.assertGreater(video.video_decoder_stats().accepted_frames, 0)
+                self.assertFalse(preview._image.isNull())
+                preview.play_button.setChecked(False)
+                preview.timeline.setSliderDown(True)
+                preview.timeline.setValue(100)
+                preview.timeline.setSliderDown(False)
+                QTest.qWait(200)
+                self.assertEqual(preview.timeline.value(), 100)
+                self.assertFalse(preview._playing)
+                self.assertFalse(preview.play_timer.isActive())
+            finally:
+                preview._stop_preview()
+                preview.close()
+                preview.deleteLater()
+                self.application.processEvents()
+                QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+                self._release_editor_item(video)
 
     def test_real_mp4_advances_decoder_and_preview_timeline(self) -> None:
         _configured_ffmpeg()

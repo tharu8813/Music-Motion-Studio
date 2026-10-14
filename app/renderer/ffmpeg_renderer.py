@@ -25,7 +25,7 @@ from PySide6.QtGui import QImage, QImageReader
 from app.models.playlist import PlaylistTrack
 from app.timeline.compiler import compile_playlist
 from app.timeline.render_plan import (
-    CompiledRenderPlan, build_presentation_and_metadata, reactive_layer_windows,
+    CompiledRenderPlan, reactive_layer_windows,
 )
 from app.renderer import loudness
 from app.renderer.ffmpeg import filter_graph
@@ -1759,45 +1759,12 @@ class FFmpegRenderer:
             raise RenderCancelledError("Rendering was cancelled.")
         try:
             from app.automix.renderer import AutoMixAudioPipeline, AutoMixRenderError, render_workers
-            from app.timeline.models import TransitionType
-            from app.timeline.render_plan import AudioRenderClip, AudioRenderPlan, AudioRenderTransition
+            from app.timeline.crossfade import compile_crossfade
         except ImportError as error:
             LOGGER.warning("Crossfade export skipped, a dependency is unavailable: %s", error)
             return None
-        clips: list[AudioRenderClip] = []
-        transitions: list[AudioRenderTransition] = []
-        natural_cursor = 0.0
-        actual_cursor = 0.0
-        for index, track in enumerate(active_tracks):
-            natural_floor = natural_cursor
-            requested_start = track.start_time_seconds
-            natural_start = (
-                max(natural_floor, requested_start) if requested_start is not None else natural_floor
-            )
-            explicit_gap = natural_start - natural_floor
-            if index == 0 or explicit_gap > 1e-6:
-                timeline_start = natural_start if index == 0 else actual_cursor + explicit_gap
-            else:
-                previous_clip = clips[-1]
-                overlap = max(0.0, min(
-                    crossfade_seconds,
-                    (previous_clip.timeline_end - previous_clip.timeline_start) / 2,
-                    track.duration_seconds / 2,
-                ))
-                timeline_start = actual_cursor - overlap
-                if overlap > 1e-6:
-                    transitions.append(AudioRenderTransition(
-                        clip_a=previous_clip.clip_id, clip_b=f"crossfade:{track.id}",
-                        timeline_start=timeline_start, duration=overlap, type=TransitionType.CROSSFADE,
-                    ))
-            clip = AudioRenderClip(
-                clip_id=f"crossfade:{track.id}", track_id=track.id,
-                timeline_start=timeline_start, source_in=0.0, source_out=track.duration_seconds,
-            )
-            clips.append(clip)
-            natural_cursor = natural_start + track.duration_seconds
-            actual_cursor = clip.timeline_end
-        plan = AudioRenderPlan(clips=tuple(clips), transitions=tuple(transitions))
+        compiled = compile_crossfade(active_tracks, crossfade_seconds)
+        plan = compiled.audio
         try:
             self._report(progress_callback, "Preparing audio", 0.1, "Rendering crossfades")
             prepared = AutoMixAudioPipeline(self.executable).render(
@@ -1816,10 +1783,9 @@ class FFmpegRenderer:
                 raise RenderCancelledError("Rendering was cancelled.") from error
             LOGGER.warning("Crossfade export failed, falling back to sequential audio: %s", error)
             return None
-        presentation, metadata, duration = build_presentation_and_metadata(plan.clips)
         if plan_callback is not None:
-            plan_callback(CompiledRenderPlan(plan, presentation, metadata, duration))
-        return [prepared.path], [duration]
+            plan_callback(compiled)
+        return [prepared.path], [compiled.duration_seconds]
 
     def _normalize_audio(self, tracks: list[PlaylistTrack], directory: Path,
                          settings: RenderSettings,

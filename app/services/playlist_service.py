@@ -5,14 +5,16 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
+import threading
+from time import monotonic
 from uuid import uuid4
 
 from mutagen import File as MutagenFile
-from PySide6.QtCore import QObject, QSettings, Signal
+from PySide6.QtCore import QObject, QSettings, QThread, Signal
 
 from app.models.playlist import PlaylistTrack
 from app.renderer.ffmpeg_renderer import FFmpegNotFoundError, FFmpegRenderer
@@ -54,14 +56,21 @@ class PlaylistService(QObject):
 
     def inspect_files(
         self, paths: Iterable[str | Path],
+        *, cancel_event: threading.Event | None = None,
+        progress: Callable[[int, int, str], None] | None = None,
     ) -> list[AudioImportCandidate]:
         """Read valid audio files and report which common tags are absent."""
+        paths = list(paths)
         candidates: list[AudioImportCandidate] = []
-        for raw_path in paths:
+        for index, raw_path in enumerate(paths):
+            if cancel_event is not None and cancel_event.is_set():
+                return []
             path = Path(raw_path)
+            if progress is not None:
+                progress(index, len(paths), path.name)
             if path.suffix.lower() not in AUDIO_EXTENSIONS or not path.is_file():
                 continue
-            candidates.append(self._read_candidate(path))
+            candidates.append(self._read_candidate(path, cancel_event=cancel_event))
         return candidates
 
     def add_tracks(self, tracks: Iterable[PlaylistTrack]) -> int:
@@ -76,7 +85,9 @@ class PlaylistService(QObject):
         """Extract common tags while retaining usable tracks with missing metadata."""
         return self._read_candidate(path).track
 
-    def _read_candidate(self, path: Path) -> AudioImportCandidate:
+    def _read_candidate(
+        self, path: Path, *, cancel_event: threading.Event | None = None,
+    ) -> AudioImportCandidate:
         """Extract a track and preserve knowledge of genuinely missing tags."""
         try:
             audio = MutagenFile(path, easy=True)
@@ -94,7 +105,8 @@ class PlaylistService(QObject):
             duration = float(getattr(info, "length", 0.0))
             duration = duration if isfinite(duration) and duration >= 0 else 0.0
             if duration <= 0.0:
-                duration = self._probe_duration(path)
+                duration = (self._probe_duration(path) if cancel_event is None else
+                            self._probe_duration(path, cancel_event=cancel_event))
             return AudioImportCandidate(
                 PlaylistTrack(str(path.resolve()), title, artist, album, duration),
                 missing,
@@ -105,13 +117,14 @@ class PlaylistService(QObject):
             return AudioImportCandidate(
                 PlaylistTrack(
                     str(path.resolve()), path.stem,
-                    duration_seconds=self._probe_duration(path),
+                    duration_seconds=(self._probe_duration(path) if cancel_event is None else
+                                      self._probe_duration(path, cancel_event=cancel_event)),
                 ),
                 ("title", "artist", "album"),
             )
 
     @staticmethod
-    def _probe_duration(path: Path) -> float:
+    def _probe_duration(path: Path, *, cancel_event: threading.Event | None = None) -> float:
         """Use FFprobe when tag readers cannot determine a playable file's length."""
         configured = str(QSettings().value("export/ffmpeg_path", "") or "").strip()
         try:
@@ -135,8 +148,29 @@ class PlaylistService(QObject):
         }
         kwargs.update(hidden_process_kwargs())
         try:
-            completed = subprocess.run(command, **kwargs)
-            duration = float(completed.stdout.strip()) if completed.returncode == 0 else 0.0
+            if cancel_event is None:
+                completed = subprocess.run(command, **kwargs)
+                output, returncode = completed.stdout, completed.returncode
+            else:
+                if cancel_event.is_set():
+                    return 0.0
+                with subprocess.Popen(
+                    command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, **hidden_process_kwargs(),
+                ) as process:
+                    deadline = monotonic() + 15
+                    while True:
+                        if cancel_event.is_set() or monotonic() >= deadline:
+                            process.kill()
+                            process.communicate()
+                            return 0.0
+                        try:
+                            output, _stderr = process.communicate(timeout=0.1)
+                            break
+                        except subprocess.TimeoutExpired:
+                            continue
+                    returncode = process.returncode
+            duration = float(output.strip()) if returncode == 0 else 0.0
             return duration if isfinite(duration) and duration > 0.0 else 0.0
         except (OSError, subprocess.SubprocessError, TypeError, ValueError):
             LOGGER.warning("FFprobe could not determine audio duration: %s", path, exc_info=True)
@@ -287,3 +321,34 @@ class PlaylistService(QObject):
                 max(-3_600.0, min(3_600.0, offset)) if isfinite(offset) else 0.0
             )
         self.playlist_changed.emit()
+
+
+class AudioImportWorker(QThread):
+    """Inspect files and warm small QImage covers; never mutate the live playlist."""
+
+    progress = Signal(int, int, str, str)
+
+    def __init__(self, service: PlaylistService, paths: Iterable[str | Path]) -> None:
+        super().__init__()
+        self.service = service
+        self.paths = list(paths)
+        self.cancel_event = threading.Event()
+        self.candidates: list[AudioImportCandidate] = []
+        self.error: Exception | None = None
+
+    def run(self) -> None:
+        from app.preview.album_art import prewarm_cover_thumbnail
+
+        try:
+            self.candidates = self.service.inspect_files(
+                self.paths, cancel_event=self.cancel_event,
+                progress=lambda done, total, name: self.progress.emit(done, total, name, "metadata"),
+            )
+            for index, candidate in enumerate(self.candidates):
+                if self.cancel_event.is_set():
+                    self.candidates = []
+                    break
+                self.progress.emit(index, len(self.candidates), candidate.track.title, "covers")
+                prewarm_cover_thumbnail(candidate.track.file_path, candidate.track.cover_path)
+        except Exception as error:
+            self.error = error

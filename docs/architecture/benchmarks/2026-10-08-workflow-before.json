@@ -1,0 +1,12 @@
+{
+  "track_count": 300,
+  "search_refreshes": 15,
+  "search_median_ms": 203.62,
+  "search_max_ms": 726.7,
+  "rebuilt_search_rows": 2400,
+  "simulated_metadata_delay_ms": 800,
+  "import_heartbeat_count": 0,
+  "import_max_heartbeat_gap_ms": 1699.63,
+  "inspection_off_gui_thread": false,
+  "import_added": 1
+}

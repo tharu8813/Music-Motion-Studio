@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+from functools import lru_cache
 import re
 from pathlib import Path
+from unicodedata import east_asian_width
 
 LYRICS_EXTENSIONS = (".lrc", ".srt", ".vtt")
 _SIMILAR_RATIO = 0.72
@@ -34,6 +37,7 @@ def _normalized_stem(stem: str) -> str:
 
 def find_sidecar_lyrics(
     audio_path: str | Path,
+    *, entries: Iterable[Path] | None = None,
 ) -> tuple[list[LyricsSidecar], list[LyricsSidecar]]:
     """Return (exact-stem matches, similar-stem matches) beside an audio file.
 
@@ -44,10 +48,11 @@ def find_sidecar_lyrics(
     """
     audio = Path(audio_path)
     folder = audio.parent
-    try:
-        entries = sorted(folder.iterdir())
-    except OSError:
-        return [], []
+    if entries is None:
+        try:
+            entries = sorted(folder.iterdir())
+        except OSError:
+            return [], []
     exact_stem = audio.stem.casefold()
     target = _normalized_stem(audio.stem)
     exact: list[LyricsSidecar] = []
@@ -79,6 +84,81 @@ class LyricsService:
 
     _lrc_time = re.compile(r"\[(\d+):(\d+(?:\.\d+)?)\]")
     _srt_time = re.compile(r"(\d+):(\d+):(\d+)[,.](\d+)")
+    _word_time = re.compile(r"<(\d+):(\d+(?:\.\d+)?)>")
+
+    @staticmethod
+    @lru_cache(maxsize=512)
+    def _automatic_words(text: str) -> tuple[tuple[int, int], ...]:
+        spans = []
+        for match in re.finditer(r"\S+", text):
+            # No-space CJK lyrics still advance one character at a time.
+            if all(east_asian_width(char) in {"W", "F"} for char in match[0]):
+                spans.extend((index, index + 1) for index in range(match.start(), match.end()))
+            else:
+                spans.append(match.span())
+        return tuple(spans)
+
+    @classmethod
+    @lru_cache(maxsize=512)
+    def _reveal_spans(cls, text, start, end, words, line_positions):
+        """Cache timing preparation; fill missing text between existing anchors."""
+        def estimate(a, b, first, last):
+            indices = cls._automatic_words(text[a:b])
+            total = sum(right - left for left, right in indices)
+            consumed, spans = 0, []
+            # ponytail: character-weighted gaps; timed LRC supplies vocal accuracy.
+            for left, right in indices:
+                word_start = first + (last - first) * consumed / max(1, total)
+                consumed += right - left
+                word_end = first + (last - first) * consumed / max(1, total)
+                spans.append((a + left, a + right, word_start, word_end))
+            return spans
+
+        automatic = estimate(0, len(text), start, end) if not words and line_positions is None else []
+        result, offset = [], 0
+        for segment in text.splitlines(keepends=True):
+            line = segment.rstrip("\r\n")
+            if line.strip():
+                limit = offset + len(line)
+                anchors = [word for word in words if word[1] > offset and word[0] < limit]
+                selected = not line_positions or len(result) in line_positions
+                spans = []
+                if selected and automatic:
+                    spans = [word for word in automatic if word[1] > offset and word[0] < limit]
+                elif selected and (anchors or line_positions is not None):
+                    cursor, previous_end = offset, start
+                    for a, b, first, last in anchors:
+                        spans.extend(estimate(cursor, a, previous_end, first))
+                        spans.append((a, b, first, last))
+                        cursor, previous_end = b, last
+                    spans.extend(estimate(cursor, limit, previous_end, end))
+                result.append(tuple((max(0, a - offset), min(len(line), b - offset), first, last)
+                                    for a, b, first, last in spans))
+            offset += len(segment)
+        return tuple(result)
+
+    @classmethod
+    def word_reveal(cls, cue: dict[str, object], elapsed: float, *,
+                    line_positions: tuple[int, ...] | None = None) -> tuple[float, ...]:
+        """Revealed characters, with independent fallback for selected sung lines."""
+        raw_text = cls.decode_line_breaks(cue.get("text", ""))
+        text = raw_text.strip()
+        leading = len(raw_text) - len(raw_text.lstrip())
+        words = tuple((int(word["offset"]) - leading,
+                       int(word["offset"]) + len(word["text"]) - leading,
+                       float(word["start"]), float(word["end"])) for word in cue.get("words", []))
+        lines = cls._reveal_spans(text, float(cue.get("start", 0)), float(cue.get("end", 0)),
+                                  words, line_positions)
+        result = []
+        for spans in lines:
+            revealed = 0.0
+            for a, b, start, end in spans:
+                if elapsed < start:
+                    break
+                progress = 1.0 if end <= start else min(1.0, max(0.0, (elapsed - start) / (end - start)))
+                revealed = max(revealed, a + (b - a) * progress)
+            result.append(revealed)
+        return tuple(result)
 
     @staticmethod
     def decode_line_breaks(value: object) -> str:
@@ -116,7 +196,19 @@ class LyricsService:
             cues, key=lambda cue: (float(cue.get("start", 0.0)), str(cue.get("text", "")))
         )
         for cue in ordered:
-            text = cls.encode_line_breaks(cue.get("text", "")).strip()
+            text = cls.decode_line_breaks(cue.get("text", ""))
+            if not cue.get("words"):
+                text = text.strip()
+            markers: dict[int, list[str]] = {}
+            for word in cue.get("words", []):
+                offset = int(word["offset"])
+                markers.setdefault(offset, []).append(f"<{cls.lrc_timestamp(float(word['start']))}>")
+                markers.setdefault(offset + len(word["text"]), []).append(
+                    f"<{cls.lrc_timestamp(float(word['end']))}>"
+                )
+            for offset in sorted(markers, reverse=True):
+                text = text[:offset] + "".join(markers[offset]) + text[offset:]
+            text = cls.encode_line_breaks(text)
             lines.append(f"[{cls.lrc_timestamp(float(cue.get('start', 0.0)))}]{text}")
         return "\n".join(lines) + ("\n" if lines else "")
 
@@ -142,12 +234,17 @@ class LyricsService:
             raise LyricsError(f"Could not save LRC file: {error}") from error
 
     @classmethod
-    def load(cls, path: str | Path) -> list[dict[str, float | str]]:
+    def load(cls, path: str | Path) -> list[dict[str, object]]:
         lyric_path = Path(path)
         try:
-            content = lyric_path.read_text(encoding="utf-8-sig")
+            data = lyric_path.read_bytes()
+            encoding = "utf-16" if data.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig"
+            content = data.decode(encoding)
         except OSError as error:
             raise LyricsError(str(error)) from error
+        except UnicodeError as error:
+            raise LyricsError("가사 파일의 문자 인코딩을 읽을 수 없습니다. UTF-8 또는 UTF-16으로 저장한 뒤 다시 불러오세요.\n"
+                              "Cannot decode lyrics. Save the file as UTF-8 or UTF-16 and try again.") from error
         suffix = lyric_path.suffix.lower()
         if suffix == ".lrc":
             return cls._parse_lrc(content)
@@ -221,16 +318,39 @@ class LyricsService:
         return max(0, low - 1)
 
     @classmethod
-    def _parse_lrc(cls, content: str) -> list[dict[str, float | str]]:
-        cues: list[dict[str, float | str]] = []
-        previous: list[dict[str, float | str]] = []
+    def _parse_lrc(cls, content: str) -> list[dict[str, object]]:
+        cues: list[dict[str, object]] = []
+        previous: list[dict[str, object]] = []
         for line in content.splitlines():
             text = cls.decode_line_breaks(cls._lrc_time.sub("", line).strip())
             timestamps = cls._lrc_time.findall(line)
             if timestamps:
+                words = []
+                plain = cls._word_time.sub("", text)
+                line_offset = 0
+                for physical_line in text.splitlines(keepends=True):
+                    tagged = physical_line.rstrip("\r\n")
+                    markers = list(cls._word_time.finditer(tagged))
+                    offset = line_offset + (markers[0].start() if markers else 0)
+                    for index, marker in enumerate(markers):
+                        following = markers[index + 1] if index + 1 < len(markers) else None
+                        segment = tagged[marker.end():following.start() if following else len(tagged)]
+                        word_start = int(marker[1]) * 60 + float(marker[2])
+                        word_end = int(following[1]) * 60 + float(following[2]) if following else None
+                        if word_end is not None and word_end < word_start:
+                            raise LyricsError("Word timestamps must be in ascending order within a line.")
+                        if segment:
+                            words.append({"start": word_start, "end": word_end,
+                                          "text": segment, "offset": offset})
+                        offset += len(segment)
+                    line_offset += len(cls._word_time.sub("", physical_line))
                 previous = []
                 for minute, second in timestamps:
-                    cue = {"start": int(minute) * 60 + float(second), "end": 0.0, "text": text}
+                    cue = {"start": int(minute) * 60 + float(second), "end": 0.0, "text": plain}
+                    if words:
+                        shift = float(cue["start"]) - (int(timestamps[0][0]) * 60 + float(timestamps[0][1]))
+                        cue["words"] = [word | {"start": word["start"] + shift,
+                            "end": word["end"] + shift if word["end"] is not None else None} for word in words]
                     cues.append(cue)
                     previous.append(cue)
             elif line.strip().startswith("[") or not line.strip():
@@ -241,11 +361,18 @@ class LyricsService:
         cues.sort(key=lambda cue: float(cue["start"]))
         for index, cue in enumerate(cues):
             cue["end"] = float(cues[index + 1]["start"]) if index + 1 < len(cues) else float(cue["start"]) + 8.0
+            if index + 1 == len(cues) and cue.get("words"):
+                cue["end"] = max(float(cue["end"]), max(word["end"] if word["end"] is not None
+                                 else word["start"] + 8.0 for word in cue["words"]))
+            for word in cue.get("words", []):
+                word["end"] = float(cue["end"]) if word["end"] is None else word["end"]
+                if not float(cue["start"]) <= word["start"] <= word["end"] <= float(cue["end"]):
+                    raise LyricsError("Word timestamps must fall inside their lyric cue.")
         return cues
 
     @classmethod
-    def _parse_srt(cls, content: str) -> list[dict[str, float | str]]:
-        cues: list[dict[str, float | str]] = []
+    def _parse_srt(cls, content: str) -> list[dict[str, object]]:
+        cues: list[dict[str, object]] = []
         for block in re.split(r"\r?\n\s*\r?\n", content.strip()):
             lines = [line.strip() for line in block.splitlines() if line.strip()]
             if len(lines) < 2:

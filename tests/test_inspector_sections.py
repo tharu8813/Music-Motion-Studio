@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication, QComboBox, QDoubleSpinBox, QPushButt
 
 from app.inspector.editors.audio_level_meter_editor import LevelMeterSection  # noqa: E402
 from app.inspector.editors.audio_visualizer_editor import VisualizerSection  # noqa: E402
-from app.inspector.editors.base import TypographySection  # noqa: E402
+from app.inspector.editors.base import TypographySection, TYPE_SPECIFIC_FIELD_KEYS  # noqa: E402
 from app.inspector.editors.lyrics_editor import LyricsSection  # noqa: E402
 from app.inspector.editors.now_playing_editor import NowPlayingSection  # noqa: E402
 from app.inspector.editors.particle_overlay_editor import ParticleSection  # noqa: E402
@@ -40,6 +40,7 @@ class LyricsSectionTests(unittest.TestCase):
         self.assertEqual([key for key, _ in LyricsSection.ROWS], list(self.section.widgets))
         for key in self.section.widgets:
             self.assertTrue(hasattr(source, key), key)
+            self.assertIn(key, TYPE_SPECIFIC_FIELD_KEYS)
             self.assertIn(key, LyricsSection.LABELS)
             self.assertIn(key.removeprefix("subtitle_"), LyricsSection.HELP)
 
@@ -63,7 +64,10 @@ class LyricsSectionTests(unittest.TestCase):
         kinds = {key: kind for key, (_path, _widget, kind) in self.section.bindings().items()}
         self.assertEqual(kinds.pop("subtitle_animation"), "combo")
         self.assertEqual(kinds.pop("subtitle_accent_enabled"), "check")
+        self.assertEqual(kinds.pop("subtitle_karaoke_enabled"), "check")
         self.assertEqual(kinds.pop("subtitle_accent_color"), "color")
+        self.assertEqual(kinds.pop("subtitle_karaoke_pending_mode"), "combo")
+        self.assertEqual(kinds.pop("subtitle_karaoke_pending_color"), "color")
         self.assertEqual(set(kinds.values()), {"spin"})
         self.assertIsInstance(self.section.widgets["subtitle_animation"], QComboBox)
 
@@ -71,6 +75,9 @@ class LyricsSectionTests(unittest.TestCase):
         self.assertEqual(hidden, {
             "subtitle_previous_opacity": False, "subtitle_previous_blur": False,
             "subtitle_accent_color": False,
+            "subtitle_karaoke_offset": False,
+            "subtitle_karaoke_pending_mode": False, "subtitle_karaoke_pending_color": False,
+            "subtitle_karaoke_pending_brightness": False,
         })
 
     def test_subtitle_transition_shortcut_and_duration_follow_selection(self) -> None:
@@ -116,8 +123,21 @@ class LyricsSectionTests(unittest.TestCase):
         restored = Source.from_dict(lyrics.to_dict())
         self.assertEqual(restored.subtitle_animation, "rise")
         self.assertAlmostEqual(restored.subtitle_animation_duration, 0.65)
+        inspector.lyrics.widgets["subtitle_karaoke_enabled"].click()
+        self.assertTrue(lyrics.subtitle_karaoke_enabled)
+        inspector.lyrics.widgets["subtitle_karaoke_offset"].setValue(0.2)
+        restored = Source.from_dict(lyrics.to_dict())
+        self.assertEqual(restored.subtitle_karaoke_offset, 0.2)
+        self.assertTrue(inspector._field_visibility["subtitle_karaoke_pending_brightness"])
+        pending_mode = inspector.lyrics.widgets["subtitle_karaoke_pending_mode"]
+        pending_mode.setCurrentIndex(pending_mode.findData("custom"))
+        self.assertEqual(lyrics.subtitle_karaoke_pending_mode, "custom")
+        self.assertTrue(inspector._field_visibility["subtitle_karaoke_pending_color"])
+        self.assertFalse(inspector._field_visibility["subtitle_karaoke_pending_brightness"])
         effect.setCurrentIndex(effect.findData("none"))
         store.add(Source(SourceType.TEXT, "Text"))
+        self.assertFalse(inspector._field_visibility["subtitle_karaoke_enabled"])
+        self.assertFalse(inspector._field_visibility["subtitle_karaoke_pending_mode"])
         self.assertTrue(inspector.lyrics_transition_button.isHidden())
         self.assertTrue(inspector._sections[("animation", "sub_transition")].isHidden())
         store.select(lyrics.id)

@@ -56,19 +56,21 @@ Inno Setup 6을 설치한 뒤 프로젝트 루트에서 다음 명령을 실행�
 
 `setup.iss`는 `dist\Playlist Canvas` 폴더 전체를 설치 원본으로 사용합니다. 따라서 PyInstaller 빌드가 먼저 성공해야 합니다.
 
+설치는 관리자 권한을 요청하지 않는 사용자별 설치(`PrivilegesRequired=lowest`)이며 기본 경로는 `%LOCALAPPDATA%\Programs\Playlist Canvas`입니다. 업데이트는 `/AUTOMATICUPDATE=1 /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /UPDATEPID=<종료할 앱 PID> /UPDATERECOVERY=<복구본 경로>`로 실행합니다. Setup은 해당 프로세스가 종료된 뒤 기존 파일을 제자리에서 갱신하며, 성공했을 때만 `--resume-update <복구본 경로>`로 새 앱을 실행합니다. 이전 관리자 설치본의 제거 프로그램은 호출하지 않습니다.
+
 설치 마법사는 루트의 `LICENSE.txt`를 Playlist Canvas Source-Available Noncommercial Share-Alike License 1.0 동의 화면으로 표시하며, 설치된 프로그램 폴더에도 같은 원문을 복사합니다.
 
 완성된 설치 파일은 다음 위치에 생성됩니다.
 
 ```text
-output-setup\Playlist Canvas-1.3.1.1-setup.exe
+output-setup\Playlist Canvas-1.3.1.2-setup.exe
 ```
 
 이 Setup EXE를 GitHub Release에 첨부합니다. 사용자는 ZIP을 직접 관리하지 않고 설치 마법사를 통해 프로그램 위치, 시작 메뉴와 바탕 화면 바로가기를 설정할 수 있습니다.
 
 앱의 자동 업데이트가 Setup 자산을 찾고 검증할 수 있도록 릴리즈를 정식 공개 상태로 만들고 다음 조건을 지킵니다.
 
-- 태그는 `1.3.1.1`처럼 네 자리 버전 형식을 사용합니다. (`v` 접두사도 허용됩니다.)
+- 태그는 `1.3.1.2`처럼 네 자리 버전 형식을 사용합니다. (`v` 접두사도 허용됩니다.)
 - Setup 자산 이름에는 `Playlist Canvas`와 `setup`이 포함되어야 하며 확장자는 `.exe`여야 합니다.
 - Setup 파일은 반드시 이 저장소의 GitHub Release 자산으로 직접 첨부합니다. 외부 다운로드 URL은 앱이 거부합니다.
 - 초안 또는 사전 릴리즈는 자동 업데이트 대상에서 제외됩니다.
@@ -78,7 +80,7 @@ output-setup\Playlist Canvas-1.3.1.1-setup.exe
 
 새 Windows 사용자 계정 또는 가상 머신에서 다음을 확인합니다.
 
-1. `Playlist Canvas-1.3.1.1-setup.exe`로 설치와 제거가 정상 동작하는지 확인합니다.
+1. `Playlist Canvas-1.3.1.2-setup.exe`로 설치와 제거가 정상 동작하는지 확인합니다.
 2. 설치된 `Playlist Canvas.exe`가 실행되는지 확인합니다.
 3. 설정 화면에서 언어·테마·출력 폴더를 저장하고 재시작 후 유지되는지 확인합니다.
 4. 설정 화면의 FFmpeg 다운로드를 사용해 설치와 SHA-256 검증이 완료되는지 확인합니다.

@@ -155,6 +155,8 @@ class SourceItem(QGraphicsObject):
         self._raw_pixmap_path: str | None = None
         self._lyric_fonts: dict[str, QFont] = {}
         self._lyric_ghost_cache: dict[tuple[object, ...], tuple[QPixmap, float]] = {}
+        self._lyric_coverage_cache: dict[tuple, tuple[np.ndarray, int, int]] = {}
+        self._lyric_reveal_cache: dict[tuple[object, ...], tuple[tuple[float, ...], QPainterPath]] = {}
         self._lyric_resource_key: tuple[object, ...] | None = None
         self._text_outline_path_key: tuple[object, ...] | None = None
         self._text_outline_path = QPainterPath()
@@ -164,6 +166,7 @@ class SourceItem(QGraphicsObject):
         self._subtitle_transition_progress = 1.0
         self._subtitle_transition_raw = 1.0
         self._subtitle_intro_state = None
+        self._subtitle_word_reveal: tuple[float, ...] = ()
         self._music_reaction_level = 0.0
         self._music_preview_current_line: int | None = None
         self._subtitle_cue_layout: tuple[tuple[int, int, int], ...] = ()
@@ -1006,6 +1009,7 @@ class SourceItem(QGraphicsObject):
             "current": self.text_font(current_size, self.source.font_weight),
         }
         self._lyric_ghost_cache.clear()
+        self._lyric_coverage_cache.clear()
         self._lyric_resource_key = resource_key
 
     def text_font(self, size: int, weight: int) -> QFont:
@@ -1032,6 +1036,7 @@ class SourceItem(QGraphicsObject):
     def _blurred_raster(
         paint: Callable[[QPainter], None], size: QSizeF, radius: float, pixel_ratio: float,
         *, solid_color: QColor | None = None,
+        coverage_cache: dict[tuple, tuple[np.ndarray, int, int]] | None = None, coverage_key: tuple = (),
     ) -> tuple[QPixmap, float]:
         """Rasterise ``paint`` (logical coordinates within ``size``) and blur it.
 
@@ -1045,33 +1050,54 @@ class SourceItem(QGraphicsObject):
             ceil(size.height() * pixel_ratio) + margin * 2,
             QImage.Format.Format_ARGB32_Premultiplied,
         )
+        cached = coverage_cache.get(coverage_key) if coverage_cache is not None and solid_color is not None else None
+        coverage, top, left = cached if cached is not None else (None, 0, 0)
         image.fill(Qt.GlobalColor.transparent)
-        raster_painter = QPainter(image)
-        raster_painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        raster_painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-        raster_painter.translate(margin, margin)
-        raster_painter.scale(pixel_ratio, pixel_ratio)
-        paint(raster_painter)
-        raster_painter.end()
+        if coverage is None:
+            raster_painter = QPainter(image)
+            raster_painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            raster_painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+            raster_painter.translate(margin, margin)
+            raster_painter.scale(pixel_ratio, pixel_ratio)
+            paint(raster_painter)
+            raster_painter.end()
         pixels = _rgb_pixels(image)
         if solid_color is not None:
             # Single-colour glyphs need only one Gaussian pass. Reconstruct
             # premultiplied BGR from coverage, keeping transparent edges clean.
-            coverage = gaussian_filter(
-                pixels[:, :, 3].astype(np.float32), sigma=pixel_radius,
-                mode="constant", truncate=3.0,
-            )
+            if coverage is None:
+                alpha = pixels[:, :, 3]
+                columns = np.flatnonzero(alpha.any(axis=0))
+                rows = np.flatnonzero(alpha.any(axis=1))
+                coverage = np.zeros((0, 0), dtype=np.float32)
+                if columns.size and rows.size:
+                    padding = ceil(pixel_radius * 3)
+                    left, right = max(0, columns[0] - padding), min(alpha.shape[1], columns[-1] + padding + 1)
+                    top, bottom = max(0, rows[0] - padding), min(alpha.shape[0], rows[-1] + padding + 1)
+                    # Outside this rectangle the finite Gaussian kernel sees only zeros.
+                    coverage = gaussian_filter(
+                        alpha[top:bottom, left:right].astype(np.float32), sigma=pixel_radius,
+                        mode="constant", truncate=3.0,
+                    )
+                if coverage_cache is not None:
+                    while coverage_cache and (len(coverage_cache) >= 48 or
+                            sum(value[0].nbytes for value in coverage_cache.values()) + coverage.nbytes > 16 * 1024 * 1024):
+                        coverage_cache.pop(next(iter(coverage_cache)))
+                    if coverage.nbytes <= 16 * 1024 * 1024:
+                        coverage_cache[coverage_key] = coverage, top, left
             channels = np.array([
                 solid_color.blueF(), solid_color.greenF(), solid_color.redF(), 1.0,
             ], dtype=np.float32)
             values = coverage[:, :, None] * channels
+            target = pixels[top:top + coverage.shape[0], left:left + coverage.shape[1]]
         else:
             # General artwork can contain multiple colours.
             values = gaussian_filter(
                 pixels.astype(np.float32), sigma=(pixel_radius, pixel_radius, 0),
                 mode="constant", truncate=3.0,
             )
-        pixels[:] = np.clip(values + 0.5, 0.0, 255.0).astype(np.uint8)
+            target = pixels
+        target[:] = np.clip(values + 0.5, 0.0, 255.0).astype(np.uint8)
         pixmap = QPixmap.fromImage(image)
         pixmap.setDevicePixelRatio(pixel_ratio)
         return pixmap, margin / pixel_ratio
@@ -1087,7 +1113,7 @@ class SourceItem(QGraphicsObject):
         cached = self._lyric_ghost_cache.get(key)
         if cached is None:
             if len(self._lyric_ghost_cache) >= 96:
-                self._lyric_ghost_cache.clear()
+                self._lyric_ghost_cache.pop(next(iter(self._lyric_ghost_cache)))
 
             def paint(blur_painter: QPainter) -> None:
                 blur_painter.setPen(color)
@@ -1098,6 +1124,9 @@ class SourceItem(QGraphicsObject):
 
             cached = self._blurred_raster(
                 paint, QSizeF(content_width, line_height), radius, pixel_ratio, solid_color=color,
+                coverage_cache=self._lyric_coverage_cache,
+                coverage_key=(line, color.alpha(), round(radius * pixel_ratio, 2),
+                              content_width, line_height, pixel_ratio, int(flags), font.toString()),
             )
             self._lyric_ghost_cache[key] = cached
         return cached
@@ -1390,7 +1419,8 @@ class SourceItem(QGraphicsObject):
                 )
                 painter.restore()
         brush = painter.pen().brush()
-        if source.text_gradient and source.gradient.enabled and is_text:
+        if (source.text_gradient and source.gradient.enabled and is_text
+                and not (source.source_type == SourceType.LYRICS and source.subtitle_karaoke_enabled)):
             # The caller's pen alpha (dimmed rows) carries into both stops.
             pen_alpha = painter.pen().color().alphaF()
             gradient = linear_gradient(self.content_rect(), source.gradient.angle)

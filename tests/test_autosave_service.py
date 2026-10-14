@@ -52,6 +52,20 @@ class AutosaveServiceTests(unittest.TestCase):
             self.assertIsNotNone(loaded)
             self.assertEqual(loaded.document.playlist[0].title, "A")
 
+    def test_update_snapshot_preserves_dirty_state_and_legacy_defaults(self) -> None:
+        with TemporaryDirectory(prefix="pvs-update-recovery-") as directory:
+            service = AutosaveService(Path(directory))
+            snapshot = service.save(_document(), None, dirty=False)
+            self.assertFalse(service.load_snapshot(snapshot.path).dirty)
+            payload = json.loads(snapshot.path.read_text(encoding="utf-8"))
+            payload.pop("dirty")
+            snapshot.path.write_text(json.dumps(payload), encoding="utf-8")
+            self.assertTrue(service.load_snapshot(snapshot.path).dirty)
+            payload["dirty"] = "false"
+            snapshot.path.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaises(ProjectError):
+                service.load_snapshot(snapshot.path)
+
     def test_write_document_data_matches_save_and_is_dict_only(self) -> None:
         with TemporaryDirectory(prefix="pvs-autosave-") as directory:
             service = AutosaveService(Path(directory))

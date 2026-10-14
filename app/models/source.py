@@ -227,7 +227,13 @@ class Source:
     # Size of the current lyric row relative to the context rows.
     subtitle_current_scale: float = 1.08
     subtitle_accent_enabled: bool = False
+    subtitle_karaoke_enabled: bool = False
+    subtitle_karaoke_offset: float = 0.0
     subtitle_accent_color: str = "#FFE08A"
+    subtitle_karaoke_pending_mode: str = "dim"
+    subtitle_karaoke_pending_color: str = "#FFFFFF"
+    subtitle_karaoke_pending_brightness: float = 0.35
+    subtitle_karaoke_lines: list[int] = field(default_factory=list)
     # Optional overrides by physical line position inside each multi-line cue.
     # Empty entries inherit the source's shared typography.
     subtitle_line_styles: list[dict[str, object]] = field(default_factory=list)
@@ -376,6 +382,8 @@ class Source:
         if not isinstance(data, dict):
             raise ValueError("Project sources must be objects.")
         source_data = data.copy()
+        # Retired model selector: keep projects saved with either choice readable.
+        source_data.pop("subtitle_karaoke_analysis_model", None)
         source_data["source_type"] = SourceType(source_data["source_type"])
         if "subtitle_advanced_enabled" in source_data:
             # The former master switch gated the category switches. Preserve
@@ -540,18 +548,28 @@ class Source:
             ("subtitle_motion_easing", ("auto", "linear", "ease_in", "ease_out", "smooth")),
             ("subtitle_stagger_order", ("near_first", "far_first")),
             ("subtitle_intro_style", ("dots", "breathing", "wave", "bars", "ring")),
+            ("subtitle_karaoke_pending_mode", ("custom", "dim")),
         ):
             if getattr(source, name) not in allowed:
                 raise ValueError(f"Source '{source.name}' has an invalid {name}.")
         if not isinstance(source.now_playing_label, str):
             raise ValueError(f"Source '{source.name}' has an invalid now-playing label.")
-        for name in ("subtitle_intro_enabled", "subtitle_intro_midtrack"):
+        if (not isinstance(source.subtitle_karaoke_pending_color, str)
+                or fullmatch(r"#[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?", source.subtitle_karaoke_pending_color) is None):
+            raise ValueError(f"Source '{source.name}' has an invalid pending lyric color.")
+        if (not isinstance(source.subtitle_karaoke_lines, list)
+                or any(not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < 12
+                       for index in source.subtitle_karaoke_lines)):
+            raise ValueError(f"Source '{source.name}' has invalid karaoke line positions.")
+        for name in ("subtitle_intro_enabled", "subtitle_intro_midtrack", "subtitle_karaoke_enabled"):
             if not isinstance(getattr(source, name), bool):
                 raise ValueError(f"Source '{source.name}' has an invalid {name}.")
         for name, (minimum, maximum) in {
             "text_letter_spacing": (-10.0, 60.0),
             "text_line_gap": (-40.0, 200.0),
             "subtitle_current_scale": (1.0, 2.0),
+            "subtitle_karaoke_pending_brightness": (0.0, 1.0),
+            "subtitle_karaoke_offset": (-5.0, 5.0),
             "subtitle_animation_duration": (0.05, 3.0),
             "subtitle_motion_distance": (0.0, 200.0),
             "subtitle_stagger": (0.0, 0.8),

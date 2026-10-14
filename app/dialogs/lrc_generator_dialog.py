@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from pathlib import Path
 import re
 
@@ -81,6 +82,8 @@ class LrcGeneratorDialog(QDialog):
         self._redo_stack: list[tuple[int, float | None, float | None]] = []
         self._shortcuts_dialog: LrcShortcutsDialog | None = None
         self._playback_highlight_row = -1
+        self._playback_timestamps: list[tuple[float, int]] = []
+        self._timeline_marker_rows: set[int] = set()
         self._last_playback_position = 0
         self._suspend_playback_autoscroll = False
         self._playback_scroll_resume_timer = QTimer(self)
@@ -1275,6 +1278,11 @@ class LrcGeneratorDialog(QDialog):
         self._shortcuts_dialog.activateWindow()
 
     def _preview_mode_changed(self, enabled: bool) -> None:
+        for widget in (self.record_button, self.use_selected_button,
+                       self.history_tools_group, self.timing_tools_group, self.lyric_tools_group,
+                       self.timing_cursor_help, self.calibration_label, self.calibration_spin,
+                       self.calibration_help):
+            widget.setVisible(not enabled)
         self.timeline_table.clearSelection()
         self.timeline_table.setSelectionMode(
             QAbstractItemView.SelectionMode.NoSelection
@@ -1282,7 +1290,7 @@ class LrcGeneratorDialog(QDialog):
         )
         self._suspend_playback_autoscroll = False
         self._playback_scroll_resume_timer.stop()
-        self._apply_timeline_visuals()
+        self._apply_timeline_visuals(set())
         self._update_enabled()
         self._sync_shortcuts_for_focus(None, self.focusWidget())
         if enabled:
@@ -1331,40 +1339,38 @@ class LrcGeneratorDialog(QDialog):
     def _timeline_selection_changed(self) -> None:
         if self._selected_row() != self._last_double_clicked_row:
             self._last_double_clicked_row = -1
-        self._apply_timeline_visuals()
+        self._apply_timeline_visuals(set())
         self._update_enabled()
 
     def _playback_row_at(self, position: int) -> int:
         seconds = max(0.0, position / 1000.0)
-        recorded = sorted(
-            (float(timestamp), row)
-            for row, timestamp in enumerate(self.timestamps)
-            if timestamp is not None
-        )
-        active = -1
-        for timestamp, row in recorded:
-            if timestamp > seconds + 0.0005:
-                break
-            active = row
-        return active
+        index = bisect_right(self._playback_timestamps, (seconds + 0.0005, len(self.lines))) - 1
+        return self._playback_timestamps[index][1] if index >= 0 else -1
 
     def _update_playback_highlight(
         self, position: int, *, force_center: bool = False,
     ) -> None:
         row = self._playback_row_at(position)
+        changed = row != self._playback_highlight_row
         self._playback_highlight_row = row
-        self._apply_timeline_visuals()
+        if changed:
+            self._apply_timeline_visuals(set())
         if (row >= 0 and not self._suspend_playback_autoscroll
-                and (force_center or self.preview_mode_check.isChecked())):
+                and (force_center or (changed and self.preview_mode_check.isChecked()))):
             item = self.timeline_table.item(row, 0)
             if item is not None:
                 self.timeline_table.scrollToItem(
                     item, QAbstractItemView.ScrollHint.PositionAtCenter,
                 )
 
-    def _apply_timeline_visuals(self) -> None:
+    def _apply_timeline_visuals(self, rows: set[int] | None = None) -> None:
         selected = self._selected_row()
-        for row in range(self.timeline_table.rowCount()):
+        marker_rows = {selected, self.current_index, self._playback_highlight_row}
+        affected = range(self.timeline_table.rowCount()) if rows is None else rows | marker_rows | self._timeline_marker_rows
+        self._timeline_marker_rows = marker_rows
+        for row in affected:
+            if not 0 <= row < self.timeline_table.rowCount():
+                continue
             playback_row = row == self._playback_highlight_row
             timing_cursor = (
                 row == self.current_index
@@ -1422,6 +1428,8 @@ class LrcGeneratorDialog(QDialog):
                 item.setToolTip(
                     "다음 타이밍을 기록할 가사" if self._korean else "Next lyric to receive timing"
                 )
+            else:
+                item.setToolTip("")
 
     def _refresh_table(
         self,
@@ -1430,8 +1438,14 @@ class LrcGeneratorDialog(QDialog):
         center_timing_cursor: bool = False,
     ) -> None:
         previous_selection = self._selected_row()
+        self._playback_timestamps = sorted(
+            (float(timestamp), row) for row, timestamp in enumerate(self.timestamps)
+            if timestamp is not None
+        )
         self.timeline_table.blockSignals(True)
+        self.timeline_table.setUpdatesEnabled(False)
         self.timeline_table.setRowCount(len(self.lines))
+        changed_rows: set[int] = set()
         for row, line in enumerate(self.lines):
             timestamp = self.timestamps[row]
             values = (
@@ -1440,19 +1454,18 @@ class LrcGeneratorDialog(QDialog):
                 line,
             )
             for column, value in enumerate(values):
-                item = QTableWidgetItem(value)
-                if row == self.current_index:
-                    item.setBackground(QColor("#FFE59A"))
-                    item.setForeground(QColor("#202020"))
-                    font = item.font()
-                    font.setBold(True)
-                    item.setFont(font)
-                    item.setToolTip(
-                        "다음 타이밍이 기록될 가사" if self._korean else "Next lyric to receive timing"
-                    )
-                self.timeline_table.setItem(row, column, item)
+                item = self.timeline_table.item(row, column)
+                if item is None:
+                    item = QTableWidgetItem(value)
+                    self.timeline_table.setItem(row, column, item)
+                    changed_rows.add(row)
+                elif item.text() != value and column != 0:
+                    item.setText(value)
+                    changed_rows.add(row)
             line_count = max(1, len([part for part in line.splitlines() if part.strip()]))
-            self.timeline_table.setRowHeight(row, max(30, 22 * line_count + 8))
+            height = max(30, 22 * line_count + 8)
+            if self.timeline_table.rowHeight(row) != height:
+                self.timeline_table.setRowHeight(row, height)
         target = selected_row if selected_row is not None else previous_selection
         if 0 <= target < len(self.lines):
             self.timeline_table.selectRow(target)
@@ -1469,7 +1482,8 @@ class LrcGeneratorDialog(QDialog):
         self._playback_highlight_row = self._playback_row_at(
             self._last_playback_position
         )
-        self._apply_timeline_visuals()
+        self._apply_timeline_visuals(changed_rows)
+        self.timeline_table.setUpdatesEnabled(True)
         self._update_enabled()
 
     def _save_lrc(self) -> None:

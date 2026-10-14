@@ -70,6 +70,19 @@ def is_newer_version(candidate: str, current: str = __version__) -> bool:
     return normalized_version(candidate) > normalized_version(current)
 
 
+def automatic_setup_arguments(installer: Path, recovery_path: Path, parent_pid: int, *, korean: bool) -> list[str]:
+    """Run the per-user Setup unattended, then resume this exact workspace."""
+    return [
+        "/SP-", "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART",
+        "/NOCLOSEAPPLICATIONS", "/NORESTARTAPPLICATIONS",
+        "/AUTOMATICUPDATE=1", f"/UPDATEPID={parent_pid}",
+        f"/UPDATERECOVERY={recovery_path.resolve()}",
+        r"/DIR=expand:{localappdata}\Programs\Playlist Canvas",
+        "/LANG=korean" if korean else "/LANG=english",
+        f"/LOG={installer.with_suffix('.install.log').resolve()}",
+    ]
+
+
 class GitHubUpdateService:
     """Read only the configured repository and download its verified Setup asset."""
 

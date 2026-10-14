@@ -43,8 +43,12 @@ def project_path_from_arguments(arguments: list[str]) -> Path | None:
 
 def open_initial_workspace(
     window: "MainWindow", launch_project: Path | None,
+    *, update_recovery: Path | None = None,
 ) -> bool:
     """Open an Explorer target directly or fall back to the startup chooser."""
+    if update_recovery is not None:
+        window._offer_recovery(snapshot_path=update_recovery, confirm=False)
+        return True
     if launch_project is not None:
         # Even a failed load keeps the initialized editor open; MainWindow shows
         # its recoverable project crash report and preserves the workspace.
@@ -96,6 +100,11 @@ def main() -> int:
     """Create and run the Qt application."""
     configure_logging()
     launch_project = project_path_from_arguments(sys.argv[1:])
+    update_recovery = None
+    if "--resume-update" in sys.argv:
+        index = sys.argv.index("--resume-update")
+        if index + 1 < len(sys.argv):
+            update_recovery = Path(sys.argv[index + 1])
     application = QApplication(sys.argv)
     _configure_product_identity(application)
     application.setApplicationVersion(__version__)
@@ -133,9 +142,9 @@ def main() -> int:
         return application.exec()
     from app.dialogs.welcome_dialog import MAIN_GUIDE, MAIN_GUIDE_TITLE, WELCOME_KEY, GuideDialog, first_time
 
-    if first_time(WELCOME_KEY):
+    if update_recovery is None and first_time(WELCOME_KEY):
         GuideDialog(MAIN_GUIDE, MAIN_GUIDE_TITLE, window.translator.is_korean, window).exec()
-    if not open_initial_workspace(window, launch_project):
+    if not open_initial_workspace(window, launch_project, update_recovery=update_recovery):
         window.close()
         # No exec() will run its cleanup, so delete the closed window here, not at exit.
         application.sendPostedEvents(None, QEvent.Type.DeferredDelete)

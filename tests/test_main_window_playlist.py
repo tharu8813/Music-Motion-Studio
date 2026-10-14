@@ -1046,7 +1046,9 @@ class MainWindowPlaylistTests(MainWindowTestCase):
             patch.object(M3uImportDialog, "exec", answer_review),
         ):
             self.window._handle_dropped_files([str(playlist)])
-        inspect.assert_called_once_with([song.resolve() for song in songs])
+        self.assertEqual(inspect.call_count, 1)
+        self.assertEqual(inspect.call_args.args, ([song.resolve() for song in songs],))
+        self.assertEqual(set(inspect.call_args.kwargs), {"cancel_event", "progress"})
         return shown, playlist
 
     def test_m3u8_drop_shows_its_songs_then_adds_them_but_not_the_playlist_file(self) -> None:

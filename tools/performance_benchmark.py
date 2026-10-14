@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import inspect
 import json
+from math import ceil
 import os
 from pathlib import Path
 import platform
@@ -151,6 +152,16 @@ def preview_benchmark(args) -> dict:
         scene.artboard_rect = QRectF(0, 0, args.width, args.height)
         scene.addItem(item)
         track = PlaylistTrack(str(audio), "Benchmark", duration_seconds=args.seconds + args.warmup + 10)
+        if args.lyrics:
+            lyrics = Source(SourceType.LYRICS, "Bilingual karaoke", x=80, y=20,
+                            width=max(1, args.width - 160), height=max(1, args.height - 40), font_size=32,
+                            fill_color="#00000000", z_index=10, subtitle_animation="glow",
+                            subtitle_karaoke_enabled=True, subtitle_karaoke_lines=[0])
+            store.add(lyrics)
+            scene.addItem(SourceItem(lyrics))
+            track.lyrics = [{"start": i * 2, "end": i * 2 + 2,
+                             "text": f"{i}: 음악이 흐르는 밤\nMusic brings us together"}
+                            for i in range(ceil(track.duration_seconds / 2))]
         preview = ExportPreviewDialog(scene, [track], Translator(), source_store=store,
                                       preferred_backend=args.backend)
         preview.audio_output.setMuted(True)
@@ -254,6 +265,7 @@ def preview_benchmark(args) -> dict:
                 "python": platform.python_version(), "qt": PySide6.__version__,
                 "numpy": np.__version__, "platform": platform.platform(),
                 "width": args.width, "height": args.height, "warmup_seconds": args.warmup,
+                "lyrics": args.lyrics,
                 "gpu_backend": surface.backend_info.label if surface and surface.backend_info else None,
                 "seconds": elapsed, "target_fps": args.fps,
                 "presentation_callbacks": presentation_count,
@@ -446,6 +458,7 @@ def main() -> int:
     parser.add_argument("--width", type=int, default=1920)
     parser.add_argument("--height", type=int, default=1080)
     parser.add_argument("--analysis-workers", type=int, choices=(0, 1, 2, 4), default=0)
+    parser.add_argument("--lyrics", action="store_true", help="Include bilingual Glow/Karaoke in the real preview")
     parser.add_argument("--audio-seconds", type=int, default=600)
     parser.add_argument("--cancel-after-ms", type=int, default=0)
     args = parser.parse_args()

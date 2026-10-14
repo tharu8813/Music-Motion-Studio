@@ -90,6 +90,10 @@ class UpdateAvailableDialog(QDialog):
             "다운로드 및 업데이트" if korean else "Download and update"
         )
         self.update_button.setObjectName("primaryButton")
+        self.update_button.setToolTip(
+            "작업을 자동으로 보관한 뒤 설치와 재실행까지 진행합니다. 추가 확인 버튼을 누를 필요가 없습니다."
+            if korean else "Backs up your workspace, installs and restarts automatically without further confirmation."
+        )
         self.update_button.setEnabled(release.can_install and not up_to_date)
         self.update_button.clicked.connect(self.accept)
         dismiss_text = (
@@ -150,8 +154,8 @@ class UpdateDownloadDialog(QDialog):
         self.percent = QLabel("0%")
         self.percent.setObjectName("panelTitle")
         self.detail = QLabel(
-            "GitHub 릴리즈에서 설치 파일을 준비하고 있습니다."
-            if korean else "Preparing the installer from GitHub Releases."
+            "설치 파일을 다운로드하고 검증합니다. 완료되면 작업을 보관하고 자동으로 설치·재실행합니다."
+            if korean else "Downloading and verifying Setup. Your workspace will be backed up before automatic installation and restart."
         )
         self.detail.setWordWrap(True)
         self.detail.setObjectName("mutedLabel")

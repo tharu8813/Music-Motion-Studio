@@ -32,6 +32,8 @@ class HistoryService(QObject):
 
     def commit(self, snapshot: dict[str, Any]) -> None:
         """Append a state only when it differs from the active history entry."""
+        if self._index >= 0 and self._snapshots[self._index] == snapshot:
+            return
         copied = self._copy(snapshot)
         if self._index >= 0 and self._snapshots[self._index] == copied:
             return

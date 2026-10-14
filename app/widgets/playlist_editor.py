@@ -5,7 +5,7 @@ from __future__ import annotations
 from html import escape
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, Qt, QTimer, Signal
+from PySide6.QtCore import QItemSelectionModel, QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QContextMenuEvent, QDragEnterEvent, QDragLeaveEvent, QDragMoveEvent,
     QDropEvent, QKeyEvent, QMouseEvent,
@@ -282,7 +282,7 @@ class PlaylistList(QListWidget):
             return
         if event.key() in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
             current = self.currentItem()
-            if current is not None:
+            if current is not None and not current.isHidden():
                 self.details_requested.emit(str(current.data(Qt.ItemDataRole.UserRole)))
                 event.accept()
                 return
@@ -567,9 +567,11 @@ class PlaylistEditor(QFrame):
         korean = self.translator.is_korean
         self.title.setText(self.translator.text("playlist"))
         self.search_edit.setPlaceholderText(
-            "제목, 아티스트 또는 앨범 검색…" if korean
-            else "Search title, artist, or album…"
+            "제목, 아티스트, 앨범 또는 파일명 검색…" if korean
+            else "Search title, artist, album, or filename…"
         )
+        self.search_edit.setAccessibleName("곡 검색" if korean else "Search tracks")
+        self.list_widget.setAccessibleName("플레이리스트 곡 목록" if korean else "Playlist tracks")
         self.add_button.setText("+ 음악 추가" if korean else "+ Add music")
         self.empty_add_button.setText("음악 파일 선택…" if korean else "Choose music files…")
         self.order_editor_button.setText("순서 편집" if korean else "Reorder")
@@ -591,6 +593,8 @@ class PlaylistEditor(QFrame):
         self.remove_button.setText("삭제" if korean else "Remove")
         self.up_button.setToolTip("위로 이동" if korean else "Move up")
         self.down_button.setToolTip("아래로 이동" if korean else "Move down")
+        self.up_button.setAccessibleName(self.up_button.toolTip())
+        self.down_button.setAccessibleName(self.down_button.toolTip())
         self.empty_label.setText(
             "음악 파일이나 M3U8 플레이리스트를 추가하거나 이 영역으로 끌어오세요."
             if korean else "Add music files or an M3U8 playlist, or drop them in this area."
@@ -634,7 +638,7 @@ class PlaylistEditor(QFrame):
         )
 
     def refresh(self) -> None:
-        """Rebuild rows from service order and update inclusion summary."""
+        """Reuse rows while filtering and appending; replace only changed rows."""
         selected_ids = set(self._selected_ids())
         current_id = (
             str(self.list_widget.currentItem().data(Qt.ItemDataRole.UserRole))
@@ -642,6 +646,8 @@ class PlaylistEditor(QFrame):
         )
         scroll_position = self.list_widget.verticalScrollBar().value()
         self._ignore_order_signal = True
+        updates_enabled = self.list_widget.updatesEnabled()
+        self.list_widget.setUpdatesEnabled(False)
         try:
             # A service refresh can arrive while an external drag is still over
             # the list. Clear references to soon-to-be-deleted TrackRow widgets
@@ -649,12 +655,13 @@ class PlaylistEditor(QFrame):
             self.list_widget._clear_drop_feedback()
             all_tracks = self.service.tracks
             query = self.search_edit.text().strip().casefold()
-            tracks = [
-                track for track in all_tracks
+            visible_ids = {
+                track.id for track in all_tracks
                 if not query or query in " ".join(
                     (track.title, track.artist, track.album, Path(track.file_path).name)
                 ).casefold()
-            ]
+            }
+            tracks = all_tracks
             track_numbers = {
                 track.id: number for number, track in enumerate(all_tracks, start=1)
             }
@@ -674,38 +681,44 @@ class PlaylistEditor(QFrame):
             # edit): rebuild only the rows that look different, keep the rest.
             listed = [self.list_widget.item(row).data(Qt.ItemDataRole.UserRole)
                       for row in range(self.list_widget.count())]  # a drag may have moved them
-            in_place = [track.id for track in tracks] == self._row_ids == listed
+            track_ids = [track.id for track in tracks]
+            in_place = listed == self._row_ids == track_ids[:len(listed)]
             if not in_place:
                 self.list_widget.clear()
             for index, track in enumerate(tracks):
-                if in_place and signatures[index] == self._row_signatures[index]:
+                existing = in_place and index < len(listed)
+                if existing:
+                    item = self.list_widget.item(index)
+                    item.setHidden(track.id not in visible_ids)
+                if existing and signatures[index] == self._row_signatures[index]:
                     continue
                 row = TrackRow(
                     track_numbers[track.id], track, self.translator.is_korean,
                     analysis=self._analyses.get(track.id),
                     transition=self._transition_chip(previous_enabled.get(track.id), track),
                 )
-                if in_place:
+                if existing:
                     item = self.list_widget.item(index)
                 else:
                     item = QListWidgetItem()
                     item.setData(Qt.ItemDataRole.UserRole, track.id)
                     self.list_widget.addItem(item)
+                    item.setHidden(track.id not in visible_ids)
                     if track.id in selected_ids:
                         item.setSelected(True)
                     if track.id == current_id:
-                        self.list_widget.setCurrentItem(item)
+                        self.list_widget.setCurrentItem(item, QItemSelectionModel.SelectionFlag.NoUpdate)
                 item.setSizeHint(row.sizeHint())
                 self.list_widget.setItemWidget(item, row)
             self._row_ids = [track.id for track in tracks]
             self._row_signatures = signatures
-            self.list_widget.setVisible(bool(tracks))
-            self.empty_state.setVisible(not tracks)
+            self.list_widget.setVisible(bool(visible_ids))
+            self.empty_state.setVisible(not visible_ids)
             self.empty_add_button.setVisible(not query)  # "no search results" needs no add button
             enabled = sum(track.enabled for track in all_tracks)
             korean = self.translator.is_korean
-            filtered = f" · {len(tracks)}곡 표시" if korean and query else (
-                f" · {len(tracks)} shown" if query else ""
+            filtered = f" · {len(visible_ids)}곡 표시" if korean and query else (
+                f" · {len(visible_ids)} shown" if query else ""
             )
             self.summary.setText(
                 (f"{len(all_tracks)}곡 중 {enabled}곡 사용{filtered}" if korean else
@@ -729,10 +742,12 @@ class PlaylistEditor(QFrame):
             )
         finally:
             self._ignore_order_signal = False
+            self.list_widget.setUpdatesEnabled(updates_enabled)
         self._update_action_state()
 
     def _selected_ids(self) -> list[str]:
-        return [item.data(Qt.ItemDataRole.UserRole) for item in self.list_widget.selectedItems()]
+        return [item.data(Qt.ItemDataRole.UserRole) for item in self.list_widget.selectedItems()
+                if not item.isHidden()]
 
     def duplicate_selected(self) -> None:
         self.service.duplicate(self._selected_ids())
@@ -842,5 +857,7 @@ class PlaylistEditor(QFrame):
         self.duplicate_button.setEnabled(bool(selected))
         self.details_button.setEnabled(len(selected) == 1)
         self.remove_button.setEnabled(bool(selected))
-        self.up_button.setEnabled(len(selected) == 1)
-        self.down_button.setEnabled(len(selected) == 1)
+        order = [track.id for track in self.service.tracks]
+        index = order.index(selected[0]) if len(selected) == 1 and selected[0] in order else -1
+        self.up_button.setEnabled(index > 0)
+        self.down_button.setEnabled(0 <= index < len(order) - 1)

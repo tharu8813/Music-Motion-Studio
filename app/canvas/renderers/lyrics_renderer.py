@@ -4,7 +4,7 @@ from math import pi, sin
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFontMetricsF, QPainter, QPen
+from PySide6.QtGui import QColor, QFontMetricsF, QPainter, QPen, QTextLayout, QTextOption
 
 from app.animation.lyrics import context_style_at_distance, cue_effect_pose, role_style, stagger_progress
 from app.animation.curves import music_reactive_pose
@@ -29,12 +29,15 @@ def _mix(start: QColor, end: QColor, amount: float) -> QColor:
     return QColor.fromRgbF(*(a + (b - a) * amount for a, b in zip(start.getRgbF(), end.getRgbF())))
 
 
-def _line_style(source, role: str, line: dict) -> dict:
+def _line_style(source, role: str, line: dict, karaoke_line=True) -> dict:
     style = role_style(source, role)
     style["color"] = (
         source.subtitle_accent_color if role == "current" and source.subtitle_accent_enabled
+        and not source.subtitle_karaoke_enabled
         else line.get("color", source.outline_color)
     )
+    if source.subtitle_karaoke_enabled and karaoke_line:
+        style["color"] = source.subtitle_accent_color if role == "previous" else pending_color(source).name(QColor.NameFormat.HexArgb)
     style["size"] = float(line.get(
         "font_size", source.font_size + float(line.get("font_size_offset", 0)),
     ))
@@ -42,6 +45,16 @@ def _line_style(source, role: str, line: dict) -> dict:
     style["font_weight"] = line.get("font_weight", source.font_weight)
     style["italic"] = line.get("italic", source.text_italic)
     return style
+
+
+def pending_color(source) -> QColor:
+    """Dim RGB channels, keeping opacity and the completed lyric's hue unchanged."""
+    if source.subtitle_karaoke_pending_mode == "custom":
+        return QColor(source.subtitle_karaoke_pending_color)
+    color = QColor(source.subtitle_accent_color)
+    brightness = source.subtitle_karaoke_pending_brightness
+    return QColor.fromRgbF(color.redF() * brightness, color.greenF() * brightness,
+                          color.blueF() * brightness, color.alphaF())
 
 
 def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
@@ -120,6 +133,7 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         ) else t
         line_index = item._subtitle_line_style_indices[index] if index < len(item._subtitle_line_style_indices) else index
         overrides = source.subtitle_line_styles[line_index] if line_index < len(source.subtitle_line_styles) else {}
+        karaoke_line = not source.subtitle_karaoke_lines or line_index in source.subtitle_karaoke_lines
         if untimed:
             # A fallback message has no cue role. Keep subtitle-role blur,
             # opacity and typography from treating it as an upcoming lyric.
@@ -129,9 +143,9 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
                 "scale": 1.0, "opacity": 1.0, "blur": 0.0,
             }
         else:
-            previous = _line_style(source, "previous", overrides)
-            active = _line_style(source, "current", overrides)
-            upcoming = _line_style(source, "next", overrides)
+            previous = _line_style(source, "previous", overrides, karaoke_line)
+            active = _line_style(source, "current", overrides, karaoke_line)
+            upcoming = _line_style(source, "next", overrides, karaoke_line)
         if slot < anchor_slot:
             span = source.subtitle_context_lines if source.subtitle_context_lines >= 0 else anchor_slot - bool(leaving)
             distance = anchor_slot - slot - (1.0 - t if previous_count else 0.0)
@@ -141,6 +155,9 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
             distance = slot - anchor_slot + (1.0 - p if previous_count else 0.0)
             upcoming = context_style_at_distance(upcoming, active, distance, span, source.subtitle_next_distance_fade)
         is_current = has_current and current <= index < current + count
+        karaoke_current = (is_current and source.subtitle_karaoke_enabled and karaoke_line
+                           and inner < len(item._subtitle_word_reveal))
+        karaoke_alpha = float(active["opacity"]) * item._subtitle_emphasis if karaoke_current else 0.0
         was_current = 0 <= boundary - previous_count <= index < boundary
         if is_current:
             start, end = (upcoming, active) if transitioning else (previous, active)
@@ -170,7 +187,7 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
             else:
                 span = source.subtitle_context_lines + 1 if source.subtitle_context_lines >= 0 else held_slot + 1
             waiting = context_style_at_distance(
-                _line_style(source, role, overrides), active, distance, span,
+                _line_style(source, role, overrides, karaoke_line), active, distance, span,
                 source.subtitle_next_distance_fade if role == "next" else source.subtitle_previous_distance_fade,
             )
             amount = intro.opacity
@@ -201,7 +218,7 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         glow *= 1 - waiting_amount
         reveal *= 1 - waiting_amount
         alpha *= 1 + (opacity - 1) * (1 - waiting_amount)
-        if alpha <= _VISIBLE:
+        if max(alpha, karaoke_alpha) <= _VISIBLE:
             continue
 
         scroll = source.subtitle_scroll_offset
@@ -287,7 +304,51 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
             painter.setOpacity(base_opacity * sharp)
             painter.setPen(color)
             item._draw_text(painter, row, flags, line)
+        # Sung words follow the audio clock even while their row fades or unblurs.
+        if karaoke_alpha > _VISIBLE:
+            painter.setOpacity(base_opacity * karaoke_alpha)
+            paint_word_reveal(item, painter, row, flags, line, item._subtitle_word_reveal[inner])
         painter.restore()
+    painter.restore()
+
+
+def paint_word_reveal(item, painter: QPainter, row: QRectF, flags, text: str, revealed: float) -> None:
+    """Reuse shaped glyphs and cursor positions while only the clip advances."""
+    if revealed <= 0:
+        return
+    key = (painter.font().key(), text, row.width(), row.height(), str(flags), item._line_spacing(flags))
+    cached = item._lyric_reveal_cache.get(key)
+    if cached is None:
+        if len(item._lyric_reveal_cache) >= 64:
+            item._lyric_reveal_cache.clear()
+        layout = QTextLayout(text, painter.font())
+        option = QTextOption()
+        option.setAlignment(flags & (Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignRight
+                                     | Qt.AlignmentFlag.AlignHCenter))
+        option.setWrapMode(QTextOption.WrapMode.NoWrap)
+        layout.setTextOption(option)
+        layout.beginLayout()
+        line = layout.createLine()
+        line.setLineWidth(row.width())
+        layout.endLayout()
+        positions, cursor = [line.cursorToX(0)[0]], 0
+        for char in text:
+            cursor += 2 if ord(char) > 0xFFFF else 1
+            positions.append(line.cursorToX(cursor)[0])
+        path = item._text_layout_path(painter, QRectF(0, 0, row.width(), row.height()), flags, text)
+        cached = (tuple(positions), path)
+        item._lyric_reveal_cache[key] = cached
+    positions, path = cached
+    whole = min(len(text), int(revealed))
+    left, boundary = positions[0], positions[whole]
+    if whole < len(text):
+        boundary += (positions[whole + 1] - boundary) * (revealed - whole)
+    painter.save()
+    painter.translate(row.topLeft())
+    if whole < len(text):
+        painter.setClipRect(QRectF(min(left, boundary), 0, abs(boundary - left), row.height()),
+                            Qt.ClipOperation.IntersectClip)
+    painter.fillPath(path, QColor(item.source.subtitle_accent_color))
     painter.restore()
 
 

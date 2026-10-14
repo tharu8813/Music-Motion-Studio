@@ -34,10 +34,12 @@ _CACHE_FILE_PATTERNS = ("*.json", "*.tmp")
 
 
 def cache_directories() -> tuple[Path, ...]:
-    """Every on-disk AutoMix analysis cache (rhythm, structure)."""
+    """Every managed audio-analysis cache (rhythm, structure, lyric words)."""
     from app.automix.structure.cache import StructureAnalysisCache
 
-    return AnalysisCache.default_root(), StructureAnalysisCache.default_root()
+    from app.services.lyrics_alignment_service import _AlignmentCache
+
+    return AnalysisCache.default_root(), StructureAnalysisCache.default_root(), _AlignmentCache.default_root()
 
 
 def _cache_files(directories: tuple[Path, ...]) -> list[Path]:

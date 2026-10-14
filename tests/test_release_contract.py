@@ -143,6 +143,16 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('PlaylistCanvas.Project\\shell\\open\\command', installer)
         self.assertIn('""%1""', installer)
 
+    def test_updates_use_per_user_install_and_only_restart_after_success(self) -> None:
+        installer = (ROOT / "setup.iss").read_text(encoding="utf-8")
+        self.assertIn("PrivilegesRequired=lowest", installer)
+        self.assertIn(r"DefaultDirName={localappdata}\Programs\{#MyAppName}", installer)
+        self.assertNotIn("UnInstallOldVersion", installer)
+        self.assertNotIn("taskkill", installer)
+        self.assertIn("WaitForSingleObject(ParentHandle, 120000)", installer)
+        self.assertIn("Flags: nowait runasoriginaluser; Check: IsAutomaticUpdate", installer)
+        self.assertIn("--resume-update", installer)
+
 
 if __name__ == "__main__":
     unittest.main()

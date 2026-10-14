@@ -42,6 +42,14 @@ class ApplicationLaunchTests(unittest.TestCase):
         window.show_startup_dialog.assert_called_once_with()
         window.open_project_path.assert_not_called()
 
+    def test_update_restart_restores_its_snapshot_without_a_chooser(self) -> None:
+        window = MagicMock()
+        snapshot = Path("한글 작업/update.recovery.json")
+        self.assertTrue(open_initial_workspace(window, snapshot, update_recovery=snapshot))
+        window._offer_recovery.assert_called_once_with(snapshot_path=snapshot, confirm=False)
+        window.show_startup_dialog.assert_not_called()
+        window.open_project_path.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

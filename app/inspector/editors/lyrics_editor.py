@@ -44,8 +44,13 @@ class LyricsSection(FieldSection):
         ("subtitle_previous_opacity", "sub_prev"),
         ("subtitle_previous_blur", "sub_prev"),
         ("subtitle_current_scale", "sub_current"),
+        ("subtitle_karaoke_enabled", "sub_current"),
+        ("subtitle_karaoke_offset", "sub_current"),
         ("subtitle_accent_enabled", "sub_current"),
         ("subtitle_accent_color", "sub_current"),
+        ("subtitle_karaoke_pending_mode", "sub_current"),
+        ("subtitle_karaoke_pending_color", "sub_current"),
+        ("subtitle_karaoke_pending_brightness", "sub_current"),
         ("subtitle_timing_offset", None),
     )
 
@@ -60,7 +65,12 @@ class LyricsSection(FieldSection):
         "subtitle_timing_offset": ("가사 시간 보정 (초)", "Lyric timing offset (s)"),
         "subtitle_current_scale": ("현재 줄 크기", "Current line size"),
         "subtitle_accent_enabled": ("현재 줄 강조 색", "Current line accent"),
-        "subtitle_accent_color": ("강조 색", "Accent color"),
+        "subtitle_karaoke_enabled": ("단어별 노래방 표시 (베타)", "Word karaoke highlight (Beta)"),
+        "subtitle_karaoke_offset": ("단어 강조 보정 (초)", "Word highlight offset (s)"),
+        "subtitle_accent_color": ("도달한 가사 색 / 강조 색", "Reached lyric / accent color"),
+        "subtitle_karaoke_pending_mode": ("미도달 가사 표시", "Pending lyric appearance"),
+        "subtitle_karaoke_pending_color": ("미도달 가사 색", "Pending lyric color"),
+        "subtitle_karaoke_pending_brightness": ("미도달 밝기", "Pending brightness"),
         "subtitle_line_styles": ("줄별 스타일", "Per-line styles"),
     }
 
@@ -82,7 +92,12 @@ class LyricsSection(FieldSection):
         "timing_offset": ("모든 곡의 가사를 초 단위로 앞당기거나 늦추는 공통 보정입니다. 곡별 보정값과 합산됩니다.", "Global timing adjustment for lyrics on every track. It is added to each track's individual offset."),
         "current_scale": ("앞뒤 가사 줄에 비해 현재 줄을 얼마나 크게 표시할지 정합니다. 1이면 모든 줄이 같은 크기입니다.", "How much larger the current line is than the surrounding lines. 1 keeps every line the same size."),
         "accent_enabled": ("현재 줄만 별도의 강조 색으로 표시합니다. 줄이 바뀔 때 색이 부드럽게 넘어갑니다.", "Shows the current line in its own accent color, blending smoothly as lines change."),
-        "accent_color": ("현재 가사 줄에 사용할 강조 색입니다.", "Accent color used for the current lyric line."),
+        "karaoke_enabled": ("베타 버전 기능입니다. 재생 시간에 맞춰 단어별로 강조 색을 채웁니다. 기존 단어 시간은 유지하고 빠진 단어는 주변 단어와 줄 시간으로 추정합니다. 오디오 분석 없이도 사용할 수 있습니다.", "Beta feature. Fills words during playback. Preserves existing word times and estimates missing words from surrounding anchors and cue duration. Works without audio analysis."),
+        "karaoke_offset": ("단어 강조만 보정합니다. 양수는 더 일찍, 음수는 더 늦게 채웁니다. 예: 0.20은 0.2초 앞당깁니다. 가사 줄 전환과 간주 시간은 유지합니다.", "Adjusts word highlighting only. Positive fills earlier; negative fills later. For example, 0.20 advances it by 0.2 seconds. Cue transitions and interlude timing stay unchanged."),
+        "accent_color": ("노래방 표시에서 도달한 단어에 사용할 색입니다. 노래방 표시를 끄면 현재 줄 강조 색으로 사용합니다.", "Color for reached words in karaoke mode, or the current-line accent when karaoke is off."),
+        "karaoke_pending_mode": ("아직 부르지 않은 가사를 별도 색상으로 표시하거나, 도달한 가사 색의 밝기만 낮춥니다.", "Use a separate color for pending lyrics, or dim the reached lyric color."),
+        "karaoke_pending_color": ("별도 색상 방식에서 아직 도달하지 않은 단어와 다음 가사에 사용할 색입니다.", "Separate color for unreached words and upcoming lyrics."),
+        "karaoke_pending_brightness": ("도달한 가사 색 대비 밝기입니다. 0은 검정, 1은 도달한 가사와 같은 밝기입니다. 불투명도는 유지합니다.", "Brightness relative to the reached lyric color: 0 is black, 1 is unchanged. Opacity is preserved."),
         "line_styles": ("다중행 가사 큐의 2번째 줄부터 줄 위치별 색상과 글꼴을 설정합니다.", "Sets color and typography from the second physical line inside each multi-line lyric cue."),
     }
 
@@ -101,6 +116,9 @@ class LyricsSection(FieldSection):
         context_lines.setRange(-1, 6)  # -1 = automatic
         next_lines = QSpinBox()
         next_lines.setRange(-1, 6)
+        pending_mode = QComboBox()
+        pending_mode.addItem("Separate color", "custom")
+        pending_mode.addItem("Dim reached color", "dim")
         self.widgets: dict[str, QWidget] = {
             "subtitle_animation": animation,
             "subtitle_animation_duration": animation_duration,
@@ -110,8 +128,13 @@ class LyricsSection(FieldSection):
             "subtitle_previous_opacity": spin(0.05, 0.9, 0.05),
             "subtitle_previous_blur": spin(0, 8, 0.5),
             "subtitle_current_scale": spin(1.0, 2.0, 0.02),
+            "subtitle_karaoke_enabled": QCheckBox(),
+            "subtitle_karaoke_offset": spin(-5, 5, 0.01),
             "subtitle_accent_enabled": QCheckBox(),
             "subtitle_accent_color": color_button(),
+            "subtitle_karaoke_pending_mode": pending_mode,
+            "subtitle_karaoke_pending_color": color_button(),
+            "subtitle_karaoke_pending_brightness": spin(0, 1, 0.05),
             "subtitle_timing_offset": spin(-5.0, 5.0, 0.01),
         }
 
@@ -125,12 +148,20 @@ class LyricsSection(FieldSection):
         return {
             "subtitle_previous_opacity": shows_previous,
             "subtitle_previous_blur": shows_previous,
-            "subtitle_accent_color": source.subtitle_accent_enabled,
+            "subtitle_accent_color": source.subtitle_accent_enabled or source.subtitle_karaoke_enabled,
+            "subtitle_karaoke_offset": source.subtitle_karaoke_enabled,
+            "subtitle_karaoke_pending_mode": source.subtitle_karaoke_enabled,
+            "subtitle_karaoke_pending_color": source.subtitle_karaoke_enabled and source.subtitle_karaoke_pending_mode == "custom",
+            "subtitle_karaoke_pending_brightness": source.subtitle_karaoke_enabled and source.subtitle_karaoke_pending_mode == "dim",
         }
 
     def retranslate(self, korean: bool) -> None:
         self.widgets["subtitle_animation_duration"].setSuffix(" 초" if korean else " s")
         self.widgets["subtitle_accent_enabled"].setText("사용" if korean else "Enabled")
+        self.widgets["subtitle_karaoke_enabled"].setText("자동 표시" if korean else "Automatic")
+        mode = self.widgets["subtitle_karaoke_pending_mode"]
+        mode.setItemText(0, "별도 색상" if korean else "Separate color")
+        mode.setItemText(1, "도달한 색의 밝기 낮추기" if korean else "Dim reached color")
         automatic = "자동" if korean else "Auto"
         self.widgets["subtitle_context_lines"].setSpecialValueText(automatic)
         self.widgets["subtitle_next_lines"].setSpecialValueText(automatic)

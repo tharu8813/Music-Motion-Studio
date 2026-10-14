@@ -19,7 +19,7 @@ from app.preview.album_art import AMBIENT_FLOW_HZ
 from app.preview.canvas_snapshot import CanvasSnapshot
 from app.preview.frame_state import (
     resolve_edge_animation, resolve_lyrics_cue_state, resolve_lyrics_intro_state, resolve_now_playing_exit_state,
-    resolve_timeline_window_phase,
+    resolve_lyrics_word_reveal, resolve_timeline_window_phase,
 )
 from app.preview.text_template import expand_track_template
 from app.services.lyrics_intro_service import instrumental_spans
@@ -207,6 +207,7 @@ class ExportCanvasCapturer:
                 "lyrics", id(sample.track), cue_state.cue_index, cue_state.active_cue_index,
                 transition, cue_state.release_progress,
                 intro_state,
+                resolve_lyrics_word_reveal(sample.track, source, sample.elapsed_seconds, cue_state, intro_state),
             )
         elif source.source_type is SourceType.TRACK_LIST:
             content_state = ("track_list", sample.track_number)

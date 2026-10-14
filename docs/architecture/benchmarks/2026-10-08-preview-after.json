@@ -1,0 +1,9 @@
+{
+  "fixture": "CPU Qt preview, 1280x720, 2000 bilingual cues, 60 drag moves",
+  "drag_burst_ms": 21.90709998831153,
+  "preview_refresh_calls": 1,
+  "audio_seek_requests": 1,
+  "final_seconds": 95.96,
+  "expected_seconds_approx": 96.0,
+  "playing_after_release": true
+}

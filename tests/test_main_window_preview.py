@@ -33,6 +33,7 @@ from app.dialogs.export_preview_dialog import (
     OverlayFrameWorker,
     VideoDurationProbeWorker,
     _BLENDED_AUDIO_TRACK_INDEX,
+    _LIVE_MIX_TRACK_INDEX,
     _transition_display_regions,
 )
 from app.controllers.progressive_automix_controller import ProgressiveAutoMixController
@@ -2189,11 +2190,13 @@ class MainWindowPreviewTests(MainWindowTestCase):
                 self.assertEqual(preview.progressive_swap_count, 1)
 
                 # Past the partial mix, the sequential tail is per-track audio at the mix's level.
-                self._play_at(preview, covered + 1.0)
-                preview._start_audio_at_playhead()
-                self.assertEqual(Path(set_source.call_args.args[0].toLocalFile()).name, "c.wav")
-                self.assertEqual(preview._active_track_index, 2)
-                self.assertAlmostEqual(preview.audio_output.volume(),
+                with patch.object(preview._live_mix, "sync") as live_sync:
+                    self._play_at(preview, covered + 1.0)
+                    preview._start_audio_at_playhead()
+                self.assertEqual(preview._active_track_index, _LIVE_MIX_TRACK_INDEX)
+                self.assertIs(live_sync.call_args.args[0], plans[2])
+                self.assertAlmostEqual(live_sync.call_args.args[1], covered + 1.0)
+                self.assertAlmostEqual(live_sync.call_args.args[3],
                                        preview.volume_slider.value() / 100.0 * 0.5, places=3)
             self.assertLess(first.timeline_start, covered)
 

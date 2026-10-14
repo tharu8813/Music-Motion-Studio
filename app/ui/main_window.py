@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import os
 from collections.abc import Callable
 from dataclasses import replace
 import json
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -108,7 +110,10 @@ from app.services.lyrics_service import (
 from app.services.theme_service import Theme, ThemeService
 from app.services.source_store import SourceStore
 from app.models.source_registry import source_registry
-from app.services.playlist_service import AUDIO_EXTENSIONS, AudioImportCandidate, PlaylistService
+from app.services.playlist_service import (
+    AUDIO_EXTENSIONS, AudioImportCandidate, AudioImportWorker, PlaylistService,
+)
+from app.utils.qt_worker_lifecycle import stop_qthread_now
 from app.services.playlist_export_service import PlaylistExportError, PlaylistExportService
 from app.services.m3u_playlist import (
     PLAYLIST_FILE_EXTENSIONS,
@@ -127,6 +132,7 @@ from app.widgets.source_template_button import SourceTemplateButton
 from app.services.update_service import (
     GitHubUpdateService,
     ReleaseInfo,
+    automatic_setup_arguments,
     normalized_version,
 )
 from app.services.update_worker import UpdateCheckWorker, UpdateDownloadWorker
@@ -437,6 +443,7 @@ class MainWindow(QMainWindow):
         self._update_download_dialog: UpdateDownloadDialog | None = None
         self._downloaded_update_path: Path | None = None
         self._update_install_authorized = False
+        self._pending_update_installer: Path | None = None
         self._source_buttons: dict[SourceType, QPushButton] = {}
         self._source_card_groups: dict[SourceType, QWidget] = {}
         self._source_variant_containers: dict[SourceType, QWidget] = {}
@@ -1619,6 +1626,7 @@ class MainWindow(QMainWindow):
         self.inspector.animation_preview_requested.connect(
             self._preview_source_animation
         )
+        self.inspector.karaoke_requested.connect(self._configure_karaoke)
         self.inspector_stack = QStackedWidget()
         self.inspector_stack.setObjectName("inspectorWorkspaceStack")
         self.inspector_stack.setSizePolicy(
@@ -2541,11 +2549,15 @@ class MainWindow(QMainWindow):
             ffmpeg_executable = FFmpegRenderer.find_executable(self.settings_service.current.ffmpeg_path or None)
         except FFmpegNotFoundError:
             ffmpeg_executable = None  # the dialog plays the original, without EQ
+        lyrics_source = self.store.selected
+        if lyrics_source is None or lyrics_source.source_type is not SourceType.LYRICS:
+            lyrics_source = next((source for source in self.store.sources() if source.source_type is SourceType.LYRICS), None)
         dialog = TrackDetailsDialog(
             track, self.translator, self, content_lyrics=content_lyrics,
             analysis=self.automix_analyses.get(track_id),
             structure=self.automix_structures.get(track_id),
             ffmpeg_executable=ffmpeg_executable,
+            karaoke_source=lyrics_source,
         )
         controller = self.track_analysis_controller
         dialog.analysis_requested.connect(lambda: self._analyze_track(track_id, dialog))
@@ -2572,6 +2584,37 @@ class MainWindow(QMainWindow):
                 volume_db=dialog.selected_volume_db,
                 eq_db=dialog.selected_eq_db,
             )
+            if dialog.selected_karaoke_settings:
+                if lyrics_source is None:
+                    self._add_source(SourceType.LYRICS)
+                    lyrics_source = self.store.selected
+                if lyrics_source is not None:
+                    self.store.update(lyrics_source.id, **dialog.selected_karaoke_settings)
+
+    def _configure_karaoke(self) -> None:
+        """One entry point: align lyrics, set colors, enable display and save together."""
+        from app.dialogs.lyrics_alignment_dialog import LyricsAlignmentDialog
+        selected_ids = set(self.playlist_editor._selected_ids())
+        tracks = self.playlist_service.tracks
+        track = next((entry for entry in tracks if entry.id in selected_ids), None)
+        if track is None:
+            track = next((entry for entry in tracks if entry.enabled and entry.lyrics), None)
+        source = self.store.selected
+        korean = self.translator.is_korean
+        if track is None or not track.lyrics:
+            QMessageBox.information(self, "자동 노래방" if korean else "Automatic karaoke",
+                "먼저 곡에 가사를 연결하세요. 플레이리스트에서 곡을 두 번 클릭한 뒤 가사 파일을 불러올 수 있습니다."
+                if korean else "Attach lyrics first. Double-click a playlist track to load a lyric file.")
+            return
+        dialog = LyricsAlignmentDialog(track, self.settings_service.current.ffmpeg_path or None, korean, self, source=source)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.playlist_service.update_track(track.id, lyrics=dialog.result_data.cues)
+            if source is not None and source.source_type is SourceType.LYRICS:
+                self.store.update(source.id, **dialog.karaoke_settings())
+            self.statusBar().showMessage("노래방 가사와 색상을 적용했습니다." if korean else "Applied karaoke lyrics and colors.", 5000)
+        elif dialog.error:
+            QMessageBox.warning(self, "자동 노래방" if korean else "Automatic karaoke", dialog.error)
+        dialog.deleteLater()
 
     def _choose_audio_files(self) -> None:
         """Let the user select audio files or M3U8 playlists for the playlist."""
@@ -2718,7 +2761,7 @@ class MainWindow(QMainWindow):
         ``review`` sees the inspected songs first and can cancel the whole import
         (the M3U8 preview), before the missing-metadata step.
         """
-        if not paths:
+        if not paths or getattr(self, "_audio_import_worker", None) is not None:
             return 0, [], []
         korean = self.translator.is_korean
         self.activity_progress.begin(
@@ -2726,9 +2769,8 @@ class MainWindow(QMainWindow):
             detail=(f"오디오 {len(paths)}개 분석 중" if korean
                     else f"Inspecting {len(paths)} audio file(s)"),
         )
-        QApplication.processEvents()
         try:
-            candidates = self.playlist_service.inspect_files(paths)
+            candidates = self._inspect_audio_files(paths)
             if not candidates:
                 return 0, [], []
             if review is not None and not review(candidates):
@@ -2757,6 +2799,71 @@ class MainWindow(QMainWindow):
         finally:
             self.activity_progress.finish("content_add")
 
+    def _inspect_audio_files(self, paths: list[str] | list[Path]) -> list[AudioImportCandidate]:
+        """Keep metadata/FFprobe and cover decoding off the GUI thread."""
+        korean = self.translator.is_korean
+        worker = AudioImportWorker(self.playlist_service, paths)
+        loop = QEventLoop()
+        dialog = QProgressDialog(
+            "음악 파일을 확인하고 있습니다…" if korean else "Inspecting music files…",
+            "취소" if korean else "Cancel", 0, 1000, self,
+        )
+        dialog.setWindowTitle("음악 추가" if korean else "Adding music")
+        dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        dialog.setMinimumDuration(250)
+        dialog.setAutoClose(False)
+        dialog.setAutoReset(False)
+
+        def on_progress(done: int, total: int, name: str, stage: str) -> None:
+            if worker.cancel_event.is_set():
+                return
+            label = ("앨범 커버 준비" if korean else "Preparing album covers") if stage == "covers" else (
+                "곡 정보 확인" if korean else "Reading track information"
+            )
+            detail = f"{label} · {done + 1} / {total} · {name}"
+            fraction = ((1 if stage == "covers" else 0) + done / max(1, total)) / 2
+            dialog.setValue(round(1000 * fraction))
+            dialog.setLabelText(detail)
+            self.activity_progress.update("content_add", 0.7 * fraction, detail)
+
+        worker.progress.connect(on_progress, Qt.ConnectionType.QueuedConnection)
+        worker.finished.connect(loop.quit, Qt.ConnectionType.QueuedConnection)
+        dialog.canceled.connect(worker.cancel_event.set)
+        dialog.canceled.connect(loop.quit)
+        # Exclude input until the delayed modal popup is visible. The parent
+        # stays disabled for the whole inspection, including very fast imports.
+        was_enabled = self.isEnabled()
+        self._audio_import_worker = worker
+        self.setEnabled(False)
+        dialog.setEnabled(True)
+        try:
+            worker.start()
+            loop.exec()
+            worker.progress.disconnect(on_progress)
+            cancelled = worker.cancel_event.is_set()
+            if cancelled:
+                dialog.setCancelButton(None)
+                dialog.setLabelText("취소 중…" if korean else "Cancelling…")
+                dialog.show()
+            stop_qthread_now(worker)
+            if cancelled:
+                self.statusBar().showMessage(
+                    "음악 추가를 취소했습니다." if korean else "Music import cancelled.", 5000,
+                )
+                return []
+            if worker.error is not None:
+                QMessageBox.warning(
+                    self, "음악 추가 오류" if korean else "Music import error", str(worker.error),
+                )
+                return []
+            return worker.candidates
+        finally:
+            dialog.canceled.disconnect()
+            dialog.hide()
+            dialog.deleteLater()
+            self.setEnabled(was_enabled)
+            self._audio_import_worker = None
+
     def _attach_sidecar_lyrics(self, tracks: list) -> list[str]:
         """Attach a same-name lyric file, or prompt for a similar one, per settings.
 
@@ -2768,10 +2875,20 @@ class MainWindow(QMainWindow):
             return []
         korean = self.translator.is_korean
         notes: list[str] = []
+        folder_entries: dict[Path, list[Path]] = {}
         for track in tracks:
             if track.lyrics or track.lyrics_path:
                 continue
-            exact, similar = find_sidecar_lyrics(track.file_path)
+            folder = Path(track.file_path).parent
+            if folder not in folder_entries:
+                try:
+                    folder_entries[folder] = sorted(
+                        entry for entry in folder.iterdir()
+                        if entry.suffix.lower() in LYRICS_EXTENSIONS and entry.is_file()
+                    )
+                except OSError:
+                    folder_entries[folder] = []
+            exact, similar = find_sidecar_lyrics(track.file_path, entries=folder_entries[folder])
             sidecar = None
             if exact:
                 sidecar = exact[0]
@@ -3437,6 +3554,8 @@ class MainWindow(QMainWindow):
 
         ``reinstall`` (Settings → Maintenance) downloads its Setup whatever its version.
         """
+        if self._pending_update_installer is not None or self._update_install_authorized:
+            return
         if self._update_check_worker and self._update_check_worker.isRunning():
             if manual:
                 self.statusBar().showMessage(
@@ -3632,54 +3751,23 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, lambda installer=path: self._launch_update_setup(installer))
 
     def _launch_update_setup(self, installer: Path) -> None:
-        """Resolve unsaved work, start the verified Setup, and close the old version."""
+        """Back up the workspace, install unattended after shutdown, and resume it."""
         korean = self.translator.is_korean
-        if self._animation_preview_active:
-            self.animation_preview_controller.cancel()
-        if ((self._render_worker and self._render_worker.isRunning())
-                or (self._ffmpeg_install_worker and self._ffmpeg_install_worker.isRunning())):
-            QMessageBox.warning(
-                self,
-                "업데이트 대기" if korean else "Update is waiting",
-                "현재 작업을 마친 뒤 도움말 → 업데이트 확인에서 다시 실행해 주세요."
-                if korean else
-                "Finish the current operation, then use Help → Check for updates again.",
+        self._pending_update_installer = installer
+        busy = self.project_controller.saving or self._export_preparation_cancel is not None or any(
+            worker is not None and worker.isRunning() for worker in (
+                self._render_worker, self._ffmpeg_install_worker, self._ffmpeg_catalog_worker,
+                self._update_check_worker, self._update_download_worker,
             )
-            return
-        response = QMessageBox.question(
-            self,
-            "업데이트 설치" if korean else "Install update",
-            "다운로드와 SHA-256 검증을 완료했습니다.\n"
-            "프로그램을 종료하고 Setup을 실행할까요?"
-            if korean else
-            "Download and SHA-256 verification are complete.\n"
-            "Close Playlist Canvas and run Setup now?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
         )
-        if response != QMessageBox.StandardButton.Yes:
+        if busy:
             self.statusBar().showMessage(
-                f"Setup 저장 위치: {installer}"
-                if korean else f"Setup saved to: {installer}",
-                10000,
+                "현재 작업이 끝나면 자동으로 업데이트합니다."
+                if korean else "The update will install automatically after the current operation finishes."
             )
+            QTimer.singleShot(500, self, lambda: self._launch_update_setup(installer))
             return
-        if self._project_dirty:
-            save_response = QMessageBox.warning(
-                self,
-                "저장되지 않은 변경 사항" if korean else "Unsaved changes",
-                "업데이트 전에 프로젝트를 저장할까요?"
-                if korean else "Save the project before updating?",
-                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard
-                | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Save,
-            )
-            if save_response == QMessageBox.StandardButton.Save:
-                self._save_project(wait_for_completion=True)
-                if self._project_dirty:
-                    return
-            elif save_response != QMessageBox.StandardButton.Discard:
-                return
+        self._pending_update_installer = None
         if not installer.is_file():
             QMessageBox.critical(
                 self,
@@ -3688,7 +3776,22 @@ class MainWindow(QMainWindow):
                 if korean else "The downloaded Setup file could not be found.",
             )
             return
-        if not QProcess.startDetached(str(installer), []):
+        if self._animation_preview_active:
+            self.animation_preview_controller.cancel()
+        try:
+            # Wait for older autosaves so they cannot overwrite the final handoff.
+            if self._autosave_worker is not None and self._autosave_worker.isRunning():
+                self._autosave_worker.wait()
+            snapshot = self.autosave.save(
+                self._project_document(), self.current_project_path, dirty=self._project_dirty,
+            )
+        except ProjectError as error:
+            self._show_project_error(error)
+            return
+        started, _pid = QProcess.startDetached(str(installer), automatic_setup_arguments(
+            installer, snapshot.path, os.getpid(), korean=korean,
+        ))
+        if not started:
             QMessageBox.critical(
                 self,
                 "업데이트 실행 실패" if korean else "Could not start update",
@@ -4650,8 +4753,10 @@ class MainWindow(QMainWindow):
     def _autosave_succeeded(self, _path: object) -> None:
         self.autosave_controller.succeeded(_path)
 
-    def _offer_recovery(self) -> bool:
-        return self.autosave_controller.offer_recovery()
+    def _offer_recovery(self, *, snapshot_path: Path | None = None, confirm: bool = True) -> bool:
+        if snapshot_path is None and confirm:
+            return self.autosave_controller.offer_recovery()
+        return self.autosave_controller.offer_recovery(snapshot_path=snapshot_path, confirm=confirm)
 
     def _clear_recovery(self) -> None:
         self.autosave_controller.clear_recovery()
@@ -5193,6 +5298,11 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Avoid destroying a running FFmpeg thread during application shutdown."""
+        import_worker = getattr(self, "_audio_import_worker", None)
+        if import_worker is not None:
+            import_worker.cancel_event.set()
+            event.ignore()
+            return
         if self.project_controller.saving:
             message = (
                 "프로젝트 저장이 완료된 후 종료해 주세요."
@@ -5317,7 +5427,8 @@ class MainWindow(QMainWindow):
             self._autosave_worker.wait()
         self._save_workspace_layout()
         QSettings().sync()
-        self._clear_recovery()
+        if not self._update_install_authorized:
+            self._clear_recovery()
         self.canvas.release_video_decoders()
         self.smooth_scroll.uninstall()
         application = QApplication.instance()

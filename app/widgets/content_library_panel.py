@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from stat import S_ISREG
 
-from PySide6.QtCore import QMimeData, QPoint, QPointF, QRectF, QSettings, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QItemSelectionModel, QMimeData, QPoint, QPointF, QRectF, QSettings, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QColor, QCursor, QDrag, QFont, QFontMetrics, QIcon, QPainter, QPen, QPixmap, QPolygonF,
 )
@@ -329,8 +330,9 @@ class ContentLibraryPanel(QWidget):
             set_drag_actions(Qt.DropAction.CopyAction)
 
     def refresh(self) -> None:
+        selected_ids = set(self._selected_ids())
         selected_id = self._selected_id()
-        self.list.clear()
+        scroll_position = self.list.verticalScrollBar().value()
         korean = self.translator.is_korean
         labels = {
             "image": "이미지" if korean else "Image",
@@ -352,9 +354,18 @@ class ContentLibraryPanel(QWidget):
             used_keys = set()
         added_label = "추가됨" if korean else "Added"
         used_count = 0
-        for content in visible_items:
+        listed = [self.list.item(row).data(Qt.ItemDataRole.UserRole)
+                  for row in range(self.list.count())]
+        in_place = listed == [content.id for content in visible_items][:len(listed)]
+        if not in_place:
+            self.list.clear()
+        for index, content in enumerate(visible_items):
             path = Path(content.path)
-            available = path.is_file()
+            try:
+                stat = path.stat()
+            except OSError:
+                stat = None
+            available = stat is not None and S_ISREG(stat.st_mode)
             in_project = self.service._key(content.path) in used_keys
             if in_project:
                 used_count += 1
@@ -379,12 +390,20 @@ class ContentLibraryPanel(QWidget):
                 detail_line = f"{added_label} · {detail}" if in_project else detail
                 item_text = f"{name_line}\n{detail_line}"
                 item_height = 54
-            item = QListWidgetItem(item_text)
+            existing = in_place and index < len(listed)
+            item = self.list.item(index) if existing else QListWidgetItem()
+            item.setText(item_text)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsDragEnabled)
             item.setData(Qt.ItemDataRole.UserRole + 3, in_project)
             if in_project:
                 item.setForeground(QColor("#2F9E44"))
-            item.setIcon(self._content_item_icon(path, content.media_type, available))
+            else:
+                item.setData(Qt.ItemDataRole.ForegroundRole, None)
+            icon_key = (content.path, content.media_type, self._view_mode, available,
+                        (stat.st_mtime_ns, stat.st_size) if stat is not None else None)
+            if item.data(Qt.ItemDataRole.UserRole + 4) != icon_key:
+                item.setIcon(self._content_item_icon(path, content.media_type, available))
+                item.setData(Qt.ItemDataRole.UserRole + 4, icon_key)
             item.setSizeHint(
                 QSize(108, item_height) if self._view_mode == "grid"
                 else QSize(0, item_height)
@@ -415,9 +434,12 @@ class ContentLibraryPanel(QWidget):
                     if in_project else ""
                 )
             )
-            self.list.addItem(item)
-            if content.id == selected_id:
-                self.list.setCurrentItem(item)
+            if not existing:
+                self.list.addItem(item)
+                if content.id == selected_id:
+                    self.list.setCurrentItem(item, QItemSelectionModel.SelectionFlag.NoUpdate)
+                if content.id in selected_ids:
+                    item.setSelected(True)
         count_text = f"{len(visible_items)} / {len(items)}"
         if used_count:
             count_text += (
@@ -425,6 +447,7 @@ class ContentLibraryPanel(QWidget):
             )
         self._set_filter_count_text(count_text)
         self._update_buttons()
+        QTimer.singleShot(0, self, lambda: self.list.verticalScrollBar().setValue(scroll_position))
 
     def _set_filter_count_text(self, text: str) -> None:
         """Elide the count label instead of letting it clip against the panel edge."""

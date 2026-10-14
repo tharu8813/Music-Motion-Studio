@@ -31,6 +31,7 @@ from app.preview.album_art import (
 )
 from app.preview.frame_state import (
     MixJunction, resolve_edge_animation, resolve_lyrics_cue_state, resolve_lyrics_intro_state,
+    resolve_lyrics_word_reveal,
     resolve_now_playing_exit_state, resolve_timeline_window_phase,
 )
 from app.preview.text_template import (
@@ -807,6 +808,7 @@ class CanvasSnapshot:
                 original_subtitle_motion.append((
                     graphics_item, graphics_item._subtitle_transition_raw, graphics_item._subtitle_cue_layout,
                     graphics_item._subtitle_intro_state,
+                    graphics_item._subtitle_word_reveal,
                 ))
                 graphics_item._subtitle_intro_state = resolve_lyrics_intro_state(
                     track, source, elapsed_seconds,
@@ -839,6 +841,9 @@ class CanvasSnapshot:
                 active_cue_index = cue_state.active_cue_index
                 cue_index = cue_state.cue_index
                 lyric_cue = track.lyrics[cue_index] if cue_index is not None else None
+                graphics_item._subtitle_word_reveal = resolve_lyrics_word_reveal(
+                    track, source, elapsed_seconds, cue_state, graphics_item._subtitle_intro_state,
+                )
                 lyric = LyricsService.decode_line_breaks(
                     lyric_cue.get("text", "") if lyric_cue else ""
                 )
@@ -1284,10 +1289,11 @@ class CanvasSnapshot:
             for graphics_item, indices in original_subtitle_style_indices:
                 graphics_item._subtitle_line_style_indices = indices
                 graphics_item.update()
-            for graphics_item, raw, layout, intro_state in original_subtitle_motion:
+            for graphics_item, raw, layout, intro_state, word_reveal in original_subtitle_motion:
                 graphics_item._subtitle_transition_raw = raw
                 graphics_item._subtitle_cue_layout = layout
                 graphics_item._subtitle_intro_state = intro_state
+                graphics_item._subtitle_word_reveal = word_reveal
                 graphics_item.update()
             for (
                 graphics_item, anchor_line, anchor_count, previous_line_count,

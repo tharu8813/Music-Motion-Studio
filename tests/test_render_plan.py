@@ -5,7 +5,9 @@ import unittest
 from app.models.playlist import PlaylistTrack
 from app.timeline.compiler import compile_playlist, compile_timeline
 from app.timeline.models import AudioClip, AudioTrack, AudioTransition, Timeline, TransitionType
-from app.timeline.render_plan import CompiledRenderPlan
+from app.timeline.render_plan import (
+    CompiledRenderPlan, PresentationPlan, PresentationWindow, VisualSegment, visual_segment_at,
+)
 from app.timeline.track_schedule import playlist_duration, resolve_track_windows
 
 
@@ -18,6 +20,23 @@ def _track(duration: float, start: float | None = None, track_id: str | None = N
 
 
 class RenderPlanCompilerTests(unittest.TestCase):
+    def test_large_plan_lookup_does_not_scan_every_window(self) -> None:
+        class IndexedOnly(tuple):
+            def __iter__(self):
+                raise AssertionError("A frame lookup must not scan the whole playlist")
+
+        windows = IndexedOnly(PresentationWindow(str(i), i * 10, i * 10 + 5)
+                              for i in range(10000))
+        segments = IndexedOnly(VisualSegment(i, str(i), i * 10, i * 10 + 5)
+                               for i in range(10000))
+        plan = PresentationPlan(windows)
+        for seconds, expected in [(-1, 0), (0, 0), (50000, 5000), (50007, 5000), (100001, 9999)]:
+            with self.subTest(seconds=seconds):
+                self.assertIs(plan._window_at(seconds), windows[expected])
+                self.assertIs(visual_segment_at(segments, seconds), segments[expected])
+        self.assertIsNone(PresentationPlan()._window_at(0))
+        self.assertIsNone(visual_segment_at((), 0))
+
     def test_sequential_timeline_matches_legacy_windows(self) -> None:
         tracks = [_track(10.0, track_id="a"), _track(20.0, track_id="b"), _track(30.0, track_id="c")]
         plan = compile_playlist(tracks)

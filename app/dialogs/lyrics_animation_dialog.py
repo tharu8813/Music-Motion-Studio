@@ -236,6 +236,7 @@ class LyricsAnimationDialog(QDialog):
         self.preview_count = QSpinBox()
         self.preview_count.setRange(0, 13)
         self.preview_count.setSpecialValueText(self._tr("자동", "Auto"))
+        self.preview_count.setAccessibleName(self._tr("미리보기 가사 수", "Preview cue count"))
         self.preview_count.setToolTip(self._tr(
             "미리보기에서만 표시할 가사 수입니다. 자동은 적용될 줄 배치 설정을 따릅니다. 영상의 가사 수는 줄 배치 탭에서 설정하세요.",
             "Preview only. Auto follows the effective layout. Set the actual video cue counts in the Layout tab.",
@@ -254,7 +255,16 @@ class LyricsAnimationDialog(QDialog):
         replay.setAutoDefault(False)
         replay.setToolTip(self._tr("현재 적용될 설정으로 예시 가사 전환을 처음부터 재생합니다.", "Replay sample transitions using the effective settings."))
         replay.clicked.connect(self._replay)
-        preview_column.addWidget(replay, 0, Qt.AlignmentFlag.AlignLeft)
+        self.pause = QPushButton(self._tr("일시정지", "Pause"))
+        self.pause.setCheckable(True)
+        self.pause.setAutoDefault(False)
+        self.pause.setToolTip(self._tr("전환을 멈춰 현재 프레임의 스타일을 비교합니다.", "Freeze the transition to compare styles on the current frame."))
+        self.pause.toggled.connect(self._pause_preview)
+        playback = QHBoxLayout()
+        playback.addWidget(replay)
+        playback.addWidget(self.pause)
+        playback.addStretch()
+        preview_column.addLayout(playback)
         body.addLayout(preview_column, 1)
         root.addLayout(body, 1)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -282,15 +292,20 @@ class LyricsAnimationDialog(QDialog):
             "♪ 쉿, 이 줄을 찾은 당신은 가사 장인 ♪", "♪ Secret unlocked: you are a lyric wizard ♪",
         )
         self._clock = QElapsedTimer()
+        self._elapsed_offset = 0.0
+        self._paused_seconds = 0.0
         self._timer = QTimer(self)
         self._timer.setInterval(33)
         self._timer.timeout.connect(self._render_preview)
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.timeout.connect(self._refresh_preview)
         for widget in self.controls.values():
             signal = widget.currentIndexChanged if isinstance(widget, QComboBox) else (
                 widget.toggled if isinstance(widget, QCheckBox) else widget.valueChanged)
             signal.connect(self._changed)
-        tabs.currentChanged.connect(self._replay)
-        self.intro_preview_mode.currentIndexChanged.connect(self._replay)
+        tabs.currentChanged.connect(self._refresh_preview)
+        self.intro_preview_mode.currentIndexChanged.connect(self._refresh_preview)
         self.preview_count.valueChanged.connect(self._change_preview_count)
         for toggle in self.category_toggles.values():
             toggle.toggled.connect(self._changed)
@@ -359,8 +374,10 @@ class LyricsAnimationDialog(QDialog):
             text += self._tr(f" 범위: {widget.minimum():g}–{widget.maximum():g}.",
                              f" Range: {widget.minimum():g}–{widget.maximum():g}.")
         widget.setToolTip(text)
-        widget.setAccessibleDescription(text)
         label = form.labelForField(widget)
+        if label:
+            widget.setAccessibleName(label.text())
+        widget.setAccessibleDescription(text)
         if label:
             label.setToolTip(text)
 
@@ -432,7 +449,7 @@ class LyricsAnimationDialog(QDialog):
         self._item.apply_source()
         self._scene.set_artboard_size(self._preview_source.width, self._preview_source.height)
         self._load_role()
-        self._replay()
+        self._refresh_timer.start(0)
 
     def _change_preview_count(self, count):
         self._changed()
@@ -466,8 +483,39 @@ class LyricsAnimationDialog(QDialog):
         self._changed()
 
     def _replay(self, *_args):
+        self._refresh_timer.stop()
+        self.pause.setChecked(False)
+        self._elapsed_offset = 0.0
         self._clock.start()
         self._render_preview(0.0)
+        if self.isVisible():
+            self._timer.start()
+
+    def _preview_seconds(self):
+        return self._paused_seconds if self.pause.isChecked() else self._elapsed_offset + self._clock.elapsed() / 1000
+
+    def _pause_preview(self, paused):
+        if paused:
+            self._paused_seconds = self._elapsed_offset + self._clock.elapsed() / 1000
+            self._timer.stop()
+            self._render_preview(self._paused_seconds)
+        else:
+            self._elapsed_offset = self._paused_seconds
+            self._clock.start()
+            if self.isVisible():
+                self._timer.start()
+        self.pause.setText(self._tr("계속 재생", "Resume") if paused else self._tr("일시정지", "Pause"))
+
+    def _refresh_preview(self, *_args):
+        self._refresh_timer.stop()
+        if self.pause.isChecked():
+            self._render_preview(self._paused_seconds)
+        else:
+            self._replay()
+
+    def _preview_scale(self):
+        return min(1.0, max(1, self.preview.width()) / self._preview_source.width,
+                   max(1, self.preview.height()) / self._preview_source.height)
 
     def _render_preview(self, elapsed=None):
         if self.tabs.currentIndex() == 3:
@@ -481,8 +529,9 @@ class LyricsAnimationDialog(QDialog):
         ])
         first = max(1, self._preview_source.subtitle_context_lines)
         offset = interval * first
-        elapsed = (self._clock.elapsed() / 1000 % (interval * (len(texts) - first)) + offset) if elapsed is None else elapsed + offset
-        image = CanvasSnapshot.capture_track(self._scene, track, 1, 1, 0, elapsed_seconds=elapsed)
+        elapsed = (self._preview_seconds() % (interval * (len(texts) - first)) + offset) if elapsed is None else elapsed + offset
+        image = CanvasSnapshot.capture_track(self._scene, track, 1, 1, 0, elapsed_seconds=elapsed,
+                                             output_scale=self._preview_scale())
         self.preview.setPixmap(QPixmap.fromImage(image).scaled(
             self.preview.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation,
         ))
@@ -501,9 +550,10 @@ class LyricsAnimationDialog(QDialog):
             {"start": wait + 2 + gap, "end": wait + 6 + gap, "text": self._preview_texts[2]},
         ])
         middle = self.intro_preview_mode.currentData() == "middle"
-        clock = self._clock.elapsed() / 1000 if elapsed is None else elapsed
+        clock = self._preview_seconds() if elapsed is None else elapsed
         seconds = wait + 2 + clock % (gap + 3) if middle else clock % (wait + 3)
         image = CanvasSnapshot.capture_track(self._scene, track, 1, 1, 0, elapsed_seconds=seconds,
+                                              output_scale=self._preview_scale(),
                                               lyric_instrumental_spans=((wait + 2, wait + 2 + gap),))
         self.preview.setPixmap(QPixmap.fromImage(image).scaled(
             self.preview.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation,
@@ -516,4 +566,5 @@ class LyricsAnimationDialog(QDialog):
 
     def hideEvent(self, event):
         self._timer.stop()
+        self._refresh_timer.stop()
         super().hideEvent(event)

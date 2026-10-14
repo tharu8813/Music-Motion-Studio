@@ -1,4 +1,4 @@
-"""Hysteresis-based render scaling for interactive GPU previews."""
+"""Hysteresis-based render scaling for interactive previews."""
 
 from __future__ import annotations
 

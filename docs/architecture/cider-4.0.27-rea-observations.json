@@ -1,0 +1,742 @@
+{
+  "note": "Selected REA static observations only; no target execution. Complete local bundle in work/cider-4.0.27-playback-rea.json.",
+  "application_evidence_id": "ev_dc1426e5c55e8f50f3c37f76f71c92fd6201e0bf378445e92d029c5d0e74f354",
+  "application_sha256": "2404e2b2de22afa36b023f5fdb8c347e92499618f1701096f7dd208847c2b2be",
+  "source_selection": {
+    "requested_paths": [
+      "assets/nextPipeline.worker-Ci57Kui3.js"
+    ],
+    "unselected_files": 24
+  },
+  "nodes": [
+    {
+      "application_node_ids": [
+        "jag_node_584be62662ed908b60e799d6de17ec57588f62783c94c79b93c6fdaf51775bd6"
+      ],
+      "evidence": {
+        "context_id": "jsrg_evidence_909bc2027c5a93e929c911880752d9cbb78c4bd8475b2889d96d6c0d3c836569",
+        "location": {
+          "available": true,
+          "value": {
+            "kind": "artifact-path",
+            "path": "assets/nextPipeline.worker-Ci57Kui3.js"
+          }
+        }
+      },
+      "function_node_id": "jsrg_node_716de5109a2ee80c8d2696ebe32eaf2ff68fa18f9742beedc92353d169186dfc",
+      "identity": {
+        "artifact_sha256": "227b8c407f0cea4bd43455c574bfb35946bf0261e371c6611572b6d2ddd7b282",
+        "module_path": "assets/nextPipeline.worker-Ci57Kui3.js",
+        "role_key": "property:[\"scope:function:12220:13720:binding:s\",[\"exitMs\"]]",
+        "source_range": null
+      },
+      "kind": "property-slot",
+      "label": "exitMs",
+      "node_id": "jsrg_node_0fe78059b2c51df80a8baf2f25f331b38cff3483fc758af378bd46686def5ce7",
+      "properties": {
+        "name": "exitMs",
+        "object_binding_id": "scope:function:12220:13720:binding:s",
+        "presence": "unknown-coverage",
+        "property_path": [
+          "exitMs"
+        ],
+        "property_pointer": "/exitMs",
+        "value_coverage": null,
+        "value_status": "unknown"
+      }
+    },
+    {
+      "application_node_ids": [
+        "jag_node_584be62662ed908b60e799d6de17ec57588f62783c94c79b93c6fdaf51775bd6"
+      ],
+      "evidence": {
+        "context_id": "jsrg_evidence_909bc2027c5a93e929c911880752d9cbb78c4bd8475b2889d96d6c0d3c836569",
+        "location": {
+          "available": true,
+          "value": {
+            "kind": "artifact-path",
+            "path": "assets/nextPipeline.worker-Ci57Kui3.js"
+          }
+        }
+      },
+      "function_node_id": "jsrg_node_716de5109a2ee80c8d2696ebe32eaf2ff68fa18f9742beedc92353d169186dfc",
+      "identity": {
+        "artifact_sha256": "227b8c407f0cea4bd43455c574bfb35946bf0261e371c6611572b6d2ddd7b282",
+        "module_path": "assets/nextPipeline.worker-Ci57Kui3.js",
+        "role_key": "property:[\"scope:function:12220:13720:binding:s\",[\"entryMs\"]]",
+        "source_range": null
+      },
+      "kind": "property-slot",
+      "label": "entryMs",
+      "node_id": "jsrg_node_22747a5815e0092f360f1ffe11d1ad91304f37aba3d1b794144d65cee07badaa",
+      "properties": {
+        "name": "entryMs",
+        "object_binding_id": "scope:function:12220:13720:binding:s",
+        "presence": "unknown-coverage",
+        "property_path": [
+          "entryMs"
+        ],
+        "property_pointer": "/entryMs",
+        "value_coverage": null,
+        "value_status": "unknown"
+      }
+    },
+    {
+      "application_node_ids": [
+        "jag_node_584be62662ed908b60e799d6de17ec57588f62783c94c79b93c6fdaf51775bd6"
+      ],
+      "evidence": {
+        "context_id": "jsrg_evidence_909bc2027c5a93e929c911880752d9cbb78c4bd8475b2889d96d6c0d3c836569",
+        "location": {
+          "available": true,
+          "value": {
+            "kind": "artifact-path",
+            "path": "assets/nextPipeline.worker-Ci57Kui3.js"
+          }
+        }
+      },
+      "function_node_id": "jsrg_node_716de5109a2ee80c8d2696ebe32eaf2ff68fa18f9742beedc92353d169186dfc",
+      "identity": {
+        "artifact_sha256": "227b8c407f0cea4bd43455c574bfb35946bf0261e371c6611572b6d2ddd7b282",
+        "module_path": "assets/nextPipeline.worker-Ci57Kui3.js",
+        "role_key": "property:[\"scope:function:12220:13720:binding:n\",[\"bpm\"]]",
+        "source_range": null
+      },
+      "kind": "property-slot",
+      "label": "bpm",
+      "node_id": "jsrg_node_2dc813586d68a5de78a9e16399f102bfd2c7087560bf74e086d3a6ce7ad4d38b",
+      "properties": {
+        "name": "bpm",
+        "object_binding_id": "scope:function:12220:13720:binding:n",
+        "presence": "unknown-coverage",
+        "property_path": [
+          "bpm"
+        ],
+        "property_pointer": "/bpm",
+        "value_coverage": null,
+        "value_status": "unknown"
+      }
+    },
+    {
+      "application_node_ids": [
+        "jag_node_584be62662ed908b60e799d6de17ec57588f62783c94c79b93c6fdaf51775bd6"
+      ],
+      "evidence": {
+        "context_id": "jsrg_evidence_909bc2027c5a93e929c911880752d9cbb78c4bd8475b2889d96d6c0d3c836569",
+        "location": {
+          "available": true,
+          "value": {
+            "kind": "artifact-path",
+            "path": "assets/nextPipeline.worker-Ci57Kui3.js"
+          }
+        }
+      },
+      "function_node_id": "jsrg_node_716de5109a2ee80c8d2696ebe32eaf2ff68fa18f9742beedc92353d169186dfc",
+      "identity": {
+        "artifact_sha256": "227b8c407f0cea4bd43455c574bfb35946bf0261e371c6611572b6d2ddd7b282",
+        "module_path": "assets/nextPipeline.worker-Ci57Kui3.js",
+        "role_key": "property:[\"scope:function:12220:13720:binding:e\",[\"nextProfile\"]]",
+        "source_range": null
+      },
+      "kind": "property-slot",
+      "label": "nextProfile",
+      "node_id": "jsrg_node_3634a46d18ed2ee93822e0a8deca700d2260ee666a18f4640e41701298df0a29",
+      "properties": {
+        "name": "nextProfile",
+        "object_binding_id": "scope:function:12220:13720:binding:e",
+        "presence": "unknown-coverage",
+        "property_path": [
+          "nextProfile"
+        ],
+        "property_pointer": "/nextProfile",
+        "value_coverage": null,
+        "value_status": "unknown"
+      }
+    },
+    {
+      "application_node_ids": [
+        "jag_node_584be62662ed908b60e799d6de17ec57588f62783c94c79b93c6fdaf51775bd6"
+      ],
+      "evidence": {
+        "context_id": "jsrg_evidence_909bc2027c5a93e929c911880752d9cbb78c4bd8475b2889d96d6c0d3c836569",
+        "location": {
+          "available": true,
+          "value": {
+            "kind": "artifact-path",
+            "path": "assets/nextPipeline.worker-Ci57Kui3.js"
+          }
+        }
+      },
+      "function_node_id": "jsrg_node_716de5109a2ee80c8d2696ebe32eaf2ff68fa18f9742beedc92353d169186dfc",
+      "identity": {
+        "artifact_sha256": "227b8c407f0cea4bd43455c574bfb35946bf0261e371c6611572b6d2ddd7b282",
+        "module_path": "assets/nextPipeline.worker-Ci57Kui3.js",
+        "role_key": "property:[\"scope:function:12220:13720:binding:e\",[\"automixEnabled\"]]",
+        "source_range": null
+      },
+      "kind": "property-slot",
+      "label": "automixEnabled",
+      "node_id": "jsrg_node_4b3c34168059c67bba5eb9a80caa233f9cec0eecea4c2c773d2b2f68c5000c42",
+      "properties": {
+        "name": "automixEnabled",
+        "object_binding_id": "scope:function:12220:13720:binding:e",
+        "presence": "unknown-coverage",
+        "property_path": [
+          "automixEnabled"
+        ],
+        "property_pointer": "/automixEnabled",
+        "value_coverage": null,
+        "value_status": "unknown"
+      }
+    },
+    {
+      "application_node_ids": [],
+      "evidence": {
+        "context_id": "jsrg_evidence_909bc2027c5a93e929c911880752d9cbb78c4bd8475b2889d96d6c0d3c836569",
+        "location": {
+          "available": true,
+          "value": {
+            "end": {
+              "column": 13720,
+              "line": 1
+            },
+            "kind": "source-range",
+            "source": "assets/nextPipeline.worker-Ci57Kui3.js",
+            "start": {
+              "column": 12220,
+              "line": 1
+            }
+          }
+        }
+      },
+      "function_node_id": null,
+      "identity": {
+        "artifact_sha256": "227b8c407f0cea4bd43455c574bfb35946bf0261e371c6611572b6d2ddd7b282",
+        "module_path": "assets/nextPipeline.worker-Ci57Kui3.js",
+        "role_key": "callable:callable:function:12220:13720",
+        "source_range": {
+          "end": {
+            "column": 13720,
+            "line": 1
+          },
+          "start": {
+            "column": 12220,
+            "line": 1
+          }
+        }
+      },
+      "kind": "function",
+      "label": "Ae",
+      "node_id": "jsrg_node_716de5109a2ee80c8d2696ebe32eaf2ff68fa18f9742beedc92353d169186dfc",
+      "properties": {
+        "name": "Ae"
+      }
+    },
+    {
+      "application_node_ids": [
+        "jag_node_584be62662ed908b60e799d6de17ec57588f62783c94c79b93c6fdaf51775bd6"
+      ],
+      "evidence": {
+        "context_id": "jsrg_evidence_909bc2027c5a93e929c911880752d9cbb78c4bd8475b2889d96d6c0d3c836569",
+        "location": {
+          "available": true,
+          "value": {
+            "kind": "artifact-path",
+            "path": "assets/nextPipeline.worker-Ci57Kui3.js"
+          }
+        }
+      },
+      "function_node_id": "jsrg_node_716de5109a2ee80c8d2696ebe32eaf2ff68fa18f9742beedc92353d169186dfc",
+      "identity": {
+        "artifact_sha256": "227b8c407f0cea4bd43455c574bfb35946bf0261e371c6611572b6d2ddd7b282",
+        "module_path": "assets/nextPipeline.worker-Ci57Kui3.js",
+        "role_key": "property:[\"scope:function:12220:13720:binding:e\",[\"vocalGuard\"]]",
+        "source_range": null
+      },
+      "kind": "property-slot",
+      "label": "vocalGuard",
+      "node_id": "jsrg_node_821f02ecd54f76dc83a760408a1e03ee8923b869a6a04fe9822a6804b7e40d71",
+      "properties": {
+        "name": "vocalGuard",
+        "object_binding_id": "scope:function:12220:13720:binding:e",
+        "presence": "unknown-coverage",
+        "property_path": [
+          "vocalGuard"
+        ],
+        "property_pointer": "/vocalGuard",
+        "value_coverage": null,
+        "value_status": "unknown"
+      }
+    },
+    {
+      "application_node_ids": [
+        "jag_node_584be62662ed908b60e799d6de17ec57588f62783c94c79b93c6fdaf51775bd6"
+      ],
+      "evidence": {
+        "context_id": "jsrg_evidence_909bc2027c5a93e929c911880752d9cbb78c4bd8475b2889d96d6c0d3c836569",
+        "location": {
+          "available": true,
+          "value": {
+            "kind": "artifact-path",
+            "path": "assets/nextPipeline.worker-Ci57Kui3.js"
+          }
+        }
+      },
+      "function_node_id": "jsrg_node_716de5109a2ee80c8d2696ebe32eaf2ff68fa18f9742beedc92353d169186dfc",
+      "identity": {
+        "artifact_sha256": "227b8c407f0cea4bd43455c574bfb35946bf0261e371c6611572b6d2ddd7b282",
+        "module_path": "assets/nextPipeline.worker-Ci57Kui3.js",
+        "role_key": "property:[\"scope:function:12220:13720:binding:s\",[\"bars\"]]",
+        "source_range": null
+      },
+      "kind": "property-slot",
+      "label": "bars",
+      "node_id": "jsrg_node_8c247f7ad1ac0a364d73dd0c00543c4132579ac46c4e39c047f59ea064596cf4",
+      "properties": {
+        "name": "bars",
+        "object_binding_id": "scope:function:12220:13720:binding:s",
+        "presence": "unknown-coverage",
+        "property_path": [
+          "bars"
+        ],
+        "property_pointer": "/bars",
+        "value_coverage": null,
+        "value_status": "unknown"
+      }
+    },
+    {
+      "application_node_ids": [
+        "jag_node_584be62662ed908b60e799d6de17ec57588f62783c94c79b93c6fdaf51775bd6"
+      ],
+      "evidence": {
+        "context_id": "jsrg_evidence_909bc2027c5a93e929c911880752d9cbb78c4bd8475b2889d96d6c0d3c836569",
+        "location": {
+          "available": true,
+          "value": {
+            "kind": "artifact-path",
+            "path": "assets/nextPipeline.worker-Ci57Kui3.js"
+          }
+        }
+      },
+      "function_node_id": "jsrg_node_716de5109a2ee80c8d2696ebe32eaf2ff68fa18f9742beedc92353d169186dfc",
+      "identity": {
+        "artifact_sha256": "227b8c407f0cea4bd43455c574bfb35946bf0261e371c6611572b6d2ddd7b282",
+        "module_path": "assets/nextPipeline.worker-Ci57Kui3.js",
+        "role_key": "property:[\"scope:function:12220:13720:binding:e\",[\"tempoAlign\"]]",
+        "source_range": null
+      },
+      "kind": "property-slot",
+      "label": "tempoAlign",
+      "node_id": "jsrg_node_bd1024bc900a7d09aaa7fca6b159977719349f4b13281c94349ff170d9f85751",
+      "properties": {
+        "name": "tempoAlign",
+        "object_binding_id": "scope:function:12220:13720:binding:e",
+        "presence": "unknown-coverage",
+        "property_path": [
+          "tempoAlign"
+        ],
+        "property_pointer": "/tempoAlign",
+        "value_coverage": null,
+        "value_status": "unknown"
+      }
+    },
+    {
+      "application_node_ids": [
+        "jag_node_584be62662ed908b60e799d6de17ec57588f62783c94c79b93c6fdaf51775bd6"
+      ],
+      "evidence": {
+        "context_id": "jsrg_evidence_909bc2027c5a93e929c911880752d9cbb78c4bd8475b2889d96d6c0d3c836569",
+        "location": {
+          "available": true,
+          "value": {
+            "kind": "artifact-path",
+            "path": "assets/nextPipeline.worker-Ci57Kui3.js"
+          }
+        }
+      },
+      "function_node_id": "jsrg_node_716de5109a2ee80c8d2696ebe32eaf2ff68fa18f9742beedc92353d169186dfc",
+      "identity": {
+        "artifact_sha256": "227b8c407f0cea4bd43455c574bfb35946bf0261e371c6611572b6d2ddd7b282",
+        "module_path": "assets/nextPipeline.worker-Ci57Kui3.js",
+        "role_key": "property:[\"scope:function:12220:13720:binding:e\",[\"currentProfile\"]]",
+        "source_range": null
+      },
+      "kind": "property-slot",
+      "label": "currentProfile",
+      "node_id": "jsrg_node_d68d71ef12ad4d3d2ddf1aaaf0abf65216078c1418b741c731eb1bb322959857",
+      "properties": {
+        "name": "currentProfile",
+        "object_binding_id": "scope:function:12220:13720:binding:e",
+        "presence": "unknown-coverage",
+        "property_path": [
+          "currentProfile"
+        ],
+        "property_pointer": "/currentProfile",
+        "value_coverage": null,
+        "value_status": "unknown"
+      }
+    },
+    {
+      "application_node_ids": [],
+      "evidence": {
+        "context_id": "jsrg_evidence_909bc2027c5a93e929c911880752d9cbb78c4bd8475b2889d96d6c0d3c836569",
+        "location": {
+          "available": true,
+          "value": {
+            "end": {
+              "column": 1422,
+              "line": 2
+            },
+            "kind": "source-range",
+            "source": "assets/nextPipeline.worker-Ci57Kui3.js",
+            "start": {
+              "column": 1043,
+              "line": 2
+            }
+          }
+        }
+      },
+      "function_node_id": null,
+      "identity": {
+        "artifact_sha256": "227b8c407f0cea4bd43455c574bfb35946bf0261e371c6611572b6d2ddd7b282",
+        "module_path": "assets/nextPipeline.worker-Ci57Kui3.js",
+        "role_key": "callable:callable:function:52608:52987",
+        "source_range": {
+          "end": {
+            "column": 1422,
+            "line": 2
+          },
+          "start": {
+            "column": 1043,
+            "line": 2
+          }
+        }
+      },
+      "kind": "function",
+      "label": "Wn",
+      "node_id": "jsrg_node_e44566132a981c338b88caf7b284702eb1e2df2c7e9b31cca6ca79257d87d623",
+      "properties": {
+        "name": "Wn"
+      }
+    },
+    {
+      "application_node_ids": [
+        "jag_node_584be62662ed908b60e799d6de17ec57588f62783c94c79b93c6fdaf51775bd6"
+      ],
+      "evidence": {
+        "context_id": "jsrg_evidence_909bc2027c5a93e929c911880752d9cbb78c4bd8475b2889d96d6c0d3c836569",
+        "location": {
+          "available": true,
+          "value": {
+            "kind": "artifact-path",
+            "path": "assets/nextPipeline.worker-Ci57Kui3.js"
+          }
+        }
+      },
+      "function_node_id": "jsrg_node_716de5109a2ee80c8d2696ebe32eaf2ff68fa18f9742beedc92353d169186dfc",
+      "identity": {
+        "artifact_sha256": "227b8c407f0cea4bd43455c574bfb35946bf0261e371c6611572b6d2ddd7b282",
+        "module_path": "assets/nextPipeline.worker-Ci57Kui3.js",
+        "role_key": "property:[\"scope:function:12220:13720:binding:s\",[\"overlapMs\"]]",
+        "source_range": null
+      },
+      "kind": "property-slot",
+      "label": "overlapMs",
+      "node_id": "jsrg_node_fbe26cfcdc1e6757d0fb77071cfd2d912b5e46ed0bebbaedf0484e62228d6ceb",
+      "properties": {
+        "name": "overlapMs",
+        "object_binding_id": "scope:function:12220:13720:binding:s",
+        "presence": "unknown-coverage",
+        "property_path": [
+          "overlapMs"
+        ],
+        "property_pointer": "/overlapMs",
+        "value_coverage": null,
+        "value_status": "unknown"
+      }
+    },
+    {
+      "application_node_ids": [
+        "jag_node_584be62662ed908b60e799d6de17ec57588f62783c94c79b93c6fdaf51775bd6"
+      ],
+      "evidence": {
+        "context_id": "jsrg_evidence_909bc2027c5a93e929c911880752d9cbb78c4bd8475b2889d96d6c0d3c836569",
+        "location": {
+          "available": true,
+          "value": {
+            "kind": "artifact-path",
+            "path": "assets/nextPipeline.worker-Ci57Kui3.js"
+          }
+        }
+      },
+      "function_node_id": "jsrg_node_716de5109a2ee80c8d2696ebe32eaf2ff68fa18f9742beedc92353d169186dfc",
+      "identity": {
+        "artifact_sha256": "227b8c407f0cea4bd43455c574bfb35946bf0261e371c6611572b6d2ddd7b282",
+        "module_path": "assets/nextPipeline.worker-Ci57Kui3.js",
+        "role_key": "property:[\"scope:function:12220:13720:binding:s\",[\"tempoRampRate\"]]",
+        "source_range": null
+      },
+      "kind": "property-slot",
+      "label": "tempoRampRate",
+      "node_id": "jsrg_node_fcb50c170b86901df70c95255ceff018402c3fb9a73d60baaf700753854028da",
+      "properties": {
+        "name": "tempoRampRate",
+        "object_binding_id": "scope:function:12220:13720:binding:s",
+        "presence": "unknown-coverage",
+        "property_path": [
+          "tempoRampRate"
+        ],
+        "property_pointer": "/tempoRampRate",
+        "value_coverage": null,
+        "value_status": "unknown"
+      }
+    }
+  ],
+  "evidence_contexts": [
+    {
+      "artifact": {
+        "artifact_id": "art_227b8c407f0cea4bd43455c574bfb35946bf0261e371c6611572b6d2ddd7b282",
+        "available": true,
+        "sha256": "227b8c407f0cea4bd43455c574bfb35946bf0261e371c6611572b6d2ddd7b282"
+      },
+      "authority": "ast-static-analysis",
+      "confidence": "exact",
+      "context_id": "jsrg_evidence_909bc2027c5a93e929c911880752d9cbb78c4bd8475b2889d96d6c0d3c836569",
+      "coverage": {
+        "limits": [],
+        "omitted_count": 0,
+        "status": "complete",
+        "truncated": false
+      },
+      "evidence_ids": [],
+      "extractor": {
+        "executable_sha256": null,
+        "name": "rea-javascript-semantic-analysis",
+        "operation": "analyze_javascript_application",
+        "version": "1"
+      },
+      "limitations": [],
+      "state": "observed"
+    }
+  ],
+  "managed_summary": {
+    "analysis_profile": null,
+    "authority": "shipped-artifact",
+    "confidence": "derived",
+    "environment": null,
+    "evidence_id": "ev_172793c4700e7af04c0bd5a5d6fefbb1af75d211e150b68d064811fa6e50f8f8",
+    "evidence_links": [
+      "ev_502852b0332ad8766ccd6390f266e37b2c9aa94906a9c6ec751b879c42d227da"
+    ],
+    "limitations": [
+      "Static inspection did not load the assembly, resolve dependencies through a CLR, decompile C#, or execute target code."
+    ],
+    "locations": [
+      {
+        "kind": "artifact-path",
+        "path": "C:\\Program Files\\WindowsApps\\CiderCollective.Cider_4.0.27.0_x64__a6qxe093bx5xj\\C2Windows\\Cider.dll"
+      }
+    ],
+    "normalized_result": {
+      "artifact": {
+        "path": "C:\\Program Files\\WindowsApps\\CiderCollective.Cider_4.0.27.0_x64__a6qxe093bx5xj\\C2Windows\\Cider.dll",
+        "sha256": "bc6353c400bfd47b80b9b556b67411607f5956c71e492c9c7c1278125109f57c"
+      },
+      "coverage": {
+        "examined": 2929,
+        "exhausted": true,
+        "next_offset": null,
+        "status": "complete-within-view",
+        "total": 2929
+      },
+      "kind": "summary",
+      "limitations": [
+        "Static inspection did not load the assembly, resolve dependencies through a CLR, decompile C#, or execute target code."
+      ],
+      "parent_digest": "502852b0332ad8766ccd6390f266e37b2c9aa94906a9c6ec751b879c42d227da",
+      "parent_evidence_id": "ev_502852b0332ad8766ccd6390f266e37b2c9aa94906a9c6ec751b879c42d227da",
+      "parent_operation": "inspect_managed_artifact",
+      "summary": {
+        "artifact": {
+          "byte_length": 7874192,
+          "format": "pe",
+          "path": "C:\\Program Files\\WindowsApps\\CiderCollective.Cider_4.0.27.0_x64__a6qxe093bx5xj\\C2Windows\\Cider.dll",
+          "sha256": "bc6353c400bfd47b80b9b556b67411607f5956c71e492c9c7c1278125109f57c"
+        },
+        "assembly": {
+          "culture": null,
+          "flags": 0,
+          "hash_algorithm": 32772,
+          "name": "Cider",
+          "public_key": {
+            "byte_length": 0,
+            "kind": "none",
+            "sha256": null,
+            "token": null
+          },
+          "row_offset": 371152,
+          "token": "0x20000001",
+          "version": "1.0.0.0"
+        },
+        "classification": {
+          "container": "pe",
+          "evidence": [
+            {
+              "code": "cli-header-observed",
+              "detail": "A file-backed PE CLI header and metadata root were admitted.",
+              "file_offset": 512
+            },
+            {
+              "code": "target-framework-observed",
+              "detail": "An assembly-level TargetFrameworkAttribute names modern .NET.",
+              "file_offset": 337774
+            },
+            {
+              "code": "managed-architecture-derived",
+              "detail": "Managed architecture x86_64 is derived from PE machine and CLI flags.",
+              "file_offset": 528
+            }
+          ],
+          "implementation": "cil",
+          "managed_architecture": "x86_64",
+          "runtime_family": "modern-dotnet",
+          "status": "managed"
+        },
+        "coverage": {
+          "issues": [],
+          "state": "complete"
+        },
+        "identity_scope": {
+          "requires_artifact_sha256": "bc6353c400bfd47b80b9b556b67411607f5956c71e492c9c7c1278125109f57c",
+          "requires_mvid": "7bbfc415-8e0a-4988-8e09-e168f326c15e",
+          "token_identity": "build-local"
+        },
+        "limitations": [
+          "Static inspection did not load the assembly, resolve dependencies through a CLR, decompile C#, or execute target code."
+        ],
+        "metadata": {
+          "status": "complete",
+          "stream_names": [
+            "#Blob",
+            "#GUID",
+            "#Strings",
+            "#US",
+            "#~"
+          ],
+          "table_row_counts": {
+            "Assembly": 1,
+            "AssemblyRef": 56,
+            "ClassLayout": 5,
+            "Constant": 353,
+            "CustomAttribute": 2869,
+            "DeclSecurity": 1,
+            "Event": 43,
+            "EventMap": 15,
+            "Field": 2269,
+            "FieldMarshal": 19,
+            "FieldRVA": 4,
+            "GenericParam": 71,
+            "ImplMap": 100,
+            "InterfaceImpl": 98,
+            "ManifestResource": 4,
+            "MemberRef": 2510,
+            "MethodDef": 2437,
+            "MethodImpl": 155,
+            "MethodSemantics": 514,
+            "MethodSpec": 312,
+            "Module": 1,
+            "ModuleRef": 11,
+            "NestedClass": 277,
+            "Param": 2452,
+            "Property": 302,
+            "PropertyMap": 102,
+            "StandAloneSig": 576,
+            "TypeDef": 432,
+            "TypeRef": 786,
+            "TypeSpec": 421
+          },
+          "version": "v4.0.30319"
+        },
+        "module": {
+          "enc_base_id": null,
+          "enc_id": null,
+          "generation": 0,
+          "mvid": "7bbfc415-8e0a-4988-8e09-e168f326c15e",
+          "name": "Cider.dll",
+          "row_offset": 222776,
+          "token": "0x00000001"
+        },
+        "pe": {
+          "architecture": "x86_64",
+          "characteristics": 34,
+          "cli": {
+            "entry_point": {
+              "kind": "metadata-token",
+              "value": "0x060001d2"
+            },
+            "flag_names": [
+              "il-only"
+            ],
+            "flags": 1,
+            "header_offset": 512,
+            "header_size": 72,
+            "managed_native_header_rva": 0,
+            "managed_native_header_size": 0,
+            "metadata_rva": 230204,
+            "metadata_size": 340056,
+            "ready_to_run_signature": false,
+            "resources_rva": 570260,
+            "resources_size": 7155512,
+            "runtime_version": "2.5",
+            "strong_name_rva": 0,
+            "strong_name_size": 0
+          },
+          "machine": 34404,
+          "machine_hex": "0x8664",
+          "optional_header": "pe32-plus",
+          "section_count": 2
+        },
+        "reported_counts": {
+          "attributes": 2869,
+          "references": 56,
+          "resources": 4
+        },
+        "target_frameworks": [
+          ".NETCoreApp,Version=v11.0"
+        ]
+      },
+      "unknowns": [
+        "Collection counts and pages cover producer-returned rows; metadata completeness remains the original metadata status and coverage, not an absence claim about unreturned rows.",
+        "Metadata tokens are build-local coordinates bound to the recorded artifact SHA-256 and module MVID; this view does not load or execute the assembly."
+      ],
+      "view": {
+        "kind": "summary"
+      },
+      "view_digest": "15af437a05a03d9021b242f5767424dad3fb7216fc3fa3b11450ecb0c1059472"
+    },
+    "operation": "inspect_analysis_view",
+    "parameters": {
+      "parent_evidence_id": "ev_502852b0332ad8766ccd6390f266e37b2c9aa94906a9c6ec751b879c42d227da",
+      "view": {
+        "kind": "summary"
+      }
+    },
+    "predicate_type": "rea.analysis-view",
+    "provider": {
+      "id": "rea-analysis-view",
+      "name": "REA analysis view projection",
+      "version": "1"
+    },
+    "raw_result": null,
+    "relationship_coverage": null,
+    "subject": {
+      "architecture": "x86_64",
+      "digest": {
+        "sha256": "bc6353c400bfd47b80b9b556b67411607f5956c71e492c9c7c1278125109f57c"
+      },
+      "format": "pe",
+      "local_path": "C:\\Program Files\\WindowsApps\\CiderCollective.Cider_4.0.27.0_x64__a6qxe093bx5xj\\C2Windows\\Cider.dll",
+      "name": "Cider.dll"
+    }
+  }
+}

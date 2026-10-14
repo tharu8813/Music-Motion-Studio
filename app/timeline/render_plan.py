@@ -222,8 +222,7 @@ class PresentationPlan:
         """
         if not self.windows:
             return None
-        starts = [window.timeline_start for window in self.windows]
-        index = max(0, bisect_right(starts, global_seconds) - 1)
+        index = max(0, bisect_right(self.windows, global_seconds, key=lambda window: window.timeline_start) - 1)
         return self.windows[index]
 
     def track_at(self, global_seconds: float) -> str | None:
@@ -357,7 +356,7 @@ def visual_segment_at(segments: Sequence[VisualSegment], global_seconds: float) 
     """The segment drawn at ``global_seconds`` (the first before it starts, the last after it ends)."""
     if not segments:
         return None
-    index = max(0, bisect_right([segment.start for segment in segments], global_seconds) - 1)
+    index = max(0, bisect_right(segments, global_seconds, key=lambda segment: segment.start) - 1)
     return segments[index]
 
 

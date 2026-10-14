@@ -1,0 +1,155 @@
+{
+  "date": "2026-10-15",
+  "note": "Latest completed run per module; preserves reports of earlier attempts separately in work/.",
+  "ffmpeg": "C:/Users/wlqor/AppData/Local/PlaylistCanvas/tools/ffmpeg/versions/9.0-latest/bin/ffmpeg.exe",
+  "qt": "6.11.1",
+  "modules": 16,
+  "tests": 294,
+  "skipped": 0,
+  "runs": [
+    {
+      "module": "tests.test_architecture",
+      "status": "pass",
+      "seconds": 1.82,
+      "returncode": 0,
+      "tests": 3,
+      "skipped": 0,
+      "source_report": "work/automix-playback-tests-final.json"
+    },
+    {
+      "module": "tests.test_automix_ffmpeg_integration",
+      "status": "pass",
+      "seconds": 20.52,
+      "returncode": 0,
+      "tests": 15,
+      "skipped": 0,
+      "source_report": "work/automix-playback-tests-final.json"
+    },
+    {
+      "module": "tests.test_automix_invariants",
+      "status": "pass",
+      "seconds": 1.15,
+      "returncode": 0,
+      "tests": 5,
+      "skipped": 0,
+      "source_report": "work/automix-playback-tests-final.json"
+    },
+    {
+      "module": "tests.test_automix_planner",
+      "status": "pass",
+      "seconds": 0.49,
+      "returncode": 0,
+      "tests": 38,
+      "skipped": 0,
+      "source_report": "work/automix-playback-tests-final.json"
+    },
+    {
+      "module": "tests.test_automix_progressive",
+      "status": "pass",
+      "seconds": 1.86,
+      "returncode": 0,
+      "tests": 21,
+      "skipped": 0,
+      "source_report": "work/automix-playback-tests-final.json"
+    },
+    {
+      "module": "tests.test_automix_renderer",
+      "status": "pass",
+      "seconds": 17.91,
+      "returncode": 0,
+      "tests": 65,
+      "skipped": 0,
+      "source_report": "work/automix-playback-tests-final.json"
+    },
+    {
+      "module": "tests.test_automix_rhythm",
+      "status": "pass",
+      "seconds": 0.46,
+      "returncode": 0,
+      "tests": 6,
+      "skipped": 0,
+      "source_report": "work/automix-playback-tests-final.json"
+    },
+    {
+      "module": "tests.test_live_mix_media",
+      "status": "pass",
+      "seconds": 0.85,
+      "returncode": 0,
+      "tests": 1,
+      "skipped": 0,
+      "source_report": "work/automix-playback-live-verification.json"
+    },
+    {
+      "module": "tests.test_live_mix_player",
+      "status": "pass",
+      "seconds": 0.63,
+      "returncode": 0,
+      "tests": 8,
+      "skipped": 0,
+      "source_report": "work/automix-playback-live-verification.json"
+    },
+    {
+      "module": "tests.test_live_mix_preview",
+      "status": "pass",
+      "seconds": 1.37,
+      "returncode": 0,
+      "tests": 3,
+      "skipped": 0,
+      "source_report": "work/automix-playback-live-verification.json"
+    },
+    {
+      "module": "tests.test_main_window_preview",
+      "status": "pass",
+      "seconds": 53.91,
+      "returncode": 0,
+      "tests": 76,
+      "skipped": 0,
+      "source_report": "work/automix-playback-tests-final.json"
+    },
+    {
+      "module": "tests.test_mix_visual_transitions",
+      "status": "pass",
+      "seconds": 1.4,
+      "returncode": 0,
+      "tests": 9,
+      "skipped": 0,
+      "source_report": "work/automix-playback-tests-final.json"
+    },
+    {
+      "module": "tests.test_preview_audio_controller",
+      "status": "pass",
+      "seconds": 0.62,
+      "returncode": 0,
+      "tests": 12,
+      "skipped": 0,
+      "source_report": "work/automix-playback-tests-final.json"
+    },
+    {
+      "module": "tests.test_preview_responsiveness",
+      "status": "pass",
+      "seconds": 1.47,
+      "returncode": 0,
+      "tests": 10,
+      "skipped": 0,
+      "source_report": "work/automix-playback-tests-final.json"
+    },
+    {
+      "module": "tests.test_progressive_automix_controller",
+      "status": "pass",
+      "seconds": 14.25,
+      "returncode": 0,
+      "tests": 15,
+      "skipped": 0,
+      "source_report": "work/automix-playback-tests-final.json"
+    },
+    {
+      "module": "tests.test_track_audio_settings",
+      "status": "pass",
+      "seconds": 1.02,
+      "returncode": 0,
+      "tests": 7,
+      "skipped": 0,
+      "source_report": "work/automix-playback-track-audio-verification.json"
+    }
+  ]
+}

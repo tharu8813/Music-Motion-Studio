@@ -21,6 +21,7 @@ class RecoverySnapshot:
     document: ProjectDocument
     project_path: Path | None
     saved_at: datetime
+    dirty: bool = True
 
 
 class AutosaveService:
@@ -31,7 +32,7 @@ class AutosaveService:
     def __init__(self, directory: Path) -> None:
         self.directory = directory.resolve() / "recoveries"
 
-    def save(self, document: ProjectDocument, project_path: Path | None) -> RecoverySnapshot:
+    def save(self, document: ProjectDocument, project_path: Path | None, *, dirty: bool = True) -> RecoverySnapshot:
         """Atomically store a snapshot without changing the user's project file.
 
         ``document.to_dict()`` reads the live models, so this call must stay on
@@ -40,15 +41,16 @@ class AutosaveService:
         """
         saved_at = datetime.now(UTC)
         target = self.write_document_data(
-            document.to_dict(), project_path, saved_at,
+            document.to_dict(), project_path, saved_at, dirty=dirty,
         )
-        return RecoverySnapshot(target, document, project_path, saved_at)
+        return RecoverySnapshot(target, document, project_path, saved_at, dirty)
 
     def write_document_data(
         self,
         document_data: dict[str, object],
         project_path: Path | None,
         saved_at: datetime | None = None,
+        *, dirty: bool = True,
     ) -> Path:
         """Atomically write a recovery snapshot from an already-serialized dict.
 
@@ -63,6 +65,7 @@ class AutosaveService:
             "saved_at": saved_at.isoformat(),
             "project_path": str(project_path.resolve()) if project_path else None,
             "document": document_data,
+            "dirty": dirty,
         }
         temporary_path: Path | None = None
         try:
@@ -93,7 +96,7 @@ class AutosaveService:
         snapshots: list[RecoverySnapshot] = []
         for path in self.directory.glob("*.recovery.json"):
             try:
-                snapshots.append(self._load(path))
+                snapshots.append(self.load_snapshot(path))
             except ProjectError:
                 # A damaged recovery must not block valid snapshots from other projects.
                 continue
@@ -122,7 +125,8 @@ class AutosaveService:
         return self.directory / f"{digest}.recovery.json"
 
     @staticmethod
-    def _load(path: Path) -> RecoverySnapshot:
+    def load_snapshot(path: Path) -> RecoverySnapshot:
+        """Read a specific validated snapshot, including an update handoff."""
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(data, dict):
@@ -134,11 +138,15 @@ class AutosaveService:
                 saved_at = saved_at.replace(tzinfo=UTC)
             project_value = data.get("project_path")
             project_path = Path(project_value) if project_value else None
+            dirty = data.get("dirty", True)
+            if not isinstance(dirty, bool):
+                raise ValueError("Invalid recovery dirty flag")
             return RecoverySnapshot(
                 path=path,
                 document=ProjectDocument.from_dict(data["document"]),
                 project_path=project_path,
                 saved_at=saved_at,
+                dirty=dirty,
             )
         except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise ProjectError(f"Could not open recovery snapshot: {error}") from error

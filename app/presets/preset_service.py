@@ -550,7 +550,7 @@ def _glow(color: str, blur: float = 20.0, opacity: float = 0.95) -> Shadow:
 
 
 def karaoke() -> list[Source]:
-    """Lyrics-first stage: big glowing lines with a yellow current line."""
+    """Lyrics-first stage: big glowing lines with a timed yellow word fill."""
     return [
         replace(_background("#120A1F", mode="album_art", ambient=True), brightness=-38),
         _particles("#FFE066", -1, style="bokeh", density=18, speed=0.3, opacity=0.16),
@@ -564,7 +564,7 @@ def karaoke() -> list[Source]:
                 font_size=34, font_weight=800, subtitle_animation="glow",
                 subtitle_animation_duration=0.4, subtitle_context_lines=1, subtitle_next_lines=1,
                 subtitle_line_spacing=18, subtitle_previous_opacity=0.32, subtitle_previous_blur=2.0,
-                subtitle_current_scale=1.16, subtitle_accent_enabled=True,
+                subtitle_current_scale=1.16, subtitle_accent_enabled=True, subtitle_karaoke_enabled=True,
                 subtitle_accent_color="#FFE066", subtitle_current_line=0,
                 text_shadow_glyph=True, shadow=Shadow(True, "#000000", 14, 0, 2, 0.55)),
         _progress(240, 628, 800, "#FFE066", 6, style="apple", track_color="#3B2A55"),
@@ -713,7 +713,7 @@ class PresetService:
         PresetDefinition("pulse", "펄스", "Pulse", "볼드 컬러블록과 박동하는 커버, 대형 미러 비주얼라이저", "Bold colour-block layout with a beating cover and a large mirrored visualizer", pulse),
         PresetDefinition("vinyl", "바이닐", "Vinyl", "원형 비주얼라이저 안에서 도는 원형 앨범 커버", "A spinning circular cover inside a radial visualizer ring", vinyl),
         PresetDefinition("frost", "프로스트", "Frost", "프로스트 글래스 위의 가사와 스테레오 레벨미터, 곡 시작 알림", "Lyrics on frosted glass with a stereo meter and a track-start toast", frost),
-        PresetDefinition("karaoke", "노래방", "Karaoke", "크게 빛나는 가사와 노란 현재 줄, 앨범 아트 배경", "Big glowing lyrics with a yellow current line over the album art", karaoke),
+        PresetDefinition("karaoke", "노래방", "Karaoke", "크게 빛나는 가사와 단어별 노란 강조, 앨범 아트 배경", "Big glowing lyrics with yellow word highlighting over the album art", karaoke),
         PresetDefinition("flow", "플로우", "Flow", "떠 있는 커버와 오른쪽을 채우는 스트리밍 앱 스타일 가사", "Streaming-app lyrics view beside a floating cover", flow),
         PresetDefinition("cinema", "시네마 자막", "Cinema", "레터박스 영화 화면과 테두리 있는 하단 자막", "Letterboxed film frame with outlined subtitles", cinema),
         PresetDefinition("poster", "리릭 포스터", "Lyric Poster", "아치형 커버와 세리프 타이포, 왼쪽 정렬 가사의 에디토리얼 레이아웃", "Editorial layout with an arched cover, serif type and left-aligned lyrics", poster),
