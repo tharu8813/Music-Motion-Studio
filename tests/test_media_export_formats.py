@@ -52,7 +52,7 @@ class ExportDestinationTests(unittest.TestCase):
         self.dialog.filename_edit.setText("여름.mix.mp4")
         for extension in VIDEO_FORMATS:
             self.dialog.format_combo.setCurrentIndex(self.dialog.format_combo.findData(extension))
-            self.assertEqual(self.dialog.output_path, Path(self.directory.name) / f"여름.mix.{extension}")
+            self.assertEqual(self.dialog.output_path, Path(self.directory.name).resolve() / f"여름.mix.{extension}")
         self.dialog._accept_if_valid()
         self.assertEqual(self.dialog.result(), QDialog.DialogCode.Accepted)
 
