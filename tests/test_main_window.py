@@ -715,7 +715,7 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
         )
 
     def test_color_editor_dialog_commits_color_and_personal_policy(self) -> None:
-        first = Source(SourceType.TEXT, "First personal color")
+        first = Source(SourceType.SHAPE, "First personal color")
         second = Source(SourceType.SHAPE, "Second personal color")
         self.window.store.replace([first, second])
         self.window.store.select_many([first.id, second.id], second.id)
@@ -1582,6 +1582,61 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
         # There is no longer a sample-data toggle.
         self.assertFalse(hasattr(self.window, "sample_data_action"))
 
+    def test_alignment_uses_scaled_rotated_content_bounds(self) -> None:
+        for mode in ("left", "hcenter", "right", "top", "vcenter", "bottom"):
+            with self.subTest(mode=mode):
+                sources = [
+                    Source(SourceType.SHAPE, "First", x=100, y=150, width=120,
+                           height=80, scale=2.0, rotation=30),
+                    Source(SourceType.SHAPE, "Second", x=500, y=400, width=90,
+                           height=140, scale=0.7, rotation=75),
+                ]
+                self.window.store.replace(sources)
+                self.window.store.select_many([source.id for source in sources], sources[0].id)
+                self.window._align_selected_sources(mode)
+                bounds = [
+                    self.window.canvas._items[source.id].mapRectToScene(
+                        self.window.canvas._items[source.id].content_rect()
+                    ) for source in sources
+                ]
+                def edge(rect: object) -> float:
+                    return {
+                        "left": rect.left(), "hcenter": rect.center().x(),
+                        "right": rect.right(), "top": rect.top(),
+                        "vcenter": rect.center().y(), "bottom": rect.bottom(),
+                    }[mode]
+                self.assertAlmostEqual(edge(bounds[0]), edge(bounds[1]))
+
+    def test_distribution_uses_scaled_rotated_edges_and_keeps_outermost(self) -> None:
+        for axis in ("horizontal", "vertical"):
+            with self.subTest(axis=axis):
+                sources = [
+                    Source(SourceType.SHAPE, str(index), x=x, y=x, width=80,
+                           height=100, scale=scale, rotation=angle)
+                    for index, (x, scale, angle) in enumerate(
+                        ((100, 1.5, 30), (290, 0.7, 70), (700, 1.2, 15))
+                    )
+                ]
+                self.window.store.replace(sources)
+                self.window.store.select_many([source.id for source in sources], sources[0].id)
+                outer_positions = [(source.x, source.y) for source in (sources[0], sources[-1])]
+                self.window._distribute_selected_sources(axis)
+                bounds = [
+                    self.window.canvas._items[source.id].mapRectToScene(
+                        self.window.canvas._items[source.id].content_rect()
+                    ) for source in sources
+                ]
+                gaps = [
+                    bounds[index + 1].left() - bounds[index].right()
+                    if axis == "horizontal" else
+                    bounds[index + 1].top() - bounds[index].bottom()
+                    for index in range(2)
+                ]
+                self.assertAlmostEqual(gaps[0], gaps[1])
+                for source, (x, y) in zip((sources[0], sources[-1]), outer_positions):
+                    self.assertAlmostEqual(source.x, x)
+                    self.assertAlmostEqual(source.y, y)
+
     def test_distribute_spacing_evens_gaps_and_keeps_outermost(self) -> None:
         ids: list[str] = []
         for x, width in ((0, 100), (140, 60), (400, 120), (700, 40)):
@@ -1904,8 +1959,10 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
         self.window.show()
         self.window.left_tabs.setCurrentWidget(self.window.content_library_panel)
         content_list = self.window.content_library_panel.list
+        content_list.setFixedHeight(160)
         content_list.addItems([f"Content {index}" for index in range(40)])
         self.application.processEvents()
+        self.assertGreater(content_list.verticalScrollBar().maximum(), 0)
         wheel = QWheelEvent(
             QPointF(20, 20), QPointF(20, 20), QPoint(), QPoint(0, -120),
             Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,

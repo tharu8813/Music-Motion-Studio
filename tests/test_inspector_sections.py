@@ -75,6 +75,7 @@ class LyricsSectionTests(unittest.TestCase):
         self.assertEqual(hidden, {
             "subtitle_previous_opacity": False, "subtitle_previous_blur": False,
             "subtitle_accent_color": False,
+            "subtitle_accent_enabled": True,
             "subtitle_karaoke_offset": False,
             "subtitle_karaoke_pending_mode": False, "subtitle_karaoke_pending_color": False,
             "subtitle_karaoke_pending_brightness": False,

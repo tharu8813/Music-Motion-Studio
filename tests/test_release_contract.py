@@ -143,15 +143,19 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('PlaylistCanvas.Project\\shell\\open\\command', installer)
         self.assertIn('""%1""', installer)
 
-    def test_updates_use_per_user_install_and_only_restart_after_success(self) -> None:
+    def test_updates_use_program_files_and_only_restart_after_success(self) -> None:
         installer = (ROOT / "setup.iss").read_text(encoding="utf-8")
-        self.assertIn("PrivilegesRequired=lowest", installer)
-        self.assertIn(r"DefaultDirName={localappdata}\Programs\{#MyAppName}", installer)
+        self.assertIn("PrivilegesRequired=admin", installer)
+        self.assertIn(r"DefaultDirName={commonpf}\{#MyAppName}", installer)
         self.assertNotIn("UnInstallOldVersion", installer)
         self.assertNotIn("taskkill", installer)
         self.assertIn("WaitForSingleObject(ParentHandle, 120000)", installer)
         self.assertIn("Flags: nowait runasoriginaluser; Check: IsAutomaticUpdate", installer)
         self.assertIn("--resume-update", installer)
+        self.assertIn("{param:UPDATEREADY|}", installer)
+        self.assertIn("SaveStringToFile(ReadyPath", installer)
+        self.assertNotIn('Type: filesandordirs; Name: "{app}"', installer)
+        self.assertIn('Type: dirifempty; Name: "{app}"', installer)
 
 
 if __name__ == "__main__":

@@ -126,7 +126,7 @@ class PreviewController:
                 window.settings_service.current.ffmpeg_path or None
             ).executable
         except FFmpegNotFoundError:
-            pass
+            window.check_ffmpeg_availability()
         transition_mode = window.project_settings.transition_mode
         crossfade_seconds = window.project_settings.crossfade_seconds
         # Per-track volume/EQ only exists in a rendered mix, even without transitions.

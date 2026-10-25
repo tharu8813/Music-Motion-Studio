@@ -1499,7 +1499,8 @@ class FunctionalRegressionTests(unittest.TestCase):
         )
 
         self.assertIn("pad=160:90:(ow-iw)/2:(oh-ih)/2:color=0x123ABC", graph)
-        self.assertIn("geq=r='r(X,Y)'", graph)
+        self.assertIn("alphaextract,geq=lum='if(lte(", graph)
+        self.assertIn("[vcolor0][vmask0]alphamerge", graph)
         self.assertIn("pow(12.0000,2)", graph)
 
     def test_repeated_video_occurrences_share_one_physical_input(self) -> None:

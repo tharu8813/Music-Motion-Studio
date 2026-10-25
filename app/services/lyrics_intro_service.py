@@ -5,6 +5,7 @@ from hashlib import sha256
 import logging
 from pathlib import Path
 import threading
+import time
 
 import numpy as np
 from PySide6.QtCore import QCoreApplication, QSettings
@@ -24,10 +25,12 @@ from app.utils.subprocess_utils import lower_thread_if_background
 
 LOGGER = logging.getLogger(__name__)
 _jobs: dict[tuple, Future] = {}
+_submitted_at: dict[tuple, float] = {}
 _lock = threading.Lock()
 _cancel = threading.Event()
 _executor = None
 _detector = None
+_detector_configured = None
 
 
 def confirmed_instrumental_spans(windows, vocals, minimum):
@@ -61,8 +64,14 @@ def request_instrumental_analysis(track: PlaylistTrack, source: Source) -> Futur
         stat = path.stat()
     except OSError:
         return None
-    key = (str(path), stat.st_size, stat.st_mtime_ns, windows)
+    configured = str(QSettings().value("export/ffmpeg_path", "") or "")
+    key = (str(path), stat.st_size, stat.st_mtime_ns, windows, configured)
     with _lock:
+        previous = _jobs.get(key)
+        if (previous is not None and previous.done()
+                and (previous.cancelled() or previous.exception() is not None or previous.result() is None)
+                and time.monotonic() - _submitted_at.get(key, 0.0) >= 30.0):
+            _jobs.pop(key)
         if key not in _jobs:
             if _executor is None:
                 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="lyric-interludes",
@@ -76,8 +85,9 @@ def request_instrumental_analysis(track: PlaylistTrack, source: Source) -> Futur
                     break
                 if _jobs[old].done():
                     _jobs.pop(old)
-            configured = str(QSettings().value("export/ffmpeg_path", "") or "")
+                    _submitted_at.pop(old, None)
             _jobs[key] = _executor.submit(_measure, track, windows, configured)
+            _submitted_at[key] = time.monotonic()
         return _jobs[key]
 
 
@@ -86,12 +96,18 @@ def instrumental_spans(track: PlaylistTrack, source: Source):
     future = request_instrumental_analysis(track, source)
     if future is None or not future.done():
         return ()
-    windows, blocked = future.result()
+    try:
+        result = future.result()
+    except Exception:
+        return ()
+    if result is None:
+        return ()
+    windows, blocked = result
     return confirmed_instrumental_spans(windows, blocked, source.subtitle_intro_gap)
 
 
 def _measure(track, windows, configured):
-    global _detector
+    global _detector, _detector_configured
     version = "1-" + sha256(repr(windows).encode()).hexdigest()[:16]
     cache = AnalysisCache(analyzer_id="lyrics-interlude-umxhq", analyzer_version=version)
     try:
@@ -100,9 +116,10 @@ def _measure(track, windows, configured):
             return tuple(map(tuple, fields["vocal_coverage"] or ())), tuple(map(tuple, fields["vocal_activity"]))
         if not model_path(ONNX_MODEL_NAME).is_file():
             raise RuntimeError("The bundled vocal model is missing")
-        if _detector is None:
+        if _detector is None or _detector_configured != configured:
             decode = BasicAnalysisProvider(FFmpegRenderer.find_executable(configured or None))._decode_mono_pcm
             _detector = OnnxVocalDetector(decode, model_path(ONNX_MODEL_NAME))
+            _detector_configured = configured
         blocked, measured = [], []
         # ponytail: gap-only separation, 12-second chunks bound memory/cancel latency.
         # Analyze full songs only if a future feature needs their vocal timeline.
@@ -110,7 +127,7 @@ def _measure(track, windows, configured):
             cursor = start
             while cursor < end:
                 if _cancel.is_set():
-                    return (), ()
+                    return None
                 length = min(12.0, end - cursor)
                 pcm = _detector._decode(Path(track.file_path), _cancel, sample_rate=UMX_SAMPLE_RATE,
                                         channels=2, start=cursor, duration=length).reshape(-1, 2)
@@ -139,4 +156,4 @@ def _measure(track, windows, configured):
         return coverage, vocals
     except Exception as error:
         LOGGER.warning("Lyric interlude detection unavailable for %s: %s", track.file_path, error)
-        return (), ()  # Fail closed: a missing/failed analysis is never 'no vocals'.
+        return None  # A failed measurement can be retried; it is never evidence of silence.

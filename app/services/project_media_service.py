@@ -147,7 +147,6 @@ class ProjectMediaService:
                     sources[entry.identifier].font_path = replacement_value
                 elif entry.kind == "audio" and entry.identifier in tracks:
                     tracks[entry.identifier].file_path = replacement_value
-                    tracks[entry.identifier].enabled = True
                 elif entry.kind == "cover" and entry.identifier in tracks:
                     tracks[entry.identifier].cover_path = replacement_value
                 elif entry.kind == "lyrics" and entry.identifier in tracks:

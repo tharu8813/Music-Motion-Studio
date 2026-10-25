@@ -24,7 +24,7 @@ from app.preview.export_session import (
     PngStaging,
 )
 from app.renderer.canvas_pipe import CanvasPipeError
-from app.renderer.export_timeline import ExportFrameSample
+from app.renderer.export_timeline import ExportFrameSample, ExportFrameSchedule
 from app.renderer.ffmpeg_renderer import (
     PipedVideoInput,
     PreparedVideoInput,
@@ -63,8 +63,8 @@ class _CapturerStub:
         self._stage_frame = _kwargs.get("_stage") or (_args[5] if len(_args) > 5 else None)
         self._after_capture = _args[7] if len(_args) > 7 else _kwargs.get("_after")
 
-    def coalesce_samples(self, samples, _stream_key):
-        return list(samples)
+    def iter_coalesced_samples(self, samples, _stream_key, _wait=None):
+        return iter(samples)
 
     def capture_stream(self, sample, stream_key):
         image = QImage(2, 2, QImage.Format.Format_RGB32)
@@ -216,6 +216,22 @@ class ExportSessionTests(unittest.TestCase):
         self.assertTrue(recorder.started and recorder.finished)
         self.assertEqual(recorder.staged, ["base", "base"])
 
+    def test_lazy_plan_can_be_reused_by_streamed_and_png_sessions(self) -> None:
+        samples = _samples()
+        schedule = ExportFrameSchedule(lambda: iter(samples))
+        for streamed in (True, False):
+            with self.subTest(streamed=streamed), TemporaryDirectory() as directory, \
+                 patch("app.preview.export_session.ExportCanvasCapturer", _CapturerStub), \
+                 patch("app.preview.export_session.StaticVideoStreamEncoder", _EncoderStub):
+                plan = _plan(streamed=streamed, direct=True)
+                plan.stream_timeline_samples["base"] = schedule
+                for _ in range(2):
+                    session = self._session(plan, _StagingRecorder(), Path(directory), threading.Event())
+                    session.run()
+                    self.assertEqual(session.capture_count, len(samples))
+                    self.assertEqual(session._capture_fraction(), 1.0)
+                    self.assertIs(plan.stream_timeline_samples["base"], schedule)
+
     def test_cancel_during_capture_stops_streams(self) -> None:
         cancel = threading.Event()
 
@@ -301,6 +317,31 @@ class ExportSessionTests(unittest.TestCase):
         self.assertTrue(finished.is_set())
         self.assertIsNone(session._bass_envelopes)
         self.assertFalse(any(thread.name.startswith("export-bass") for thread in threading.enumerate()))
+
+    def test_repeated_audio_is_analyzed_once_and_reused_by_a_fallback_session(self) -> None:
+        session = self._session(_plan(streamed=False, direct=False), _StagingRecorder(), None, threading.Event())
+        session._scene = SimpleNamespace(items=lambda: [SimpleNamespace(source=Source(
+            SourceType.TEXT, "Title", music_reactive_enabled=True,
+        ))])
+        session._tracks.append(PlaylistTrack("./a.mp3", "Repeated", duration_seconds=2))
+        levels = np.ones((2, 24), dtype=np.float32)
+        with patch.object(export_session_module.PythonVisualizerRenderer, "_decode_mono_audio",
+                          return_value=np.ones(10, dtype=np.float32)) as decode, \
+             patch.object(export_session_module.PythonVisualizerRenderer, "_analyze_levels", return_value=levels):
+            prepared = session._prepare_bass_envelopes()
+        decode.assert_called_once()
+        first, second = session._tracks
+        self.assertIs(prepared[first.id], prepared[second.id])
+        fallback = ExportSession(
+            scene=session._scene, renderer=session._renderer, plan=session._plan,
+            render_settings=session._settings, active_tracks=session._tracks, stream_root=None,
+            preparation_cancel=threading.Event(), korean=False, staging=session._staging,
+            layer_worker_count=lambda _count: 1, report_progress=lambda *_: None,
+            pump_ui=lambda: None, bass_envelopes=session.bass_envelopes,
+        )
+        with patch.object(export_session_module, "ThreadPoolExecutor") as executor:
+            self.assertIs(fallback._prepare_bass_envelopes(), prepared)
+        executor.assert_not_called()
 
     def test_bass_failure_keeps_other_tracks_and_invisible_background_skips_work(self) -> None:
         session = self._session(_plan(streamed=False, direct=False), _StagingRecorder(), None, threading.Event())

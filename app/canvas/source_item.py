@@ -1467,6 +1467,7 @@ class SourceItem(QGraphicsObject):
         pixel_ratio = device_pixel_ratio(painter)
         radius = max(0.5, float(shadow.blur_radius) * 0.5)
         color = QColor(shadow.color)
+        shadow_alpha = color.alphaF()
         color.setAlpha(255)
         # Position-independent: the raster is drawn at the path's own bounds.
         key = (painter.font().key(), text, round(rect.width(), 3), round(rect.height(), 3),
@@ -1488,7 +1489,7 @@ class SourceItem(QGraphicsObject):
         painter.save()
         painter.setOpacity(
             painter.opacity() * max(0.0, min(1.0, shadow.opacity))
-            * painter.pen().color().alphaF()
+            * shadow_alpha * painter.pen().color().alphaF()
         )
         painter.drawPixmap(
             bounds.topLeft() + QPointF(shadow.offset_x - margin, shadow.offset_y - margin),
@@ -1629,7 +1630,7 @@ class SourceItem(QGraphicsObject):
 
         if self.source.shadow.enabled:
             shadow_color = QColor(self.source.shadow.color)
-            shadow_color.setAlphaF(max(0.0, min(1.0, self.source.shadow.opacity)))
+            shadow_color.setAlphaF(shadow_color.alphaF() * max(0.0, min(1.0, self.source.shadow.opacity)))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(shadow_color)
             shadow_rect = rect.translated(self.source.shadow.offset_x, self.source.shadow.offset_y)
@@ -2023,7 +2024,7 @@ class SourceItem(QGraphicsObject):
             scene = self.scene()
             if scene is not None and hasattr(scene, "begin_item_interaction"):
                 scene.begin_item_interaction(  # type: ignore[attr-defined]
-                    self, include_selection=True,
+                    self, include_selection=not self._duplicate_on_release,
                 )
 
     def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent) -> None:
@@ -2066,24 +2067,37 @@ class SourceItem(QGraphicsObject):
             scene = self.scene()
             if scene is not None and hasattr(scene, "snap_resize"):
                 width, height = scene.snap_resize(  # type: ignore[no-any-return]
-                    self, width, height, handle,
+                    self, width, height, handle, event.modifiers(),
                 )
             if aspect_ratio is not None and aspect_driver is not None:
+                snapped_width, snapped_height = width, height
                 width, height = self._constrain_resize_aspect(
                     width, height, aspect_ratio, aspect_driver,
                 )
-                # Only the pointer-controlled axis can remain snapped after its
-                # paired dimension is derived from the aspect ratio.
+                # Aspect/minimum limits can move an edge away from its guide.
                 if scene is not None:
-                    if aspect_driver == "width" and hasattr(scene, "guide_y"):
+                    if hasattr(scene, "guide_y") and (
+                        aspect_driver == "width" or abs(height - snapped_height) > 1e-6
+                    ):
                         scene.guide_y = None  # type: ignore[attr-defined]
-                    elif aspect_driver == "height" and hasattr(scene, "guide_x"):
+                    if hasattr(scene, "guide_x") and (
+                        aspect_driver == "height" or abs(width - snapped_width) > 1e-6
+                    ):
                         scene.guide_x = None  # type: ignore[attr-defined]
             self._resize_to(width, height, handle)
             if scene is not None and hasattr(scene, "update_alignment_guides"):
                 scene.update_alignment_guides(self)  # type: ignore[attr-defined]
             self.interaction_hint.emit(
                 f"{self.source.width:.0f} × {self.source.height:.0f}"
+            )
+            event.accept()
+            return
+        scene = self.scene()
+        if (scene is not None and hasattr(scene, "move_interactive_items")
+                and scene.is_item_interactive(self)):
+            scene.move_interactive_items(
+                event.scenePos() - event.buttonDownScenePos(Qt.MouseButton.LeftButton),
+                event.modifiers(),
             )
             event.accept()
             return
@@ -2197,12 +2211,6 @@ class SourceItem(QGraphicsObject):
 
     def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: object) -> object:
         """Send source positions back to the store after user movement."""
-        if change is QGraphicsItem.GraphicsItemChange.ItemPositionChange:
-            scene = self.scene()
-            if self._suppress_position_sync or self._resizing:
-                return value
-            if scene is not None and hasattr(scene, "snap_position") and isinstance(value, QPointF):
-                return scene.snap_position(self, value)  # type: ignore[no-any-return]
         if change is QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             if self._suppress_position_sync:
                 return super().itemChange(change, value)

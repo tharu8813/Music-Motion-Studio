@@ -54,7 +54,7 @@ from app.inspector.editors.lyrics_editor import LyricsSection
 from app.inspector.editors.now_playing_editor import NowPlayingSection
 from app.inspector.editors.particle_overlay_editor import ParticleSection
 from app.inspector.editors.track_list_editor import TrackListSection
-from app.models.source import Source, SourceType
+from app.models.source import TEXT_SOURCE_TYPES, Source, SourceType
 from app.models.source_registry import source_registry
 from app.dialogs.color_editor_dialog import ColorEditorDialog
 from app.dialogs.lyrics_line_style_dialog import LyricsLineStyleDialog
@@ -383,11 +383,11 @@ class SourceInspector(QScrollArea):
         self.track_list.add_rows(self._add_labeled_row, content_form)
         self.now_playing.add_rows(self._add_labeled_row, content_form)
         content_form.addRow(self.lyrics_transition_button)
-        content_form.addRow(self.lyrics_karaoke_button)
         self.lyrics.add_rows(
             self._add_labeled_row, content_form,
             keys=tuple(key for key in self.lyrics.widgets if key not in LyricsSection.TRANSITION_KEYS),
         )
+        self._sections[("special", "sub_karaoke")].form.addRow(self.lyrics_karaoke_button)
         self._add_labeled_row(
             content_form, "subtitle_line_styles", self.lyrics_line_styles_button,
             section="sub_layout",
@@ -862,6 +862,13 @@ class SourceInspector(QScrollArea):
         self._sections[("animation", "music_reaction")].set_title(music_title)
         self.lyrics_transition_button.setVisible(source_types == {SourceType.LYRICS})
         self.lyrics_karaoke_button.setVisible(source_types == {SourceType.LYRICS})
+        if source_types == {SourceType.LYRICS}:
+            karaoke = sources[0].subtitle_karaoke_enabled
+            korean = self.translator.is_korean
+            self._form_labels["subtitle_accent_color"].setText(
+                ("부른 가사 색" if karaoke else "현재 줄 강조 색") if korean else
+                ("Sung lyric color" if karaoke else "Current line accent color")
+            )
         special_type = next(iter(source_types)) if len(source_types) == 1 else None
         self.property_tabs.setTabText(
             self._tab_indices["special"],
@@ -1483,6 +1490,7 @@ class SourceInspector(QScrollArea):
             "색상 편집" if korean else "Edit color",
             self,
             tracks=self._dialog_tracks(),
+            show_personal_color=all(field in entry.personal_color_fields for entry in self._selected_sources()),
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._commit_color_dialog(dialog, "source", field)
@@ -1502,6 +1510,7 @@ class SourceInspector(QScrollArea):
             "그라데이션 색상 편집" if korean else "Edit gradient color",
             self,
             tracks=self._dialog_tracks(),
+            show_personal_color=all("fill_color" in entry.personal_color_fields for entry in self._selected_sources()),
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._commit_color_dialog(dialog, "gradient", field)
@@ -1530,11 +1539,12 @@ class SourceInspector(QScrollArea):
         korean = self.translator.is_korean
         dialog = ColorEditorDialog(
             QColor(source.shadow.color),
-            source,
+            source.shadow,
             self.translator,
             "그림자 색상 편집" if korean else "Edit shadow color",
             self,
             tracks=self._dialog_tracks(),
+            show_personal_color=all(entry.source_type in TEXT_SOURCE_TYPES for entry in self._selected_sources()),
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._commit_color_dialog(dialog, "shadow", "color")
@@ -1553,7 +1563,7 @@ class SourceInspector(QScrollArea):
                 else:
                     setattr(getattr(source, target), field, color)
                 for setting, value in personal.items():
-                    setattr(source, setting, value)
+                    setattr(source.shadow if target == "shadow" else source, setting, value)
                 self.store.source_changed.emit(source)
         finally:
             self._applying_batch = False
@@ -1773,7 +1783,7 @@ class SourceInspector(QScrollArea):
         self.track_list.retranslate(korean)
         self.now_playing.retranslate(korean)
         self.lyrics.retranslate(korean)
-        self.lyrics_karaoke_button.setText("자동 노래방 (베타)…" if korean else "Automatic karaoke (Beta)…")
+        self.lyrics_karaoke_button.setText("가사 시간·적용할 줄 설정…" if korean else "Set lyric timing and lines…")
         self.lyrics_karaoke_button.setToolTip("선택한 곡의 가사 맞춤·색상·노래방 표시를 한 번에 설정합니다." if korean else "Align the selected track's lyrics, choose colors and enable karaoke together.")
         self.lyrics_transition_button.setText(
             "자막 전환 설정…" if korean else "Subtitle transition settings…"
@@ -2218,6 +2228,16 @@ class SourceInspector(QScrollArea):
             self.shadow_y_spin.setValue(source.shadow.offset_y)
             self.animation_in_combo.setCurrentIndex(max(0, self.animation_in_combo.findData(source.animation_in)))
             self.animation_out_combo.setCurrentIndex(max(0, self.animation_out_combo.findData(source.animation_out)))
+            video = source.source_type is SourceType.VIDEO
+            for combo in (self.animation_in_combo, self.animation_out_combo, self.motion.widgets["loop_motion"]):
+                for index in range(combo.count()):
+                    supported = not video or combo.itemData(index) in (
+                        {"none"} if combo is self.motion.widgets["loop_motion"] else {"none", "fade"}
+                    )
+                    combo.model().item(index).setEnabled(supported)
+                    combo.setItemData(index, "영상 내보내기에서 지원하지 않는 효과입니다." if video and not supported and self.translator.is_korean else
+                                      "This effect is not supported by video export." if video and not supported else None,
+                                      Qt.ItemDataRole.ToolTipRole)
             self.animation_in_duration_spin.setValue(source.animation_in_duration)
             self.animation_out_duration_spin.setValue(source.animation_out_duration)
             self.animation_fit_mix_check.setChecked(source.animation_fit_mix)

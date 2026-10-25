@@ -231,7 +231,11 @@ class MainWindowProjectTests(MainWindowTestCase):
                     self.window.current_project_path = project_path
                     self.window._project_dirty = dirty
                     expected = self.window._project_document().to_dict()
-                    with patch("app.ui.main_window.QProcess.startDetached", return_value=(True, 1234)) as launch, \
+                    def setup_ready(_installer, arguments):
+                        ready = Path(next(value.split("=", 1)[1] for value in arguments if value.startswith("/UPDATEREADY=")))
+                        ready.write_text("ready", encoding="utf-8")
+                        return True
+                    with patch("app.ui.main_window.launch_setup", side_effect=setup_ready) as launch, \
                          patch.object(self.window, "close") as close, \
                          patch.object(QMessageBox, "question", side_effect=AssertionError("Extra confirmation")), \
                          patch.object(QMessageBox, "warning", side_effect=AssertionError("Extra save prompt")):
@@ -260,14 +264,14 @@ class MainWindowProjectTests(MainWindowTestCase):
             self.window._project_dirty = True
             with patch.object(self.window.autosave, "save", side_effect=ProjectError("disk full")), \
                  patch.object(self.window, "_show_project_error") as error, \
-                 patch("app.ui.main_window.QProcess.startDetached") as launch, \
+                 patch("app.ui.main_window.launch_setup") as launch, \
                  patch.object(self.window, "close") as close:
                 self.window._launch_update_setup(installer)
                 error.assert_called_once()
                 launch.assert_not_called()
                 close.assert_not_called()
             self.window.autosave = AutosaveService(Path(directory))
-            with patch("app.ui.main_window.QProcess.startDetached", return_value=(False, -1)), \
+            with patch("app.ui.main_window.launch_setup", return_value=False), \
                  patch.object(QMessageBox, "critical") as error, patch.object(self.window, "close") as close:
                 self.window._launch_update_setup(installer)
                 error.assert_called_once()
@@ -280,7 +284,7 @@ class MainWindowProjectTests(MainWindowTestCase):
         render.isRunning.return_value = True
         with patch.object(self.window, "_render_worker", render), \
              patch("app.ui.main_window.QTimer.singleShot") as retry, \
-             patch("app.ui.main_window.QProcess.startDetached") as launch:
+             patch("app.ui.main_window.launch_setup") as launch:
             self.window._launch_update_setup(Path("setup.exe"))
             self.assertEqual(retry.call_args.args[0], 500)
             render.cancel.assert_not_called()
@@ -392,7 +396,7 @@ class MainWindowProjectTests(MainWindowTestCase):
         finally:
             dialog.close()
 
-    def test_stale_recovery_is_removed_instead_of_replacing_newer_project(self) -> None:
+    def test_older_recovery_is_offered_even_when_another_window_saved_the_project(self) -> None:
         with TemporaryDirectory(prefix="pvs-stale-recovery-") as raw_directory:
             project_path = Path(raw_directory) / "newer.pvsproj"
             project_path.write_bytes(b"newer saved project")
@@ -407,11 +411,12 @@ class MainWindowProjectTests(MainWindowTestCase):
             ), patch.object(
                 self.window.autosave, "clear_snapshot"
             ) as clear_snapshot, patch.object(
-                QMessageBox, "question"
+                QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes
             ) as recovery_question:
-                self.assertFalse(self.window._offer_recovery())
-            clear_snapshot.assert_called_once_with(snapshot)
-            recovery_question.assert_not_called()
+                with patch.object(self.window, "_resolve_project_media", return_value=False):
+                    self.assertFalse(self.window._offer_recovery())
+            clear_snapshot.assert_not_called()
+            recovery_question.assert_called_once()
 
     def test_autosave_writes_recovery_on_a_background_worker(self) -> None:
         from app.services.autosave_service import AutosaveService

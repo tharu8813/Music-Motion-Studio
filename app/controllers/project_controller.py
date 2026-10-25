@@ -55,6 +55,7 @@ class ProjectController:
         self.save_worker: ProjectSaveWorker | None = None
         self.save_context: tuple[int, Path | None] | None = None
         self.save_succeeded: bool | None = None
+        self.media_relinked = False
 
     @property
     def saving(self) -> bool:
@@ -505,6 +506,7 @@ class ProjectController:
             stage = "누락된 미디어 확인" if korean else "Validating project media"
             window.activity_progress.update("project_load", detail=stage)
             QApplication.processEvents()
+            self.media_relinked = False
             if not window._resolve_project_media(document, path):
                 return False
             stage = "프로젝트 작업공간 적용" if korean else "Applying project workspace"
@@ -524,7 +526,9 @@ class ProjectController:
             )
             window.upgrade_project_action.setEnabled(window._legacy_project_path is not None)
             window.recent_projects.add(window.current_project_path)
-            window._project_dirty = False
+            window._project_dirty = self.media_relinked
+            if self.media_relinked:
+                window._autosave_debounce_timer.start()
             window._update_project_status()
             message = "프로젝트를 불러왔습니다." if window.translator.is_korean else "Project loaded."
             window.statusBar().showMessage(message, 4000)
@@ -718,13 +722,16 @@ class ProjectController:
     def resolve_media(self, document: ProjectDocument, project_path: Path) -> bool:
         """Relink missing project assets before the document changes the live workspace."""
         window = self.window
+        self.media_relinked = False
         missing = ProjectMediaService.validate(document, project_path)
         if not missing:
             return True
         dialog = MissingMediaDialog(missing, window.translator, window)
         if dialog.exec() != dialog.DialogCode.Accepted:
             return False
+        previous = document.to_dict()
         ProjectMediaService.apply_replacements(document, missing)
+        self.media_relinked = document.to_dict() != previous
         return True
 
     # -- legacy upgrade ------------------------------------------------

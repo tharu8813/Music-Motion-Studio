@@ -3216,6 +3216,7 @@ class ExportPreviewDialog(QDialog):
             oldest_track_id = next(iter(self._track_levels))
             self._track_levels.pop(oldest_track_id, None)
         self._clear_overlay_frames(track_id)
+        self._last_composition_key = None
         self._schedule_refresh()
 
     def _analysis_finished(self) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import UTC, datetime
 
 from PySide6.QtCore import QThread, Signal
 
@@ -32,11 +33,14 @@ class AutosaveWorker(QThread):
         self._service = service
         self._document_data = document_data
         self._project_path = project_path
+        self._saved_at = datetime.now(UTC)
+        self._generation = service.generation
 
     def run(self) -> None:
         try:
             path = self._service.write_document_data(
-                self._document_data, self._project_path,
+                self._document_data, self._project_path, self._saved_at,
+                expected_generation=self._generation,
             )
         except ProjectError as error:
             self.failed.emit(str(error))

@@ -9,7 +9,8 @@ import os
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 
@@ -25,6 +26,7 @@ from app.utils.mask_shapes import mask_path
 from app.utils.particle_painter import paint_particles
 from app.utils.radial_visualizer import paint_radial_bars
 from app.utils.subprocess_utils import hidden_process_kwargs
+from app.renderer.canvas_pipe import CanvasPipeError, PipedCanvasStream, piped_export_supported
 
 
 class PythonVisualizerError(RuntimeError):
@@ -32,13 +34,54 @@ class PythonVisualizerError(RuntimeError):
 
 
 class PythonVisualizerRenderer:
-    """Analyze the playlist audio in Python and encode transparent overlay movies."""
+    """Analyze playlist audio and draw transparent layers for export and preview."""
 
     sample_rate = 8_000
     fft_size = 512
 
     def __init__(self, ffmpeg_executable: Path) -> None:
         self.ffmpeg_executable = ffmpeg_executable
+
+    def _audio_levels(
+        self, audio_path: Path, overlays: Sequence[object], fps: int,
+        cancel_event: threading.Event,
+        progress_callback: Callable[[float, str], None] | None,
+    ) -> tuple[np.ndarray, np.ndarray | None, tuple[np.ndarray, np.ndarray] | None]:
+        self._report(progress_callback, 0.0, "Decoding audio for visualizers")
+        needs_stereo = any(getattr(item, "kind", "") == "level_meter" for item in overlays)
+        stereo = self._decode_stereo_audio(audio_path, cancel_event) if needs_stereo else None
+        samples = (
+            np.mean(stereo, axis=1, dtype=np.float32)
+            if stereo is not None else self._decode_mono_audio(audio_path, cancel_event)
+        )
+        needs_spectrum = any(getattr(item, "kind", "visualizer") not in {
+            "particles", "level_meter", "waveform",
+        } for item in overlays)
+        if needs_spectrum:
+            self._report(progress_callback, 0.04, "Analyzing visualizer frequency levels")
+        bands = max(
+            max(4, min(96, int(getattr(item, "bar_count", 32))))
+            for item in overlays
+        )
+        levels = (
+            self._analyze_levels(samples, fps, bands, cancel_event)
+            if needs_spectrum
+            else np.zeros((max(1, math.ceil(len(samples) * fps / self.sample_rate)), 1), dtype=np.float32)
+        )
+        waveform_levels = None
+        if any(getattr(item, "kind", "") == "waveform" for item in overlays):
+            self._report(progress_callback, 0.08, "Analyzing waveform samples")
+            waveform_levels = self._analyze_waveform(
+                samples, fps, max(32, max(int(getattr(item, "bar_count", 32)) for item in overlays)), cancel_event
+            )
+        stereo_levels: tuple[np.ndarray, np.ndarray] | None = None
+        if stereo is not None:
+            self._report(progress_callback, 0.11, "Analyzing stereo level meter channels")
+            stereo_levels = (
+                self._analyze_rms(stereo[:, 0], fps, cancel_event),
+                self._analyze_rms(stereo[:, 1], fps, cancel_event),
+            )
+        return levels, waveform_levels, stereo_levels
 
     def render_layers(
         self,
@@ -53,31 +96,9 @@ class PythonVisualizerRenderer:
         """Create one alpha-preserving video layer for every configured source."""
         if not overlays:
             return []
-        self._report(progress_callback, 0.0, "Decoding audio for visualizers")
-        needs_stereo = any(getattr(item, "kind", "") == "level_meter" for item in overlays)
-        stereo = self._decode_stereo_audio(audio_path, cancel_event) if needs_stereo else None
-        samples = (
-            np.mean(stereo, axis=1, dtype=np.float32)
-            if stereo is not None else self._decode_mono_audio(audio_path, cancel_event)
+        levels, waveform_levels, stereo_levels = self._audio_levels(
+            audio_path, overlays, fps, cancel_event, progress_callback,
         )
-        self._report(progress_callback, 0.04, "Analyzing visualizer frequency levels")
-        levels = self._analyze_levels(samples, fps, max(
-            max(4, min(96, int(getattr(item, "bar_count", 32))))
-            for item in overlays
-        ), cancel_event)
-        waveform_levels = None
-        if any(getattr(item, "kind", "") == "waveform" for item in overlays):
-            self._report(progress_callback, 0.08, "Analyzing waveform samples")
-            waveform_levels = self._analyze_waveform(
-                samples, fps, max(32, max(int(getattr(item, "bar_count", 32)) for item in overlays)), cancel_event
-            )
-        stereo_levels: tuple[np.ndarray, np.ndarray] | None = None
-        if stereo is not None:
-            self._report(progress_callback, 0.11, "Analyzing stereo level meter channels")
-            stereo_levels = (
-                self._analyze_rms(stereo[:, 0], fps, cancel_event),
-                self._analyze_rms(stereo[:, 1], fps, cancel_event),
-            )
         paths: list[Path | None] = [None] * len(overlays)
         layer_progress = [0.0] * len(overlays)
         layer_frames = [0] * len(overlays)
@@ -138,6 +159,73 @@ class PythonVisualizerRenderer:
         self._report(progress_callback, 1.0, "Visualizer frames complete")
         return [path for path in paths if path is not None]
 
+    @contextmanager
+    def stream_layers(
+        self, audio_path: Path, overlays: Sequence[object], fps: int,
+        directory: Path, cancel_event: threading.Event,
+        progress_callback: Callable[[float, str], None] | None = None,
+        track_windows: Sequence[tuple[float, ...]] = (),
+    ) -> Iterator[list[list[str]]]:
+        """Draw bounded RGBA streams while the final encoder consumes them."""
+        if not piped_export_supported():
+            yield [["-i", str(path)] for path in self.render_layers(
+                audio_path, overlays, fps, directory, cancel_event,
+                progress_callback, track_windows,
+            )]
+            return
+        if not overlays:
+            yield []
+            return
+        levels, waveform, stereo = self._audio_levels(
+            audio_path, overlays, fps, cancel_event, progress_callback,
+        )
+        pipes: list[PipedCanvasStream] = []
+        workers: list[threading.Thread] = []
+        errors: list[Exception] = []
+
+        def produce(pipe: PipedCanvasStream, frames: Iterator[QImage]) -> None:
+            try:
+                for image in frames:
+                    pipe.submit(image, 1.0 / fps)
+                pipe.finish()
+            except Exception as error:
+                errors.append(error)
+                pipe.cancel()
+
+        try:
+            for index, overlay in enumerate(overlays):
+                source_levels = waveform if getattr(overlay, "kind", "") == "waveform" else levels
+                frames = self._layer_frames(
+                    overlay, source_levels if source_levels is not None else levels,
+                    fps, cancel_event, None, stereo, track_windows,
+                )
+                pipe = PipedCanvasStream(
+                    directory, f"visualizer:{index}", fps, preserve_alpha=True,
+                    queue_capacity=2, producer_cancel_event=cancel_event,
+                )
+                pipes.append(pipe)
+                pipe.submit(next(frames), 1.0 / fps)
+                # Every input needs its own producer: a pool smaller than the
+                # input count can deadlock while FFmpeg opens the remaining pipes.
+                worker = threading.Thread(
+                    target=produce, args=(pipe, frames),
+                    name=f"visualizer-stream-{index}",
+                )
+                worker.start()
+                workers.append(worker)
+            yield [pipe.input_arguments() for pipe in pipes]
+            for worker in workers:
+                worker.join()
+            if errors:
+                raise PythonVisualizerError(str(errors[0])) from errors[0]
+        except CanvasPipeError as error:
+            raise PythonVisualizerError(str(error)) from error
+        finally:
+            for pipe in pipes:
+                pipe.cancel()
+            for worker in workers:
+                worker.join()
+
     @staticmethod
     def _report(
         callback: Callable[[float, str], None] | None, fraction: float, message: str,
@@ -196,7 +284,9 @@ class PythonVisualizerRenderer:
             raise PythonVisualizerError(stderr.strip() or "Could not decode audio for the visualizer.")
         if not raw:
             return np.zeros(0, dtype=np.float32)
-        return np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+        samples = np.frombuffer(raw, dtype="<i2").astype(np.float32)
+        samples /= 32768.0
+        return samples
 
     @staticmethod
     def _stop_process(process: subprocess.Popen[bytes]) -> None:
@@ -469,6 +559,42 @@ class PythonVisualizerRenderer:
         except OSError as error:
             raise PythonVisualizerError(f"Could not start Python visualizer encoding: {error}") from error
         assert process.stdin is not None
+        try:
+            for image in self._layer_frames(
+                overlay, all_levels, fps, cancel_event, progress_callback,
+                stereo_levels, track_windows,
+            ):
+                process.stdin.write(image.constBits())
+            process.stdin.close()
+            stderr = process.stderr.read().decode("utf-8", "replace") if process.stderr else ""
+            return_code = process.wait()
+            if return_code != 0:
+                raise PythonVisualizerError(stderr.strip() or "Could not encode the Python visualizer layer.")
+        except (BrokenPipeError, OSError) as error:
+            self._stop_process(process)
+            stderr = process.stderr.read().decode("utf-8", "replace") if process.stderr else ""
+            raise PythonVisualizerError(
+                stderr.strip() or f"Visualizer encoder stopped unexpectedly: {error}"
+            ) from error
+        finally:
+            self._stop_process(process)
+            for stream in (process.stdin, process.stderr):
+                if stream is not None and not stream.closed:
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
+
+    def _layer_frames(
+        self, overlay: object, all_levels: np.ndarray, fps: int,
+        cancel_event: threading.Event,
+        progress_callback: Callable[[float, int, int], None] | None,
+        stereo_levels: tuple[np.ndarray, np.ndarray] | None = None,
+        track_windows: Sequence[tuple[float, ...]] = (),
+    ) -> Iterator[QImage]:
+        """Share exactly the same drawing, timing and alpha on both output paths."""
+        width = max(8, int(getattr(overlay, "width")))
+        height = max(8, int(getattr(overlay, "height")))
         bar_count = max(4, min(96, int(getattr(overlay, "bar_count", 32))))
         processed_levels = (
             np.zeros((len(all_levels), 1), dtype=np.float32)
@@ -490,11 +616,6 @@ class PythonVisualizerRenderer:
         colored_track_index = -2
         for frame_index, selected in enumerate(processed_levels):
             if cancel_event.is_set():
-                self._stop_process(process)
-                if process.stdin is not None:
-                    process.stdin.close()
-                if process.stderr is not None:
-                    process.stderr.close()
                 raise PythonVisualizerError("Rendering was cancelled.")
             channel_values = None
             peak_values = None
@@ -542,18 +663,7 @@ class PythonVisualizerRenderer:
                         or frame_buffer.format() != image_format):
                     frame_buffer = QImage(width, height, image_format)
                 frame_buffer.fill(0)
-            try:
-                process.stdin.write(frame_buffer.bits())
-            except (BrokenPipeError, OSError) as error:
-                self._stop_process(process)
-                stderr = process.stderr.read().decode("utf-8", "replace") if process.stderr else ""
-                if process.stdin is not None:
-                    process.stdin.close()
-                if process.stderr is not None:
-                    process.stderr.close()
-                raise PythonVisualizerError(
-                    stderr.strip() or f"Visualizer encoder stopped unexpectedly: {error}"
-                ) from error
+            yield frame_buffer
             completed_in_layer = frame_index + 1
             if progress_callback and (
                 completed_in_layer == 1
@@ -565,13 +675,6 @@ class PythonVisualizerRenderer:
                     completed_in_layer,
                     len(processed_levels),
                 )
-        process.stdin.close()
-        stderr = process.stderr.read().decode("utf-8", "replace") if process.stderr else ""
-        return_code = process.wait()
-        if process.stderr is not None:
-            process.stderr.close()
-        if return_code != 0:
-            raise PythonVisualizerError(stderr.strip() or "Could not encode the Python visualizer layer.")
 
     @staticmethod
     def _animation_state(

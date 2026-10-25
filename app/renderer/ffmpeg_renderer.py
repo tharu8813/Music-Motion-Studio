@@ -15,6 +15,7 @@ import logging
 import re
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import ExitStack
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -264,6 +265,10 @@ class VideoClipOverlay:
     blur: float = 0.0
     speed: float = 1.0
     loop_input: bool = False
+    animation_in: str = "none"
+    animation_out: str = "none"
+    # Absolute start/end and effective in/out duration of each visual ownership window.
+    animation_windows: tuple[tuple[float, float, float, float], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -476,7 +481,8 @@ class FFmpegRenderer:
         if target.suffix.lower().lstrip(".") not in VIDEO_FORMATS:
             target = target.with_suffix(".mp4")
         target.parent.mkdir(parents=True, exist_ok=True)
-        with TemporaryDirectory(prefix="playlist-video-") as temporary_directory:
+        with (TemporaryDirectory(prefix="playlist-video-") as temporary_directory,
+              ExitStack() as visualizer_streams):
             temporary = Path(temporary_directory)
             if storage_path_callback:
                 storage_path_callback("render", temporary)
@@ -547,10 +553,10 @@ class FFmpegRenderer:
                 progress_callback=progress_callback, cancel_event=cancel_event,
                 automix_settings=automix_settings,
             )
-            visualizer_paths: list[Path] = []
+            visualizer_inputs: list[list[str]] = []
             if visualizers:
                 self._report(progress_callback, "Preparing visualizers", 0.64,
-                             "Analyzing audio and rendering Python visualizer frames")
+                             "Analyzing audio for visualizers")
 
                 def visualizer_progress(fraction: float, message: str) -> None:
                     self._report(progress_callback, "Preparing visualizers", 0.64 + fraction * 0.12,
@@ -558,9 +564,11 @@ class FFmpegRenderer:
 
                 try:
                     track_windows = reactive_layer_windows(compiled_plan)
-                    visualizer_paths = PythonVisualizerRenderer(self.executable).render_layers(
-                        audio_path, visualizers, selected_settings.fps, temporary, cancel_event,
-                        visualizer_progress, track_windows,
+                    visualizer_inputs = visualizer_streams.enter_context(
+                        PythonVisualizerRenderer(self.executable).stream_layers(
+                            audio_path, visualizers, selected_settings.fps, temporary,
+                            cancel_event, visualizer_progress, track_windows,
+                        )
                     )
                 except PythonVisualizerError as error:
                     if cancel_event.is_set():
@@ -754,8 +762,8 @@ class FFmpegRenderer:
                 *base_input_arguments,
                 "-i", str(audio_path),
             ]
-            for visualizer_path in visualizer_paths:
-                video_arguments.extend(["-i", str(visualizer_path)])
+            for input_arguments in visualizer_inputs:
+                video_arguments.extend(input_arguments)
             for video_input in video_file_inputs:
                 if video_input.loop_input:
                     video_arguments.extend(["-stream_loop", "-1"])
@@ -778,7 +786,7 @@ class FFmpegRenderer:
             metadata_arguments: list[str] = []
             if metadata_path is not None:
                 metadata_input_index = (
-                    2 + len(visualizer_paths) + len(video_file_inputs)
+                    2 + len(visualizer_inputs) + len(video_file_inputs)
                     + len(static_inputs)
                 )
                 video_arguments.extend(
@@ -793,14 +801,21 @@ class FFmpegRenderer:
                     "-map", "0:v:0", "-map", "1:a:0",
                     *metadata_arguments,
                 ])
-            elif visualizer_paths or video_clips or static_inputs:
+            elif visualizer_inputs or video_clips or static_inputs:
+                graph = self._layered_filter_graph(
+                    visualizers, static_inputs, selected_settings.fps,
+                    selected_settings.output_width, selected_settings.output_height,
+                    video_clips=video_clips,
+                    video_input_slots=video_input_slots,
+                )
+                graph_arguments = ["-filter_complex", graph]
+                if len(graph) > 8000:
+                    # Per-track fades can exceed Windows' command-line limit.
+                    graph_path = temporary / "video-filters.txt"
+                    graph_path.write_text(graph, encoding="utf-8")
+                    graph_arguments = ["-filter_complex_script", str(graph_path)]
                 video_arguments.extend([
-                    "-filter_complex", self._layered_filter_graph(
-                        visualizers, static_inputs, selected_settings.fps,
-                        selected_settings.output_width, selected_settings.output_height,
-                        video_clips=video_clips,
-                        video_input_slots=video_input_slots,
-                    ),
+                    *graph_arguments,
                     "-map", "[vout]", "-map", "1:a",
                     *metadata_arguments,
                 ])
@@ -855,7 +870,7 @@ class FFmpegRenderer:
                 selected_settings.output_width,
                 selected_settings.output_height,
                 self._filter_worker_count(selected_settings),
-                len(visualizer_paths),
+                len(visualizer_inputs),
                 len(video_clips),
                 len(static_inputs),
             )
@@ -865,6 +880,12 @@ class FFmpegRenderer:
                     progress_parser=encoding_progress,
                     cancel_event=cancel_event,
                 )
+                try:
+                    visualizer_streams.close()
+                except PythonVisualizerError as error:
+                    if cancel_event.is_set():
+                        raise RenderCancelledError("Rendering was cancelled.") from error
+                    raise RenderError(str(error)) from error
                 if cancel_event.is_set():
                     raise RenderCancelledError("Rendering was cancelled.")
                 self._report(

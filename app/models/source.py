@@ -60,6 +60,11 @@ class Shadow:
     offset_x: float = 3.0
     offset_y: float = 3.0
     opacity: float = 0.35
+    personal_color_enabled: bool = False
+    personal_color_brightness: float = 0.0
+    personal_color_saturation: float = 0.0
+    personal_color_hue_shift: float = 0.0
+    personal_color_strength: float = 1.0
 
 
 SUBTITLE_ANIMATIONS = ("glow", "rise", "crossfade", "slide", "zoom", "cascade", "bounce", "none")
@@ -349,6 +354,23 @@ class Source:
         return result
 
     @property
+    def uses_personal_color(self) -> bool:
+        return self.personal_color_enabled or (self.shadow.enabled and self.shadow.personal_color_enabled)
+
+    @property
+    def personal_color_fields(self) -> tuple[str, ...]:
+        """Primary channels controlled by the source-wide artwork color policy."""
+        if self.source_type in {SourceType.TEXT, SourceType.TIME, SourceType.LYRICS}:
+            return ("outline_color",)
+        if self.source_type is SourceType.TRACK_LIST:
+            return ("track_list_current_color",)
+        if self.source_type is SourceType.AUDIO_LEVEL_METER:
+            return ("level_meter_low_color", "level_meter_mid_color", "level_meter_high_color")
+        if self.source_type is SourceType.PARTICLE_OVERLAY:
+            return ("fill_color", "particle_secondary_color")
+        return ("fill_color",)
+
+    @property
     def uses_bass_reaction(self) -> bool:
         return (self.source_type is SourceType.BACKGROUND and self.background_bass_reactive) or (
             self.source_type in {SourceType.TEXT, SourceType.LYRICS} and self.music_reactive_enabled
@@ -445,10 +467,6 @@ class Source:
                     )
         if not 0.0 <= source.opacity <= 1.0:
             raise ValueError(f"Source '{source.name}' opacity must be between 0 and 1.")
-        if not isinstance(source.personal_color_enabled, bool):
-            raise ValueError(
-                f"Source '{source.name}' personal color flag must be true or false."
-            )
         if not isinstance(source.music_reactive_enabled, bool):
             raise ValueError("Music reaction flag must be true or false.")
         personal_color_ranges = {
@@ -457,13 +475,17 @@ class Source:
             "personal_color_hue_shift": (-180.0, 180.0),
             "personal_color_strength": (0.0, 1.0),
         }
-        for name, (minimum, maximum) in personal_color_ranges.items():
-            value = float(getattr(source, name))
-            if not minimum <= value <= maximum:
-                raise ValueError(
-                    f"Source '{source.name}' value for '{name}' must be between "
-                    f"{minimum:g} and {maximum:g}."
-                )
+        for policy in (source, source.shadow):
+            if not isinstance(policy.personal_color_enabled, bool):
+                raise ValueError(f"Source '{source.name}' personal color flag must be true or false.")
+            for name, (minimum, maximum) in personal_color_ranges.items():
+                value = getattr(policy, name)
+                if (isinstance(value, bool) or not isinstance(value, (int, float))
+                        or not minimum <= value <= maximum):
+                    raise ValueError(
+                        f"Source '{source.name}' value for '{name}' must be between "
+                        f"{minimum:g} and {maximum:g}."
+                    )
         if source.width <= 0 or source.height <= 0 or source.scale <= 0:
             raise ValueError(f"Source '{source.name}' dimensions and scale must be positive.")
         if source.width > 100_000 or source.height > 100_000 or source.scale > 100:

@@ -15,6 +15,7 @@ from app.services.update_service import (
     is_newer_version,
     normalized_version,
     automatic_setup_arguments,
+    launch_setup,
 )
 
 
@@ -85,14 +86,24 @@ class UpdateServiceTests(unittest.TestCase):
     def test_automatic_install_has_no_prompt_or_machine_restart_and_resumes_exact_snapshot(self) -> None:
         installer = Path("한글 경로/Playlist Canvas-setup.exe").resolve()
         snapshot = Path("다른 작업/unsaved.recovery.json").resolve()
-        arguments = automatic_setup_arguments(installer, snapshot, 1234, korean=True)
+        root = Path("Program Files/Playlist Canvas").resolve()
+        with patch("app.services.update_service.installation_root", return_value=root):
+            arguments = automatic_setup_arguments(installer, snapshot, 1234, korean=True)
         for flag in ("/SP-", "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART",
                      "/NOCLOSEAPPLICATIONS", "/NORESTARTAPPLICATIONS", "/AUTOMATICUPDATE=1"):
             self.assertIn(flag, arguments)
         self.assertIn(f"/UPDATERECOVERY={snapshot}", arguments)
         self.assertIn("/UPDATEPID=1234", arguments)
-        self.assertIn(r"/DIR=expand:{localappdata}\Programs\Playlist Canvas", arguments)
+        self.assertIn(f"/DIR={root}", arguments)
+        self.assertFalse(any("localappdata" in arg for arg in arguments))
         self.assertIn("/LANG=korean", arguments)
+
+    def test_setup_retains_original_user_and_reports_launch_errors(self) -> None:
+        with patch("app.services.update_service.os.startfile", create=True) as start:
+            self.assertTrue(launch_setup(Path("setup.exe"), ["/DIR=C:\\Program Files\\Playlist Canvas"]))
+            start.assert_called_once_with("setup.exe", "open", '"/DIR=C:\\Program Files\\Playlist Canvas"')
+            start.side_effect = OSError("UAC cancelled")
+            self.assertFalse(launch_setup(Path("setup.exe"), []))
 
 
 if __name__ == "__main__":

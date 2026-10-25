@@ -12,7 +12,7 @@ permissions:
 jobs:
   verify-windows-build:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Check out source
@@ -31,10 +31,32 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q main.py app tests scripts
 
+      - name: Install verified FFmpeg for integration tests
+        shell: pwsh
+        run: |
+          @'
+          import os
+          from pathlib import Path
+          from app.ffmpeg.managed_installer import ManagedFFmpegInstaller
+
+          installation = ManagedFFmpegInstaller(Path(os.environ["RUNNER_TEMP"]) / "ffmpeg-tests").install_latest()
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as environment:
+              environment.write(f"PLAYLIST_CANVAS_TEST_FFMPEG={installation.executable}\n")
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Verified FFmpeg installation failed.' }
+
       - name: Run isolated test modules
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python scripts/run_tests.py
+        run: python scripts/run_tests.py --timeout 300 --report test-results.json
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-results
+          path: test-results.json
+          if-no-files-found: ignore
 
       - name: Build PyInstaller distribution
         run: python -m PyInstaller --noconfirm --clean playlist_canvas.spec

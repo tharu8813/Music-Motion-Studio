@@ -149,6 +149,7 @@ def main() -> int:
         # No exec() will run its cleanup, so delete the closed window here, not at exit.
         application.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         return 0
+    window.check_ffmpeg_availability()
     window.schedule_automatic_update_check()
     return application.exec()
 

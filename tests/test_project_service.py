@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from contextlib import ExitStack
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import json
+import os
+import shutil
+import time
 import unittest
 import zipfile
 from unittest.mock import patch
@@ -11,13 +15,128 @@ from PySide6.QtGui import QColor, QImage
 
 from app import __version__
 from app.models.playlist import PlaylistTrack
-from app.models.project import ProjectDocument, ProjectSettings
+from app.models.project import ProjectContent, ProjectDocument, ProjectSettings
 from app.models.source import Source, SourceType
 from app.services.project_service import ProjectError, ProjectLoadCancelled, ProjectService
 from app.services.project_media_service import ProjectMediaService
 
 
 class ProjectServiceTests(unittest.TestCase):
+    def test_package_save_enforces_the_same_limits_as_load_before_replacing_a_file(self):
+        with TemporaryDirectory() as raw:
+            root = Path(raw)
+            target = root / "work.pvsproj"
+            document = ProjectDocument(sources=[Source(SourceType.TEXT, "Text", text="가사" * 100)])
+            target.write_bytes(b"previous project")
+            payload_size = len(json.dumps(document.to_dict(), ensure_ascii=False, indent=2).encode("utf-8"))
+            with patch.object(ProjectService, "MAX_MANIFEST_BYTES", payload_size - 1):
+                with self.assertRaisesRegex(ProjectError, "manifest"):
+                    ProjectService.save(target, document)
+            self.assertEqual(target.read_bytes(), b"previous project")
+            with patch.object(ProjectService, "MAX_MANIFEST_BYTES", payload_size + 100):
+                ProjectService.save(target, document)
+                self.assertEqual(ProjectService.load(target).sources[0].text, document.sources[0].text)
+                self.assertEqual(ProjectService.inspect(target).title, document.settings.title)
+
+            audio = root / "song.wav"
+            audio.write_bytes(b"audio")
+            document.playlist = [PlaylistTrack(str(audio), "Song")]
+            previous = target.read_bytes()
+            with patch.object(ProjectService, "MAX_ASSETS", 0):
+                with self.assertRaisesRegex(ProjectError, "too many assets"):
+                    ProjectService.save(target, document)
+            self.assertEqual(target.read_bytes(), previous)
+            self.assertEqual(list(root.glob("*.tmp")), [])
+
+    def test_invalid_json_save_preserves_the_last_valid_project(self):
+        with TemporaryDirectory() as raw:
+            target = ProjectService.save(Path(raw) / "work.json", ProjectDocument())
+            previous = target.read_bytes()
+            invalid = ProjectDocument(playlist=[PlaylistTrack("song.wav", "Song", lyrics=[
+                {"start": 10, "end": 5, "text": "Invalid"},
+            ])])
+            with self.assertRaises(ProjectError):
+                ProjectService.save(target, invalid)
+            self.assertEqual(target.read_bytes(), previous)
+
+    def test_cleanup_keeps_media_leased_by_a_running_editor(self):
+        with TemporaryDirectory() as raw, patch("app.services.project_service.gettempdir", return_value=raw), ExitStack() as cleanup:
+            cleanup.callback(ProjectService.release_cache_locks)
+            root = Path(raw)
+            audio = root / "song.wav"
+            audio.write_bytes(b"audio")
+            package = ProjectService.save(root / "work.pvsproj", ProjectDocument(
+                playlist=[PlaylistTrack(str(audio), "Song")],
+            ))
+            cached = Path(ProjectService.load(package).playlist[0].file_path)
+            cache_root = cached.parent.parent
+            stale = cache_root.with_name("unused-cache")
+            stale.mkdir()
+            old = time.time() - 31 * 86_400
+            for directory in (cache_root, stale):
+                os.utime(directory, (old, old))
+            ProjectService.cleanup_cache()
+            self.assertEqual(cached.read_bytes(), b"audio")
+            self.assertFalse(stale.exists())
+            ProjectService._cache_locks.pop(cache_root).unlock()
+            ProjectService.cleanup_cache()
+            self.assertFalse(cache_root.exists())
+
+    def test_recovery_reextracts_missing_media_and_keeps_unsaved_edits_and_external_paths(self):
+        with TemporaryDirectory() as raw, patch("app.services.project_service.gettempdir", return_value=raw), ExitStack() as cleanup:
+            cleanup.callback(ProjectService.release_cache_locks)
+            root = Path(raw)
+            audio = root / "song.wav"
+            audio.write_bytes(b"audio")
+            image = root / "cover.png"
+            thumbnail = QImage(16, 16, QImage.Format.Format_RGB32)
+            thumbnail.fill(QColor("red"))
+            thumbnail.save(str(image))
+            package = ProjectService.save(root / "work.pvsproj", ProjectDocument(
+                sources=[Source(SourceType.IMAGE, "Cover", content_path=str(image))],
+                playlist=[PlaylistTrack(str(audio), "Song", cover_path=str(image), video_paths=[str(image)])],
+                content_library=[ProjectContent(str(audio), "audio")],
+                settings=ProjectSettings(thumbnail_mode="custom", thumbnail_path=str(image)),
+            ), thumbnail)
+            document = ProjectService.load(package)
+            document.playlist[0].title = "Unsaved title"
+            external = str(root / "missing-external.png")
+            document.sources.append(Source(SourceType.IMAGE, "Missing", content_path=external))
+            previous_path = Path(document.playlist[0].file_path)
+            shutil.rmtree(previous_path.parent.parent)
+            stat = package.stat()
+            os.utime(package, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+            with patch.object(ProjectService, "load", wraps=ProjectService.load) as load:
+                ProjectService.restore_recovery_media(document, package, load)
+                load.assert_called_once_with(package)
+            self.assertNotEqual(Path(document.playlist[0].file_path), previous_path)
+            self.assertEqual(document.playlist[0].title, "Unsaved title")
+            self.assertEqual(Path(document.playlist[0].file_path).read_bytes(), b"audio")
+            self.assertTrue(Path(document.sources[0].content_path).is_file())
+            self.assertTrue(Path(document.playlist[0].cover_path).is_file())
+            self.assertTrue(Path(document.playlist[0].video_paths[0]).is_file())
+            self.assertTrue(Path(document.content_library[0].path).is_file())
+            self.assertTrue(Path(document.settings.thumbnail_path).is_file())
+            self.assertEqual(document.sources[1].content_path, external)
+
+    def test_simultaneous_editors_use_separate_media_and_reuse_their_own_cache(self):
+        with TemporaryDirectory() as raw, patch("app.services.project_service.gettempdir", return_value=raw), ExitStack() as cleanup:
+            cleanup.callback(ProjectService.release_cache_locks)
+            root = Path(raw)
+            audio = root / "song.wav"
+            audio.write_bytes(b"audio")
+            package = ProjectService.save(root / "work.pvsproj", ProjectDocument(
+                playlist=[PlaylistTrack(str(audio), "Song")],
+            ))
+            first = Path(ProjectService.load(package).playlist[0].file_path)
+            first_lease = ProjectService._cache_locks.pop(first.parent.parent)
+            cleanup.callback(first_lease.unlock)
+            second = Path(ProjectService.load(package).playlist[0].file_path)
+            self.assertNotEqual(first, second)
+            self.assertEqual(first.read_bytes(), second.read_bytes())
+            first_lease.unlock()
+            self.assertEqual(ProjectService.load(package).playlist[0].file_path, str(second.resolve()))
+
     def test_relative_media_prefers_project_folder_over_working_directory(self) -> None:
         with TemporaryDirectory(prefix="pvs-relative-") as directory:
             project_directory = Path(directory)

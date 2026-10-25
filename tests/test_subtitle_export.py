@@ -35,6 +35,19 @@ def overlapping_tracks():
 
 
 class SubtitleTimingTests(unittest.TestCase):
+    def test_superseded_lyrics_do_not_reappear_after_a_shorter_cue_ends(self):
+        track = PlaylistTrack("song.wav", "Song", duration_seconds=10, lyrics=[
+            {"start": 0, "end": 10, "text": "First"},
+            {"start": 5, "end": 6, "text": "Later"},
+        ])
+        from app.timeline.compiler import compile_playlist
+
+        cues = SubtitleExportService.cues([track], compile_playlist([track]))
+        self.assertEqual(cues, [SubtitleCue(0, 5, "First"), SubtitleCue(5, 6, "Later")])
+        for cue in cues:
+            self.assertEqual(LyricsService.current_text(track.lyrics, (cue.start + cue.end) / 2), cue.text)
+        self.assertFalse(any(cue.start <= 7 < cue.end for cue in cues))
+
     def test_overlap_is_outgoing_above_incoming_then_returns_to_single_line(self):
         tracks, plan = overlapping_tracks()
         self.assertEqual(SubtitleExportService.cues(tracks, plan), [

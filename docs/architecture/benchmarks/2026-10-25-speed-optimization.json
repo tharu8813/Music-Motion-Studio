@@ -1,0 +1,111 @@
+{
+  "date": "2026-10-25",
+  "python": "3.14.5 (tags/v3.14.5:5607950, May 10 2026, 10:43:50) [MSC v.1944 64 bit (AMD64)]",
+  "scope": "Synthetic CPU measurements of individual operations; not full application RSS or total export duration.",
+  "history": {
+    "fixture": "100 tracks, 100 lyric cues per track, 2 word timings per cue; 10 snapshots changing only one source position",
+    "before": {
+      "tracks": 100,
+      "cues_per_track": 100,
+      "words_per_cue": 2,
+      "to_dict_median_ms": 23.54270001524128,
+      "json_bytes": 1422091,
+      "history_entries": 10,
+      "history_retained_bytes": 90208712,
+      "history_peak_bytes": 91637258,
+      "history_commit_with_tracemalloc_median_ms": 283.2176500087371,
+      "history_commit_median_ms": 38.743199984310195
+    },
+    "after": {
+      "tracks": 100,
+      "cues_per_track": 100,
+      "words_per_cue": 2,
+      "to_dict_median_ms": 26.208600000245497,
+      "json_bytes": 1422091,
+      "history_entries": 10,
+      "history_retained_bytes": 9251220,
+      "history_peak_bytes": 10438103,
+      "history_commit_with_tracemalloc_median_ms": 4.052100004628301,
+      "history_commit_median_ms": 3.2452000014018267
+    }
+  },
+  "unused_particle_fft": {
+    "fixture": "600 seconds mono PCM, 30 FPS; decode excluded",
+    "before": {
+      "audio_seconds": 600,
+      "fps": 30,
+      "frames": 18000,
+      "analysis_seconds_excluding_decode": 1.634047500003362,
+      "particle_frames_identical_with_zero_spectrum": true
+    },
+    "after": {
+      "audio_seconds": 600,
+      "fps": 30,
+      "frames": 18000,
+      "analysis_seconds_excluding_decode": 9.129999671131372e-05,
+      "particle_frames_identical_with_zero_spectrum": true
+    }
+  },
+  "pcm_conversion": {
+    "fixture": "600 seconds mono 8 kHz PCM; input bytearray excluded from traced allocations",
+    "before": {
+      "audio_seconds": 600,
+      "channels": 1,
+      "input_bytes_excluded": 9600000,
+      "peak_allocated_bytes": 38400620,
+      "seconds": 0.011857399978907779
+    },
+    "after": {
+      "audio_seconds": 600,
+      "channels": 1,
+      "input_bytes_excluded": 9600000,
+      "peak_allocated_bytes": 19200768,
+      "seconds": 0.00966739997966215
+    },
+    "exact_samples_equal": true
+  },
+  "timeline": {
+    "fixture": "3600 seconds, 60 FPS, one moving text band; eager reference versus consumed lazy schedule",
+    "before": {
+      "duration_seconds": 3600,
+      "fps": 60,
+      "bands": 1,
+      "samples": 216000,
+      "seconds_with_tracemalloc": 4.169972600007895,
+      "retained_bytes": 41575776,
+      "peak_bytes": 58602896
+    },
+    "after": {
+      "duration_seconds": 3600,
+      "fps": 60,
+      "bands": 1,
+      "samples": 216000,
+      "retained_bytes": 752,
+      "peak_bytes": 3560
+    },
+    "equivalence": {
+      "cases": 72,
+      "all_sample_fields_equal": true
+    }
+  },
+  "package_cache": {
+    "fixture": "unchanged package loaded twice, one 16 MiB asset; reused cache is verified with CRC32",
+    "before": {
+      "asset_bytes": 16777216,
+      "unchanged_package_loads": 2,
+      "asset_stream_reads": 2,
+      "total_asset_bytes_read": 33554432,
+      "same_cache_path": true,
+      "cache_file_rewritten": true
+    },
+    "after": {
+      "asset_bytes": 16777216,
+      "unchanged_package_loads": 2,
+      "asset_stream_reads": 1,
+      "total_asset_bytes_read": 16777216,
+      "same_cache_path": true,
+      "cache_file_rewritten": false,
+      "cache_integrity_check": "full CRC32 against ZIP metadata"
+    }
+  }
+}

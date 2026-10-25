@@ -20,7 +20,7 @@ class HistoryService(QObject):
         self._max_entries = max(10, max_entries)
 
     @staticmethod
-    def _copy(snapshot: dict[str, Any]) -> dict[str, Any]:
+    def _copy(snapshot: Any) -> Any:
         """Create a JSON-safe deep copy, preventing later mutable-state leaks."""
         return json.loads(json.dumps(snapshot))
 
@@ -34,7 +34,12 @@ class HistoryService(QObject):
         """Append a state only when it differs from the active history entry."""
         if self._index >= 0 and self._snapshots[self._index] == snapshot:
             return
-        copied = self._copy(snapshot)
+        previous = self._snapshots[self._index] if self._index >= 0 else {}
+        # Only private snapshots share branches; callers always get detached copies.
+        copied = {
+            key: previous[key] if key in previous and previous[key] == value else self._copy(value)
+            for key, value in snapshot.items()
+        }
         if self._index >= 0 and self._snapshots[self._index] == copied:
             return
         del self._snapshots[self._index + 1:]

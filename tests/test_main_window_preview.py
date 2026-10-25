@@ -61,6 +61,25 @@ from tests.main_window_base import MainWindowTestCase
 
 
 class MainWindowPreviewTests(MainWindowTestCase):
+    def test_missing_ffmpeg_notice_explains_reactions_and_opens_install_settings(self) -> None:
+        from app.renderer.ffmpeg_renderer import FFmpegNotFoundError
+        with patch("app.ui.main_window.FFmpegRenderer.find_executable", side_effect=FFmpegNotFoundError("missing")), \
+             patch.object(self.window, "_show_settings") as settings:
+            self.assertFalse(self.window.check_ffmpeg_availability())
+            notice = self.window._ffmpeg_notice
+            self.assertIn("음악에 맞춰 반응", notice.informativeText())
+            self.assertFalse(self.window.check_ffmpeg_availability())
+            self.assertIs(self.window._ffmpeg_notice, notice)
+            install = next(button for button in notice.buttons() if notice.buttonRole(button) == QMessageBox.ButtonRole.AcceptRole)
+            install.click()
+            settings.assert_called_once_with(True)
+            self.assertIsNone(self.window._ffmpeg_notice)
+
+    def test_available_ffmpeg_needs_no_notice(self) -> None:
+        with patch("app.ui.main_window.FFmpegRenderer.find_executable", return_value=Path("ffmpeg.exe")):
+            self.assertTrue(self.window.check_ffmpeg_availability())
+            self.assertIsNone(self.window._ffmpeg_notice)
+
     def test_visual_timeline_preview_button_opens_player_at_cursor(self) -> None:
         self.window.playlist_service.add_tracks([PlaylistTrack("preview.wav", "Song", duration_seconds=20)])
         self.window.timeline_panel.refresh()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from app.utils.performance import timed
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import replace
 
 from PySide6.QtCore import QRectF
@@ -101,33 +101,44 @@ class ExportCanvasCapturer:
         samples: Sequence[ExportFrameSample],
         stream_key: str,
     ) -> list[ExportFrameSample]:
+        return list(self.iter_coalesced_samples(samples, stream_key))
+
+    def iter_coalesced_samples(
+        self, samples: Iterable[ExportFrameSample], stream_key: str,
+        wait_callback: Callable[[], None] | None = None,
+    ) -> Iterator[ExportFrameSample]:
         """Merge adjacent samples whose complete Canvas state is identical.
 
         Only consecutive samples are combined.  A ``None`` state key is a
         conservative opt-out: an element whose state cannot be proven equal
         continues through the established one-capture-per-sample path.
         """
-        result: list[ExportFrameSample] = []
+        previous = None
         previous_key: tuple[object, ...] | None = None
-        for sample in samples:
+        for index, sample in enumerate(samples):
+            if wait_callback is not None and index % 256 == 0:
+                wait_callback()
+                self.ensure_not_cancelled()
             state_key = self._stream_state_key(sample, stream_key)
             if (
-                result
+                previous is not None
                 and state_key is not None
                 and previous_key is not None
                 and state_key == previous_key
             ):
-                previous = result[-1]
-                result[-1] = replace(
+                previous = replace(
                     previous,
                     duration_seconds=(
                         previous.duration_seconds + sample.duration_seconds
                     ),
                 )
             else:
-                result.append(sample)
+                if previous is not None:
+                    yield previous
+                previous = sample
             previous_key = state_key
-        return result
+        if previous is not None:
+            yield previous
 
     def _stream_state_key(
         self, sample: ExportFrameSample, stream_key: str,
@@ -344,7 +355,7 @@ class ExportCanvasCapturer:
                 source.personal_color_hue_shift,
                 source.personal_color_strength,
             )
-            if source.personal_color_enabled else None
+            if source.uses_personal_color else None
         )
         return (source.id, content_state, personal_color_state, animation_state)
 
