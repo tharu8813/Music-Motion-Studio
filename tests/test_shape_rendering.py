@@ -97,8 +97,8 @@ class ShapeRenderingTests(unittest.TestCase):
         for selected in (False, True):
             item.setSelected(selected)
             x, y = scene._build_alignment_candidates(set())
-            self.assertEqual(x[-3:], [250, 295, 340])
-            self.assertEqual(y[-3:], [180, 210, 240])
+            self.assertEqual(x, sorted({0, 640, 1280, 250, 295, 340}))
+            self.assertEqual(y, sorted({0, 360, 720, 180, 210, 240}))
 
 
 if __name__ == "__main__":

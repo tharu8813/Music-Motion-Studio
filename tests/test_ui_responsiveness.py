@@ -25,16 +25,27 @@ class UiResponsivenessTests(MainWindowTestCase):
         inspected = []
         committed = []
         heartbeats = []
+        importing = threading.Event()
+        responsive = threading.Event()
         timer = QTimer()
         timer.setInterval(10)
-        timer.timeout.connect(lambda: heartbeats.append(monotonic()))
+
+        def heartbeat():
+            if importing.is_set():
+                heartbeats.append(monotonic())
+                if len(heartbeats) >= 5:
+                    responsive.set()
+
+        timer.timeout.connect(heartbeat)
         self.window.playlist_service.playlist_changed.connect(
             lambda: committed.append(threading.get_ident()))
         track = PlaylistTrack("missing.wav", "Ready", duration_seconds=3)
 
         def inspect(_paths, **_options):
             inspected.append(threading.get_ident())
-            threading.Event().wait(0.3)
+            importing.set()
+            responsive.wait(3)
+            importing.clear()
             return [AudioImportCandidate(track)]
 
         timer.start()
