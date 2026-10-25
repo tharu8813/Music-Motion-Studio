@@ -133,6 +133,7 @@ from app.services.update_service import (
     GitHubUpdateService,
     ReleaseInfo,
     automatic_setup_arguments,
+    launch_setup,
     normalized_version,
 )
 from app.services.update_worker import UpdateCheckWorker, UpdateDownloadWorker
@@ -433,6 +434,7 @@ class MainWindow(QMainWindow):
         self._close_after_ffmpeg_catalog_cancel = False
         self._ffmpeg_install_dialog: FFmpegInstallProgressDialog | None = None
         self._settings_dialog: SettingsDialog | None = None
+        self._ffmpeg_notice: QMessageBox | None = None
         self._update_service = GitHubUpdateService()
         self._update_check_worker: UpdateCheckWorker | None = None
         self._update_check_manual = False
@@ -1211,25 +1213,28 @@ class MainWindow(QMainWindow):
         sources = self._selected_editable_sources()
         if len(sources) < 2:
             return
-        left = min(source.x for source in sources)
-        right = max(source.x + source.width * source.scale for source in sources)
-        top = min(source.y for source in sources)
-        bottom = max(source.y + source.height * source.scale for source in sources)
-        for source in sources:
-            width = source.width * source.scale
-            height = source.height * source.scale
+        bounds = [
+            self.canvas._items[source.id].mapRectToScene(
+                self.canvas._items[source.id].content_rect()
+            ) for source in sources
+        ]
+        left = min(rect.left() for rect in bounds)
+        right = max(rect.right() for rect in bounds)
+        top = min(rect.top() for rect in bounds)
+        bottom = max(rect.bottom() for rect in bounds)
+        for source, rect in zip(sources, bounds):
             if mode == "left":
-                self.store.update(source.id, x=left)
+                self.store.update(source.id, x=source.x + left - rect.left())
             elif mode == "hcenter":
-                self.store.update(source.id, x=(left + right - width) / 2)
+                self.store.update(source.id, x=source.x + (left + right) / 2 - rect.center().x())
             elif mode == "right":
-                self.store.update(source.id, x=right - width)
+                self.store.update(source.id, x=source.x + right - rect.right())
             elif mode == "top":
-                self.store.update(source.id, y=top)
+                self.store.update(source.id, y=source.y + top - rect.top())
             elif mode == "vcenter":
-                self.store.update(source.id, y=(top + bottom - height) / 2)
+                self.store.update(source.id, y=source.y + (top + bottom) / 2 - rect.center().y())
             elif mode == "bottom":
-                self.store.update(source.id, y=bottom - height)
+                self.store.update(source.id, y=source.y + bottom - rect.bottom())
 
     def _distribute_selected_sources(self, axis: str) -> None:
         """Space three or more selected sources with equal gaps along one axis.
@@ -1241,17 +1246,29 @@ class MainWindow(QMainWindow):
         if len(sources) < 3:
             return
         horizontal = axis == "horizontal"
-        ordered = sorted(sources, key=lambda source: source.x if horizontal else source.y)
+        bounds = {
+            source.id: self.canvas._items[source.id].mapRectToScene(
+                self.canvas._items[source.id].content_rect()
+            ) for source in sources
+        }
+        ordered = sorted(
+            sources, key=lambda source: bounds[source.id].left() if horizontal
+            else bounds[source.id].top(),
+        )
         extents = [
-            (source.width if horizontal else source.height) * source.scale
+            bounds[source.id].width() if horizontal else bounds[source.id].height()
             for source in ordered
         ]
-        start = ordered[0].x if horizontal else ordered[0].y
-        end = (ordered[-1].x if horizontal else ordered[-1].y) + extents[-1]
+        start = bounds[ordered[0].id].left() if horizontal else bounds[ordered[0].id].top()
+        end = bounds[ordered[-1].id].right() if horizontal else bounds[ordered[-1].id].bottom()
         gap = (end - start - sum(extents)) / (len(ordered) - 1)
         cursor = start
         for source, extent in zip(ordered, extents):
-            self.store.update(source.id, **{"x" if horizontal else "y": cursor})
+            rect = bounds[source.id]
+            changes = {"x": source.x + cursor - rect.left()} if horizontal else {
+                "y": source.y + cursor - rect.top(),
+            }
+            self.store.update(source.id, **changes)
             cursor += extent + gap
 
     def _toggle_selected_visibility(self) -> None:
@@ -3272,7 +3289,7 @@ class MainWindow(QMainWindow):
                     self.statusBar().showMessage(str(error), 5000)
             return
         response = QMessageBox.question(
-            settings_dialog,
+            self,
             "프로젝트 열기" if korean else "Open project",
             f"'{path.name}' 프로젝트를 열까요?\n현재 작업은 저장하지 않으면 사라질 수 있습니다."
             if korean else
@@ -3788,9 +3805,11 @@ class MainWindow(QMainWindow):
         except ProjectError as error:
             self._show_project_error(error)
             return
-        started, _pid = QProcess.startDetached(str(installer), automatic_setup_arguments(
+        arguments = automatic_setup_arguments(
             installer, snapshot.path, os.getpid(), korean=korean,
-        ))
+        )
+        ready_path = Path(next(value.split("=", 1)[1] for value in arguments if value.startswith("/UPDATEREADY=")))
+        started = launch_setup(installer, arguments)
         if not started:
             QMessageBox.critical(
                 self,
@@ -3800,8 +3819,46 @@ class MainWindow(QMainWindow):
                 "Setup could not be started. Run it manually from the update folder.",
             )
             return
-        self._update_install_authorized = True
-        self.close()
+        self._pending_update_installer = installer
+        self.statusBar().showMessage(
+            "설치 프로그램의 권한 승인을 기다리는 중입니다. 취소하면 편집기를 계속 사용할 수 있습니다."
+            if korean else "Waiting for Setup authorization. Cancel to keep using the editor."
+        )
+        self._wait_for_update_setup(ready_path, snapshot.path, 180)
+
+    def _wait_for_update_setup(self, ready_path: Path, recovery_path: Path, attempts: int) -> None:
+        """Only shut down after the elevated Setup confirms it can install."""
+        busy = self.project_controller.saving or self._export_preparation_cancel is not None or any(
+            worker is not None and worker.isRunning() for worker in (
+                self._render_worker, self._ffmpeg_install_worker, self._ffmpeg_catalog_worker,
+                self._update_check_worker, self._update_download_worker,
+            )
+        )
+        if ready_path.is_file() and not busy:
+            try:
+                if self._autosave_worker is not None and self._autosave_worker.isRunning():
+                    self._autosave_worker.wait()
+                # The user may have kept editing while the UAC prompt was open.
+                snapshot = self.autosave.save(self._project_document(), self.current_project_path, dirty=self._project_dirty)
+                if snapshot.path != recovery_path:
+                    snapshot.path.replace(recovery_path)
+                ready_path.unlink(missing_ok=True)
+            except (ProjectError, OSError) as error:
+                self._pending_update_installer = None
+                self._show_project_error(ProjectError(str(error)))
+                return
+            self._pending_update_installer = None
+            self._update_install_authorized = True
+            self.close()
+            return
+        if attempts <= 0:
+            self._pending_update_installer = None
+            self.statusBar().showMessage(
+                "업데이트가 시작되지 않았습니다. 편집을 계속하거나 업데이트를 다시 실행하세요."
+                if self.translator.is_korean else "Setup did not start. Continue editing or retry the update.", 7000,
+            )
+            return
+        QTimer.singleShot(500, self, lambda: self._wait_for_update_setup(ready_path, recovery_path, attempts - 1))
 
     def _reset_program(self) -> None:
         """Close normally (unsaved work is asked about); closeEvent then resets and restarts."""
@@ -3824,6 +3881,34 @@ class MainWindow(QMainWindow):
         self._reset_after_close = True
         if not self.close():
             self._reset_after_close = False
+
+    def check_ffmpeg_availability(self) -> bool:
+        """Explain unavailable features and offer the existing installer settings."""
+        try:
+            FFmpegRenderer.find_executable(self.settings_service.current.ffmpeg_path or None)
+        except FFmpegNotFoundError:
+            if self._ffmpeg_notice is None:
+                korean = self.translator.is_korean
+                notice = QMessageBox(self)
+                notice.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+                notice.setIcon(QMessageBox.Icon.Warning)
+                notice.setWindowTitle("FFmpeg 설치 필요" if korean else "FFmpeg required")
+                notice.setText("FFmpeg를 찾을 수 없습니다." if korean else "FFmpeg could not be found.")
+                notice.setInformativeText(
+                    "음악에 맞춰 반응, 오디오 시각화, 믹스 미리보기와 영상 내보내기에는 FFmpeg가 필요합니다. "
+                    "가사 단어별 노래방 표시는 사용할 수 있습니다.\n\n설정 → FFmpeg에서 설치하거나 기존 실행 파일을 지정해 주세요."
+                    if korean else
+                    "Music reactions, audio visualizers, mix preview and video export require FFmpeg. "
+                    "Word karaoke highlighting remains available.\n\nInstall FFmpeg or select an existing executable in Settings → FFmpeg."
+                )
+                notice.setStandardButtons(QMessageBox.StandardButton.Close)
+                install = notice.addButton("설치 설정 열기" if korean else "Open install settings", QMessageBox.ButtonRole.AcceptRole)
+                notice.buttonClicked.connect(lambda button: self._show_settings(True) if button is install else None)
+                notice.finished.connect(lambda _result: setattr(self, "_ffmpeg_notice", None))
+                self._ffmpeg_notice = notice
+                notice.show()
+            return False
+        return True
 
     def _show_settings(self, focus_ffmpeg: bool = False) -> None:
         """Show and persist the Phase 4A application settings."""

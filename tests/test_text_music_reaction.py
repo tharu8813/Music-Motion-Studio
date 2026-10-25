@@ -300,6 +300,44 @@ class TextMusicReactionTests(unittest.TestCase):
         preview.close(); preview.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
+    def test_full_preview_refreshes_lyrics_when_audio_analysis_arrives(self):
+        source = Source(SourceType.LYRICS, "Lyrics", width=600, height=400,
+                        music_reactive_enabled=True, subtitle_karaoke_enabled=True,
+                        subtitle_animation="none", font_size=28)
+        scene = CanvasScene(); scene.set_artboard_size(600, 400)
+        scene.addItem(SourceItem(source))
+        track = PlaylistTrack("", "Song", duration_seconds=8,
+                              lyrics=[{"start": 0, "end": 8, "text": "Singing words"}])
+        preview = ExportPreviewDialog(scene, [track], Translator(), preferred_backend="cpu")
+        self.addCleanup(preview.deleteLater)
+        self.addCleanup(preview.close)
+        preview.timeline.setValue(300)
+        preview.refresh_preview()
+        quiet = preview._image.copy()
+        preview._store_track_levels(track.id, preview.preview_fps, {
+            "bass": np.ones(8 * preview.preview_fps),
+            "music_envelopes": {source.music_reaction_profile: np.ones(8 * preview.preview_fps)},
+        })
+        preview.refresh_preview()
+        self.assertNotEqual(preview._image, quiet)
+
+    def test_inspector_groups_karaoke_and_hides_conflicting_accent_toggle(self):
+        store = SourceStore()
+        inspector = SourceInspector(store, Translator())
+        self.addCleanup(inspector.close)
+        source = Source(SourceType.LYRICS, "Lyrics")
+        store.add(source)
+        group = inspector._sections[("special", "sub_karaoke")]
+        self.assertIs(inspector.lyrics_karaoke_button.parentWidget(), group._body)
+        self.assertTrue(inspector._field_visibility["subtitle_accent_enabled"])
+        self.assertFalse(inspector._field_visibility["subtitle_karaoke_offset"])
+        inspector.lyrics.widgets["subtitle_karaoke_enabled"].click()
+        self.assertTrue(source.subtitle_karaoke_enabled)
+        self.assertFalse(inspector._field_visibility["subtitle_accent_enabled"])
+        self.assertTrue(inspector._field_visibility["subtitle_karaoke_offset"])
+        for key in ("subtitle_karaoke_enabled", "subtitle_karaoke_offset", "subtitle_accent_color"):
+            self.assertEqual(inspector._field_sections[key], ("special", "sub_karaoke"))
+
 
 if __name__ == "__main__":
     unittest.main()

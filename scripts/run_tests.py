@@ -88,7 +88,7 @@ def main() -> int:
         seconds = perf_counter() - begin
         status = "fail" if completed.returncode else "pass"
         summary = re.search(r"Ran (\d+) tests?", completed.stderr)
-        skipped = re.search(r"OK \(skipped=(\d+)\)", completed.stderr)
+        skipped = re.search(r"\bskipped=(\d+)", completed.stderr)
         runs.append({
             "module": module, "status": status, "seconds": round(seconds, 2),
             "returncode": completed.returncode,

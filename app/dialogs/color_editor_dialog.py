@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 
 from app.dialogs.help_dialog import install_help_shortcut
 from app.models.playlist import PlaylistTrack
-from app.models.source import Source
+from app.models.source import Shadow, Source
 from app.preview.album_art import adjust_personal_color, extract_track_personal_color
 from app.utils.i18n import Translator
 
@@ -81,7 +81,7 @@ class ColorEditorDialog(QDialog):
     def __init__(
         self,
         initial_color: QColor,
-        source: Source,
+        source: Source | Shadow,
         translator: Translator,
         title: str,
         parent: QWidget | None = None,
@@ -93,6 +93,7 @@ class ColorEditorDialog(QDialog):
         self.translator = translator
         self._korean = translator.is_korean
         self._tracks = list(tracks or [])
+        self._show_personal_color = show_personal_color
         self._initial_color = QColor(initial_color)
         if not self._initial_color.isValid():
             self._initial_color = QColor("#FFFFFF")
@@ -112,9 +113,11 @@ class ColorEditorDialog(QDialog):
         heading.setStyleSheet("font-size: 21px; font-weight: 600;")
         root.addWidget(heading)
         description = QLabel(
-            "색상을 직접 조절하거나 현재 곡의 앨범 커버 색상과 연결할 수 있습니다."
+            ("색상을 직접 조절하거나 현재 곡의 앨범 커버 색상과 연결할 수 있습니다."
+             if show_personal_color else "이 항목의 색상과 투명도를 조절합니다.")
             if self._korean else
-            "Choose a color directly or link this source to the current track artwork."
+            ("Choose a color directly or link it to the current track artwork."
+             if show_personal_color else "Adjust this color and its opacity.")
         )
         description.setObjectName("mutedLabel")
         description.setWordWrap(True)
@@ -122,6 +125,7 @@ class ColorEditorDialog(QDialog):
 
         tabs = QTabWidget()
         color_page = QWidget()
+        self.color_page = color_page
         color_page_layout = QVBoxLayout(color_page)
         color_page_layout.setContentsMargins(10, 12, 10, 10)
         color_page_layout.setSpacing(12)
@@ -130,10 +134,10 @@ class ColorEditorDialog(QDialog):
         personal_page_layout.setContentsMargins(10, 12, 10, 10)
         tabs.addTab(color_page, "색상" if self._korean else "Color")
         if show_personal_color:
-            tabs.addTab(
-                personal_page,
-                "퍼스널 컬러" if self._korean else "Personal color",
-            )
+            tabs.setTabToolTip(0, "퍼스널 컬러를 끄면 직접 색상을 조절할 수 있습니다." if self._korean else
+                               "Turn off personal color to edit the color manually.")
+        tabs.addTab(personal_page, "퍼스널 컬러" if self._korean else "Personal color")
+        tabs.setTabVisible(1, show_personal_color)
         tabs.tabBar().setVisible(show_personal_color)
         root.addWidget(tabs, 1)
 
@@ -208,6 +212,9 @@ class ColorEditorDialog(QDialog):
         )
         personal_hint.setObjectName("mutedLabel")
         personal_hint.setWordWrap(True)
+        if isinstance(source, Shadow):
+            personal_hint.setText(("그림자 전용 퍼스널 컬러 설정입니다.\n" if self._korean else
+                                   "These personal-color settings apply to the shadow.\n") + personal_hint.text())
         personal_group_layout.addWidget(personal_hint)
         personal_form = QFormLayout()
         self.personal_brightness = self._spin(-100, 100, "%", source.personal_color_brightness)
@@ -249,9 +256,9 @@ class ColorEditorDialog(QDialog):
         personal_page_layout.addStretch(1)
 
         footer = QHBoxLayout()
-        reset = QPushButton("처음 색상" if self._korean else "Reset color")
-        reset.clicked.connect(self._reset_color)
-        footer.addWidget(reset)
+        self.reset_button = QPushButton("처음 색상" if self._korean else "Reset color")
+        self.reset_button.clicked.connect(self._reset_color)
+        footer.addWidget(self.reset_button)
         footer.addStretch(1)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -274,6 +281,8 @@ class ColorEditorDialog(QDialog):
         )
         self.personal_check.toggled.connect(self._refresh_personal_preview)
         self._sync_personal_controls()
+        if show_personal_color and self.personal_check.isChecked():
+            tabs.setCurrentWidget(personal_page)
         self._set_color(self._initial_color)
         self._refresh_personal_preview()
 
@@ -312,6 +321,8 @@ class ColorEditorDialog(QDialog):
         return QColor(self._color)
 
     def personal_settings(self) -> dict[str, object]:
+        if not self._show_personal_color:
+            return {}
         return {
             "personal_color_enabled": self.personal_check.isChecked(),
             "personal_color_brightness": float(self.personal_brightness.value()),
@@ -333,6 +344,7 @@ class ColorEditorDialog(QDialog):
             self.alpha_slider.setValue(round(color.alphaF() * 100.0))
             self.hex_edit.setText(self._serialized(color))
             self.hex_edit.setStyleSheet("")
+            self.hex_edit.setToolTip("")
             self.preview.set_current(color)
         finally:
             self._syncing = False
@@ -341,28 +353,40 @@ class ColorEditorDialog(QDialog):
     def _sliders_changed(self, _value: int) -> None:
         if self._syncing:
             return
-        color = QColor()
-        color.setHsvF(
-            self.hue_slider.value() / 359.0,
-            self.saturation_slider.value() / 100.0,
-            self.value_slider.value() / 100.0,
-            self.alpha_slider.value() / 100.0,
-        )
+        color = QColor(self._color)
+        sender = self.sender()
+        if sender is self.alpha_slider:
+            color.setAlphaF(self.alpha_slider.value() / 100.0)
+        else:
+            hue, saturation, value, alpha = color.getHsvF()
+            color.setHsvF(
+                self.hue_slider.value() / 360.0 if sender is self.hue_slider else max(0.0, hue),
+                self.saturation_slider.value() / 100.0 if sender is self.saturation_slider else saturation,
+                self.value_slider.value() / 100.0 if sender is self.value_slider else value,
+                alpha,
+            )
         self._set_color(color)
 
-    def _apply_hex(self) -> None:
+    def accept(self) -> None:
+        if self.color_page.isEnabled() and not self._apply_hex():
+            self.hex_edit.setFocus()
+            return
+        super().accept()
+
+    def _apply_hex(self) -> bool:
         value = self.hex_edit.text().strip()
         if value and not value.startswith("#"):
             value = f"#{value}"
         color = QColor(value)
         if color.isValid() and len(value) in {4, 7, 9}:
             self._set_color(color)
-            return
+            return True
         self.hex_edit.setStyleSheet("border-color:#E05252;")
         self.hex_edit.setToolTip(
             "#RRGGBB 또는 #AARRGGBB 형식으로 입력하세요."
             if self._korean else "Enter #RRGGBB or #AARRGGBB."
         )
+        return False
 
     def _use_preset(self, value: str) -> None:
         color = QColor(value)
@@ -373,11 +397,14 @@ class ColorEditorDialog(QDialog):
         self._set_color(self._initial_color)
 
     def _sync_personal_controls(self) -> None:
+        enabled = self._show_personal_color and self.personal_check.isChecked()
+        self.color_page.setEnabled(not enabled)
+        self.reset_button.setEnabled(not enabled)
         for widget in (
             self.personal_brightness, self.personal_saturation,
             self.personal_hue, self.personal_strength,
         ):
-            widget.setEnabled(self.personal_check.isChecked())
+            widget.setEnabled(enabled)
 
     def _refresh_personal_preview(self, *_args: object) -> None:
         """Recompute the selected track's personal color with current adjustments."""

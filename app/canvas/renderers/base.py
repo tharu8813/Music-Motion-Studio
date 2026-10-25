@@ -89,7 +89,7 @@ def paint_background(item: "SourceItem", painter: QPainter) -> tuple[QRectF, QBr
     )
     if item.source.shadow.enabled and not glyph_shadow:
         shadow_color = QColor(item.source.shadow.color)
-        shadow_color.setAlphaF(max(0.0, min(1.0, item.source.shadow.opacity)))
+        shadow_color.setAlphaF(shadow_color.alphaF() * max(0.0, min(1.0, item.source.shadow.opacity)))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(shadow_color)
         shadow_rect = rect.translated(item.source.shadow.offset_x, item.source.shadow.offset_y)

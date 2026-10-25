@@ -228,6 +228,8 @@ class SourceStore(QObject):
         source = self._sources.get(source_id)
         if source is None:
             return
+        if "name" in changes and (not isinstance(changes["name"], str) or not changes["name"].strip()):
+            changes["name"] = source.name
         if source.source_type is SourceType.ALBUM_COVER:
             # Album artwork is a square source everywhere, including Inspector
             # edits and multi-selection updates. Canvas resize already supplies

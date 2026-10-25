@@ -221,7 +221,7 @@ _CANVAS = (
 <li>요소를 클릭해 선택하고 끌어서 옮깁니다. <code>Ctrl</code>+클릭이나 빈 곳에서 끌어 여러 요소를 선택합니다.</li>
 <li>테두리 핸들로 크기를, 위쪽 원형 핸들로 회전을 바꿉니다.</li>
 <li><code>Alt</code>+크기 조절은 현재 비율을 유지하고, <code>Alt+Shift</code>+크기 조절은 1:1 비율로 바꿔 조절합니다. 앨범 커버는 항상 1:1입니다.</li>
-<li>끄는 동안 캔버스와 다른 요소의 가장자리·중앙에 <b>스냅</b>되며 안내선이 표시됩니다. 도구 모음의 스냅 버튼으로 끌 수 있습니다.</li>
+<li>끄는 동안 가까운 캔버스와 다른 요소의 가장자리·중앙에 <b>스냅</b>되며 안내선이 표시됩니다. <code>Alt</code>를 누르는 동안 스냅이 해제되어 정밀하게 이동·크기 조절할 수 있습니다.</li>
 <li><code>Ctrl</code>을 누른 채 끌면 놓은 자리에 복제됩니다. 텍스트·가사 요소는 더블클릭해 바로 편집합니다.</li>
 </ul>
 <h2>정밀 이동과 정렬</h2>
@@ -246,7 +246,7 @@ _CANVAS = (
 <li>Click a source to select it and drag to move it. <code>Ctrl</code>+click, or drag on an empty spot, to select several.</li>
 <li>Resize with the border handles; rotate with the round handle on top.</li>
 <li><code>Alt</code>+resize keeps the current ratio; <code>Alt+Shift</code>+resize switches to 1:1. Album covers are always 1:1.</li>
-<li>While dragging, sources <b>snap</b> to the canvas and to other sources' edges and centers, with guides. Turn it off with the Snap toolbar button.</li>
+<li>While dragging, sources <b>snap</b> to nearby canvas and source edges and centers, with guides. Hold <code>Alt</code> to disable snapping for precise movement and resizing.</li>
 <li><code>Ctrl</code>+drag drops a duplicate. Double-click a text or lyrics source to edit it in place.</li>
 </ul>
 <h2>Nudge and align</h2>

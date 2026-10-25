@@ -10,7 +10,7 @@ from app.models.playlist import PlaylistTrack
 from app.models.source import Source, SourceType
 from app.preview.canvas_snapshot import CanvasSnapshot
 from app.renderer.canvas_pipe import piped_export_supported
-from app.renderer.export_timeline import ExportFrameSample, ExportTimelinePlanner
+from app.renderer.export_timeline import ExportFrameSample, ExportFrameSchedule, ExportTimelinePlanner
 from app.renderer.ffmpeg_renderer import RenderError, RenderSettings
 from app.timeline.render_plan import CompiledRenderPlan
 
@@ -33,7 +33,7 @@ class ExportPlan:
     dynamic_visualizer_ids: set[str]
     direct_final_stream: bool
     use_streamed_visuals: bool
-    stream_timeline_samples: dict[str, list[ExportFrameSample]]
+    stream_timeline_samples: dict[str, list[ExportFrameSample] | ExportFrameSchedule]
     animation_fps: int
     playlist_duration: float
     canvas_render_scale: float = 1.0
@@ -84,16 +84,33 @@ def build_export_plan(
         if source.source_type in _DYNAMIC_SOURCE_TYPES and source.visible
     }
     broad_z_bands = CanvasSnapshot.z_bands(scene, dynamic_visualizer_ids)
+    use_piped_visuals = piped_export_supported()
     preserve_direct_stream = (
         len(broad_z_bands) == 1 and not visualizers and not video_clips
     )
     z_bands = (
         broad_z_bands
-        if preserve_direct_stream else
+        if preserve_direct_stream and not use_piped_visuals else
         CanvasSnapshot.split_mixed_capture_bands(
             scene, dynamic_visualizer_ids, broad_z_bands, playlist_duration,
         )
     )
+    if preserve_direct_stream and z_bands != broad_z_bands:
+        capture_rect = (
+            CanvasSnapshot.band_capture_envelope(scene, *z_bands[1])
+            if len(z_bands) == 2 else None
+        )
+        artboard = scene.artboard_rect
+        # Extra streams add compositing work; split a direct stream only for a small foreground.
+        preserve_direct_stream = not (
+            capture_rect is not None
+            and capture_rect.width() * capture_rect.height() < artboard.width() * artboard.height() / 2
+            and CanvasSnapshot.invariant_stream_keys(
+                scene, dynamic_visualizer_ids, z_bands, playlist_duration,
+            ) == {"base"}
+        )
+        if preserve_direct_stream:
+            z_bands = broad_z_bands
     LOGGER.info(
         "Canvas capture bands: broad=%d split=%d direct_preserved=%s",
         len(broad_z_bands), len(z_bands), preserve_direct_stream,
@@ -121,7 +138,7 @@ def build_export_plan(
 
     stream_timeline_samples = ExportTimelinePlanner.build_by_z_band(
         active_tracks, sources, dynamic_visualizer_ids, z_bands, animation_fps,
-        compiled_plan,
+        compiled_plan, lazy=True,
     )
     if (
         not stream_timeline_samples
@@ -140,5 +157,5 @@ def build_export_plan(
         animation_fps=animation_fps,
         playlist_duration=playlist_duration,
         canvas_render_scale=canvas_render_scale(scene, render_settings),
-        use_piped_visuals=piped_export_supported(),
+        use_piped_visuals=use_piped_visuals,
     )

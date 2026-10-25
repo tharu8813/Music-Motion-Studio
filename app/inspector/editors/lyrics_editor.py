@@ -44,13 +44,13 @@ class LyricsSection(FieldSection):
         ("subtitle_previous_opacity", "sub_prev"),
         ("subtitle_previous_blur", "sub_prev"),
         ("subtitle_current_scale", "sub_current"),
-        ("subtitle_karaoke_enabled", "sub_current"),
-        ("subtitle_karaoke_offset", "sub_current"),
-        ("subtitle_accent_enabled", "sub_current"),
-        ("subtitle_accent_color", "sub_current"),
-        ("subtitle_karaoke_pending_mode", "sub_current"),
-        ("subtitle_karaoke_pending_color", "sub_current"),
-        ("subtitle_karaoke_pending_brightness", "sub_current"),
+        ("subtitle_karaoke_enabled", "sub_karaoke"),
+        ("subtitle_accent_enabled", "sub_karaoke"),
+        ("subtitle_accent_color", "sub_karaoke"),
+        ("subtitle_karaoke_pending_mode", "sub_karaoke"),
+        ("subtitle_karaoke_pending_color", "sub_karaoke"),
+        ("subtitle_karaoke_pending_brightness", "sub_karaoke"),
+        ("subtitle_karaoke_offset", "sub_karaoke"),
         ("subtitle_timing_offset", None),
     )
 
@@ -62,15 +62,15 @@ class LyricsSection(FieldSection):
         "subtitle_line_spacing": ("가사 줄 간격", "Lyric line spacing"),
         "subtitle_previous_opacity": ("이전 가사 불투명도", "Previous lyric opacity"),
         "subtitle_previous_blur": ("이전 가사 블러", "Previous lyric blur"),
-        "subtitle_timing_offset": ("가사 시간 보정 (초)", "Lyric timing offset (s)"),
+        "subtitle_timing_offset": ("전체 가사 시간 보정 (초)", "All lyric timing offset (s)"),
         "subtitle_current_scale": ("현재 줄 크기", "Current line size"),
         "subtitle_accent_enabled": ("현재 줄 강조 색", "Current line accent"),
         "subtitle_karaoke_enabled": ("단어별 노래방 표시 (베타)", "Word karaoke highlight (Beta)"),
         "subtitle_karaoke_offset": ("단어 강조 보정 (초)", "Word highlight offset (s)"),
         "subtitle_accent_color": ("도달한 가사 색 / 강조 색", "Reached lyric / accent color"),
-        "subtitle_karaoke_pending_mode": ("미도달 가사 표시", "Pending lyric appearance"),
-        "subtitle_karaoke_pending_color": ("미도달 가사 색", "Pending lyric color"),
-        "subtitle_karaoke_pending_brightness": ("미도달 밝기", "Pending brightness"),
+        "subtitle_karaoke_pending_mode": ("부르기 전 표시", "Pending lyric appearance"),
+        "subtitle_karaoke_pending_color": ("부르기 전 색", "Pending lyric color"),
+        "subtitle_karaoke_pending_brightness": ("부르기 전 밝기", "Pending brightness"),
         "subtitle_line_styles": ("줄별 스타일", "Per-line styles"),
     }
 
@@ -79,6 +79,7 @@ class LyricsSection(FieldSection):
         "sub_layout": ("줄 배치 · 기본", "Line layout · Basic"),
         "sub_prev": ("이전 줄 · 기본", "Previous lines · Basic"),
         "sub_current": ("현재 줄 · 기본", "Current line · Basic"),
+        "sub_karaoke": ("노래방 · 색상과 타이밍", "Karaoke · Colors and timing"),
     }
 
     HELP = {
@@ -129,12 +130,12 @@ class LyricsSection(FieldSection):
             "subtitle_previous_blur": spin(0, 8, 0.5),
             "subtitle_current_scale": spin(1.0, 2.0, 0.02),
             "subtitle_karaoke_enabled": QCheckBox(),
-            "subtitle_karaoke_offset": spin(-5, 5, 0.01),
             "subtitle_accent_enabled": QCheckBox(),
             "subtitle_accent_color": color_button(),
             "subtitle_karaoke_pending_mode": pending_mode,
             "subtitle_karaoke_pending_color": color_button(),
             "subtitle_karaoke_pending_brightness": spin(0, 1, 0.05),
+            "subtitle_karaoke_offset": spin(-5, 5, 0.01),
             "subtitle_timing_offset": spin(-5.0, 5.0, 0.01),
         }
 
@@ -149,6 +150,7 @@ class LyricsSection(FieldSection):
             "subtitle_previous_opacity": shows_previous,
             "subtitle_previous_blur": shows_previous,
             "subtitle_accent_color": source.subtitle_accent_enabled or source.subtitle_karaoke_enabled,
+            "subtitle_accent_enabled": not source.subtitle_karaoke_enabled,
             "subtitle_karaoke_offset": source.subtitle_karaoke_enabled,
             "subtitle_karaoke_pending_mode": source.subtitle_karaoke_enabled,
             "subtitle_karaoke_pending_color": source.subtitle_karaoke_enabled and source.subtitle_karaoke_pending_mode == "custom",
@@ -158,7 +160,7 @@ class LyricsSection(FieldSection):
     def retranslate(self, korean: bool) -> None:
         self.widgets["subtitle_animation_duration"].setSuffix(" 초" if korean else " s")
         self.widgets["subtitle_accent_enabled"].setText("사용" if korean else "Enabled")
-        self.widgets["subtitle_karaoke_enabled"].setText("자동 표시" if korean else "Automatic")
+        self.widgets["subtitle_karaoke_enabled"].setText("사용" if korean else "Enabled")
         mode = self.widgets["subtitle_karaoke_pending_mode"]
         mode.setItemText(0, "별도 색상" if korean else "Separate color")
         mode.setItemText(1, "도달한 색의 밝기 낮추기" if korean else "Dim reached color")

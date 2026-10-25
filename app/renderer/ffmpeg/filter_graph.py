@@ -21,10 +21,10 @@ if TYPE_CHECKING:
 
 
 def filter_color(value: str) -> str:
-    """Return an FFmpeg-safe opaque RGB literal for Canvas fill colors."""
+    """Convert Qt RGB/AARRGGBB into FFmpeg RGB/RRGGBBAA."""
     color = value.strip().removeprefix("#")
     if len(color) in {6, 8} and all(character in "0123456789abcdefABCDEF" for character in color):
-        return f"0x{color[:6]}"
+        return f"0x{color[2:]}{color[:2]}" if len(color) == 8 else f"0x{color}"
     return "0x000000"
 
 
@@ -37,6 +37,26 @@ def output_scaling_filter(fps: int, output_width: int, output_height: int,
         "force_original_aspect_ratio=decrease,"
         f"pad={output_width}:{output_height}:(ow-iw)/2:(oh-ih)/2:color=black"
     )
+
+
+def video_fade_expression(clip: "VideoClipOverlay") -> str:
+    """Use the same cubic fade and absolute visual windows as Canvas."""
+    clock = f"(T+{clip.timeline_start:.8f})"
+    result = "1" if clip.animation_out == "none" else "0"
+    for start, end, intro, outro in reversed(clip.animation_windows):
+        if end <= clip.timeline_start or start >= clip.timeline_start + clip.duration_seconds:
+            continue
+        value = "1"
+        if clip.animation_out == "fade" and outro > 0:
+            progress = f"clip(({clock}-{end - outro:.8f})/{outro:.8f},0,1)"
+            ease = f"if(lt({progress},0.5),4*pow({progress},3),1-pow(-2*{progress}+2,3)/2)"
+            value = f"(1-({ease}))"
+        if clip.animation_in == "fade" and intro > 0:
+            progress = f"clip(({clock}-{start:.8f})/{intro:.8f},0,1)"
+            ease = f"if(lt({progress},0.5),4*pow({progress},3),1-pow(-2*{progress}+2,3)/2)"
+            value = f"if(lt({clock},{start + intro:.8f}),{ease},{value})"
+        result = f"if(between({clock},{start:.8f},{end:.8f}),{value},{result})"
+    return result
 
 
 def python_visualizer_filter_graph(visualizers: list["VisualizerOverlay"], fps: int,
@@ -203,13 +223,14 @@ def layered_filter_graph(visualizers: list["VisualizerOverlay"],
             clip = video_clips[index]
             source_input = video_layer_inputs[index]
             layer_input = f"[vclip{order}]"
+            padding = ""
             if clip.fit_mode == "stretch":
                 geometry = f"scale={clip.width}:{clip.height}"
             elif clip.fit_mode == "contain":
                 fill_color = filter_color(clip.fill_color)
-                geometry = (
-                    f"scale={clip.width}:{clip.height}:force_original_aspect_ratio=decrease,"
-                    f"pad={clip.width}:{clip.height}:(ow-iw)/2:(oh-ih)/2:"
+                geometry = f"scale={clip.width}:{clip.height}:force_original_aspect_ratio=decrease"
+                padding = (
+                    f"format=rgba,pad={clip.width}:{clip.height}:(ow-iw)/2:(oh-ih)/2:"
                     f"color={fill_color}"
                 )
             else:
@@ -222,42 +243,53 @@ def layered_filter_graph(visualizers: list["VisualizerOverlay"],
                 f"{clip.duration_seconds * max(0.05, clip.speed):.8f},"
                 f"settb=AVTB,setpts=(PTS-STARTPTS)/{max(0.05, clip.speed):.8f}",
                 geometry,
-                # Canvas stores both controls as percentages. FFmpeg's eq
-                # filter expects brightness in -1..1 and a contrast factor.
-                f"eq=brightness={max(-1.0, min(1.0, clip.brightness / 100.0)):.4f}:"
-                f"contrast={max(0.0, min(2.0, 1.0 + clip.contrast / 100.0)):.4f}:"
-                f"saturation={max(0.0, min(3.0, clip.saturation)):.4f}",
             ]
+            if clip.brightness != 0.0 or clip.contrast != 0.0 or clip.saturation != 1.0:
+                # Canvas stores brightness and contrast as percentages.
+                filters.append(
+                    f"eq=brightness={max(-1.0, min(1.0, clip.brightness / 100.0)):.4f}:"
+                    f"contrast={max(0.0, min(2.0, 1.0 + clip.contrast / 100.0)):.4f}:"
+                    f"saturation={max(0.0, min(3.0, clip.saturation)):.4f}"
+                )
             if clip.grayscale:
                 filters.append("hue=s=0")
             if clip.blur > 0.01:
                 filters.append(f"boxblur={min(40.0, clip.blur):.3f}:1")
+            # Add padding after color effects so its RGBA color remains exact.
+            if padding:
+                filters.append(padding)
             radius = max(
                 0.0,
                 min(float(clip.border_radius), clip.width / 2.0, clip.height / 2.0),
             )
+            alpha_expression = "lum(X,Y)"
             if radius >= 0.5:
-                # Preserve the Canvas rounded-rectangle clip. This runs only
-                # when a radius is configured, avoiding a per-pixel export
-                # filter for the default square video element.
                 dx = (
                     f"max(max({radius:.4f}-X,X-(W-1-{radius:.4f})),0)"
                 )
                 dy = (
                     f"max(max({radius:.4f}-Y,Y-(H-1-{radius:.4f})),0)"
                 )
-                filters.append(
-                    "format=rgba,"
-                    "geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':"
-                    f"a='if(lte(pow({dx},2)+pow({dy},2),"
-                    f"pow({radius:.4f},2)),alpha(X,Y),0)'"
+                alpha_expression = (
+                    f"if(lte(pow({dx},2)+pow({dy},2),"
+                    f"pow({radius:.4f},2)),lum(X,Y),0)"
                 )
-            filters.extend((
-                "format=rgba",
-                f"colorchannelmixer=aa={max(0.0, min(1.0, clip.opacity)):.4f}",
-                f"setpts=PTS+{max(0.0, clip.timeline_start):.8f}/TB{layer_input}",
-            ))
-            graph.append(",".join(filters))
+            filters.append("format=rgba")
+            if (clip.opacity < 1.0 or radius >= 0.5
+                    or clip.animation_in != "none" or clip.animation_out != "none"):
+                filters.append(f"colorchannelmixer=aa={max(0.0, min(1.0, clip.opacity)):.4f}")
+            if clip.animation_in != "none" or clip.animation_out != "none":
+                opacity = video_fade_expression(clip)
+                alpha_expression = f"({alpha_expression})*({opacity})"
+            timing = f"setpts=PTS+{max(0.0, clip.timeline_start):.8f}/TB{layer_input}"
+            if alpha_expression != "lum(X,Y)":
+                # Evaluate the mask on one alpha plane instead of resampling all four RGBA planes.
+                color, alpha, masked = f"[vcolor{order}]", f"[valpha{order}]", f"[vmask{order}]"
+                graph.append(",".join(filters) + f",format=gbrap,split=2{color}{alpha}")
+                graph.append(f"{alpha}alphaextract,geq=lum='{alpha_expression}'{masked}")
+                graph.append(f"{color}{masked}alphamerge,{timing}")
+            else:
+                graph.append(",".join([*filters, timing]))
             rotation = float(clip.rotation) % 360.0
             x, y = clip.x, clip.y
             if rotation:

@@ -1,11 +1,11 @@
 ; ============================================================================
-; Playlist Canvas 1.3.1.2 Windows 설치 프로그램
+; Playlist Canvas 1.3.1.3 Windows 설치 프로그램
 ; ChatGPT Codex와 Claude Code를 활용해 제작한 Playlist Canvas의 Inno Setup 스크립트입니다.
 ; ============================================================================
 
 #define MyAppName "Playlist Canvas"
-#define MyAppVersion "1.3.1.2"
-#define MyAppFileVersion "1.3.1.2"
+#define MyAppVersion "1.3.1.3"
+#define MyAppFileVersion "1.3.1.3"
 #define MyAppPublisher "Ji Beak min(tharu8813)"
 #define MyAppCopyright "© 2026 Ji Beak min(tharu8813). All rights reserved."
 #define MyAppDescription "음악, 가사와 비주얼 요소를 편집해 플레이리스트 영상을 만드는 Windows 데스크톱 편집기"
@@ -41,8 +41,8 @@ AppUpdatesURL={#MyAppURL}
 #endif
 AppCopyright={#MyAppCopyright}
 AppComments={#MyAppComments}
-DefaultDirName={localappdata}\Programs\{#MyAppName}
-PrivilegesRequired=lowest
+DefaultDirName={commonpf}\{#MyAppName}
+PrivilegesRequired=admin
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=output-setup
@@ -109,7 +109,7 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 Filename: "{app}\{#MyAppExeName}"; Parameters: "{code:UpdateLaunchArguments}"; Flags: nowait runasoriginaluser; Check: IsAutomaticUpdate
 
 [UninstallDelete]
-Type: filesandordirs; Name: "{app}"
+Type: dirifempty; Name: "{app}"
 
 [Code]
 function OpenProcess(Access: Cardinal; Inherit: Integer; ProcessId: Cardinal): THandle;
@@ -140,12 +140,19 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ParentId: Integer;
   ParentHandle: THandle;
+  ReadyPath: String;
 begin
   Result := '';
   if not IsAutomaticUpdate() then Exit;
   ParentId := StrToIntDef(ExpandConstant('{param:UPDATEPID|0}'), 0);
   if ParentId <= 0 then begin
     Result := 'The update parent process is missing.';
+    Exit;
+  end;
+  ReadyPath := ExpandConstant('{param:UPDATEREADY|}');
+  { Older updaters already close before launching Setup and have no ready signal. }
+  if (ReadyPath <> '') and not SaveStringToFile(ReadyPath, 'ready', False) then begin
+    Result := 'Could not notify Playlist Canvas that Setup is ready.';
     Exit;
   end;
   ParentHandle := OpenProcess($00100000, 0, ParentId);

@@ -83,7 +83,7 @@ class LyricsService:
     """Load and resolve timed lyric cues for the active playlist track."""
 
     _lrc_time = re.compile(r"\[(\d+):(\d+(?:\.\d+)?)\]")
-    _srt_time = re.compile(r"(\d+):(\d+):(\d+)[,.](\d+)")
+    _srt_time = re.compile(r"(?:(\d+):)?(\d{2}):(\d{2})[,.](\d{1,3})")
     _word_time = re.compile(r"<(\d+):(\d+(?:\.\d+)?)>")
 
     @staticmethod
@@ -377,18 +377,28 @@ class LyricsService:
             lines = [line.strip() for line in block.splitlines() if line.strip()]
             if len(lines) < 2:
                 continue
-            timing_index = 1 if lines[0].isdigit() else 0
-            if timing_index >= len(lines) or "-->" not in lines[timing_index]:
+            if lines[0].split(maxsplit=1)[0] in {"WEBVTT", "NOTE", "STYLE", "REGION"}:
+                continue
+            timing_index = 0 if "-->" in lines[0] else 1
+            if "-->" not in lines[timing_index]:
                 continue
             start_raw, end_raw = (part.strip() for part in lines[timing_index].split("-->", 1))
-            cues.append({"start": cls._srt_seconds(start_raw), "end": cls._srt_seconds(end_raw), "text": "\n".join(lines[timing_index + 1:])})
+            start, end = cls._srt_seconds(start_raw), cls._srt_seconds(end_raw)
+            if end < start:
+                raise LyricsError("Subtitle cue ends before it starts.")
+            cues.append({"start": start, "end": end, "text": "\n".join(lines[timing_index + 1:])})
         cues.sort(key=lambda cue: (float(cue["start"]), float(cue["end"])))
         return cues
 
     @classmethod
     def _srt_seconds(cls, value: str) -> float:
-        match = cls._srt_time.search(value)
+        match = cls._srt_time.fullmatch(value.split(maxsplit=1)[0]) if value.strip() else None
         if not match:
             raise LyricsError(f"Invalid subtitle timestamp: {value}")
         hours, minutes, seconds, milliseconds = match.groups()
-        return int(hours) * 3600 + int(minutes) * 60 + int(seconds) + int(milliseconds) / 1000
+        if int(minutes) >= 60 or int(seconds) >= 60:
+            raise LyricsError(f"Invalid subtitle timestamp: {value}")
+        try:
+            return int(hours or 0) * 3600 + int(minutes) * 60 + int(seconds) + int(milliseconds.ljust(3, "0")) / 1000
+        except (ValueError, OverflowError) as error:
+            raise LyricsError("Subtitle timestamp is too large.") from error

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from math import ceil, floor
 from pathlib import Path
 
@@ -48,13 +49,17 @@ class CanvasScene(QGraphicsScene):
         self.placeholder_labels_korean = False
         self.guide_x: float | None = None
         self.guide_y: float | None = None
-        self._painted_guide_x: float | None = None
-        self._painted_guide_y: float | None = None
+        self._guide_bounds = QRectF()
+        self._painted_guide_lines: tuple[QLineF, ...] = ()
         self._interactive_items: set[SourceItem] = set()
         self._interactive_anchor: SourceItem | None = None
-        self._interactive_snap_delta = QPointF()
+        self._interactive_positions: dict[SourceItem, QPointF] = {}
+        self._interactive_bounds = QRectF()
+        self._snap_locks: dict[str, tuple[float, int]] = {}
         self._snap_candidates_x: list[float] | None = None
         self._snap_candidates_y: list[float] | None = None
+        self._snap_bounds_x: dict[float, list[QRectF]] = {}
+        self._snap_bounds_y: dict[float, list[QRectF]] = {}
 
     def set_placeholder_language(self, korean: bool) -> None:
         """Repaint token placeholders such as ``%title%`` in the given language."""
@@ -87,13 +92,11 @@ class CanvasScene(QGraphicsScene):
                 painter.drawLine(QLineF(x, rect.top(), x, rect.bottom()))
             for y in y_positions:
                 painter.drawLine(QLineF(rect.left(), y, rect.right(), y))
-        painter.setPen(QPen(QColor("#F5C542"), 1.5, Qt.PenStyle.DashLine))
-        if self.guide_x is not None:
-            painter.drawLine(self.guide_x, self.artboard_rect.top(), self.guide_x,
-                             self.artboard_rect.bottom())
-        if self.guide_y is not None:
-            painter.drawLine(self.artboard_rect.left(), self.guide_y,
-                             self.artboard_rect.right(), self.guide_y)
+        alignment_pen = QPen(QColor("#F5C542"), 1.5, Qt.PenStyle.DashLine)
+        alignment_pen.setCosmetic(True)
+        painter.setPen(alignment_pen)
+        for line in self._alignment_guide_lines():
+            painter.drawLine(line)
         selection_bounds = self.multi_selection_bounds()
         if selection_bounds is not None:
             guide_color = QColor("#55B8FF")
@@ -160,160 +163,204 @@ class CanvasScene(QGraphicsScene):
 
         return axis(rect.left(), rect.right()), axis(rect.top(), rect.bottom())
 
-    def snap_position(self, item: SourceItem, position: QPointF) -> QPointF:
-        """Snap a moving item to the grid and nearby item edges/centres."""
-        if (item in self._interactive_items and self._interactive_anchor is not None
-                and item is not self._interactive_anchor):
-            # Preserve the spacing of a multi-selection by applying the snapped
-            # adjustment chosen by the grabbed item to every selected item.
-            return position + self._interactive_snap_delta
-        self.guide_x = None
-        self.guide_y = None
-        if (not self.snap_enabled or QApplication.keyboardModifiers()
-                & Qt.KeyboardModifier.AltModifier):
-            if item is self._interactive_anchor:
-                self._interactive_snap_delta = QPointF()
+    def _snap_zoom(self) -> float:
+        views = self.views()
+        return max(0.01, abs(views[0].transform().m11())) if views else 1.0
+
+    def _snap_axis(
+        self, axis: str, edges: tuple[float, ...], candidates: list[float],
+        grid_edge: float,
+    ) -> tuple[float, float | None]:
+        """Choose the nearest visible target and retain it through small jitter."""
+        zoom = self._snap_zoom()
+        locked = self._snap_locks.get(axis)
+        if locked is not None:
+            target, index = locked
+            if index < len(edges) and abs(target - edges[index]) * zoom <= 7.0:
+                return target - edges[index], target
+            self._snap_locks.pop(axis, None)
+
+        best: tuple[float, float, int] | None = None
+        for index, edge in enumerate(edges):
+            insertion = bisect_left(candidates, edge)
+            for target in candidates[max(0, insertion - 1):insertion + 1]:
+                candidate = (abs(target - edge), target, index)
+                if best is None or candidate < best:
+                    best = candidate
+        if best is not None and best[0] * zoom <= 4.0:
+            _, target, index = best
+            if self._interactive_anchor is not None:
+                self._snap_locks[axis] = (target, index)
+            return target - edges[index], target
+
+        # A dense, invisible grid must not turn every pointer move into a jump.
+        correction = round(grid_edge / 10.0) * 10.0 - grid_edge
+        if 10.0 * zoom >= 8.0 and abs(correction) * zoom <= 2.0:
+            return correction, None
+        return 0.0, None
+
+    def _snapping_active(self, modifiers: Qt.KeyboardModifiers | None) -> bool:
+        if modifiers is None:
+            modifiers = QApplication.keyboardModifiers()
+        if not self.snap_enabled or modifiers & Qt.KeyboardModifier.AltModifier:
+            self.clear_alignment_guides()
+            return False
+        self.guide_x = self.guide_y = None
+        return True
+
+    def snap_position(
+        self, item: SourceItem, position: QPointF,
+        modifiers: Qt.KeyboardModifiers | None = None,
+    ) -> QPointF:
+        """Align actual transformed content without pre-rounding its position."""
+        if not self._snapping_active(modifiers):
             return position
-        threshold = 7.0
-        grid = 10.0
-        x = round(position.x() / grid) * grid
-        y = round(position.y() / grid) * grid
-        item_width = item.source.width * item.source.scale
-        item_height = item.source.height * item.source.scale
+        if item is self._interactive_anchor and len(self._interactive_items) > 1:
+            bounds = self._interactive_bounds.translated(
+                position - self._interactive_positions[item]
+            )
+        else:
+            bounds = item.mapRectToScene(item.content_rect()).translated(position - item.pos())
         candidates_x, candidates_y = self._alignment_candidates(item)
-        own_x = (x, x + item_width / 2, x + item_width)
-        own_y = (y, y + item_height / 2, y + item_height)
-        for target in candidates_x:
-            nearest = min(own_x, key=lambda edge: abs(edge - target))
-            if abs(nearest - target) <= threshold:
-                x += target - nearest
-                self.guide_x = target
-                break
-        for target in candidates_y:
-            nearest = min(own_y, key=lambda edge: abs(edge - target))
-            if abs(nearest - target) <= threshold:
-                y += target - nearest
-                self.guide_y = target
-                break
-        snapped = QPointF(x, y)
-        if item is self._interactive_anchor:
-            self._interactive_snap_delta = snapped - position
-        return snapped
-
-    def snap_resize(self, item: SourceItem, width: float, height: float,
-                    handle: str = "se") -> tuple[float, float]:
-        """Snap an active resize edge to the grid and visible alignment edges."""
-        self.guide_x = None
-        self.guide_y = None
-        if (not self.snap_enabled or QApplication.keyboardModifiers()
-                & Qt.KeyboardModifier.AltModifier):
-            return width, height
-
-        grid = 10.0
-        threshold = 7.0
-        # Rotated sources retain predictable local-grid sizing.  Scene-edge alignment
-        # would otherwise require projecting each rotated edge and feel jumpy.
-        horizontal = "left" if "w" in handle else "right" if "e" in handle else None
-        vertical = "top" if "n" in handle else "bottom" if "s" in handle else None
-        if abs(item.rotation()) > 0.01:
-            if horizontal is not None:
-                width = round(width / grid) * grid
-            if vertical is not None:
-                height = round(height / grid) * grid
-            return max(32.0, width), max(24.0, height)
-
-        scale = max(0.1, item.source.scale)
-        content_top_left = item.mapToScene(QPointF(0, 0))
-        content_bottom_right = item.mapToScene(
-            QPointF(item.source.width, item.source.height)
+        dx, self.guide_x = self._snap_axis(
+            "x", (bounds.left(), bounds.center().x(), bounds.right()), candidates_x,
+            bounds.left(),
         )
-        if horizontal == "right":
-            edge = content_top_left.x() + width * scale
-            width += (round(edge / grid) * grid - edge) / scale
-        elif horizontal == "left":
-            edge = content_bottom_right.x() - width * scale
-            width += (edge - round(edge / grid) * grid) / scale
-        if vertical == "bottom":
-            edge = content_top_left.y() + height * scale
-            height += (round(edge / grid) * grid - edge) / scale
-        elif vertical == "top":
-            edge = content_bottom_right.y() - height * scale
-            height += (edge - round(edge / grid) * grid) / scale
+        dy, self.guide_y = self._snap_axis(
+            "y", (bounds.top(), bounds.center().y(), bounds.bottom()), candidates_y,
+            bounds.top(),
+        )
+        self._guide_bounds = bounds.translated(dx, dy)
+        return position + QPointF(dx, dy)
 
+    def move_interactive_items(
+        self, delta: QPointF, modifiers: Qt.KeyboardModifiers,
+    ) -> None:
+        """Apply one absolute drag displacement to the complete selection."""
+        anchor = self._interactive_anchor
+        if anchor is None:
+            return
+        origin = self._interactive_positions[anchor]
+        snapped = self.snap_position(anchor, origin + delta, modifiers) - origin
+        for item, position in self._interactive_positions.items():
+            item.setPos(position + snapped)
+        self.update_alignment_guides(anchor)
+
+    def snap_resize(
+        self, item: SourceItem, width: float, height: float, handle: str = "se",
+        modifiers: Qt.KeyboardModifiers | None = None,
+    ) -> tuple[float, float]:
+        """Align moving edges using the same screen tolerance as translation."""
+        if not self._snapping_active(modifiers):
+            return width, height
+        # Rotated edges are not parallel to scene guides; keep their sizing free.
+        if abs(item.rotation()) > 0.01:
+            self._snap_locks.clear()
+            return width, height
+        scale = max(0.1, item.scale())
+        top_left = item.mapToScene(QPointF(0, 0))
+        bottom_right = item.mapToScene(QPointF(item.source.width, item.source.height))
         candidates_x, candidates_y = self._alignment_candidates(item)
-
-        if horizontal == "right":
-            edge = content_top_left.x() + width * scale
-            for target in candidates_x:
-                if abs(edge - target) <= threshold:
-                    width += (target - edge) / scale
-                    self.guide_x = target
-                    break
-        elif horizontal == "left":
-            edge = content_bottom_right.x() - width * scale
-            for target in candidates_x:
-                if abs(edge - target) <= threshold:
-                    width += (edge - target) / scale
-                    self.guide_x = target
-                    break
-        if vertical == "bottom":
-            edge = content_top_left.y() + height * scale
-            for target in candidates_y:
-                if abs(edge - target) <= threshold:
-                    height += (target - edge) / scale
-                    self.guide_y = target
-                    break
-        elif vertical == "top":
-            edge = content_bottom_right.y() - height * scale
-            for target in candidates_y:
-                if abs(edge - target) <= threshold:
-                    height += (edge - target) / scale
-                    self.guide_y = target
-                    break
+        if "w" in handle or "e" in handle:
+            direction = -1 if "w" in handle else 1
+            fixed = bottom_right.x() if direction < 0 else top_left.x()
+            edge = fixed + direction * width * scale
+            correction, self.guide_x = self._snap_axis("x", (edge,), candidates_x, edge)
+            width += direction * correction / scale
+            if width < 32.0:
+                self.guide_x = None
+                self._snap_locks.pop("x", None)
+        if "n" in handle or "s" in handle:
+            direction = -1 if "n" in handle else 1
+            fixed = bottom_right.y() if direction < 0 else top_left.y()
+            edge = fixed + direction * height * scale
+            correction, self.guide_y = self._snap_axis("y", (edge,), candidates_y, edge)
+            height += direction * correction / scale
+            if height < 24.0:
+                self.guide_y = None
+                self._snap_locks.pop("y", None)
         return max(32.0, width), max(24.0, height)
 
+    def _alignment_guide_lines(self) -> tuple[QLineF, ...]:
+        """Connect aligned content bounds; artboard guides retain their full span."""
+        moving = self._guide_bounds
+        artboard = self.artboard_rect
+        lines: list[QLineF] = []
+        for horizontal, target, references, board_targets in (
+            (False, self.guide_x, self._snap_bounds_x,
+             (artboard.left(), artboard.center().x(), artboard.right())),
+            (True, self.guide_y, self._snap_bounds_y,
+             (artboard.top(), artboard.center().y(), artboard.bottom())),
+        ):
+            if target is None:
+                continue
+            candidates = references.get(target, [])
+            if target in board_targets or not candidates:
+                span = artboard
+            else:
+                def distance(rect: QRectF) -> tuple[float, float, float, float]:
+                    if horizontal:
+                        gap = max(0.0, rect.left() - moving.right(), moving.left() - rect.right())
+                        offset = abs(rect.center().x() - moving.center().x())
+                    else:
+                        gap = max(0.0, rect.top() - moving.bottom(), moving.top() - rect.bottom())
+                        offset = abs(rect.center().y() - moving.center().y())
+                    return gap, offset, rect.left(), rect.top()
+
+                span = moving.united(min(candidates, key=distance))
+            lines.append(
+                QLineF(span.left(), target, span.right(), target) if horizontal else
+                QLineF(target, span.top(), target, span.bottom())
+            )
+        return tuple(lines)
+
     def update_alignment_guides(self, item: SourceItem) -> None:
-        """Repaint only old/new guide strips instead of the complete scene."""
+        """Repaint old/new connecting segments, including changes in their length."""
         if (item in self._interactive_items and self._interactive_anchor is not None
                 and item is not self._interactive_anchor):
             return
-        for rect in self._guide_update_rects(
-            self._painted_guide_x, self._painted_guide_y,
-            self.guide_x, self.guide_y,
-        ):
+        if item is self._interactive_anchor and len(self._interactive_items) > 1:
+            self._guide_bounds = self._interactive_bounds.translated(
+                item.pos() - self._interactive_positions[item]
+            )
+        else:
+            self._guide_bounds = item.mapRectToScene(item.content_rect())
+        lines = self._alignment_guide_lines()
+        if lines == self._painted_guide_lines:
+            return
+        for rect in self._guide_update_rects(self._painted_guide_lines, lines):
             self.update(rect)
-        self._painted_guide_x = self.guide_x
-        self._painted_guide_y = self.guide_y
+        self._painted_guide_lines = lines
 
     def clear_alignment_guides(self) -> None:
-        """Remove guides when a drag ends."""
-        if any(value is not None for value in (
-            self.guide_x, self.guide_y,
-            self._painted_guide_x, self._painted_guide_y,
-        )):
-            for rect in self._guide_update_rects(
-                self._painted_guide_x, self._painted_guide_y, None, None,
-            ):
-                self.update(rect)
+        """Remove guides when a drag ends or precise movement starts."""
+        for rect in self._guide_update_rects(self._painted_guide_lines, ()):
+            self.update(rect)
+        self._snap_locks.clear()
         self.guide_x = None
         self.guide_y = None
-        self._painted_guide_x = None
-        self._painted_guide_y = None
+        self._guide_bounds = QRectF()
+        self._painted_guide_lines = ()
 
     def begin_item_interaction(
         self, item: SourceItem, include_selection: bool = False,
     ) -> None:
         """Cache stable snap targets and defer model notifications during a gesture."""
         candidates = (
-            [entry for entry in self.selectedItems()
-             if isinstance(entry, SourceItem) and not entry.source.locked]
+            self.multi_selection_items()
             if include_selection and item.isSelected() else [item]
         )
         if item not in candidates:
             candidates.append(item)
         self._interactive_items = set(candidates)
         self._interactive_anchor = item
-        self._interactive_snap_delta = QPointF()
+        self.clear_alignment_guides()
+        self._interactive_positions = {entry: QPointF(entry.pos()) for entry in candidates}
+        self._interactive_bounds = item.mapRectToScene(item.content_rect())
+        for entry in candidates:
+            self._interactive_bounds = self._interactive_bounds.united(
+                entry.mapRectToScene(entry.content_rect())
+            )
         for entry in self._interactive_items:
             entry._begin_user_interaction()
         self._snap_candidates_x, self._snap_candidates_y = self._build_alignment_candidates(
@@ -325,10 +372,13 @@ class CanvasScene(QGraphicsScene):
         items = list(self._interactive_items)
         self._interactive_items.clear()
         self._interactive_anchor = None
-        self._interactive_snap_delta = QPointF()
+        self._interactive_positions.clear()
+        self._interactive_bounds = QRectF()
         self._snap_candidates_x = None
         self._snap_candidates_y = None
         self.clear_alignment_guides()
+        self._snap_bounds_x.clear()
+        self._snap_bounds_y.clear()
         for item in items:
             item._commit_user_interaction()
 
@@ -353,33 +403,30 @@ class CanvasScene(QGraphicsScene):
             self.artboard_rect.top(), self.artboard_rect.center().y(),
             self.artboard_rect.bottom(),
         ]
+        self._snap_bounds_x = {}
+        self._snap_bounds_y = {}
         for other in self.items():
             if (not isinstance(other, SourceItem) or other in excluded
                     or not other.isVisible()):
                 continue
             # Snap to content edges, independently of paint effects/handles.
             bounds = other.mapRectToScene(other.content_rect())
-            candidates_x.extend((bounds.left(), bounds.center().x(), bounds.right()))
-            candidates_y.extend((bounds.top(), bounds.center().y(), bounds.bottom()))
-        return candidates_x, candidates_y
+            for x in (bounds.left(), bounds.center().x(), bounds.right()):
+                candidates_x.append(x)
+                self._snap_bounds_x.setdefault(x, []).append(bounds)
+            for y in (bounds.top(), bounds.center().y(), bounds.bottom()):
+                candidates_y.append(y)
+                self._snap_bounds_y.setdefault(y, []).append(bounds)
+        return sorted(set(candidates_x)), sorted(set(candidates_y))
 
     def _guide_update_rects(
-        self, old_x: float | None, old_y: float | None,
-        new_x: float | None, new_y: float | None,
+        self, old_lines: tuple[QLineF, ...], new_lines: tuple[QLineF, ...],
     ) -> list[QRectF]:
-        margin = 4.0
-        rects: list[QRectF] = []
-        for x in {old_x, new_x} - {None}:
-            rects.append(QRectF(
-                float(x) - margin, self.artboard_rect.top(), margin * 2,
-                self.artboard_rect.height(),
-            ))
-        for y in {old_y, new_y} - {None}:
-            rects.append(QRectF(
-                self.artboard_rect.left(), float(y) - margin,
-                self.artboard_rect.width(), margin * 2,
-            ))
-        return rects
+        margin = 4.0 / self._snap_zoom()
+        return [
+            QRectF(line.p1(), line.p2()).normalized().adjusted(-margin, -margin, margin, margin)
+            for line in (*old_lines, *new_lines)
+        ]
 
     def set_artboard_size(self, width: float, height: float) -> None:
         """Apply a saved artboard size and retain a generous editing workspace."""
@@ -1132,6 +1179,10 @@ class LiveCanvas(QGraphicsView):
     def keyPressEvent(self, event: object) -> None:
         """Space+drag hand-tool panning and arrow-key nudging of the selection."""
         key = event.key()  # type: ignore[union-attr]
+        if key == Qt.Key.Key_Alt:
+            self.scene_model.clear_alignment_guides()
+            event.accept()  # type: ignore[union-attr]
+            return
         if key == Qt.Key.Key_Space:
             self._space_panning = True
             if not self._panning:
@@ -1156,6 +1207,10 @@ class LiveCanvas(QGraphicsView):
         super().keyPressEvent(event)  # type: ignore[arg-type]
 
     def keyReleaseEvent(self, event: object) -> None:
+        if event.key() == Qt.Key.Key_Alt:  # type: ignore[union-attr]
+            self.scene_model.clear_alignment_guides()
+            event.accept()  # type: ignore[union-attr]
+            return
         if event.key() == Qt.Key.Key_Space:  # type: ignore[union-attr]
             self._space_panning = False
             if not self._panning:
@@ -1163,7 +1218,6 @@ class LiveCanvas(QGraphicsView):
             event.accept()  # type: ignore[union-attr]
             return
         super().keyReleaseEvent(event)  # type: ignore[arg-type]
-        self.scene_model.clear_alignment_guides()
 
     def fit_artboard(self) -> None:
         """Fit the complete artboard into the view."""

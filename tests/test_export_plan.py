@@ -64,6 +64,37 @@ class ExportPlanTests(unittest.TestCase):
         self.assertEqual(renderer.checked, [])
         self.assertIn("base", plan.stream_timeline_samples)
 
+    def test_piped_canvas_separates_static_background_from_small_dynamic_layer(self) -> None:
+        sources = [
+            Source(SourceType.SHAPE, "Background", width=1280, height=720, z_index=0),
+            Source(SourceType.PROGRESS_BAR, "Progress", x=20, y=680, width=1240, height=12, z_index=1),
+        ]
+        scene = self._scene(*sources)
+        for piped in (True, False):
+            with self.subTest(piped=piped), patch(
+                "app.preview.export_plan.piped_export_supported", return_value=piped,
+            ):
+                plan = self._plan(scene, sources, _RendererStub())
+            self.assertEqual(len(plan.z_bands), 2 if piped else 1)
+            self.assertEqual(plan.direct_final_stream, not piped)
+            if piped:
+                self.assertEqual(CanvasSnapshot.invariant_stream_keys(
+                    scene, set(), plan.z_bands, 3.0,
+                ), {"base"})
+                rect = CanvasSnapshot.band_capture_envelope(scene, *plan.z_bands[1])
+                self.assertIsNotNone(rect)
+                self.assertLess(rect.width() * rect.height(), 1280 * 720 * 0.1)
+
+    def test_large_dynamic_foreground_keeps_the_direct_stream(self) -> None:
+        sources = [
+            Source(SourceType.SHAPE, "Background", width=1280, height=720, z_index=0),
+            Source(SourceType.PROGRESS_BAR, "Progress", width=1280, height=600, z_index=1),
+        ]
+        with patch("app.preview.export_plan.piped_export_supported", return_value=True):
+            plan = self._plan(self._scene(*sources), sources, _RendererStub())
+        self.assertTrue(plan.direct_final_stream)
+        self.assertEqual(plan.z_bands, [(None, None)])
+
     def test_missing_lossless_encoder_falls_back_to_png_staging(self) -> None:
         title = Source(SourceType.TEXT, "Title", text="Playlist", z_index=1.0)
         visualizer = Source(SourceType.AUDIO_VISUALIZER, "Bars", z_index=2.0)

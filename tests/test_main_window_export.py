@@ -1318,9 +1318,10 @@ class MainWindowExportTests(MainWindowTestCase):
                   return_value=QDialog.DialogCode.Accepted),
             patch.object(CanvasSnapshot, "z_bands", return_value=[(None, None)]),
             patch.object(CanvasSnapshot, "invariant_stream_keys", return_value=set()),
+            patch.object(CanvasSnapshot, "split_mixed_capture_bands", return_value=[(None, None)]),
             patch(
-                "app.preview.export_canvas_capture.ExportCanvasCapturer.coalesce_samples",
-                lambda _self, samples, _key: list(samples),
+                "app.preview.export_canvas_capture.ExportCanvasCapturer.iter_coalesced_samples",
+                lambda _self, samples, _key, _wait=None: iter(samples),
             ),
             patch.object(CanvasSnapshot, "capture_track", side_effect=capture),
             patch.object(self.window, "_export_visualizers", return_value=[]),

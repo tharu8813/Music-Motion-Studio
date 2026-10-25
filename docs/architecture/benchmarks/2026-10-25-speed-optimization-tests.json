@@ -1,0 +1,217 @@
+{
+  "modules": 26,
+  "tests": 530,
+  "skipped": 6,
+  "all_latest_results_passed": true,
+  "note": "Most recent passing run per module after repairing the cache cancellation regression and the single-pipe export test fixture.",
+  "results": [
+    {
+      "module": "tests.test_architecture",
+      "status": "pass",
+      "seconds": 2.09,
+      "returncode": 0,
+      "tests": 3,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_autosave_service",
+      "status": "pass",
+      "seconds": 1.69,
+      "returncode": 0,
+      "tests": 6,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_export_audio_staging",
+      "status": "pass",
+      "seconds": 5.38,
+      "returncode": 0,
+      "tests": 2,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_export_frame_equivalence",
+      "status": "pass",
+      "seconds": 2.15,
+      "returncode": 0,
+      "tests": 14,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_export_plan",
+      "status": "pass",
+      "seconds": 2.06,
+      "returncode": 0,
+      "tests": 6,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_export_session",
+      "status": "pass",
+      "seconds": 3.41,
+      "returncode": 0,
+      "tests": 13,
+      "skipped": 6
+    },
+    {
+      "module": "tests.test_export_storage_service",
+      "status": "pass",
+      "seconds": 0.44,
+      "returncode": 0,
+      "tests": 2,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_export_timeline",
+      "status": "pass",
+      "seconds": 0.69,
+      "returncode": 0,
+      "tests": 15,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_export_validation_service",
+      "status": "pass",
+      "seconds": 0.64,
+      "returncode": 0,
+      "tests": 3,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_functional_regressions",
+      "status": "pass",
+      "seconds": 5.16,
+      "returncode": 0,
+      "tests": 113,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_lyrics_intro",
+      "status": "pass",
+      "seconds": 2.09,
+      "returncode": 0,
+      "tests": 8,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_lyrics_karaoke",
+      "status": "pass",
+      "seconds": 7.92,
+      "returncode": 0,
+      "tests": 14,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_main_window_export",
+      "status": "pass",
+      "seconds": 59.5,
+      "returncode": 0,
+      "tests": 55,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_main_window_preview",
+      "status": "pass",
+      "seconds": 91.46,
+      "returncode": 0,
+      "tests": 78,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_main_window_project",
+      "status": "pass",
+      "seconds": 71.53,
+      "returncode": 0,
+      "tests": 61,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_mix_visual_transitions",
+      "status": "pass",
+      "seconds": 2.25,
+      "returncode": 0,
+      "tests": 9,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_project_models",
+      "status": "pass",
+      "seconds": 0.65,
+      "returncode": 0,
+      "tests": 23,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_project_persistence_service",
+      "status": "pass",
+      "seconds": 0.44,
+      "returncode": 0,
+      "tests": 3,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_project_service",
+      "status": "pass",
+      "seconds": 2.13,
+      "returncode": 0,
+      "tests": 17,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_release_contract",
+      "status": "pass",
+      "seconds": 0.35,
+      "returncode": 0,
+      "tests": 13,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_speed_optimizations",
+      "status": "pass",
+      "seconds": 2.88,
+      "returncode": 0,
+      "tests": 10,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_subtitle_export",
+      "status": "pass",
+      "seconds": 7.21,
+      "returncode": 0,
+      "tests": 14,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_text_music_reaction",
+      "status": "pass",
+      "seconds": 3.04,
+      "returncode": 0,
+      "tests": 8,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_ui_responsiveness",
+      "status": "pass",
+      "seconds": 14.15,
+      "returncode": 0,
+      "tests": 10,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_visualizer_streaming",
+      "status": "pass",
+      "seconds": 3.02,
+      "returncode": 0,
+      "tests": 6,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_audit_regressions",
+      "status": "pass",
+      "seconds": 17.0,
+      "returncode": 0,
+      "tests": 24,
+      "skipped": 0
+    }
+  ]
+}

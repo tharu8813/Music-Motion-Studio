@@ -27,7 +27,9 @@ class SubtitleExportService:
     """Resolve lyric boundaries against source trims, tempo changes, and audio overlaps."""
 
     @staticmethod
-    def cues(tracks: Iterable[PlaylistTrack], plan: CompiledRenderPlan) -> list[SubtitleCue]:
+    def cues(tracks: Iterable[PlaylistTrack], plan: CompiledRenderPlan, *, timing_offset: float = 0.0) -> list[SubtitleCue]:
+        if not isfinite(timing_offset):
+            raise LyricsError("Subtitle timing offset must be finite.")
         track_by_id = {track.id: track for track in tracks if track.enabled}
         # Each clip owns at most one current lyric. Newer lyrics take precedence
         # within a track, while different clips remain visible together.
@@ -37,10 +39,14 @@ class SubtitleExportService:
             track = track_by_id.get(clip.track_id)
             if track is None:
                 continue
-            offset = float(track.lyrics_timing_offset_seconds)
-            for cue_index, cue in enumerate(sorted(track.lyrics, key=lambda item: float(item.get("start", 0)))):
+            offset = float(track.lyrics_timing_offset_seconds) + timing_offset
+            ordered_cues = sorted(track.lyrics, key=lambda item: (float(item.get("start", 0)), float(item.get("end", 0))))
+            for cue_index, cue in enumerate(ordered_cues):
                 source_start = float(cue.get("start", 0)) - offset
                 source_end = float(cue.get("end", float(cue.get("start", 0)) + 8)) - offset
+                if cue_index + 1 < len(ordered_cues):
+                    # A superseded cue never returns after the newer cue ends, matching Preview.
+                    source_end = min(source_end, float(ordered_cues[cue_index + 1].get("start", 0)) - offset)
                 text = "\n".join(
                     line.strip() for line in LyricsService.decode_line_breaks(cue.get("text", "")).splitlines()
                     if line.strip()
@@ -118,12 +124,13 @@ class SubtitleExportService:
     def export(
         self, tracks: Iterable[PlaylistTrack], output_path: str | Path,
         compiled_plan: CompiledRenderPlan | None = None, *, title: str = "", artist: str = "",
+        timing_offset: float = 0.0,
     ) -> Path:
         selected = [track for track in tracks if track.enabled]
         target = Path(output_path).expanduser().resolve()
         if target.suffix.lower().lstrip(".") not in SUBTITLE_FORMATS:
             raise LyricsError("Choose an LRC or SRT subtitle file.")
-        cues = self.cues(selected, compiled_plan or compile_playlist(selected, enabled_only=True))
+        cues = self.cues(selected, compiled_plan or compile_playlist(selected, enabled_only=True), timing_offset=timing_offset)
         if not cues:
             raise LyricsError("No timed lyrics were found in the selected audio timeline.")
         content = self.format_srt(cues) if target.suffix.lower() == ".srt" else self.format_lrc(cues, title=title, artist=artist)

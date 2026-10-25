@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 import hashlib
 import json
 from pathlib import Path
 import re
+import subprocess
 import threading
+from uuid import uuid4
 from typing import Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from app import __version__
+from app.services.maintenance_service import installation_root
 
 
 REPOSITORY_URL = "https://github.com/tharu8813/Playlist-Canvas"
@@ -71,16 +75,27 @@ def is_newer_version(candidate: str, current: str = __version__) -> bool:
 
 
 def automatic_setup_arguments(installer: Path, recovery_path: Path, parent_pid: int, *, korean: bool) -> list[str]:
-    """Run the per-user Setup unattended, then resume this exact workspace."""
+    """Update the running installation, then resume this exact workspace."""
+    root = installation_root()
     return [
         "/SP-", "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART",
         "/NOCLOSEAPPLICATIONS", "/NORESTARTAPPLICATIONS",
         "/AUTOMATICUPDATE=1", f"/UPDATEPID={parent_pid}",
         f"/UPDATERECOVERY={recovery_path.resolve()}",
-        r"/DIR=expand:{localappdata}\Programs\Playlist Canvas",
+        f"/UPDATEREADY={recovery_path.resolve().with_name(uuid4().hex + '.update-ready')}",
+        *([f"/DIR={root}"] if root is not None else []),
         "/LANG=korean" if korean else "/LANG=english",
         f"/LOG={installer.with_suffix('.install.log').resolve()}",
     ]
+
+
+def launch_setup(installer: Path, arguments: list[str]) -> bool:
+    """Let Setup elevate itself, preserving its original user's unelevated token."""
+    try:
+        os.startfile(str(installer), "open", subprocess.list2cmdline(arguments))
+    except OSError:
+        return False
+    return True
 
 
 class GitHubUpdateService:

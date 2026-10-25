@@ -36,10 +36,11 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFontDatabase, QImage, QImageReader, QImageWriter
-from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog, QStyle, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox, QProgressDialog, QStyle, QSystemTrayIcon
 
 from app.automix.settings import automix_settings_for
 from app.models.source import Source, SourceType
+from app.timeline.render_plan import visual_segments
 from app.preview.album_art import (
     adjust_personal_color, extract_track_cover, extract_track_personal_color,
 )
@@ -1173,7 +1174,7 @@ class ExportOrchestrator:
                 else None
             )
 
-            def make_session(session_plan) -> ExportSession:
+            def make_session(session_plan, bass_envelopes=None) -> ExportSession:
                 return ExportSession(
                     scene=window.canvas.scene_model,
                     renderer=renderer,
@@ -1201,6 +1202,7 @@ class ExportOrchestrator:
                     ),
                     report_progress=self.report_preparation_progress,
                     pump_ui=QApplication.processEvents,
+                    bass_envelopes=bass_envelopes,
                 )
 
             export_session = make_session(plan)
@@ -1244,7 +1246,7 @@ class ExportOrchestrator:
                     if plan.use_streamed_visuals and self.frames.staging is not None
                     else None
                 )
-                export_session = make_session(plan)
+                export_session = make_session(plan, export_session.bass_envelopes)
                 window._active_export_session = export_session
             artifacts = export_session.run()
             frames = artifacts.frames
@@ -1338,6 +1340,21 @@ class ExportOrchestrator:
             )
             return
         plan = None
+        lyric_sources = [source for source in window.store.sources()
+                         if source.visible and source.source_type is SourceType.LYRICS]
+        selected_source = window.store.selected
+        timing_source = selected_source if selected_source in lyric_sources else next(iter(lyric_sources), None)
+        if len(lyric_sources) > 1:
+            labels = [f"{index + 1}. {source.name} ({source.subtitle_timing_offset:+.2f}s)"
+                      for index, source in enumerate(lyric_sources)]
+            choice, accepted = QInputDialog.getItem(
+                window, "자막 시간 기준" if korean else "Subtitle timing source",
+                "시간 보정을 사용할 가사 요소" if korean else "Lyrics element whose timing offset to use",
+                labels, lyric_sources.index(timing_source), False,
+            )
+            if not accepted:
+                return
+            timing_source = lyric_sources[labels.index(choice)]
         cancel = threading.Event()
         progress = None
         try:
@@ -1367,6 +1384,7 @@ class ExportOrchestrator:
             path = SubtitleExportService().export(
                 tracks, output, plan, title=window.project_settings.title,
                 artist=window.project_settings.author,
+                timing_offset=timing_source.subtitle_timing_offset if timing_source else 0.0,
             )
         except RenderCancelledError:
             window.statusBar().showMessage("자막 내보내기를 취소했습니다." if korean else "Subtitle export cancelled.", 5000)
@@ -1899,6 +1917,13 @@ class ExportOrchestrator:
         for source in window.store.sources():
             if source.source_type is not SourceType.VIDEO or not source.visible:
                 continue
+            if (source.animation_in not in {"none", "fade"}
+                    or source.animation_out not in {"none", "fade"} or source.loop_motion != "none"):
+                raise RenderError(
+                    f"영상 요소 '{source.name}'는 없음·페이드 효과만 내보낼 수 있습니다. 속성에서 등장·퇴장 효과를 바꾸고 반복 모션을 꺼 주세요."
+                    if window.translator.is_korean else
+                    f"Video element '{source.name}' supports None and Fade for export. Choose these entrance/exit effects and turn off loop motion in Properties."
+                )
             raw_schedules: list[tuple[list[str], float, float]] = []
             if source.video_timing_mode == "track":
                 raw_schedules.extend(
@@ -1959,6 +1984,17 @@ class ExportOrchestrator:
                 duration_cache[path] = probed_duration
 
         for source, schedules in planned_sources:
+            if source.timeline_start > 0 or source.timeline_duration > 0:
+                animation_windows = ((source.timeline_start,
+                    source.timeline_start + source.timeline_duration if source.timeline_duration > 0 else playlist_duration,
+                    source.animation_in_duration, source.animation_out_duration if source.timeline_duration > 0 else 0.0),)
+            else:
+                animation_windows = tuple(
+                    (segment.start, segment.end,
+                     segment.mix_in_seconds if source.animation_fit_mix and segment.mix_in_seconds > 0 else source.animation_in_duration,
+                     segment.mix_out_seconds if source.animation_fit_mix and segment.mix_out_seconds > 0 else source.animation_out_duration)
+                    for segment in visual_segments(plan)
+                )
             for paths, start, available in schedules:
                 durations = {path: duration_cache[path] for path in paths}
                 for occurrence in build_video_occurrences(
@@ -1992,6 +2028,9 @@ class ExportOrchestrator:
                         blur=source.blur * render_scale,
                         speed=source.video_speed,
                         loop_input=occurrence.loop_media,
+                        animation_in=source.animation_in,
+                        animation_out=source.animation_out,
+                        animation_windows=animation_windows,
                     ))
         return sorted(clips, key=lambda clip: (clip.z_index, clip.timeline_start))
 

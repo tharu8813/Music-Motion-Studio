@@ -98,6 +98,10 @@ class HistoryController:
             if active_source_id not in valid_ids:
                 active_source_id = valid_ids[-1] if valid_ids else None
             window.store.select_many(valid_ids, active_source_id)
+            window._project_change_serial += 1
+            window._project_dirty = True
+            window._autosave_debounce_timer.start()
+            window._update_project_status()
         except Exception as error:
             LOGGER.exception("Undo/redo restore failed")
             report_unexpected_error("Undo/redo restore", error)

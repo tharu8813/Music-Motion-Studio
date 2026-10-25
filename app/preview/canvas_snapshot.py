@@ -481,7 +481,7 @@ class CanvasSnapshot:
         if (source.animation_in != "none" or source.animation_out != "none"
                 or source.loop_motion != "none" or source.uses_bass_reaction):
             return False
-        if source.personal_color_enabled:
+        if source.uses_personal_color:
             return False
         if source.timeline_start > 0.0:
             return False
@@ -727,6 +727,7 @@ class CanvasSnapshot:
         original_personal_colors: list[
             tuple[SourceItem, dict[str, str], tuple[str, str] | None]
         ] = []
+        original_shadow_colors: list[tuple[SourceItem, str]] = []
         # Removed sources are deliberately retained as hidden Qt items for safe Undo.
         # They must never participate in preview/export captures after a preset swap.
         source_items = [
@@ -750,7 +751,7 @@ class CanvasSnapshot:
                 (item.source.source_type is SourceType.ALBUM_COVER and not item.source.content_path)
                 or (item.source.source_type is SourceType.BACKGROUND
                     and item.source.background_mode == "album_art")
-                or item.source.personal_color_enabled
+                or item.source.uses_personal_color
             )
             for item in source_items
         )
@@ -760,7 +761,7 @@ class CanvasSnapshot:
         )
         personal_color = (
             extract_track_personal_color(track.file_path, track.cover_path)
-            if any(item.source.personal_color_enabled for item in source_items)
+            if any(item.source.uses_personal_color for item in source_items)
             else QColor()
         )
         for graphics_item in source_items:
@@ -1129,7 +1130,7 @@ class CanvasSnapshot:
                     )
                 graphics_item.update()
             if source.personal_color_enabled and personal_color.isValid():
-                fields = CanvasSnapshot._personal_color_fields(source)
+                fields = source.personal_color_fields
                 original = {field: str(getattr(source, field)) for field in fields}
                 gradient_original = (
                     (source.gradient.start_color, source.gradient.end_color)
@@ -1162,6 +1163,17 @@ class CanvasSnapshot:
                 original_personal_colors.append((
                     graphics_item, original, gradient_original,
                 ))
+                graphics_item.update()
+            shadow = source.shadow
+            if shadow.enabled and shadow.personal_color_enabled and personal_color.isValid():
+                original_shadow_colors.append((graphics_item, shadow.color))
+                shadow.color = adjust_personal_color(
+                    personal_color, shadow.color,
+                    brightness=shadow.personal_color_brightness,
+                    saturation=shadow.personal_color_saturation,
+                    hue_shift=shadow.personal_color_hue_shift,
+                    strength=shadow.personal_color_strength,
+                )
                 graphics_item.update()
             window_phase, window_progress = resolve_timeline_window_phase(
                 source, global_seconds,
@@ -1262,6 +1274,9 @@ class CanvasSnapshot:
                 render_metrics["capture_rect"] = effective_capture_rect
             return captured
         finally:
+            for graphics_item, color in original_shadow_colors:
+                graphics_item.source.shadow.color = color
+                graphics_item.update()
             for graphics_item, level, current_line in original_music_levels:
                 graphics_item._music_reaction_level = level
                 graphics_item._music_preview_current_line = current_line
@@ -1333,21 +1348,3 @@ class CanvasSnapshot:
                 graphics_item.setOpacity(opacity)
                 graphics_item.setTransform(transform)
                 graphics_item._suppress_position_sync = False
-
-    @staticmethod
-    def _personal_color_fields(source: Source) -> tuple[str, ...]:
-        """Return the meaningful primary color channels for one source type."""
-        if source.source_type in {SourceType.TEXT, SourceType.TIME, SourceType.LYRICS}:
-            return ("outline_color",)
-        if source.source_type is SourceType.TRACK_LIST:
-            # Keep the row background independent so the artwork color never
-            # makes highlighted text disappear against an identical fill.
-            return ("track_list_current_color",)
-        if source.source_type is SourceType.AUDIO_LEVEL_METER:
-            return (
-                "level_meter_low_color", "level_meter_mid_color",
-                "level_meter_high_color",
-            )
-        if source.source_type is SourceType.PARTICLE_OVERLAY:
-            return ("fill_color", "particle_secondary_color")
-        return ("fill_color",)

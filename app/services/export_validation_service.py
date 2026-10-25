@@ -115,7 +115,7 @@ def validate_export_output(
             str(stream.get("pix_fmt") or ""), tuple(warnings),
             "" if completed.returncode == 0 else (completed.stderr or "FFprobe failed").strip(),
         )
-    except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+    except (OSError, ValueError, TypeError, json.JSONDecodeError, subprocess.TimeoutExpired) as error:
         return ExportValidationResult(False, error=f"FFprobe failed: {error}")
 
 

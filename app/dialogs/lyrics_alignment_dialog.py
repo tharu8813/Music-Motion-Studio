@@ -337,7 +337,11 @@ class LyricsAlignmentDialog(QDialog):
             f"Matched {self._analysis_result.matched} of {self._analysis_result.total} lines. Nothing applied yet.\n"
             "Select a row to inspect word times and listen. Only checked results will be used; Cancel discards them. "
             "Applying also sets colors and enables karaoke display."))
-        if not self._analysis_result.matched:
+        if self.error:
+            self.label.setText(self._tr(
+                f"분석에 실패했습니다: {self.error}\n기존 줄 시간으로 적용하거나, 문제를 해결한 뒤 다시 분석할 수 있습니다.",
+                f"Analysis failed: {self.error}\nApply existing cue times, or resolve the error and analyze again."))
+        elif not self._analysis_result.matched:
             self.label.setText(self._tr(
                 "인식 결과가 없어 기존 줄 시간으로 표시합니다. 바로 적용하거나 다시 분석할 수 있습니다.\n"
                 "구간 듣기로 줄 시간이 맞는지 확인하세요.",

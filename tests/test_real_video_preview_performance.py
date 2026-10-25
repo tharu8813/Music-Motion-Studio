@@ -190,6 +190,16 @@ class RealVideoPreviewPerformanceTests(unittest.TestCase):
                         preview._stop_preview()
                         preview.deleteLater()
                         QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+            # Qt can release its decoder handle after DeferredDelete has completed.
+            deadline = monotonic() + 2
+            while True:
+                try:
+                    audio.unlink()
+                    break
+                except PermissionError:
+                    if monotonic() >= deadline:
+                        raise
+                    QTest.qWait(20)
 
     def _create_preview(
         self, directory: Path, *, timeline_seconds: float, backend: str,

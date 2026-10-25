@@ -8,6 +8,7 @@ import logging
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass
+from functools import partial
 from heapq import heappop, heappush
 from pathlib import Path
 from time import monotonic
@@ -20,7 +21,7 @@ from app.models.source import SourceType
 from app.services.lyrics_intro_service import request_instrumental_analysis
 from app.preview.export_canvas_capture import ExportCanvasCapturer
 from app.preview.export_plan import ExportPlan
-from app.renderer.export_timeline import ExportFrameSample
+from app.renderer.export_timeline import ExportFrameSample, ExportFrameSchedule
 from app.renderer.python_visualizer import PythonVisualizerRenderer
 from app.renderer.canvas_pipe import (
     CanvasPipeCancelledError,
@@ -104,6 +105,7 @@ class ExportSession:
         layer_worker_count: Callable[[int], int],
         report_progress: Callable[[float, str], None],
         pump_ui: Callable[[], None],
+        bass_envelopes: dict[object, object] | None = None,
     ) -> None:
         self._scene = scene
         self._renderer = renderer
@@ -121,7 +123,8 @@ class ExportSession:
         self._active_encoders: dict[str, StaticVideoStreamEncoder] = {}
         self._sparse_stream_frames: dict[str, list[RenderFrame]] = {}
         self._capture_count = 0
-        self._total_captures = 1
+        self._captured_seconds: dict[str, float] = {}
+        self._stream_timeline_samples = dict(plan.stream_timeline_samples)
         self._invariant_stream_keys: set[str] = set()
         self._sparse_invariant_stream_keys: set[str] = set()
         self._stream_wait_last_update: dict[str, float] = {}
@@ -131,11 +134,16 @@ class ExportSession:
         self._live_encoder_reached = False
         self._encoder_reached_at: float | None = None
         self._final_render_stopped: Callable[[], str | None] = lambda: None
-        self._bass_envelopes: dict[object, object] | None = None
+        self._bass_envelopes = bass_envelopes
 
     @property
     def capture_count(self) -> int:
         return self._capture_count
+
+    @property
+    def bass_envelopes(self) -> dict[object, object] | None:
+        """Completed music analysis, safe to reuse when this export falls back."""
+        return self._bass_envelopes
 
     @property
     def live_encoder_reached(self) -> bool:
@@ -177,15 +185,10 @@ class ExportSession:
         plan = self._plan
         self._piped = piped
         z_bands = plan.z_bands
-        stream_timeline_samples = plan.stream_timeline_samples
+        stream_timeline_samples = self._stream_timeline_samples
         playlist_duration = plan.playlist_duration
 
         stream_specs = [] if piped else self._build_stream_specs()
-        independent_capture_count = sum(
-            len(samples) for samples in stream_timeline_samples.values()
-        )
-        self._total_captures = max(1, independent_capture_count)
-
         # Finish vocal detection before coalescing: every export frame sees one
         # immutable analysis result, even if the live preview was still analyzing.
         scene_items = getattr(self._scene, "items", lambda: ())
@@ -208,11 +211,7 @@ class ExportSession:
             playlist_duration,
             plan.dynamic_visualizer_ids,
             z_bands,
-            (
-                self._stage_frame
-                if plan.use_streamed_visuals or piped
-                else self._staging.stage_frame
-            ),
+            self._stage_frame,
             self._ensure_not_cancelled,
             self._after_capture,
             retain_static_frames=not (plan.use_streamed_visuals or piped),
@@ -241,37 +240,14 @@ class ExportSession:
         stream_keys = [
             "base", *(f"layer:{index}" for index in range(len(z_bands) - 1)),
         ]
-        state_key_skipped_captures = 0
+        self._captured_seconds = dict.fromkeys(stream_keys, 0.0)
         for stream_key in stream_keys:
-            if stream_key in self._invariant_stream_keys:
-                continue
-            original_samples = stream_timeline_samples[stream_key]
-            coalesced_samples = capturer.coalesce_samples(
-                original_samples, stream_key,
-            )
-            state_key_skipped_captures += (
-                len(original_samples) - len(coalesced_samples)
-            )
-            stream_timeline_samples[stream_key] = coalesced_samples
-        self._total_captures = max(
-            1,
-            sum(
-                1 if stream_key in self._invariant_stream_keys
-                else len(stream_timeline_samples[stream_key])
-                for stream_key in stream_keys
-            ),
-        )
-        LOGGER.info(
-            "Canvas independent timelines: band_captures=%d "
-            "optimized_captures=%d state_key_skipped=%d per_stream=%s",
-            independent_capture_count,
-            self._total_captures,
-            state_key_skipped_captures,
-            ",".join(
-                f"{key}:{len(stream_timeline_samples[key])}"
-                for key in stream_keys
-            ),
-        )
+            if stream_key not in self._invariant_stream_keys:
+                stream_timeline_samples[stream_key] = ExportFrameSchedule(partial(
+                    capturer.iter_coalesced_samples, stream_timeline_samples[stream_key], stream_key,
+                    self._pipe_wait if piped else self._pump_ui,
+                ))
+        LOGGER.info("Canvas lazy timelines: streams=%s", ",".join(stream_keys))
         return stream_specs, stream_keys
 
     @timed("export.bass_prepare_seconds")
@@ -307,6 +283,7 @@ class ExportSession:
             })
 
         envelopes = {}
+        analyzed_paths = {}
         with ThreadPoolExecutor(max_workers=1, thread_name_prefix="export-bass") as executor:
             for index, track in enumerate(self._tracks, 1):
                 self._ensure_not_cancelled()
@@ -315,7 +292,13 @@ class ExportSession:
                     if self._korean else
                     f"Preparing music reaction · track {index}/{len(self._tracks)}"
                 ))
-                future = executor.submit(analyze, Path(track.file_path))
+                path = Path(track.file_path).resolve()
+                if path in analyzed_paths:
+                    bass, music = analyzed_paths[path]
+                    envelopes[track.id] = bass
+                    envelopes.update({(track.id, profile): values for profile, values in music.items()})
+                    continue
+                future = executor.submit(analyze, path)
                 try:
                     while not future.done():
                         self._pump_ui()
@@ -328,6 +311,7 @@ class ExportSession:
                 self._ensure_not_cancelled()
                 try:
                     bass, music = future.result()
+                    analyzed_paths[path] = (bass, music)
                     envelopes[track.id] = bass
                     envelopes.update({(track.id, profile): values for profile, values in music.items()})
                 except RenderCancelledError:
@@ -346,7 +330,7 @@ class ExportSession:
         plan = self._plan
         settings = self._settings
         playlist_duration = plan.playlist_duration
-        stream_timeline_samples = plan.stream_timeline_samples
+        stream_timeline_samples = self._stream_timeline_samples
         duration_tolerance = 1e-6 * max(1.0, playlist_duration)
         streamed_results: dict[str, object] = {}
 
@@ -360,7 +344,7 @@ class ExportSession:
         for stream_key in stream_keys:
             if stream_key in self._sparse_invariant_stream_keys:
                 self._capturer.capture_invariant_stream(
-                    stream_timeline_samples[stream_key][0],
+                    next(iter(stream_timeline_samples[stream_key])),
                     stream_key,
                     playlist_duration,
                 )
@@ -387,7 +371,7 @@ class ExportSession:
                 for stream_key, _path, _alpha, _capacity in batch:
                     if stream_key in self._invariant_stream_keys:
                         self._capturer.capture_invariant_stream(
-                            stream_timeline_samples[stream_key][0],
+                            next(iter(stream_timeline_samples[stream_key])),
                             stream_key,
                             playlist_duration,
                         )
@@ -395,11 +379,11 @@ class ExportSession:
                     tuple[float, int, int, str, ExportFrameSample]
                 ] = []
                 batch_keys = [item[0] for item in batch]
+                iterators = {key: iter(stream_timeline_samples[key]) for key in batch_keys}
                 for stream_order, stream_key in enumerate(batch_keys):
                     if stream_key in self._invariant_stream_keys:
                         continue
-                    samples = stream_timeline_samples[stream_key]
-                    first = samples[0]
+                    first = next(iterators[stream_key])
                     heappush(pending_samples, (
                         first.timeline_seconds, stream_order, 0, stream_key, first,
                     ))
@@ -410,9 +394,8 @@ class ExportSession:
                     ) = heappop(pending_samples)
                     self._capturer.capture_stream(sample, stream_key)
                     next_index = sample_index + 1
-                    samples = stream_timeline_samples[stream_key]
-                    if next_index < len(samples):
-                        next_sample = samples[next_index]
+                    next_sample = next(iterators[stream_key], None)
+                    if next_sample is not None:
                         heappush(pending_samples, (
                             next_sample.timeline_seconds, stream_order,
                             next_index, stream_key, next_sample,
@@ -543,7 +526,7 @@ class ExportSession:
             if self._sparse_invariant_stream_keys:
                 self._staging.cancel_pipeline()
             return None
-        samples_by_stream = plan.stream_timeline_samples
+        samples_by_stream = self._stream_timeline_samples
         playlist_duration = plan.playlist_duration
         pipe_root = self._stream_root / "pipes"
         try:
@@ -564,7 +547,7 @@ class ExportSession:
             for stream_key in stream_keys:
                 if stream_key in self._sparse_invariant_stream_keys:
                     self._capturer.capture_invariant_stream(
-                        samples_by_stream[stream_key][0],
+                        next(iter(samples_by_stream[stream_key])),
                         stream_key,
                         playlist_duration,
                     )
@@ -574,13 +557,13 @@ class ExportSession:
             # One frame per pipe fixes every input's resolution before FFmpeg
             # starts; each fits in its queue, so nothing can block yet.
             pending: list[tuple[float, int, int, str, ExportFrameSample]] = []
+            iterators = {key: iter(samples_by_stream[key]) for key in piped_keys}
             for stream_order, stream_key in enumerate(piped_keys):
-                samples = samples_by_stream[stream_key]
-                self._capturer.capture_stream(samples[0], stream_key)
-                if len(samples) > 1:
+                self._capturer.capture_stream(next(iterators[stream_key]), stream_key)
+                second = next(iterators[stream_key], None)
+                if second is not None:
                     heappush(pending, (
-                        samples[1].timeline_seconds, stream_order, 1,
-                        stream_key, samples[1],
+                        second.timeline_seconds, stream_order, 1, stream_key, second,
                     ))
             artifacts = self._piped_artifacts()
             start_final_render(artifacts)
@@ -590,10 +573,9 @@ class ExportSession:
                     stream_key, sample,
                 ) = heappop(pending)
                 self._capturer.capture_stream(sample, stream_key)
-                samples = samples_by_stream[stream_key]
                 next_index = sample_index + 1
-                if next_index < len(samples):
-                    next_sample = samples[next_index]
+                next_sample = next(iterators[stream_key], None)
+                if next_sample is not None:
                     heappush(pending, (
                         next_sample.timeline_seconds, stream_order,
                         next_index, stream_key, next_sample,
@@ -724,7 +706,7 @@ class ExportSession:
 
     def _run_png(self, stream_keys: list[str]) -> ExportArtifacts:
         plan = self._plan
-        stream_timeline_samples = plan.stream_timeline_samples
+        stream_timeline_samples = self._stream_timeline_samples
         self._staging.start_pipeline(self._staging.queue_capacity)
         captured_stream_frames: dict[str, list[RenderFrame]] = {}
         for stream_key in stream_keys:
@@ -732,7 +714,7 @@ class ExportSession:
             if stream_key in self._invariant_stream_keys:
                 captured_stream_frames[stream_key] = [
                     self._capturer.capture_invariant_stream(
-                        samples[0], stream_key, plan.playlist_duration,
+                        next(iter(samples)), stream_key, plan.playlist_duration,
                     )
                 ]
             else:
@@ -778,6 +760,9 @@ class ExportSession:
     def _stage_frame(
         self, image: QImage, duration_seconds: float, stream_key: str,
     ) -> RenderFrame:
+        self._captured_seconds[stream_key] = self._captured_seconds.get(stream_key, 0.0) + duration_seconds
+        if not self._plan.use_streamed_visuals and not self._piped:
+            return self._staging.stage_frame(image, duration_seconds, stream_key)
         # Do not expand one invariant Canvas image into every CFR frame through a
         # CPU-only intermediate encoder. Preserve the single lossless image and
         # duration; the final graph applies the output FPS.
@@ -808,6 +793,10 @@ class ExportSession:
             raise RenderError(str(error)) from error
         return RenderFrame(encoder.output_path, max(0.001, duration_seconds))
 
+    def _capture_fraction(self) -> float:
+        duration = self._plan.playlist_duration * max(1, len(self._plan.z_bands))
+        return min(1.0, sum(self._captured_seconds.values()) / max(0.001, duration))
+
     def _after_capture(self, track_number: int, _stream_key: str) -> None:
         """Capturer callback after each staged Canvas state."""
         self._capture_count += 1
@@ -820,10 +809,10 @@ class ExportSession:
             if self._cancel.is_set():
                 raise RenderCancelledError("Export preparation was cancelled.")
             return
-        completed = min(self._capture_count, self._total_captures)
-        if completed % 4 != 0 and completed != self._total_captures:
+        completed = self._capture_count
+        preparation_fraction = self._capture_fraction()
+        if completed % 4 != 0 and preparation_fraction < 1.0:
             return
-        preparation_fraction = completed / self._total_captures
         overall = preparation_fraction * PREPARATION_PROGRESS_WEIGHT
         percent = round(preparation_fraction * 100)
         position = f"{track_number}/{len(self._tracks)}"
@@ -831,22 +820,22 @@ class ExportSession:
             detail = (
                 f"장면을 영상으로 준비하는 중 · {position}번 곡 · "
                 f"전체 {percent}% · 장면 "
-                f"{completed:,}/{self._total_captures:,}"
+                f"{completed:,}"
                 if self._korean else
                 f"Preparing scenes for the video · track {position} · "
                 f"{percent}% overall · "
-                f"{completed:,}/{self._total_captures:,} scenes"
+                f"{completed:,} scenes"
             )
         else:
             pending = self._staging.pending_frames()
             detail = (
                 f"장면을 영상으로 준비하는 중 · {position}번 곡 · "
                 f"전체 {percent}% · 장면 "
-                f"{completed:,}/{self._total_captures:,} · 저장 대기 {pending}개"
+                f"{completed:,} · 저장 대기 {pending}개"
                 if self._korean else
                 f"Preparing scenes for the video · track {position} · "
                 f"{percent}% overall · "
-                f"{completed:,}/{self._total_captures:,} scenes · "
+                f"{completed:,} scenes · "
                 f"{pending} waiting to save"
             )
         self._report_progress(overall, detail)
@@ -869,7 +858,7 @@ class ExportSession:
         expected = max(1, round(self._plan.playlist_duration * self._settings.fps))
         encoded = min(int(getattr(encoder, "frame_count", 0)), expected)
         percent = round(encoded / expected * 100)
-        capture_fraction = min(1.0, self._capture_count / self._total_captures)
+        capture_fraction = self._capture_fraction()
         overall = capture_fraction * PREPARATION_PROGRESS_WEIGHT
         detail = (
             "화면 구성 요소를 영상으로 변환하는 중 · "

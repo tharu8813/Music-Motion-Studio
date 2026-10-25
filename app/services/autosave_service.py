@@ -8,6 +8,8 @@ from hashlib import sha256
 import json
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+import threading
+from uuid import uuid4
 
 from app.models.project import ProjectDocument
 from app.services.project_service import ProjectError
@@ -31,6 +33,9 @@ class AutosaveService:
 
     def __init__(self, directory: Path) -> None:
         self.directory = directory.resolve() / "recoveries"
+        self._session_id = uuid4().hex
+        self.generation = 0
+        self._write_lock = threading.Lock()
 
     def save(self, document: ProjectDocument, project_path: Path | None, *, dirty: bool = True) -> RecoverySnapshot:
         """Atomically store a snapshot without changing the user's project file.
@@ -50,7 +55,7 @@ class AutosaveService:
         document_data: dict[str, object],
         project_path: Path | None,
         saved_at: datetime | None = None,
-        *, dirty: bool = True,
+        *, dirty: bool = True, expected_generation: int | None = None,
     ) -> Path:
         """Atomically write a recovery snapshot from an already-serialized dict.
 
@@ -69,6 +74,7 @@ class AutosaveService:
         }
         temporary_path: Path | None = None
         try:
+            ProjectDocument.from_dict(document_data)
             self.directory.mkdir(parents=True, exist_ok=True)
             with NamedTemporaryFile(
                 mode="w", encoding="utf-8", suffix=".tmp", dir=self.directory,
@@ -77,7 +83,9 @@ class AutosaveService:
                 temporary_path = Path(temporary.name)
                 json.dump(payload, temporary, ensure_ascii=False, indent=2)
                 temporary.flush()
-            temporary_path.replace(target)
+            with self._write_lock:
+                if expected_generation is None or expected_generation == self.generation:
+                    temporary_path.replace(target)
             return target
         except (OSError, TypeError, ValueError) as error:
             raise ProjectError(f"Could not save recovery snapshot: {error}") from error
@@ -106,8 +114,9 @@ class AutosaveService:
         """Discard only the snapshot belonging to the specified workspace."""
         target = self._path_for(project_path)
         try:
-            if target.is_file():
-                target.unlink()
+            with self._write_lock:
+                self.generation += 1
+                target.unlink(missing_ok=True)
         except OSError as error:
             raise ProjectError(f"Could not remove recovery snapshot: {error}") from error
 
@@ -122,7 +131,7 @@ class AutosaveService:
     def _path_for(self, project_path: Path | None) -> Path:
         identity = str(project_path.resolve()) if project_path else "untitled-workspace"
         digest = sha256(identity.encode("utf-8")).hexdigest()[:20]
-        return self.directory / f"{digest}.recovery.json"
+        return self.directory / f"{digest}-{self._session_id}.recovery.json"
 
     @staticmethod
     def load_snapshot(path: Path) -> RecoverySnapshot:

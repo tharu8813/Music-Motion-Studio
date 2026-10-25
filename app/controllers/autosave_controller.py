@@ -18,7 +18,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QMessageBox
 
 from app.services.autosave_worker import AutosaveWorker
-from app.services.project_service import ProjectError
+from app.services.project_service import ProjectError, ProjectLoadCancelled, ProjectService
 
 if TYPE_CHECKING:
     from app.ui.main_window import MainWindow
@@ -83,29 +83,9 @@ class AutosaveController:
         """Offer recovery of the most recently autosaved workspace on startup."""
         window = self.window
         try:
-            snapshot = window.autosave.load_snapshot(snapshot_path) if snapshot_path is not None else None
-            for candidate in (() if snapshot_path is not None else window.autosave.recoveries()):
-                project_path = candidate.project_path
-                if project_path is not None and project_path.is_file():
-                    try:
-                        recovery_is_newer = (
-                            candidate.saved_at.timestamp() > project_path.stat().st_mtime
-                        )
-                    except OSError:
-                        recovery_is_newer = True
-                    if not recovery_is_newer:
-                        # A normal successful save should already remove this file,
-                        # but stale recoveries can remain after antivirus/file-lock
-                        # interference. Never offer one over a newer project file.
-                        try:
-                            window.autosave.clear_snapshot(candidate)
-                        except ProjectError as error:
-                            # A locked stale file should not hide a different,
-                            # genuinely recoverable workspace.
-                            window.statusBar().showMessage(str(error), 5000)
-                        continue
-                snapshot = candidate
-                break
+            # Another editor can save the same file without saving this session's edits.
+            snapshot = (window.autosave.load_snapshot(snapshot_path) if snapshot_path is not None
+                        else window.autosave.latest_recovery())
         except ProjectError as error:
             window.statusBar().showMessage(str(error), 5000)
             return False
@@ -122,6 +102,17 @@ class AutosaveController:
         ) if confirm else QMessageBox.StandardButton.Yes
         if answer == QMessageBox.StandardButton.Yes:
             media_reference = snapshot.project_path or snapshot.path
+            try:
+                ProjectService.restore_recovery_media(
+                    snapshot.document, snapshot.project_path,
+                    window.project_controller._load_document_off_gui_thread,
+                )
+            except ProjectLoadCancelled:
+                return False
+            except ProjectError as error:
+                # Keep the snapshot and let the normal missing-media dialog offer relinking.
+                window.statusBar().showMessage(str(error), 5000)
+            window.project_controller.media_relinked = False
             if not window._resolve_project_media(snapshot.document, media_reference):
                 return False
             window._history_restoring = True
@@ -137,8 +128,15 @@ class AutosaveController:
                 window.history.reset(window._project_document().to_dict())
             finally:
                 window._history_restoring = False
-            window._project_dirty = snapshot.dirty
-            if snapshot.dirty:
+            window._project_dirty = snapshot.dirty or window.project_controller.media_relinked
+            # Own the restored backup so saving this window cannot clear another window's work.
+            try:
+                owned = window.autosave.save(window._project_document(), snapshot.project_path, dirty=window._project_dirty)
+                if owned.path != snapshot.path:
+                    window.autosave.clear_snapshot(snapshot)
+            except ProjectError as error:
+                window.statusBar().showMessage(str(error), 5000)
+            if window._project_dirty:
                 window._autosave_debounce_timer.start()
             window._update_project_status()
             if snapshot.project_path is not None:
