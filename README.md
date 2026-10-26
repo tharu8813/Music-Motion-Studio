@@ -22,7 +22,7 @@
 
 ## 예시 영상
 
-- 가사/자막, 오디오 비쥬얼라이저등의 요소를 활용한 [영상](https://www.youtube.com/watch?v=q3IhKdsTLmM)
+- 가사/자막, 오디오 비쥬얼라이저등의 요소를 활용한 [영상](https://www.youtube.com/watch?v=q3IhKdsTLmM), [영상](https://www.youtube.com/watch?v=0IIgeVMZ3TI)
 - AutoMix을 활용한 [영상](https://www.youtube.com/watch?v=k2-e5Nhj7RY)
 
 ## 어떤 영상을 만들 수 있나요?
