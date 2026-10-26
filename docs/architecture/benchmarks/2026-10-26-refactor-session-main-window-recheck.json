@@ -1,0 +1,10 @@
+[
+  {
+    "module": "tests.test_main_window",
+    "status": "pass",
+    "seconds": 157.87,
+    "returncode": 0,
+    "tests": 86,
+    "skipped": 0
+  }
+]

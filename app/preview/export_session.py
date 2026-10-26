@@ -218,6 +218,7 @@ class ExportSession:
             output_scale=plan.canvas_render_scale,
             bass_envelopes=self._prepare_bass_envelopes(),
             bass_fps=self._settings.fps,
+            output_fps=self._settings.fps if plan.use_streamed_visuals or piped else None,
         )
         self._capturer = capturer
         self._invariant_stream_keys = capturer.invariant_stream_keys
@@ -889,9 +890,10 @@ class ExportSession:
         avoided_percent = avoided / max(1, capturer.full_frame_source_pixels) * 100.0
         LOGGER.info(
             "Canvas partial-region rendering: captures=%d scene_pixels=%d "
-            "full_frame_pixels=%d avoided=%.1f%%",
+            "full_frame_pixels=%d avoided=%.1f%% skipped_cfr_captures=%d",
             capturer.partial_render_capture_count,
             capturer.scene_render_source_pixels,
             capturer.full_frame_source_pixels,
             avoided_percent,
+            capturer.skipped_cfr_captures,
         )

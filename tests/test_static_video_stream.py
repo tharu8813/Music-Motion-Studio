@@ -6,8 +6,9 @@ import subprocess
 from tempfile import TemporaryDirectory
 import threading
 import time
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from PySide6.QtGui import QColor, QImage
 
@@ -75,6 +76,18 @@ class _SlowFlushProcess(_FakeProcess):
 
 
 class StaticVideoStreamEncoderTests(unittest.TestCase):
+    def test_subframe_state_skips_conversion_and_encoder_io(self) -> None:
+        stream = StaticVideoStreamEncoder(Path("ffmpeg"), Path("unused.mkv"), 60)
+        stream._duration_seconds = 0.001
+        stream._frame_count = 1
+        stream._process = Mock()
+        image = Mock()
+        stream._write_frame(SimpleNamespace(image=image, duration_seconds=0.001))
+        image.convertToFormat.assert_not_called()
+        stream._process.stdin.write.assert_not_called()
+        self.assertAlmostEqual(stream._duration_seconds, 0.002)
+        self.assertEqual(stream._frame_count, 1)
+
     def test_finish_pumps_ui_while_ffmpeg_flushes(self) -> None:
         callbacks: list[int] = []
 

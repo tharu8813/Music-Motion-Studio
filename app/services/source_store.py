@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import replace
 
 from PySide6.QtCore import QObject, Signal
 
@@ -208,18 +207,7 @@ class SourceStore(QObject):
         source = self._sources.get(source_id)
         if source is None:
             return
-        component = replace(source_registry.component_for(source), **changes)
-        legacy = {
-            name: value for name, value in component.to_source_changes().items()
-            if value != getattr(source, name)
-        }
-        if not legacy:
-            return
-        validated = source_registry.deserialize(source.to_dict() | legacy)
-        updates = {
-            name: getattr(validated, name) for name in legacy
-            if getattr(validated, name) != getattr(source, name)
-        }
+        updates = source_registry.component_changes(source, **changes)
         if updates:
             self.update(source_id, **updates)
 

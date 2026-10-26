@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import Field, dataclass, field, fields
+from math import isfinite
+from re import fullmatch
 from typing import TYPE_CHECKING, Any, Self
 
 if TYPE_CHECKING:
@@ -55,6 +57,26 @@ class VideoComponent(ImageComponent):
     saturation: float = _legacy("video_saturation")
     grayscale: bool = _legacy("video_grayscale")
     random_seed: int = _legacy("video_random_seed")
+
+    def validate(self, name: str) -> None:
+        """Validate video data independently of Qt and the flat Source codec."""
+        if self.timing_mode not in {"track", "timeline"}:
+            raise ValueError(f"Source '{name}' has an invalid video timing mode.")
+        if self.repeat_mode not in {"once", "loop_one", "sequence", "random"}:
+            raise ValueError(f"Source '{name}' has an invalid video repeat mode.")
+        if not isinstance(self.paths, list) or not all(isinstance(path, str) for path in self.paths):
+            raise ValueError(f"Source '{name}' has invalid video paths.")
+        for field_name, value, minimum, maximum in (
+            ("cycle count", self.cycle_count, 1, 100_000),
+            ("speed", self.speed, 0.05, 8.0),
+            ("saturation", self.saturation, 0.0, 3.0),
+        ):
+            if (not isinstance(value, (int, float)) or isinstance(value, bool)
+                    or not isfinite(value) or not minimum <= value <= maximum):
+                raise ValueError(f"Source '{name}' video {field_name} is out of range.")
+        if (not isinstance(self.random_seed, int) or isinstance(self.random_seed, bool)
+                or not 0 <= self.random_seed <= 999_999):
+            raise ValueError(f"Source '{name}' value for 'video_random_seed' must be between 0 and 999999.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +174,59 @@ class LyricsComponent(TextComponent):
     karaoke_pending_brightness: float = _legacy("subtitle_karaoke_pending_brightness")
     karaoke_lines: list[int] = _legacy("subtitle_karaoke_lines")
     line_styles: list[dict[str, object]] = _legacy("subtitle_line_styles")
+
+    @staticmethod
+    def validate_styles(line_styles: object, role_styles: object, name: str) -> None:
+        """Validate nested lyric typography without constructing or mutating a Source."""
+        if not isinstance(line_styles, list) or len(line_styles) > 12:
+            raise ValueError(f"Source '{name}' has invalid lyric line styles.")
+        allowed_line_style_keys = {
+            "color", "font_size", "font_size_offset", "font_weight", "italic",
+        }
+        if (not isinstance(role_styles, dict)
+                or not set(role_styles) <= {"previous", "current", "next"}):
+            raise ValueError(f"Source '{name}' has invalid lyric role styles.")
+        all_styles = [(style, False) for style in line_styles]
+        all_styles.extend((style, True) for style in role_styles.values())
+        for style, role_style in all_styles:
+            allowed = allowed_line_style_keys | ({"scale", "opacity", "blur"} if role_style else set())
+            if not isinstance(style, dict) or not set(style) <= allowed:
+                raise ValueError(f"Source '{name}' has invalid lyric line styles.")
+            color = style.get("color")
+            if color is not None and (
+                not isinstance(color, str)
+                or fullmatch(r"#[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?", color) is None
+            ):
+                raise ValueError(f"Source '{name}' has an invalid lyric line color.")
+            font_size = style.get("font_size")
+            if font_size is not None and (
+                not isinstance(font_size, (int, float)) or isinstance(font_size, bool)
+                or not isfinite(float(font_size)) or not 8.0 <= float(font_size) <= 120.0
+            ):
+                raise ValueError(f"Source '{name}' has an invalid lyric line size.")
+            font_size_offset = style.get("font_size_offset")
+            if font_size_offset is not None and (
+                "font_size" in style
+                or not isinstance(font_size_offset, (int, float))
+                or isinstance(font_size_offset, bool)
+                or not isfinite(float(font_size_offset))
+                or not -100.0 <= float(font_size_offset) <= 100.0
+            ):
+                raise ValueError(f"Source '{name}' has an invalid lyric line size offset.")
+            font_weight = style.get("font_weight")
+            if font_weight is not None and (
+                not isinstance(font_weight, int) or isinstance(font_weight, bool)
+                or not 100 <= font_weight <= 900
+            ):
+                raise ValueError(f"Source '{name}' has an invalid lyric line weight.")
+            if "italic" in style and not isinstance(style["italic"], bool):
+                raise ValueError(f"Source '{name}' has an invalid lyric line italic flag.")
+            for key, (minimum, maximum) in {"scale": (0.25, 3.0), "opacity": (0.0, 1.0), "blur": (0.0, 12.0)}.items():
+                if key in style and (
+                    not isinstance(style[key], (int, float)) or isinstance(style[key], bool)
+                    or not isfinite(float(style[key])) or not minimum <= float(style[key]) <= maximum
+                ):
+                    raise ValueError(f"Source '{name}' has an invalid lyric {key}.")
 
 
 @dataclass(frozen=True, slots=True)

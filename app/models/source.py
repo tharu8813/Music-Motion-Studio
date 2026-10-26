@@ -10,6 +10,8 @@ from re import fullmatch
 from typing import Any
 from uuid import uuid4
 
+from app.models.source_components import LyricsComponent, VideoComponent
+
 
 SUBTITLE_ADVANCED_GROUPS = {
     "motion": ("subtitle_animation", "subtitle_animation_duration", "subtitle_flow_direction",
@@ -492,69 +494,9 @@ class Source:
             raise ValueError(f"Source '{source.name}' dimensions are unexpectedly large.")
         if source.timeline_start < 0 or source.timeline_duration < 0:
             raise ValueError(f"Source '{source.name}' timeline values cannot be negative.")
-        if source.video_timing_mode not in {"track", "timeline"}:
-            raise ValueError(f"Source '{source.name}' has an invalid video timing mode.")
-        if source.video_repeat_mode not in {"once", "loop_one", "sequence", "random"}:
-            raise ValueError(f"Source '{source.name}' has an invalid video repeat mode.")
-        if not isinstance(source.video_paths, list) or not all(
-            isinstance(path, str) for path in source.video_paths
-        ):
-            raise ValueError(f"Source '{source.name}' has invalid video paths.")
-        if not isinstance(source.subtitle_line_styles, list) or len(source.subtitle_line_styles) > 12:
-            raise ValueError(f"Source '{source.name}' has invalid lyric line styles.")
-        allowed_line_style_keys = {
-            "color", "font_size", "font_size_offset", "font_weight", "italic",
-        }
-        if (not isinstance(source.subtitle_role_styles, dict)
-                or not set(source.subtitle_role_styles) <= {"previous", "current", "next"}):
-            raise ValueError(f"Source '{source.name}' has invalid lyric role styles.")
-        all_styles = [(style, False) for style in source.subtitle_line_styles]
-        all_styles.extend((style, True) for style in source.subtitle_role_styles.values())
-        for style, role_style in all_styles:
-            allowed = allowed_line_style_keys | ({"scale", "opacity", "blur"} if role_style else set())
-            if not isinstance(style, dict) or not set(style) <= allowed:
-                raise ValueError(f"Source '{source.name}' has invalid lyric line styles.")
-            color = style.get("color")
-            if color is not None and (
-                not isinstance(color, str)
-                or fullmatch(r"#[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?", color) is None
-            ):
-                raise ValueError(f"Source '{source.name}' has an invalid lyric line color.")
-            font_size = style.get("font_size")
-            if font_size is not None and (
-                not isinstance(font_size, (int, float)) or isinstance(font_size, bool)
-                or not isfinite(float(font_size)) or not 8.0 <= float(font_size) <= 120.0
-            ):
-                raise ValueError(f"Source '{source.name}' has an invalid lyric line size.")
-            font_size_offset = style.get("font_size_offset")
-            if font_size_offset is not None and (
-                "font_size" in style
-                or not isinstance(font_size_offset, (int, float))
-                or isinstance(font_size_offset, bool)
-                or not isfinite(float(font_size_offset))
-                or not -100.0 <= float(font_size_offset) <= 100.0
-            ):
-                raise ValueError(f"Source '{source.name}' has an invalid lyric line size offset.")
-            font_weight = style.get("font_weight")
-            if font_weight is not None and (
-                not isinstance(font_weight, int) or isinstance(font_weight, bool)
-                or not 100 <= font_weight <= 900
-            ):
-                raise ValueError(f"Source '{source.name}' has an invalid lyric line weight.")
-            if "italic" in style and not isinstance(style["italic"], bool):
-                raise ValueError(f"Source '{source.name}' has an invalid lyric line italic flag.")
-            for key, (minimum, maximum) in {"scale": (0.25, 3.0), "opacity": (0.0, 1.0), "blur": (0.0, 12.0)}.items():
-                if key in style and (
-                    not isinstance(style[key], (int, float)) or isinstance(style[key], bool)
-                    or not isfinite(float(style[key])) or not minimum <= float(style[key]) <= maximum
-                ):
-                    raise ValueError(f"Source '{source.name}' has an invalid lyric {key}.")
-        if source.video_cycle_count < 1 or source.video_cycle_count > 100_000:
-            raise ValueError(f"Source '{source.name}' video cycle count is out of range.")
-        if not 0.05 <= source.video_speed <= 8.0:
-            raise ValueError(f"Source '{source.name}' video speed is out of range.")
-        if not 0.0 <= source.video_saturation <= 3.0:
-            raise ValueError(f"Source '{source.name}' video saturation is out of range.")
+        # Flat legacy documents retain inactive video fields for round trips.
+        VideoComponent.from_source(source).validate(source.name)
+        LyricsComponent.validate_styles(source.subtitle_line_styles, source.subtitle_role_styles, source.name)
         if not 0.0 <= float(source.text_stroke_width) <= 12.0:
             raise ValueError(
                 f"Source '{source.name}' text stroke width must be between 0 and 12."
@@ -632,7 +574,6 @@ class Source:
             "level_meter_segments": (3, 64),
             "particle_density": (4, 500),
             "particle_seed": (0, 999_999),
-            "video_random_seed": (0, 999_999),
         }
         for name, (minimum, maximum) in bounded_integers.items():
             value = getattr(source, name)

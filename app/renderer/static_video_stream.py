@@ -292,15 +292,17 @@ class StaticVideoStreamEncoder:
         process = self._process
         if process is None or process.stdin is None:
             raise StaticVideoStreamError("Lossless Canvas encoder is not running.")
+        self._duration_seconds += frame.duration_seconds
+        target_count = max(1, floor(self._duration_seconds * self.fps + 0.5))
+        repeat_count = max(0, target_count - self._frame_count)
+        if repeat_count == 0:
+            return
         # Format conversion can be a significant per-frame cost at 4K. Keep it
         # in the bounded consumer so the Canvas thread can capture the next state.
         prepared = frame.image.convertToFormat(
             QImage.Format.Format_RGBA8888
             if self.preserve_alpha else QImage.Format.Format_RGB32
         )
-        self._duration_seconds += frame.duration_seconds
-        target_count = max(1, floor(self._duration_seconds * self.fps + 0.5))
-        repeat_count = max(0, target_count - self._frame_count)
         pixels = prepared.constBits()
         pipeline = self._pipeline
         cancel_event = self.producer_cancel_event

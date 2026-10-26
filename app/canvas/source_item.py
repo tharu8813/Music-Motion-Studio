@@ -1097,7 +1097,9 @@ class SourceItem(QGraphicsObject):
                 mode="constant", truncate=3.0,
             )
             target = pixels
-        target[:] = np.clip(values + 0.5, 0.0, 255.0).astype(np.uint8)
+        values += 0.5
+        np.clip(values, 0.0, 255.0, out=values)
+        np.copyto(target, values, casting="unsafe")
         pixmap = QPixmap.fromImage(image)
         pixmap.setDevicePixelRatio(pixel_ratio)
         return pixmap, margin / pixel_ratio
@@ -1110,7 +1112,7 @@ class SourceItem(QGraphicsObject):
         font = font or self._lyric_fonts["current"]
         key = (line, color.rgba(), round(radius * pixel_ratio, 2), round(content_width),
                round(line_height), pixel_ratio, int(flags), font.toString())
-        cached = self._lyric_ghost_cache.get(key)
+        cached = self._lyric_ghost_cache.pop(key, None)
         if cached is None:
             if len(self._lyric_ghost_cache) >= 96:
                 self._lyric_ghost_cache.pop(next(iter(self._lyric_ghost_cache)))
@@ -1128,7 +1130,7 @@ class SourceItem(QGraphicsObject):
                 coverage_key=(line, color.alpha(), round(radius * pixel_ratio, 2),
                               content_width, line_height, pixel_ratio, int(flags), font.toString()),
             )
-            self._lyric_ghost_cache[key] = cached
+        self._lyric_ghost_cache[key] = cached
         return cached
 
     def _lyric_line_height(self) -> float:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import unittest
+import weakref
 
 from app.renderer.bounded_pipeline import (
     BoundedExportPipeline,
@@ -12,6 +13,22 @@ from app.renderer.bounded_pipeline import (
 
 
 class BoundedExportPipelineTests(unittest.TestCase):
+    def test_consumed_item_is_released_before_waiting_for_more_input(self) -> None:
+        class Payload:
+            pass
+
+        released = threading.Event()
+        pipeline = BoundedExportPipeline(lambda _value: None, capacity=1)
+        pipeline.start()
+        payload = Payload()
+        weakref.finalize(payload, released.set)
+        pipeline.submit(payload)
+        del payload
+        try:
+            self.assertTrue(released.wait(1.0))
+        finally:
+            pipeline.finish(timeout_seconds=2.0)
+
     def test_order_is_preserved_and_pending_items_never_exceed_capacity(self) -> None:
         consumed: list[int] = []
         first_started = threading.Event()

@@ -6,6 +6,7 @@ from app.utils.performance import timed
 
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import replace
+from math import floor
 
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QImage
@@ -46,6 +47,7 @@ class ExportCanvasCapturer:
         output_scale: float = 1.0,
         bass_envelopes: dict[object, object] | None = None,
         bass_fps: int = 30,
+        output_fps: int | None = None,
     ) -> None:
         self.scene = scene
         self.tracks = list(tracks)
@@ -61,6 +63,10 @@ class ExportCanvasCapturer:
         self.retain_static_frames = retain_static_frames
         self.bass_envelopes = bass_envelopes or {}
         self.bass_fps = max(1, int(bass_fps))
+        self.output_fps = output_fps
+        self._stream_seconds: dict[str, float] = {}
+        self._last_stream_images: dict[str, QImage] = {}
+        self.skipped_cfr_captures = 0
         self._static_band_frames: list[list[RenderFrame]] = [
             [] for _band in self.z_bands[1:]
         ]
@@ -389,6 +395,20 @@ class ExportCanvasCapturer:
     ) -> RenderFrame:
         """Capture one band, reusing only conservatively proven static pixels."""
         self.ensure_not_cancelled()
+        image = self._invariant_images.get(stream_key)
+        if self.output_fps is not None:
+            previous_seconds = self._stream_seconds.get(stream_key, 0.0)
+            seconds = previous_seconds + sample.duration_seconds
+            self._stream_seconds[stream_key] = seconds
+            if (
+                stream_key in self._last_stream_images
+                and max(1, floor(seconds * self.output_fps + 0.5))
+                == max(1, floor(previous_seconds * self.output_fps + 0.5))
+            ):
+                # The encoder emits no frame for this state; keep every duration
+                # unchanged so cumulative rounding and the next image stay exact.
+                image = self._last_stream_images[stream_key]
+                self.skipped_cfr_captures += 1
         common: dict[str, object] = {
             "elapsed_seconds": sample.elapsed_seconds,
             "hide_visualizers": self.dynamic_source_ids,
@@ -409,7 +429,6 @@ class ExportCanvasCapturer:
             self._stream_parameters(stream_key)
         )
 
-        image = self._invariant_images.get(stream_key)
         if image is None:
             render_metrics: dict[str, object] = {}
             fixed_capture_rect = self._stream_capture_rects.get(stream_key)
@@ -461,6 +480,8 @@ class ExportCanvasCapturer:
                 # cannot alter the cached pixels through a reused buffer.
                 image = image.copy()
                 self._invariant_images[stream_key] = image
+        if self.output_fps is not None:
+            self._last_stream_images[stream_key] = image
         rendered = self.stage_frame(
             image,
             sample.duration_seconds,

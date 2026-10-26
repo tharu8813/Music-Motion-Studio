@@ -43,6 +43,9 @@ from pathlib import Path
 from app.timeline.models import TransitionType
 from app.timeline.render_plan import AudioRenderClip, AudioRenderPlan, AudioRenderTransition, TransitionDsp
 from app.utils.subprocess_utils import hidden_process_kwargs, lower_thread_if_background
+from app.ffmpeg.process import (
+    FFmpegProcessCancelled, FFmpegProcessError, parse_progress_seconds, run_ffmpeg,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -991,54 +994,19 @@ class AutoMixAudioPipeline:
         on_progress_seconds: Callable[[float], None] | None,
     ) -> str:
         """Run FFmpeg to completion; returns what it wrote to stderr."""
+        def progress(line: str) -> None:
+            seconds = _parse_progress_seconds(line)
+            if seconds is not None and on_progress_seconds is not None:
+                on_progress_seconds(seconds)
+
+        diagnostics: list[str] = []
         try:
-            process = subprocess.Popen(
-                arguments, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, encoding="utf-8", errors="replace", **hidden_process_kwargs(),
-            )
-        except OSError as error:
-            raise AutoMixRenderError(f"Could not start FFmpeg for AutoMix rendering: {error}") from error
-
-        stdout_lines: list[str] = []
-        stderr_lines: list[str] = []
-
-        def drain(stream: object, sink: list[str], parse_progress: bool) -> None:
-            assert stream is not None
-            for line in iter(stream.readline, ""):  # type: ignore[union-attr]
-                sink.append(line)
-                if parse_progress and on_progress_seconds is not None:
-                    seconds = _parse_progress_seconds(line.strip())
-                    if seconds is not None:
-                        on_progress_seconds(seconds)
-
-        stdout_thread = threading.Thread(target=drain, args=(process.stdout, stdout_lines, True), daemon=True)
-        stderr_thread = threading.Thread(target=drain, args=(process.stderr, stderr_lines, False), daemon=True)
-        stdout_thread.start()
-        stderr_thread.start()
-        cancelled = False
-        try:
-            while process.poll() is None:
-                if cancel_event.wait(0.05):
-                    cancelled = True
-                    process.terminate()
-                    try:
-                        process.wait(timeout=2.0)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                    break
-        finally:
-            stdout_thread.join(timeout=5.0)
-            stderr_thread.join(timeout=5.0)
-            if process.stdout is not None:
-                process.stdout.close()
-            if process.stderr is not None:
-                process.stderr.close()
-        if cancelled:
-            raise AutoMixRenderCancelled("AutoMix rendering was cancelled.")
-        if process.returncode != 0:
-            message = "".join(stderr_lines).strip() or "unknown FFmpeg error"
-            raise AutoMixRenderError(f"FFmpeg could not render the AutoMix mix: {message[-2000:]}")
-        return "".join(stderr_lines)
+            run_ffmpeg(arguments, progress, cancel_event, diagnostics)
+        except FFmpegProcessCancelled as error:
+            raise AutoMixRenderCancelled("AutoMix rendering was cancelled.") from error
+        except FFmpegProcessError as error:
+            raise AutoMixRenderError(f"FFmpeg could not render the AutoMix mix: {str(error)[-2000:]}") from error
+        return "".join(diagnostics)
 
     def _probe_duration(self, path: Path) -> float:
         probe = self._ffprobe_executable()
@@ -1065,15 +1033,4 @@ class AutoMixAudioPipeline:
 
 
 def _parse_progress_seconds(line: str) -> float | None:
-    if line.startswith("out_time_us=") or line.startswith("out_time_ms="):
-        try:
-            return float(line.split("=", 1)[1]) / 1_000_000
-        except ValueError:
-            return None
-    if line.startswith("out_time="):
-        try:
-            hours, minutes, seconds = line.split("=", 1)[1].split(":")
-            return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
-        except ValueError:
-            return None
-    return None
+    return parse_progress_seconds(line)

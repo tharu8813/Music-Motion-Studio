@@ -80,6 +80,34 @@ class LyricsResponsivenessTests(unittest.TestCase):
         self.assertEqual(len(item._lyric_coverage_cache), 48)
         self.assertLessEqual(sum(mask[0].nbytes for mask in item._lyric_coverage_cache.values()), 16 * 1024 * 1024)
 
+    def test_active_blur_survives_cache_pressure_from_changing_rows(self):
+        item = SourceItem(Source(SourceType.LYRICS, "Lyrics", font_size=12))
+        flags = int(Qt.AlignmentFlag.AlignCenter)
+        hot, _ = item._lyric_blur_pixmap("Current", QColor("white"), 1, 80, 30, 1, flags)
+        with patch.object(item, "_blurred_raster", wraps=item._blurred_raster) as raster:
+            for index in range(110):
+                item._lyric_blur_pixmap(str(index), QColor("white"), 1, 80, 30, 1, flags)
+                cached, _ = item._lyric_blur_pixmap("Current", QColor("white"), 1, 80, 30, 1, flags)
+                self.assertEqual(hot.cacheKey(), cached.cacheKey())
+        self.assertEqual(raster.call_count, 110)
+        self.assertEqual(len(item._lyric_ghost_cache), 96)
+
+    def test_inplace_blur_color_conversion_preserves_rounding_and_clipping(self):
+        import numpy as np
+        from app.video.frame_filter import _rgb_pixels
+
+        expected = []
+        def averaged(pixels, **_kwargs):
+            values = np.linspace(-0.5, 255.5, pixels.size, dtype=np.float32).reshape(pixels.shape)
+            values[:, :, 3] = 255
+            expected.append(np.clip(values + 0.5, 0, 255).astype(np.uint8))
+            return values
+
+        with patch.object(source_module, "gaussian_filter", side_effect=averaged):
+            pixmap, _ = SourceItem._blurred_raster(lambda _painter: None, QSizeF(40, 20), 1, 1)
+        image = pixmap.toImage()
+        np.testing.assert_array_equal(_rgb_pixels(image), expected[0])
+
     def test_rapid_settings_render_once_and_pause_keeps_comparison_time(self):
         source = Source(SourceType.LYRICS, "Lyrics")
         original = source.to_dict()

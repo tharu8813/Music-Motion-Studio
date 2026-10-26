@@ -120,20 +120,20 @@ class UxGuidanceTests(MainWindowTestCase):
 
     def test_never_saved_project_is_not_reported_as_saved(self) -> None:
         self.window.current_project_path = None
-        self.window._project_dirty = False
+        self.window.project_session.dirty = False
         self.window.project_controller.update_status()
         self.assertIn("저장 전", self.window.project_status_label.text())
         self.assertIn("새 프로젝트", self.window.windowTitle())
         self.assertFalse(self.window.isWindowModified())
 
-        self.window._project_dirty = True
+        self.window.project_session.dirty = True
         self.window.project_controller.update_status()
         self.assertIn("저장 필요", self.window.project_status_label.text())
         self.assertTrue(self.window.isWindowModified())
 
         with TemporaryDirectory() as folder:
             self.window.current_project_path = Path(folder) / "mix.pvsproj"
-            self.window._project_dirty = False
+            self.window.project_session.dirty = False
             self.window.project_controller.update_status()
             self.assertIn("저장됨", self.window.project_status_label.text())
         self.window.current_project_path = None

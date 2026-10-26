@@ -42,7 +42,7 @@ class MainWindowProjectTests(MainWindowTestCase):
     def test_new_project_cancel_preserves_unsaved_workspace(self) -> None:
         marker = Source(SourceType.TEXT, "UNSAVED_TEST_MARKER")
         self.window.store.add(marker)
-        self.window._project_dirty = True
+        self.window.project_session.dirty = True
         with patch.object(
             QMessageBox, "warning", return_value=QMessageBox.StandardButton.Cancel,
         ):
@@ -76,7 +76,7 @@ class MainWindowProjectTests(MainWindowTestCase):
         marker = Source(SourceType.TEXT, "KEEP_CURRENT_PROJECT")
         self.window.store.add(marker)
         self.window.store.select(marker.id)
-        self.window._project_dirty = True
+        self.window.project_session.dirty = True
         original_path = Path("current-project.pvsproj").resolve()
         self.window.current_project_path = original_path
         before = self.window._project_document().to_dict()
@@ -94,7 +94,7 @@ class MainWindowProjectTests(MainWindowTestCase):
         report.assert_called_once()
         self.assertEqual(self.window._project_document().to_dict(), before)
         self.assertEqual(self.window.current_project_path, original_path)
-        self.assertTrue(self.window._project_dirty)
+        self.assertTrue(self.window.project_session.dirty)
         self.assertEqual(self.window.store.selected_ids, (marker.id,))
         self.assertTrue(self.window.isEnabled())
         self.assertNotIn("project_load", self.window.activity_progress.active_keys)
@@ -103,7 +103,7 @@ class MainWindowProjectTests(MainWindowTestCase):
         marker = Source(SourceType.TEXT, "ROLLBACK_MARKER")
         self.window.store.add(marker)
         self.window.store.select(marker.id)
-        self.window._project_dirty = True
+        self.window.project_session.dirty = True
         before = self.window._project_document().to_dict()
         incoming = ProjectDocument.from_dict(before)
         incoming.settings.title = "Incoming project"
@@ -133,7 +133,7 @@ class MainWindowProjectTests(MainWindowTestCase):
         self.assertFalse(loaded)
         report.assert_called_once()
         self.assertEqual(self.window._project_document().to_dict(), before)
-        self.assertTrue(self.window._project_dirty)
+        self.assertTrue(self.window.project_session.dirty)
         self.assertEqual(self.window.store.selected_ids, (marker.id,))
         self.assertNotIn("project_load", self.window.activity_progress.active_keys)
 
@@ -229,7 +229,7 @@ class MainWindowProjectTests(MainWindowTestCase):
                     if project_path is not None:
                         project_path.write_bytes(b"original project is never overwritten")
                     self.window.current_project_path = project_path
-                    self.window._project_dirty = dirty
+                    self.window.project_session.dirty = dirty
                     expected = self.window._project_document().to_dict()
                     def setup_ready(_installer, arguments):
                         ready = Path(next(value.split("=", 1)[1] for value in arguments if value.startswith("/UPDATEREADY=")))
@@ -252,7 +252,7 @@ class MainWindowProjectTests(MainWindowTestCase):
                         self.assertTrue(open_initial_workspace(self.window, None, update_recovery=recovery_path))
                         self.assertEqual(self.window._project_document().to_dict(), expected)
                         self.assertEqual(self.window.current_project_path, project_path)
-                        self.assertEqual(self.window._project_dirty, dirty)
+                        self.assertEqual(self.window.project_session.dirty, dirty)
                     if project_path is not None:
                         self.assertEqual(project_path.read_bytes(), b"original project is never overwritten")
             self.window._update_install_authorized = False
@@ -261,7 +261,7 @@ class MainWindowProjectTests(MainWindowTestCase):
         with TemporaryDirectory(prefix="pvs-update-errors-") as directory:
             installer = Path(directory) / "setup.exe"
             installer.write_bytes(b"verified")
-            self.window._project_dirty = True
+            self.window.project_session.dirty = True
             with patch.object(self.window.autosave, "save", side_effect=ProjectError("disk full")), \
                  patch.object(self.window, "_show_project_error") as error, \
                  patch("app.ui.main_window.launch_setup") as launch, \
@@ -292,7 +292,7 @@ class MainWindowProjectTests(MainWindowTestCase):
         self.window._pending_update_installer = None
 
     def test_update_shutdown_preserves_the_recovery_and_skips_save_prompt(self) -> None:
-        self.window._project_dirty = True
+        self.window.project_session.dirty = True
         self.window._update_install_authorized = True
         with patch.object(self.window, "_clear_recovery") as clear, \
              patch.object(QMessageBox, "warning", side_effect=AssertionError("Unexpected save prompt")):
@@ -426,15 +426,15 @@ class MainWindowProjectTests(MainWindowTestCase):
             self.window.autosave = AutosaveService(Path(directory))
             try:
                 self.window.store.add(Source(SourceType.TEXT, "AUTOSAVE_MARKER"))
-                self.window._history_ready = True
-                self.window._project_dirty = True
+                self.window.project_session.ready = True
+                self.window.project_session.dirty = True
                 self.window._autosave_project()
-                worker = self.window._autosave_worker
+                worker = self.window.autosave_controller.worker
                 self.assertIsNotNone(worker)
                 self.assertIn("autosave", self.window.activity_progress.active_keys)
                 self.assertTrue(worker.wait(5000))
                 self.application.processEvents()
-                self.assertIsNone(self.window._autosave_worker)
+                self.assertIsNone(self.window.autosave_controller.worker)
                 self.assertNotIn(
                     "autosave", self.window.activity_progress.active_keys
                 )
@@ -445,21 +445,98 @@ class MainWindowProjectTests(MainWindowTestCase):
                     [source.name for source in recovery.document.sources],
                 )
             finally:
-                if self.window._autosave_worker is not None:
-                    self.window._autosave_worker.wait(5000)
+                if self.window.autosave_controller.worker is not None:
+                    self.window.autosave_controller.worker.wait(5000)
                 self.window.autosave = original
+
+    def test_autosave_drain_keeps_gui_responsive_without_starting_another_write(self) -> None:
+        original = self.window.autosave
+        release, started = threading.Event(), threading.Event()
+        with TemporaryDirectory(prefix="pvs-autosave-drain-") as directory:
+            self.window.autosave = AutosaveService(Path(directory))
+            write = self.window.autosave.write_document_data
+            pulses = []
+
+            def delayed_write(*args, **kwargs):
+                started.set()
+                if not release.wait(5):
+                    raise RuntimeError("test writer was not released")
+                return write(*args, **kwargs)
+
+            def during_wait():
+                pulses.append(True)
+                self.window._autosave_project()
+                QTimer.singleShot(20, release.set)
+                self.window.autosave_controller.wait_for_pending()
+
+            try:
+                self.window.project_session.dirty = True
+                with patch.object(self.window.autosave, "write_document_data", side_effect=delayed_write) as writes:
+                    self.window._autosave_project()
+                    self.assertTrue(started.wait(2))
+                    QTimer.singleShot(80, during_wait)
+                    self.window.autosave_controller.wait_for_pending()
+                self.application.processEvents()
+                self.assertEqual(pulses, [True])
+                self.assertEqual(writes.call_count, 1)
+                self.assertIsNone(self.window.autosave_controller.worker)
+                self.assertNotIn("autosave", self.window.activity_progress.active_keys)
+                self.assertIsNotNone(self.window.autosave.latest_recovery())
+            finally:
+                release.set()
+                self.window.autosave_controller.wait_for_pending()
+                self.window.autosave = original
+
+    def test_autosave_drain_ignores_finished_callback_queued_before_drain(self) -> None:
+        original = self.window.autosave
+        with TemporaryDirectory(prefix="pvs-autosave-finished-") as directory:
+            self.window.autosave = AutosaveService(Path(directory))
+            try:
+                self.window.project_session.dirty = True
+                self.window._autosave_project()
+                worker = self.window.autosave_controller.worker
+                self.assertTrue(worker.wait(5000))
+                # Native completion happened, but its GUI callback is still queued.
+                self.window.autosave_controller.wait_for_pending()
+                self.application.processEvents()
+                self.assertIsNone(self.window.autosave_controller.worker)
+                self.assertNotIn("autosave", self.window.activity_progress.active_keys)
+                self.assertIsNotNone(self.window.autosave.latest_recovery())
+            finally:
+                self.window.autosave_controller.wait_for_pending()
+                self.window.autosave = original
+
+    def test_nested_canvas_resize_does_not_resume_history_or_dirty_the_outer_restore(self) -> None:
+        session = self.window.project_session
+        self.assertIs(self.window.history_controller.session, session)
+        self.assertIs(self.window.project_controller.session, session)
+        self.assertIs(self.window.autosave_controller.session, session)
+        session.dirty = False
+        serial = session.change_serial
+        rect = self.window.canvas.scene_model.artboard_rect
+        size = (rect.width(), rect.height())
+        with session.suspend_changes():
+            self.window._resize_project_canvas(size, size, scale_content=False)
+            self.assertFalse(session.tracking_changes)
+            self.window._schedule_history()
+            self.assertFalse(session.dirty)
+            self.assertEqual(session.change_serial, serial)
+        self.assertTrue(session.tracking_changes)
+        self.window._schedule_history()
+        self.assertTrue(session.dirty)
+        self.assertEqual(session.change_serial, serial + 1)
 
     def test_close_cancel_keeps_unsaved_window_and_workspace_open(self) -> None:
         marker = Source(SourceType.TEXT, "CLOSE_CANCEL_MARKER")
         self.window.store.add(marker)
-        self.window._project_dirty = True
+        self.window.project_session.dirty = True
         event = QCloseEvent()
         with patch.object(
             QMessageBox, "warning", return_value=QMessageBox.StandardButton.Cancel,
         ):
             self.window.closeEvent(event)
         self.assertFalse(event.isAccepted())
-        self.assertTrue(self.window._project_dirty)
+        self.assertTrue(self.window.project_session.dirty)
         self.assertIsNotNone(self.window.store.get(marker.id))
         self.assertTrue(self.window.smooth_scroll._installed)
 
@@ -487,7 +564,7 @@ class MainWindowProjectTests(MainWindowTestCase):
         with TemporaryDirectory(prefix="pvs-background-save-") as raw_directory:
             target = Path(raw_directory) / "many-tracks.pvsproj"
             self.window.current_project_path = target
-            self.window._project_dirty = True
+            self.window.project_session.dirty = True
             started = threading.Event()
             release = threading.Event()
 
@@ -518,7 +595,7 @@ class MainWindowProjectTests(MainWindowTestCase):
 
             self.assertIsNone(self.window.project_controller.save_worker)
             self.assertNotIn("project_save", self.window.activity_progress.active_keys)
-            self.assertTrue(self.window._project_dirty)
+            self.assertTrue(self.window.project_session.dirty)
             self.assertTrue(self.window.save_action.isEnabled())
             save_message = self.window.statusBar().currentMessage()
             self.assertTrue(
@@ -529,21 +606,21 @@ class MainWindowProjectTests(MainWindowTestCase):
         with TemporaryDirectory(prefix="pvs-required-save-") as raw_directory:
             target = Path(raw_directory) / "close-save.pvsproj"
             self.window.current_project_path = target
-            self.window._project_dirty = True
+            self.window.project_session.dirty = True
             with patch.object(
                 ProjectService, "save", return_value=target.resolve(),
             ):
                 saved = self.window._save_project(wait_for_completion=True)
 
             self.assertTrue(saved)
-            self.assertFalse(self.window._project_dirty)
+            self.assertFalse(self.window.project_session.dirty)
             self.assertIsNone(self.window.project_controller.save_worker)
             self.assertEqual(self.window.current_project_path, target.resolve())
 
     def test_background_save_failure_keeps_project_dirty_and_reenables_save(self) -> None:
         with TemporaryDirectory(prefix="pvs-failed-save-") as raw_directory:
             self.window.current_project_path = Path(raw_directory) / "failed.pvsproj"
-            self.window._project_dirty = True
+            self.window.project_session.dirty = True
             with (
                 patch.object(
                     ProjectService, "save",
@@ -554,7 +631,7 @@ class MainWindowProjectTests(MainWindowTestCase):
                 saved = self.window._save_project(wait_for_completion=True)
 
             self.assertFalse(saved)
-            self.assertTrue(self.window._project_dirty)
+            self.assertTrue(self.window.project_session.dirty)
             self.assertIsNone(self.window.project_controller.save_worker)
             self.assertTrue(self.window.save_action.isEnabled())
             self.assertTrue(self.window._autosave_debounce_timer.isActive())
@@ -744,22 +821,19 @@ class MainWindowProjectTests(MainWindowTestCase):
     def test_app_theme_and_language_do_not_dirty_or_follow_project_metadata(self) -> None:
         original_language = self.window.translator.language
         original_theme = self.window.theme_service.preference
-        self.window._project_dirty = False
+        self.window.project_session.dirty = False
 
         # Saving Settings with the already-selected theme republishes styling,
         # but it is not a project edit.
         self.window.theme_service.set_preference(original_theme)
         self.application.processEvents()
-        self.assertFalse(self.window._project_dirty)
+        self.assertFalse(self.window.project_session.dirty)
 
         document = self.window._project_document()
         document.language = "en" if original_language.value == "ko" else "ko"
         document.theme = "light" if original_theme.value != "light" else "dark"
-        self.window._history_restoring = True
-        try:
+        with self.window.project_session.suspend_changes():
             self.window._apply_project(document)
-        finally:
-            self.window._history_restoring = False
 
         self.assertIs(self.window.translator.language, original_language)
         self.assertIs(self.window.theme_service.preference, original_theme)
@@ -866,7 +940,7 @@ class MainWindowProjectTests(MainWindowTestCase):
     def test_new_project_requires_explicit_discard(self) -> None:
         marker = Source(SourceType.TEXT, "UNSAVED_TEST_MARKER")
         self.window.store.add(marker)
-        self.window._project_dirty = True
+        self.window.project_session.dirty = True
         with (
             patch.object(
                 QMessageBox, "warning", return_value=QMessageBox.StandardButton.Discard,

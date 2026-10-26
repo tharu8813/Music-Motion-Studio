@@ -11,6 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from app.preview.overlay_frame_cache import OverlayFrameCache
 from app.dialogs.export_preview_dialog import ExportPreviewDialog  # noqa: E402
 from app.inspector.source_inspector import SourceInspector  # noqa: E402
 from app.models.source import Source, SourceType  # noqa: E402
@@ -128,12 +129,15 @@ class MixVisualTransitionTests(unittest.TestCase):
         preview = SimpleNamespace(
             tracks=tracks, _compiled_plan=plan, preview_fps=fps, _overlay_prefetch_count=6,
             timeline=SimpleNamespace(value=lambda: round(54.0 * 1000)),
-            _overlay_frame_cache={("a", (0,), 54 * fps): (), ("b", (0,), 2 * fps): ()},
+            _overlay_cache=OverlayFrameCache(),
         )
+        preview._overlay_cache.store("a", (0,), [(54 * fps, ())])
+        preview._overlay_cache.store("b", (0,), [(2 * fps, ())])
         preview._visual_track_at = lambda seconds: ExportPreviewDialog._visual_track_at(preview, seconds)
         with patch("app.dialogs.export_preview_dialog.TIMELINE_SCALE", 1000):
             ExportPreviewDialog._trim_overlay_frame_cache(preview, "a")
-        self.assertIn(("a", (0,), 54 * fps), preview._overlay_frame_cache)
+        self.assertIsNone(preview._overlay_cache.first_missing("a", (0,), 54 * fps, 1))
+        self.assertEqual(preview._overlay_cache.first_missing("b", (0,), 2 * fps, 1), 2 * fps)
 
     def test_export_and_preview_share_the_handover(self) -> None:
         plan = _crossfaded_plan()

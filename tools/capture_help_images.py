@@ -299,7 +299,7 @@ class Session:
         settle(self.app)
 
     def close(self) -> None:
-        self.window._project_dirty = False
+        self.window.project_session.dirty = False
         self.window.close()
         settle(self.app)
 

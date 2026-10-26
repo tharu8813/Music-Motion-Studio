@@ -1,0 +1,84 @@
+{
+  "round2-blur-baseline": {
+    "elapsed_seconds": 51.046000000002095,
+    "video_seconds": 20.0,
+    "frames": 1200,
+    "decoded_frames_and_timestamps_sha256": "714055cd9289b6aea4a64e253fc350f711584039e34c7c36cd06c86e6531f3bc"
+  },
+  "round2-blur-optimized": {
+    "elapsed_seconds": 50.780999999988126,
+    "video_seconds": 20.0,
+    "frames": 1200,
+    "decoded_frames_and_timestamps_sha256": "714055cd9289b6aea4a64e253fc350f711584039e34c7c36cd06c86e6531f3bc"
+  },
+  "decoded_frames_and_timestamps_equal": true,
+  "dense_capture": {
+    "start": 30,
+    "seconds": 3,
+    "runs_before": [
+      6.571856000024127,
+      5.609256200026721
+    ],
+    "runs_after": [
+      7.564407700003358,
+      5.49383150000358
+    ],
+    "frame_signatures_equal": true,
+    "frame_signatures": {
+      "base": [
+        180,
+        "d852f84c0df4819197ae148cfd6bec0dc1c482ac9359be9a500200026a2be0ef"
+      ],
+      "layer:0": [
+        180,
+        "669bd735451807b79da78f1e124849c4e34c84ece0f90cb13b0db94743855925"
+      ],
+      "layer:1": [
+        180,
+        "245e2a7998efd5e6628f912d123ddc92470c7065d385bd046af9378b611a5023"
+      ]
+    }
+  },
+  "blur_micro": {
+    "baseline": {
+      "peak_traced_bytes": 21602452,
+      "runs_seconds": [
+        0.2870468999899458,
+        0.2698377999768127,
+        0.2706776999984868,
+        0.2587583999847993,
+        0.2691378000017721,
+        0.3253162000037264,
+        0.30518060000031255,
+        0.27947919999132864
+      ],
+      "median_seconds": 0.2750784499949077
+    },
+    "optimized": {
+      "peak_traced_bytes": 7268436,
+      "runs_seconds": [
+        0.17590370000107214,
+        0.186217399983434,
+        0.1729936999909114,
+        0.17950830000336282,
+        0.23595809997641481,
+        0.24974139998084866,
+        0.19350760002271272,
+        0.210916099982569
+      ],
+      "median_seconds": 0.18986250000307336
+    },
+    "pixels_equal": true,
+    "limitation": "Isolated cached coverage recoloring; not an end-to-end export speedup."
+  },
+  "limitation": "Shortened first-track test and synthetic blur microbenchmark; full-project time and packaged-app UI export not remeasured. Dense capture timing noisy; no established end-to-end speed gain.",
+  "validation": {
+    "modules": 27,
+    "tests": 386,
+    "skipped": 9,
+    "failures": 0,
+    "distribution_files": "passed",
+    "frozen_code_verification": "passed",
+    "packaged_smoke_exit_code": 0
+  }
+}

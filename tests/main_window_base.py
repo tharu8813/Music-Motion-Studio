@@ -56,7 +56,7 @@ class MainWindowTestCase(unittest.TestCase):
         self.application.processEvents()
 
     def _close_window(self) -> None:
-        self.window._project_dirty = False
+        self.window.project_session.dirty = False
         self.window.close()
         self.application.processEvents()
 

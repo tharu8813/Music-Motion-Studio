@@ -232,7 +232,7 @@ def main() -> int:
             args.keep.mkdir(parents=True, exist_ok=True)
             for label in ("intermediate", "live"):
                 shutil.copy2(work / f"{label}.mp4", args.keep / f"{label}.mp4")
-        window._project_dirty = False
+        window.project_session.dirty = False
         window.close()
         application.processEvents()
     finally:

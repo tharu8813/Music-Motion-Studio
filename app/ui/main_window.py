@@ -56,6 +56,7 @@ from app.controllers.export_controller import ExportOrchestrator
 from app.controllers.history_controller import HistoryController
 from app.controllers.preview_controller import PreviewController
 from app.controllers.project_controller import ProjectController
+from app.controllers.source_layout_controller import SourceLayoutController
 from app.animation.motion import MotionController
 from app.animation.canvas_preview import CanvasAnimationPreviewController
 from app.dialogs.export_progress_dialog import ExportProgressDialog
@@ -100,7 +101,7 @@ from app.services.project_media_service import ProjectMediaService
 from app.services.project_content_service import LYRICS_EXTENSIONS, ProjectContentService
 from app.services.recent_projects_service import RecentProjectsService
 from app.services.autosave_service import AutosaveService
-from app.services.autosave_worker import AutosaveWorker
+from app.services.project_session import ProjectSession
 from app.services.history_service import HistoryService
 from app.services.lyrics_service import (
     LyricsError,
@@ -334,10 +335,11 @@ class MainWindow(QMainWindow):
         self._preview_ui_lock_state: dict[str, object] | None = None
         self._bottom_tab_change_guard = False
         self._last_edit_bottom_tab = 0
+        self.project_session = ProjectSession()
         self.history = HistoryService(self)
-        self.history_controller = HistoryController(self)
-        self.project_controller = ProjectController(self)
-        self.autosave_controller = AutosaveController(self)
+        self.history_controller = HistoryController(self, self.project_session)
+        self.project_controller = ProjectController(self, self.project_session)
+        self.autosave_controller = AutosaveController(self, self.project_session)
         self.export_orchestrator = ExportOrchestrator(self)
         self.preview_controller = PreviewController(self)
         self.automix_analyses: dict[str, TrackAnalysis] = {}
@@ -379,12 +381,6 @@ class MainWindow(QMainWindow):
             QStandardPaths.StandardLocation.AppLocalDataLocation
         )
         self.autosave = AutosaveService(Path(recovery_directory or Path.cwd() / ".app-data"))
-        self._history_ready = False
-        self._history_restoring = False
-        self._history_applying = False
-        self._project_dirty = False
-        self._project_change_serial = 0
-        self._autosave_worker: AutosaveWorker | None = None
         self._history_timer = QTimer(self)
         self._history_timer.setSingleShot(True)
         self._history_timer.setInterval(300)
@@ -455,6 +451,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1100, 680)
         self._build_toolbar()
         self._build_workspace()
+        self.source_layout_controller = SourceLayoutController(self.store, self.canvas.source_content_bounds)
         self._build_canvas_edit_actions()
         self._build_menu_bar()
         self.activity_progress = ActivityProgressWidget(
@@ -1075,8 +1072,7 @@ class MainWindow(QMainWindow):
 
     def _nudge_selected_sources(self, x_delta: float, y_delta: float) -> None:
         """Move selected sources by an exact keyboard increment."""
-        for source in self._selected_editable_sources():
-            self.store.update(source.id, x=source.x + x_delta, y=source.y + y_delta)
+        self.source_layout_controller.nudge(self._selected_editable_sources(), x_delta, y_delta)
 
     def _edit_canvas_source(self, source_id: str) -> None:
         """Open the in-place editor for a double-clicked Canvas source."""
@@ -1100,33 +1096,9 @@ class MainWindow(QMainWindow):
 
     def _center_selected_sources(self, horizontal: bool) -> None:
         """Center the collective selection on the artboard along one axis."""
-        sources = self._selected_editable_sources()
-        if not sources:
-            return
-        selected_ids = {source.id for source in sources}
-        items = [
-            item for item in self.canvas.scene_model.selectedItems()
-            if hasattr(item, "source") and item.source.id in selected_ids
-        ]
-        if not items:
-            return
-        bounds = items[0].mapRectToScene(items[0].content_rect())
-        for item in items[1:]:
-            bounds = bounds.united(
-                item.mapRectToScene(item.content_rect())
-            )
-        artboard = self.canvas.scene_model.artboard_rect
-        delta = (
-            artboard.center().x() - bounds.center().x()
-            if horizontal else
-            artboard.center().y() - bounds.center().y()
+        self.source_layout_controller.center(
+            self._selected_editable_sources(), self.canvas.scene_model.artboard_rect, horizontal,
         )
-        for source in sources:
-            changes = (
-                {"x": source.x + delta}
-                if horizontal else {"y": source.y + delta}
-            )
-            self.store.update(source.id, **changes)
 
     def _move_selected_to_edge(self, front: bool) -> None:
         """Bring selected sources in front of, or behind, every other source."""
@@ -1210,66 +1182,11 @@ class MainWindow(QMainWindow):
 
     def _align_selected_sources(self, mode: str) -> None:
         """Align two or more selected sources to their collective bounds."""
-        sources = self._selected_editable_sources()
-        if len(sources) < 2:
-            return
-        bounds = [
-            self.canvas._items[source.id].mapRectToScene(
-                self.canvas._items[source.id].content_rect()
-            ) for source in sources
-        ]
-        left = min(rect.left() for rect in bounds)
-        right = max(rect.right() for rect in bounds)
-        top = min(rect.top() for rect in bounds)
-        bottom = max(rect.bottom() for rect in bounds)
-        for source, rect in zip(sources, bounds):
-            if mode == "left":
-                self.store.update(source.id, x=source.x + left - rect.left())
-            elif mode == "hcenter":
-                self.store.update(source.id, x=source.x + (left + right) / 2 - rect.center().x())
-            elif mode == "right":
-                self.store.update(source.id, x=source.x + right - rect.right())
-            elif mode == "top":
-                self.store.update(source.id, y=source.y + top - rect.top())
-            elif mode == "vcenter":
-                self.store.update(source.id, y=source.y + (top + bottom) / 2 - rect.center().y())
-            elif mode == "bottom":
-                self.store.update(source.id, y=source.y + bottom - rect.bottom())
+        self.source_layout_controller.align(self._selected_editable_sources(), mode)
 
     def _distribute_selected_sources(self, axis: str) -> None:
-        """Space three or more selected sources with equal gaps along one axis.
-
-        The outermost two sources keep their positions; the ones between them
-        are moved so every gap between adjacent edges is identical.
-        """
-        sources = self._selected_editable_sources()
-        if len(sources) < 3:
-            return
-        horizontal = axis == "horizontal"
-        bounds = {
-            source.id: self.canvas._items[source.id].mapRectToScene(
-                self.canvas._items[source.id].content_rect()
-            ) for source in sources
-        }
-        ordered = sorted(
-            sources, key=lambda source: bounds[source.id].left() if horizontal
-            else bounds[source.id].top(),
-        )
-        extents = [
-            bounds[source.id].width() if horizontal else bounds[source.id].height()
-            for source in ordered
-        ]
-        start = bounds[ordered[0].id].left() if horizontal else bounds[ordered[0].id].top()
-        end = bounds[ordered[-1].id].right() if horizontal else bounds[ordered[-1].id].bottom()
-        gap = (end - start - sum(extents)) / (len(ordered) - 1)
-        cursor = start
-        for source, extent in zip(ordered, extents):
-            rect = bounds[source.id]
-            changes = {"x": source.x + cursor - rect.left()} if horizontal else {
-                "y": source.y + cursor - rect.top(),
-            }
-            self.store.update(source.id, **changes)
-            cursor += extent + gap
+        """Space selected sources with equal gaps, keeping the outside sources fixed."""
+        self.source_layout_controller.distribute(self._selected_editable_sources(), axis)
 
     def _toggle_selected_visibility(self) -> None:
         """Show or hide all selected Canvas sources as one operation."""
@@ -3279,7 +3196,7 @@ class MainWindow(QMainWindow):
     def _confirm_and_load_dropped_project(self, path: Path) -> None:
         """Ask before replacing the active work with a dropped project document."""
         korean = self.translator.is_korean
-        if self._project_dirty:
+        if self.project_session.dirty:
             previous_project_path = self.current_project_path
             if (self._confirm_unsaved_changes()
                     and self._load_project_path(path)):
@@ -3458,12 +3375,8 @@ class MainWindow(QMainWindow):
         if self.isMinimized() or self._inline_preview is not None:
             return
         self._canvas_fit_pending = False
-        restoring = self._history_restoring
-        self._history_restoring = True
-        try:
+        with self.project_session.suspend_changes():
             self.canvas.fit_artboard()
-        finally:
-            self._history_restoring = restoring
 
     def _bottom_workspace_tab_changed(self, index: int) -> None:
         self.preview_controller.bottom_workspace_tab_changed(index)
@@ -3797,10 +3710,9 @@ class MainWindow(QMainWindow):
             self.animation_preview_controller.cancel()
         try:
             # Wait for older autosaves so they cannot overwrite the final handoff.
-            if self._autosave_worker is not None and self._autosave_worker.isRunning():
-                self._autosave_worker.wait()
+            self.autosave_controller.wait_for_pending()
             snapshot = self.autosave.save(
-                self._project_document(), self.current_project_path, dirty=self._project_dirty,
+                self._project_document(), self.current_project_path, dirty=self.project_session.dirty,
             )
         except ProjectError as error:
             self._show_project_error(error)
@@ -3836,10 +3748,9 @@ class MainWindow(QMainWindow):
         )
         if ready_path.is_file() and not busy:
             try:
-                if self._autosave_worker is not None and self._autosave_worker.isRunning():
-                    self._autosave_worker.wait()
+                self.autosave_controller.wait_for_pending()
                 # The user may have kept editing while the UAC prompt was open.
-                snapshot = self.autosave.save(self._project_document(), self.current_project_path, dirty=self._project_dirty)
+                snapshot = self.autosave.save(self._project_document(), self.current_project_path, dirty=self.project_session.dirty)
                 if snapshot.path != recovery_path:
                     snapshot.path.replace(recovery_path)
                 ready_path.unlink(missing_ok=True)
@@ -4589,8 +4500,8 @@ class MainWindow(QMainWindow):
         """Set the initial canvas view and establish the first undo snapshot."""
         self.canvas.fit_artboard()
         self.history.reset(self._project_document().to_dict())
-        self._history_ready = True
-        self._project_dirty = False
+        self.project_session.ready = True
+        self.project_session.dirty = False
         self._update_project_status()
         self.motion.fade_in(self.centralWidget())
 
@@ -4949,8 +4860,7 @@ class MainWindow(QMainWindow):
                 ):
                     source.width = new_width
                     source.height = new_height
-        self._history_restoring = True
-        try:
+        with self.project_session.suspend_changes():
             self.canvas.scene_model.set_artboard_size(new_width, new_height)
             self.store.replace(resized, self.store.groups())
             valid_selection = [
@@ -4962,8 +4872,6 @@ class MainWindow(QMainWindow):
                 active_id if active_id in valid_selection else None,
             )
             self.canvas.fit_artboard()
-        finally:
-            self._history_restoring = False
 
     def _show_lrc_generator(self) -> None:
         """Open the audio-assisted LRC authoring workflow."""
@@ -5474,7 +5382,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(message, 5000)
             event.ignore()
             return
-        if self._project_dirty and not self._update_install_authorized:
+        if self.project_session.dirty and not self._update_install_authorized:
             korean = self.translator.is_korean
             response = QMessageBox.warning(
                 self,
@@ -5487,7 +5395,7 @@ class MainWindow(QMainWindow):
             )
             if response == QMessageBox.StandardButton.Save:
                 self._save_project(wait_for_completion=True)
-                if self._project_dirty:
+                if self.project_session.dirty:
                     # The user cancelled Save As or saving failed; stay in the editor.
                     event.ignore()
                     return
@@ -5508,8 +5416,7 @@ class MainWindow(QMainWindow):
         # launch offers a stale recovery after a clean exit. No timeout: a slow
         # disk past a bounded wait would leave the QThread running at exit, and
         # destroying a running QThread aborts the process.
-        if self._autosave_worker is not None and self._autosave_worker.isRunning():
-            self._autosave_worker.wait()
+        self.autosave_controller.wait_for_pending()
         self._save_workspace_layout()
         QSettings().sync()
         if not self._update_install_authorized:

@@ -5,8 +5,10 @@ from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
 import threading
+from types import SimpleNamespace
 from time import monotonic, sleep
 import unittest
+from unittest.mock import Mock, patch
 import wave
 
 from PySide6.QtGui import QColor, QImage
@@ -51,6 +53,19 @@ def _read_all(path: str, sink: bytearray, *, limit: int | None = None) -> None:
 # Windows named pipes and POSIX FIFOs alike: a plain open() is the reader.
 @unittest.skipUnless(piped_export_supported(), "named pipes unavailable")
 class PipedCanvasStreamTests(unittest.TestCase):
+    def test_subframe_state_skips_conversion_and_pipe_io(self) -> None:
+        with patch("app.renderer.canvas_pipe._create_endpoint") as endpoint:
+            stream = PipedCanvasStream(Path("unused"), "base", 60, preserve_alpha=True)
+            stream._written_seconds = 0.001
+            stream._frame_count = 1
+            image = Mock()
+            stream._write_frame(SimpleNamespace(image=image, duration_seconds=0.001))
+            image.convertToFormat.assert_not_called()
+            endpoint.return_value.connect.assert_not_called()
+            endpoint.return_value.write.assert_not_called()
+            self.assertAlmostEqual(stream._written_seconds, 0.002)
+            self.assertEqual(stream.frame_count, 1)
+
     def test_expands_states_to_cfr_frames_like_the_intermediate_encoder(self) -> None:
         with TemporaryDirectory() as directory:
             stream = PipedCanvasStream(Path(directory), "base", 10, preserve_alpha=False)

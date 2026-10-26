@@ -231,6 +231,8 @@ class BoundedExportPipeline(Generic[T]):
                     self._consumer(item)  # type: ignore[arg-type]
                 finally:
                     self._queue.task_done()
+                # Do not retain the previous image while waiting for more input.
+                del item
         except BaseException as error:
             self._record_failure(error)
         finally:

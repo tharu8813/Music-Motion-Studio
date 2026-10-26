@@ -8,7 +8,7 @@ Type-specific implementations can replace these bindings in later phases.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from app.models.source import Source, SourceType
@@ -41,6 +41,8 @@ class SourceRegistry:
     def register(self, definition: SourceDefinition) -> None:
         if not isinstance(definition.type, SourceType):
             raise ValueError("Source definitions require a supported SourceType.")
+        if not isinstance(definition.component, type) or not issubclass(definition.component, SourceComponent):
+            raise ValueError("Source definitions require a SourceComponent class.")
         if definition.type in self._definitions:
             raise ValueError(f"Source type is already registered: {definition.type.value}")
         self._definitions[definition.type] = definition
@@ -62,6 +64,21 @@ class SourceRegistry:
     def component_for(self, source: Source) -> SourceComponent:
         """Read a fresh, detached snapshot of this source's specific properties."""
         return self.get(source.source_type).component.from_source(source)
+
+    def component_changes(self, source: Source, **changes: object) -> dict[str, object]:
+        """Validate an edit without mutating the source or normalizing unrelated fields."""
+        component = replace(self.component_for(source), **changes)
+        legacy = {
+            name: value for name, value in component.to_source_changes().items()
+            if value != getattr(source, name)
+        }
+        if not legacy:
+            return {}
+        validated = self.deserialize(self.serialize(source) | legacy)
+        return {
+            name: getattr(validated, name) for name in legacy
+            if getattr(validated, name) != getattr(source, name)
+        }
 
 
 source_registry = SourceRegistry()

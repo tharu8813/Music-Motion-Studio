@@ -60,6 +60,7 @@ class _CapturerStub:
         self.full_frame_source_pixels = 100
         self.scene_render_source_pixels = 100
         self.partial_render_capture_count = 0
+        self.skipped_cfr_captures = 0
         self._stage_frame = _kwargs.get("_stage") or (_args[5] if len(_args) > 5 else None)
         self._after_capture = _args[7] if len(_args) > 7 else _kwargs.get("_after")
 

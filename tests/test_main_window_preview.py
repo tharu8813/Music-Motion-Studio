@@ -1167,8 +1167,8 @@ class MainWindowPreviewTests(MainWindowTestCase):
         first.fill(QColor("#FF0000"))
         second = QImage(2, 2, QImage.Format.Format_ARGB32)
         second.fill(QColor("#0000FF"))
-        preview._overlay_frame_cache[(track.id, (0,), 5)] = (first,)
-        preview._overlay_frame_cache[(track.id, (1,), 5)] = (second,)
+        preview._overlay_cache.store(track.id, (0,), [(5, (first,))])
+        preview._overlay_cache.store(track.id, (1,), [(5, (second,))])
 
         first_layers = preview._overlay_layers_for_frame(track.id, 5, (0,))
         second_layers = preview._overlay_layers_for_frame(track.id, 5, (1,))

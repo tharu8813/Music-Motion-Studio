@@ -10,27 +10,14 @@ from __future__ import annotations
 from PySide6.QtCore import SIGNAL, QCoreApplication, QEvent, QEventLoop, QThread, QTimer
 
 
-def stop_qthread_now(worker: QThread | None) -> None:
-    """Wait out an already-cancelled worker, then delete it right now.
-
-    1. Disconnect ``finished`` so the owner's own "forget and deleteLater"
-       handler can't also schedule deletion while this waits on the object.
-    2. Wait in a nested loop that excludes user input: paint and queued
-       completion signals keep flowing, but no click can re-enter the owner's
-       destruction path.
-    3. ``wait()``, ``deleteLater()`` and force that DeferredDelete now. A plain
-       deleteLater() ran inside some *other* controller's nested shutdown loop
-       (MainWindow shuts several down in sequence), interleaved with a still
-       live thread's completion -- which reproduced the crash deterministically.
-    """
+def wait_for_qthread(worker: QThread | None) -> None:
+    """Wait with paints/completion signals flowing, including an already-finished thread."""
     if worker is None:
         return
     try:
         running = worker.isRunning()
     except RuntimeError:
         return  # the C++ QThread is already gone
-    if worker.receivers(SIGNAL("finished()")) > 0:
-        worker.finished.disconnect()
     if running:
         loop = QEventLoop()
         worker.finished.connect(loop.quit)
@@ -38,14 +25,45 @@ def stop_qthread_now(worker: QThread | None) -> None:
         # finish landing between the check above and connect() would never
         # quit the loop. Polling isFinished() closes that window.
         poll = QTimer()
-        poll.timeout.connect(lambda: loop.quit() if worker.isFinished() else None)
+
+        def quit_if_finished() -> None:
+            try:
+                if worker.isFinished():
+                    loop.quit()
+            except RuntimeError:
+                loop.quit()  # An owner's normal finished handler can delete it.
+
+        poll.timeout.connect(quit_if_finished)
         poll.start(50)
         if not worker.isFinished():
             loop.exec(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
         poll.stop()
+        try:
+            worker.finished.disconnect(loop.quit)
+        except (RuntimeError, TypeError):
+            pass
     try:
         worker.wait()
     except RuntimeError:
+        pass
+
+
+def stop_qthread_now(worker: QThread | None) -> None:
+    """Disconnect the owner's finished handler, join, then force deletion now.
+
+    Preserve this order: deferred deletion from an owner's nested shutdown loop
+    previously raced a live native thread and caused Windows 0xC0000409 crashes.
+    """
+    if worker is None:
         return
-    worker.deleteLater()
+    try:
+        if worker.receivers(SIGNAL("finished()")) > 0:
+            worker.finished.disconnect()
+    except RuntimeError:
+        return
+    wait_for_qthread(worker)
+    try:
+        worker.deleteLater()
+    except RuntimeError:
+        return
     QCoreApplication.sendPostedEvents(worker, QEvent.Type.DeferredDelete)

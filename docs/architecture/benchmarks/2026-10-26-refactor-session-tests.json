@@ -1,0 +1,1281 @@
+[
+  {
+    "module": "tests.test_activity_progress",
+    "status": "pass",
+    "seconds": 0.47,
+    "returncode": 0,
+    "tests": 6,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_adaptive_preview_quality",
+    "status": "pass",
+    "seconds": 0.43,
+    "returncode": 0,
+    "tests": 4,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_application_launch",
+    "status": "pass",
+    "seconds": 0.64,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_architecture",
+    "status": "pass",
+    "seconds": 1.79,
+    "returncode": 0,
+    "tests": 4,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_audio_sync_warning",
+    "status": "pass",
+    "seconds": 0.7,
+    "returncode": 0,
+    "tests": 20,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_audit_regressions",
+    "status": "pass",
+    "seconds": 28.0,
+    "returncode": 0,
+    "tests": 24,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_auto_line_counts",
+    "status": "pass",
+    "seconds": 5.32,
+    "returncode": 0,
+    "tests": 4,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_analysis_controller",
+    "status": "pass",
+    "seconds": 2.25,
+    "returncode": 0,
+    "tests": 17,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_analysis_service",
+    "status": "pass",
+    "seconds": 1.57,
+    "returncode": 0,
+    "tests": 13,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_audition",
+    "status": "pass",
+    "seconds": 4.18,
+    "returncode": 0,
+    "tests": 9,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_basic_analyzer",
+    "status": "pass",
+    "seconds": 23.76,
+    "returncode": 0,
+    "tests": 24,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_beat_this",
+    "status": "pass",
+    "seconds": 1.36,
+    "returncode": 0,
+    "tests": 34,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_beat_this_onnx",
+    "status": "pass",
+    "seconds": 20.57,
+    "returncode": 0,
+    "tests": 9,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_beat_this_real_model",
+    "status": "pass",
+    "seconds": 0.91,
+    "returncode": 0,
+    "tests": 3,
+    "skipped": 3,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_cache",
+    "status": "pass",
+    "seconds": 2.01,
+    "returncode": 0,
+    "tests": 21,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_candidates",
+    "status": "pass",
+    "seconds": 1.14,
+    "returncode": 0,
+    "tests": 47,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_compatibility",
+    "status": "pass",
+    "seconds": 0.52,
+    "returncode": 0,
+    "tests": 9,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_details_panel",
+    "status": "pass",
+    "seconds": 1.84,
+    "returncode": 0,
+    "tests": 12,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_diagnostics",
+    "status": "pass",
+    "seconds": 1.2,
+    "returncode": 0,
+    "tests": 7,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_editor_dialog",
+    "status": "pass",
+    "seconds": 25.76,
+    "returncode": 0,
+    "tests": 57,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_ffmpeg_integration",
+    "status": "pass",
+    "seconds": 22.73,
+    "returncode": 0,
+    "tests": 15,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_filter_sweep",
+    "status": "pass",
+    "seconds": 3.27,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_intelligence",
+    "status": "pass",
+    "seconds": 10.59,
+    "returncode": 0,
+    "tests": 15,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_invariants",
+    "status": "pass",
+    "seconds": 2.02,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_key",
+    "status": "pass",
+    "seconds": 0.7,
+    "returncode": 0,
+    "tests": 12,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_listening_report",
+    "status": "pass",
+    "seconds": 1.03,
+    "returncode": 0,
+    "tests": 1,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_manual_transitions",
+    "status": "pass",
+    "seconds": 1.51,
+    "returncode": 0,
+    "tests": 32,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_models",
+    "status": "pass",
+    "seconds": 0.42,
+    "returncode": 0,
+    "tests": 18,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_music",
+    "status": "pass",
+    "seconds": 4.14,
+    "returncode": 0,
+    "tests": 11,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_p1_regressions",
+    "status": "pass",
+    "seconds": 8.21,
+    "returncode": 0,
+    "tests": 11,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_parallel_mix",
+    "status": "pass",
+    "seconds": 7.1,
+    "returncode": 0,
+    "tests": 3,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_planner",
+    "status": "pass",
+    "seconds": 1.06,
+    "returncode": 0,
+    "tests": 38,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_presets",
+    "status": "pass",
+    "seconds": 0.62,
+    "returncode": 0,
+    "tests": 2,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_progressive",
+    "status": "pass",
+    "seconds": 3.55,
+    "returncode": 0,
+    "tests": 21,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_renderer",
+    "status": "pass",
+    "seconds": 32.33,
+    "returncode": 0,
+    "tests": 65,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_rhythm",
+    "status": "pass",
+    "seconds": 1.1,
+    "returncode": 0,
+    "tests": 6,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_structure",
+    "status": "pass",
+    "seconds": 1.42,
+    "returncode": 0,
+    "tests": 39,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_structure_real_model",
+    "status": "pass",
+    "seconds": 0.91,
+    "returncode": 0,
+    "tests": 2,
+    "skipped": 2,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_tail_protection",
+    "status": "pass",
+    "seconds": 5.68,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_transition_style",
+    "status": "pass",
+    "seconds": 0.85,
+    "returncode": 0,
+    "tests": 31,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_variety",
+    "status": "pass",
+    "seconds": 1.4,
+    "returncode": 0,
+    "tests": 30,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_vocal_sections",
+    "status": "pass",
+    "seconds": 0.86,
+    "returncode": 0,
+    "tests": 16,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_automix_workflow",
+    "status": "pass",
+    "seconds": 0.93,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_autosave_service",
+    "status": "pass",
+    "seconds": 0.67,
+    "returncode": 0,
+    "tests": 6,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_background_editor",
+    "status": "pass",
+    "seconds": 0.52,
+    "returncode": 0,
+    "tests": 1,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_bounded_export_pipeline",
+    "status": "pass",
+    "seconds": 0.72,
+    "returncode": 0,
+    "tests": 8,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_canvas_pipe",
+    "status": "pass",
+    "seconds": 10.48,
+    "returncode": 0,
+    "tests": 15,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_canvas_snapping",
+    "status": "pass",
+    "seconds": 2.46,
+    "returncode": 0,
+    "tests": 26,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_color_editor",
+    "status": "pass",
+    "seconds": 3.31,
+    "returncode": 0,
+    "tests": 10,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_content_preview_dialog",
+    "status": "pass",
+    "seconds": 1.07,
+    "returncode": 0,
+    "tests": 3,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_decoder_backpressure",
+    "status": "pass",
+    "seconds": 0.44,
+    "returncode": 0,
+    "tests": 4,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_distribution_verification",
+    "status": "pass",
+    "seconds": 0.87,
+    "returncode": 0,
+    "tests": 1,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_export_audio_staging",
+    "status": "pass",
+    "seconds": 2.72,
+    "returncode": 0,
+    "tests": 2,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_export_frame_equivalence",
+    "status": "pass",
+    "seconds": 4.32,
+    "returncode": 0,
+    "tests": 16,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_export_optimizations",
+    "status": "pass",
+    "seconds": 2.1,
+    "returncode": 0,
+    "tests": 2,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_export_plan",
+    "status": "pass",
+    "seconds": 2.54,
+    "returncode": 0,
+    "tests": 7,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_export_session",
+    "status": "pass",
+    "seconds": 2.81,
+    "returncode": 0,
+    "tests": 14,
+    "skipped": 6,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_export_storage_service",
+    "status": "pass",
+    "seconds": 0.46,
+    "returncode": 0,
+    "tests": 2,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_export_timeline",
+    "status": "pass",
+    "seconds": 1.05,
+    "returncode": 0,
+    "tests": 15,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_export_validation_service",
+    "status": "pass",
+    "seconds": 0.72,
+    "returncode": 0,
+    "tests": 3,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_ffmpeg_process",
+    "status": "pass",
+    "seconds": 1.17,
+    "returncode": 0,
+    "tests": 7,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_ffmpeg_streaming_integration",
+    "status": "pass",
+    "seconds": 5.4,
+    "returncode": 0,
+    "tests": 6,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_frame_state",
+    "status": "pass",
+    "seconds": 0.61,
+    "returncode": 0,
+    "tests": 16,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_functional_regressions",
+    "status": "pass",
+    "seconds": 7.58,
+    "returncode": 0,
+    "tests": 113,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_gpu_preview_health",
+    "status": "pass",
+    "seconds": 0.52,
+    "returncode": 0,
+    "tests": 3,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_gpu_texture_surface",
+    "status": "pass",
+    "seconds": 1.75,
+    "returncode": 0,
+    "tests": 11,
+    "skipped": 3,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_help_content",
+    "status": "pass",
+    "seconds": 5.05,
+    "returncode": 0,
+    "tests": 8,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_inspector_sections",
+    "status": "pass",
+    "seconds": 3.61,
+    "returncode": 0,
+    "tests": 12,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_language_packs",
+    "status": "pass",
+    "seconds": 1.89,
+    "returncode": 0,
+    "tests": 8,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_launch_splash",
+    "status": "pass",
+    "seconds": 2.74,
+    "returncode": 0,
+    "tests": 1,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_live_mix_media",
+    "status": "pass",
+    "seconds": 1.54,
+    "returncode": 0,
+    "tests": 1,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_live_mix_player",
+    "status": "pass",
+    "seconds": 1.24,
+    "returncode": 0,
+    "tests": 8,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_live_mix_preview",
+    "status": "pass",
+    "seconds": 3.04,
+    "returncode": 0,
+    "tests": 3,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_lrc_draft_service",
+    "status": "pass",
+    "seconds": 0.53,
+    "returncode": 0,
+    "tests": 1,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_lyrics_alignment",
+    "status": "pass",
+    "seconds": 2.48,
+    "returncode": 0,
+    "tests": 19,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_lyrics_customization",
+    "status": "pass",
+    "seconds": 4.86,
+    "returncode": 0,
+    "tests": 14,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_lyrics_formats",
+    "status": "pass",
+    "seconds": 0.52,
+    "returncode": 0,
+    "tests": 3,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_lyrics_intro",
+    "status": "pass",
+    "seconds": 2.97,
+    "returncode": 0,
+    "tests": 8,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_lyrics_karaoke",
+    "status": "pass",
+    "seconds": 10.61,
+    "returncode": 0,
+    "tests": 14,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_lyrics_responsiveness",
+    "status": "pass",
+    "seconds": 3.87,
+    "returncode": 0,
+    "tests": 11,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_lyrics_sidecar",
+    "status": "pass",
+    "seconds": 0.55,
+    "returncode": 0,
+    "tests": 4,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_m3u_playlist",
+    "status": "pass",
+    "seconds": 1.17,
+    "returncode": 0,
+    "tests": 4,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_main_window",
+    "status": "pass",
+    "seconds": 157.87,
+    "returncode": 0,
+    "tests": 86,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-main-window-recheck.json",
+    "replaces_failed_initial_run": true
+  },
+  {
+    "module": "tests.test_main_window_export",
+    "status": "pass",
+    "seconds": 102.11,
+    "returncode": 0,
+    "tests": 55,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_main_window_playlist",
+    "status": "pass",
+    "seconds": 53.03,
+    "returncode": 0,
+    "tests": 38,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_main_window_preview",
+    "status": "pass",
+    "seconds": 100.71,
+    "returncode": 0,
+    "tests": 78,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_main_window_project",
+    "status": "pass",
+    "seconds": 53.18,
+    "returncode": 0,
+    "tests": 64,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_maintenance_service",
+    "status": "pass",
+    "seconds": 0.84,
+    "returncode": 0,
+    "tests": 3,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_media_export_formats",
+    "status": "pass",
+    "seconds": 7.26,
+    "returncode": 0,
+    "tests": 9,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_metadata_style_dialogs",
+    "status": "pass",
+    "seconds": 2.11,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_mix_visual_transitions",
+    "status": "pass",
+    "seconds": 1.96,
+    "returncode": 0,
+    "tests": 9,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_motion_curves",
+    "status": "pass",
+    "seconds": 0.57,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_overlay_frame_cache",
+    "status": "pass",
+    "seconds": 0.43,
+    "returncode": 0,
+    "tests": 3,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_performance_profile",
+    "status": "pass",
+    "seconds": 0.61,
+    "returncode": 0,
+    "tests": 3,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_png_frame_staging",
+    "status": "pass",
+    "seconds": 0.48,
+    "returncode": 0,
+    "tests": 2,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_preview_audio_controller",
+    "status": "pass",
+    "seconds": 0.82,
+    "returncode": 0,
+    "tests": 12,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_preview_large_playlist",
+    "status": "pass",
+    "seconds": 2.44,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_preview_layout",
+    "status": "pass",
+    "seconds": 1.74,
+    "returncode": 0,
+    "tests": 1,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_preview_proxy",
+    "status": "pass",
+    "seconds": 0.6,
+    "returncode": 0,
+    "tests": 6,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_preview_responsiveness",
+    "status": "pass",
+    "seconds": 2.11,
+    "returncode": 0,
+    "tests": 10,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_preview_worker_lifecycle",
+    "status": "pass",
+    "seconds": 2.03,
+    "returncode": 0,
+    "tests": 2,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_progress_text",
+    "status": "pass",
+    "seconds": 0.25,
+    "returncode": 0,
+    "tests": 3,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_progressive_automix_controller",
+    "status": "pass",
+    "seconds": 14.35,
+    "returncode": 0,
+    "tests": 15,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_progressive_loudness",
+    "status": "pass",
+    "seconds": 0.81,
+    "returncode": 0,
+    "tests": 2,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_project_models",
+    "status": "pass",
+    "seconds": 0.4,
+    "returncode": 0,
+    "tests": 24,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_project_persistence_service",
+    "status": "pass",
+    "seconds": 0.26,
+    "returncode": 0,
+    "tests": 3,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_project_service",
+    "status": "pass",
+    "seconds": 1.73,
+    "returncode": 0,
+    "tests": 17,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_project_session",
+    "status": "pass",
+    "seconds": 0.52,
+    "returncode": 0,
+    "tests": 6,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 0.61,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_real_video_preview_performance",
+    "status": "pass",
+    "seconds": 11.8,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 2,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_release_contract",
+    "status": "pass",
+    "seconds": 0.3,
+    "returncode": 0,
+    "tests": 13,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_release_notes_html",
+    "status": "pass",
+    "seconds": 0.25,
+    "returncode": 0,
+    "tests": 7,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_render_plan",
+    "status": "pass",
+    "seconds": 0.28,
+    "returncode": 0,
+    "tests": 19,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_settings_layout",
+    "status": "pass",
+    "seconds": 1.05,
+    "returncode": 0,
+    "tests": 1,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_shape_rendering",
+    "status": "pass",
+    "seconds": 1.62,
+    "returncode": 0,
+    "tests": 3,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_source_components",
+    "status": "pass",
+    "seconds": 1.46,
+    "returncode": 0,
+    "tests": 10,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_source_layout_controller",
+    "status": "pass",
+    "seconds": 1.39,
+    "returncode": 0,
+    "tests": 2,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_source_registry",
+    "status": "pass",
+    "seconds": 1.88,
+    "returncode": 0,
+    "tests": 8,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_speed_optimizations",
+    "status": "pass",
+    "seconds": 3.15,
+    "returncode": 0,
+    "tests": 10,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_static_video_stream",
+    "status": "pass",
+    "seconds": 0.5,
+    "returncode": 0,
+    "tests": 9,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_studio_design",
+    "status": "pass",
+    "seconds": 0.27,
+    "returncode": 0,
+    "tests": 2,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_subprocess_utils",
+    "status": "pass",
+    "seconds": 0.28,
+    "returncode": 0,
+    "tests": 2,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_subtitle_export",
+    "status": "pass",
+    "seconds": 5.26,
+    "returncode": 0,
+    "tests": 14,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_system_audio_state",
+    "status": "pass",
+    "seconds": 0.36,
+    "returncode": 0,
+    "tests": 7,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_temp_cleanup",
+    "status": "pass",
+    "seconds": 0.25,
+    "returncode": 0,
+    "tests": 1,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_text_music_reaction",
+    "status": "pass",
+    "seconds": 2.1,
+    "returncode": 0,
+    "tests": 8,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_text_template_placeholders",
+    "status": "pass",
+    "seconds": 0.26,
+    "returncode": 0,
+    "tests": 4,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_time_format",
+    "status": "pass",
+    "seconds": 0.24,
+    "returncode": 0,
+    "tests": 4,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_timeline_models",
+    "status": "pass",
+    "seconds": 0.28,
+    "returncode": 0,
+    "tests": 4,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_track_analysis_panel",
+    "status": "pass",
+    "seconds": 0.5,
+    "returncode": 0,
+    "tests": 3,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_track_audio_settings",
+    "status": "pass",
+    "seconds": 1.19,
+    "returncode": 0,
+    "tests": 7,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_track_order_dialog",
+    "status": "pass",
+    "seconds": 0.91,
+    "returncode": 0,
+    "tests": 8,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_track_schedule",
+    "status": "pass",
+    "seconds": 0.27,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_transition_inspector",
+    "status": "pass",
+    "seconds": 1.73,
+    "returncode": 0,
+    "tests": 17,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_ui_responsiveness",
+    "status": "pass",
+    "seconds": 8.99,
+    "returncode": 0,
+    "tests": 10,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_update_service",
+    "status": "pass",
+    "seconds": 0.43,
+    "returncode": 0,
+    "tests": 6,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_ux_guidance",
+    "status": "pass",
+    "seconds": 11.47,
+    "returncode": 0,
+    "tests": 13,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_video_frame_filter",
+    "status": "pass",
+    "seconds": 1.73,
+    "returncode": 0,
+    "tests": 27,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_video_preview_decoder",
+    "status": "pass",
+    "seconds": 0.29,
+    "returncode": 0,
+    "tests": 2,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_video_timeline",
+    "status": "pass",
+    "seconds": 0.31,
+    "returncode": 0,
+    "tests": 4,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_visual_timeline",
+    "status": "pass",
+    "seconds": 1.9,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  },
+  {
+    "module": "tests.test_visualizer_streaming",
+    "status": "pass",
+    "seconds": 2.51,
+    "returncode": 0,
+    "tests": 6,
+    "skipped": 0,
+    "verification_report": "2026-10-26-refactor-session-initial-tests.json"
+  }
+]

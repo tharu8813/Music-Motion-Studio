@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
     QStyleOptionSpinBox,
     QWidget,
 )
-from app.models.project import CanvasSettings, ProjectDocument
+from app.models.project import CanvasSettings, ProjectContent, ProjectDocument
 from app.models.playlist import PlaylistTrack
 from app.models.source import Source, SourceType
 from app.dialogs.settings_dialog import SettingsDialog
@@ -932,7 +932,7 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
                 finally:
                     for window in (second_window, first_window):
                         if window is not None:
-                            window._project_dirty = False
+                            window.project_session.dirty = False
                             window.close()
 
     def test_canvas_hover_uses_directional_cursor_on_selected_resize_handles(self) -> None:
@@ -1849,7 +1849,7 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
     def test_visual_timeline_edits_undo_and_restore_shared_selection(self) -> None:
         source = Source(SourceType.TEXT, "Timed title", timeline_start=5, timeline_duration=10)
         self.window.store.add(source)
-        self.window._history_ready = True
+        self.window.project_session.ready = True
         self.window._history_timer.stop()
         self.window.history.reset(self.window._project_document().to_dict())
         panel = self.window.timeline_panel
@@ -1960,8 +1960,18 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
         self.window.left_tabs.setCurrentWidget(self.window.content_library_panel)
         content_list = self.window.content_library_panel.list
         content_list.setFixedHeight(160)
-        content_list.addItems([f"Content {index}" for index in range(40)])
+        self.window.content_library_panel.filter_combo.setCurrentIndex(
+            self.window.content_library_panel.filter_combo.findData("all")
+        )
+        self.window.project_content_service.replace([
+            ProjectContent(f"content-{index}.png", "image", f"Content {index}")
+            for index in range(40)
+        ])
+        # A pending marker refresh must preserve these model-backed fixture rows.
+        self.window.content_library_panel.refresh()
         self.application.processEvents()
+        content_list.doItemsLayout()
+        self.assertEqual(content_list.count(), 40)
         self.assertGreater(content_list.verticalScrollBar().maximum(), 0)
         wheel = QWheelEvent(
             QPointF(20, 20), QPointF(20, 20), QPoint(), QPoint(0, -120),
@@ -2060,12 +2070,12 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
         self.assertEqual(self.window.zoom_reset_button.text(), "115%")
 
     def test_canvas_zoom_is_view_state_not_document_state(self) -> None:
-        self.window._project_dirty = False
+        self.window.project_session.dirty = False
         with patch.object(self.window, "_schedule_history") as schedule:
             self.window._adjust_canvas_zoom(1.15)
             self.window.canvas.set_zoom(1.0)
         schedule.assert_not_called()
-        self.assertFalse(self.window._project_dirty)
+        self.assertFalse(self.window.project_session.dirty)
 
     def test_ctrl_plus_and_ctrl_equals_both_zoom_the_canvas_in(self) -> None:
         sequences = {

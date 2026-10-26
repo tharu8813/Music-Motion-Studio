@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import replace
 from hashlib import sha256
 from math import floor
 import os
@@ -118,6 +119,84 @@ class ExportFrameEquivalenceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.application = QApplication.instance() or QApplication([])
+
+    def test_subframe_captures_preserve_every_encoded_pixel_and_duration(self) -> None:
+        scene = CanvasScene()
+        scene.set_artboard_size(160, 90)
+        scene.addItem(SourceItem(Source(
+            SourceType.PROGRESS_BAR, "Progress", x=8, y=10,
+            width=144, height=15, z_index=0,
+        )))
+        scene.addItem(SourceItem(Source(
+            SourceType.TEXT, "Animated text", text="Test", x=8, y=35,
+            width=144, height=40, font_size=22, z_index=2,
+            animation_in="fade", animation_in_duration=1.0,
+        )))
+        track = PlaylistTrack("subframes.wav", "Subframes", duration_seconds=2.0)
+        samples = []
+        elapsed = 0.0
+        # Mixed grids and very short lyric boundaries can produce zero CFR frames.
+        for index in range(360):
+            duration = (0.001, 1 / 120, 0.003, 1 / 60)[index % 4]
+            samples.append(ExportFrameSample(
+                track, 1, 0.0, duration, elapsed, elapsed,
+                animation_phase="in", animation_progress=min(1.0, elapsed),
+                animation_phase_duration=1.0,
+            ))
+            elapsed += duration
+        bands = [(None, 0), (1, None)]
+        for fps in (24, 30, 60):
+            with self.subTest(fps=fps):
+                results = []
+                for output_fps in (None, fps):
+                    frames = defaultdict(list)
+
+                    def stage(image, seconds, key):
+                        frame = RenderFrame(image.copy(), seconds)
+                        frames[key].append(frame)
+                        return frame
+
+                    capturer = ExportCanvasCapturer(
+                        scene, [track], elapsed, set(), bands, stage,
+                        lambda: None, lambda *_args: None,
+                        retain_static_frames=False, output_fps=output_fps,
+                    )
+                    with patch.object(CanvasSnapshot, "capture_track", wraps=CanvasSnapshot.capture_track) as capture:
+                        for sample in samples:
+                            for key in ("base", "layer:0"):
+                                capturer.capture_stream(sample, key)
+                        calls = capture.call_count
+                    results.append(frames)
+                    if output_fps is not None:
+                        self.assertGreater(capturer.skipped_cfr_captures, 0)
+                        self.assertEqual(calls + capturer.skipped_cfr_captures, len(samples) * 2)
+                for key in ("base", "layer:0"):
+                    self.assertEqual(
+                        _expand_cfr(results[0][key], fps), _expand_cfr(results[1][key], fps),
+                    )
+                    self.assertEqual(
+                        [frame.duration_seconds for frame in results[0][key]],
+                        [frame.duration_seconds for frame in results[1][key]],
+                    )
+
+    def test_subframe_skip_still_checks_cancellation_and_reports_progress(self) -> None:
+        scene = CanvasScene()
+        track = PlaylistTrack("cancel.wav", "Cancel", duration_seconds=1.0)
+        staged = []
+        callbacks = []
+        capturer = ExportCanvasCapturer(
+            scene, [track], 1.0, set(), [(None, None)],
+            lambda image, seconds, key: staged.append(seconds),
+            lambda: None, lambda *_args: callbacks.append(True), output_fps=60,
+        )
+        sample = ExportFrameSample(track, 1, 0, 0.001, 0, 0)
+        capturer.capture_stream(sample, "base")
+        capturer.capture_stream(replace(sample, timeline_seconds=0.001), "base")
+        self.assertEqual(len(callbacks), 2)
+        self.assertEqual(staged, [0.001, 0.001])
+        with patch.object(capturer, "ensure_not_cancelled", side_effect=RuntimeError("cancelled")):
+            with self.assertRaisesRegex(RuntimeError, "cancelled"):
+                capturer.capture_stream(sample, "base")
 
     def test_planned_animation_endpoints_reach_exact_canvas_alpha(self) -> None:
         scene = CanvasScene()

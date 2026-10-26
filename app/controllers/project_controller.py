@@ -1,13 +1,7 @@
-"""Project new/open/save/load orchestration, extracted from MainWindow.
+"""Project new/open/save/load orchestration and background-save ownership.
 
-MainWindow still owns the live state (current path, dirty flag, save
-worker, UI widgets/dialogs) and keeps identically-named thin wrapper
-methods that delegate here, so every existing call site and signal
-connection in main_window.py keeps working unchanged. This is a pure move
-of the persistence-orchestration logic, not a rewrite or a behavior change.
-
-Autosave/recovery orchestration (_autosave_project, _offer_recovery, etc.)
-is deliberately left in MainWindow for a later AutosaveController phase.
+ProjectSession owns editing state; the window supplies workspace/UI adapters.
+AutosaveController owns recovery writes and startup recovery.
 """
 
 from __future__ import annotations
@@ -39,6 +33,9 @@ from app.services.project_service import ProjectError, ProjectLoadCancelled, Pro
 from app.utils.logging_setup import log_directory
 from app import __version__
 
+from app.services.project_session import ProjectSession
+from app.utils.qt_worker_lifecycle import wait_for_qthread
+
 if TYPE_CHECKING:
     from app.ui.main_window import MainWindow
 
@@ -48,8 +45,9 @@ LOGGER = logging.getLogger(__name__)
 class ProjectController:
     """Own new/open/save/load orchestration on behalf of a MainWindow."""
 
-    def __init__(self, window: "MainWindow") -> None:
+    def __init__(self, window: "MainWindow", session: ProjectSession) -> None:
         self.window = window
+        self.session = session
         # The background save in flight (at most one), the (change serial,
         # previous path) it was started with, and how the last save ended.
         self.save_worker: ProjectSaveWorker | None = None
@@ -139,8 +137,8 @@ class ProjectController:
         state = (
             "저장 중" if korean and saving else
             "Saving" if saving else
-            "저장 필요" if korean and window._project_dirty else
-            "Unsaved" if window._project_dirty else
+            "저장 필요" if korean and self.session.dirty else
+            "Unsaved" if self.session.dirty else
             "저장 전" if korean and never_saved else
             "Not saved yet" if never_saved else
             "저장됨" if korean else "Saved"
@@ -151,7 +149,7 @@ class ProjectController:
         window.project_status_label.setText(f"{name}  ·  {state}{legacy}")
         # Taskbar/Alt+Tab: which project is open and whether it has unsaved edits.
         window.setWindowTitle(f"{name}[*] — Playlist Canvas")
-        window.setWindowModified(bool(window._project_dirty))
+        window.setWindowModified(bool(self.session.dirty))
         window.project_status_label.setToolTip(
             "프로젝트 스냅샷을 백그라운드에서 저장하고 있습니다."
             if korean and saving else
@@ -161,9 +159,9 @@ class ProjectController:
             if korean and window._legacy_project_path else
             "This is a legacy JSON project. Upgrade it to .pvsproj from the Project menu."
             if window._legacy_project_path else
-            "프로젝트를 저장하려면 Ctrl+S를 누르세요." if korean and (window._project_dirty or never_saved) else
+            "프로젝트를 저장하려면 Ctrl+S를 누르세요." if korean and (self.session.dirty or never_saved) else
             "프로젝트가 저장되어 있습니다." if korean else
-            "Press Ctrl+S to save this project." if window._project_dirty or never_saved else
+            "Press Ctrl+S to save this project." if self.session.dirty or never_saved else
             "This project is saved."
         )
 
@@ -193,8 +191,7 @@ class ProjectController:
         project_settings = dialog.project_settings
         music_paths = list(dialog.music_paths)
         previous_project_path = window.current_project_path
-        window._history_restoring = True
-        try:
+        with self.session.suspend_changes():
             window.current_project_path = None
             window._legacy_project_path = None
             if hasattr(window, "upgrade_project_action"):
@@ -216,19 +213,17 @@ class ProjectController:
                     selected_preset, canvas_width, canvas_height,
                 ))
             window.canvas.fit_artboard()
-        finally:
-            window._history_restoring = False
         try:
             window.autosave.clear(previous_project_path)
             window.autosave.clear(None)
         except ProjectError as error:
             window.statusBar().showMessage(str(error), 5000)
-        if window._history_ready:
+        if self.session.ready:
             window.history.reset(window._project_document().to_dict())
-            window._project_dirty = True
+            self.session.dirty = True
             window._autosave_debounce_timer.start()
         else:
-            window._project_dirty = False
+            self.session.dirty = False
         window._update_project_status()
         if music_paths:
             # The normal import path: missing-tag review, M3U8 review, lyrics, project content.
@@ -315,7 +310,7 @@ class ProjectController:
         worker = ProjectSaveWorker(target, document_data, thumbnail)
         self.save_worker = worker
         self.save_context = (
-            window._project_change_serial, previous_project_path,
+            self.session.change_serial, previous_project_path,
         )
         self.save_succeeded = None
         worker.succeeded.connect(window._project_save_finished_successfully)
@@ -342,10 +337,7 @@ class ProjectController:
 
     def wait_for_save(self, worker: ProjectSaveWorker) -> None:
         """Wait for a required save while continuing to process Qt events."""
-        if worker.isRunning():
-            event_loop = QEventLoop(self.window)
-            worker.finished.connect(event_loop.quit)
-            event_loop.exec()
+        wait_for_qthread(worker)
         QApplication.processEvents()
 
     def save_finished_successfully(self, saved_path: object) -> None:
@@ -363,8 +355,7 @@ class ProjectController:
             )
             window.upgrade_project_action.setEnabled(window._legacy_project_path is not None)
             window.recent_projects.add(window.current_project_path)
-            unchanged_since_snapshot = saved_serial == window._project_change_serial
-            window._project_dirty = not unchanged_since_snapshot
+            unchanged_since_snapshot = self.session.mark_saved(saved_serial)
             if unchanged_since_snapshot:
                 window.autosave.clear(previous_project_path)
                 window.autosave.clear(window.current_project_path)
@@ -389,7 +380,7 @@ class ProjectController:
     def save_failed(self, message: str) -> None:
         window = self.window
         self.save_succeeded = False
-        if window._project_dirty:
+        if self.session.dirty:
             window._autosave_debounce_timer.start()
         window._show_project_error(ProjectError(message))
 
@@ -423,7 +414,7 @@ class ProjectController:
         """Replace the workspace after safely resolving unsaved changes."""
         window = self.window
         previous_project_path = window.current_project_path
-        had_unsaved_changes = window._project_dirty
+        had_unsaved_changes = self.session.dirty
         if not window._confirm_unsaved_changes():
             return False
         loaded = window._load_project_path(Path(path))
@@ -445,7 +436,7 @@ class ProjectController:
         # saving would let its completion overwrite the new active path.
         if self.save_worker is not None:
             window._wait_for_project_save(self.save_worker)
-        if not window._project_dirty:
+        if not self.session.dirty:
             return True
         korean = window.translator.is_korean
         response = QMessageBox.warning(
@@ -460,7 +451,7 @@ class ProjectController:
         )
         if response == QMessageBox.StandardButton.Save:
             window._save_project(wait_for_completion=True)
-            return not window._project_dirty
+            return not self.session.dirty
         return response == QMessageBox.StandardButton.Discard
 
     def load_path(self, path: Path) -> bool:
@@ -475,7 +466,7 @@ class ProjectController:
         previous_document = ProjectDocument.from_dict(window._project_document().to_dict())
         previous_path = window.current_project_path
         previous_legacy_path = window._legacy_project_path
-        previous_dirty = window._project_dirty
+        previous_dirty = self.session.dirty
         previous_selection = window.store.selected_ids
         previous_active = window.store.selected.id if window.store.selected is not None else None
         apply_started = False
@@ -512,13 +503,10 @@ class ProjectController:
             stage = "프로젝트 작업공간 적용" if korean else "Applying project workspace"
             window.activity_progress.update("project_load", 0.8, stage)
             QApplication.processEvents()
-            window._history_restoring = True
             apply_started = True
-            try:
+            with self.session.suspend_changes():
                 window._apply_project(document)
                 window.history.reset(window._project_document().to_dict())
-            finally:
-                window._history_restoring = False
             window.current_project_path = path.resolve()
             window._legacy_project_path = (
                 window.current_project_path if is_legacy_project_path(window.current_project_path)
@@ -526,7 +514,7 @@ class ProjectController:
             )
             window.upgrade_project_action.setEnabled(window._legacy_project_path is not None)
             window.recent_projects.add(window.current_project_path)
-            window._project_dirty = self.media_relinked
+            self.session.dirty = self.media_relinked
             if self.media_relinked:
                 window._autosave_debounce_timer.start()
             window._update_project_status()
@@ -546,24 +534,22 @@ class ProjectController:
             rollback_error: Exception | None = None
             if apply_started:
                 try:
-                    window._history_restoring = True
-                    window._apply_project(previous_document)
-                    valid_selection = [
-                        source_id for source_id in previous_selection
-                        if window.store.get(source_id) is not None
-                    ]
-                    active = previous_active if previous_active in valid_selection else None
-                    window.store.select_many(valid_selection, active)
-                    window.history.reset(previous_document.to_dict())
+                    with self.session.suspend_changes():
+                        window._apply_project(previous_document)
+                        valid_selection = [
+                            source_id for source_id in previous_selection
+                            if window.store.get(source_id) is not None
+                        ]
+                        active = previous_active if previous_active in valid_selection else None
+                        window.store.select_many(valid_selection, active)
+                        window.history.reset(previous_document.to_dict())
                 except Exception as restore_error:  # pragma: no cover - last-resort diagnostics
                     rollback_error = restore_error
                     LOGGER.exception("Failed to restore the workspace after project load failure")
-                finally:
-                    window._history_restoring = False
             window.current_project_path = previous_path
             window._legacy_project_path = previous_legacy_path
             window.upgrade_project_action.setEnabled(previous_legacy_path is not None)
-            window._project_dirty = previous_dirty
+            self.session.dirty = previous_dirty
             window._update_project_status()
             self.show_load_crash(path, stage, error, rollback_error)
             return False
@@ -791,7 +777,7 @@ class ProjectController:
             window.current_project_path = upgraded
             window._legacy_project_path = None
             window.upgrade_project_action.setEnabled(False)
-            window._project_dirty = False
+            self.session.dirty = False
             window._update_project_status()
             QMessageBox.information(
                 window,

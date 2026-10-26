@@ -54,6 +54,9 @@ class SourceRegistryTests(unittest.TestCase):
             registry.register(definition)
         with self.assertRaises(ValueError):
             registry.register(SourceDefinition("unknown", TextComponent))
+        for component in (None, object, TextComponent.from_source(Source(SourceType.TEXT, "Text"))):
+            with self.subTest(component=component), self.assertRaisesRegex(ValueError, "SourceComponent"):
+                SourceRegistry().register(SourceDefinition(SourceType.TEXT, component))
         for value in ("unknown", None, []):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 registry.get(value)
@@ -71,6 +74,24 @@ class SourceRegistryTests(unittest.TestCase):
         payload["opacity"] = float("nan")
         with self.assertRaises(ValueError):
             source_registry.deserialize(payload)
+
+    def test_component_changes_are_detached_atomic_and_use_the_registered_codec(self) -> None:
+        source = Source(SourceType.VIDEO, "Video", video_paths=["original.mp4"])
+        before = source.to_dict()
+        paths = ["new.mp4"]
+        definition = source_registry.get(SourceType.VIDEO)
+        codec = Mock(wraps=Source)
+        with patch.object(definition, "serializer", codec):
+            changes = source_registry.component_changes(source, paths=paths, speed=2)
+        codec.to_dict.assert_called_once_with(source)
+        codec.from_dict.assert_called_once()
+        paths.append("external.mp4")
+        self.assertEqual(changes, {"video_paths": ["new.mp4"], "video_speed": 2})
+        self.assertEqual(source.to_dict(), before)
+        with self.assertRaises(ValueError):
+            source_registry.component_changes(source, paths=["draft.mp4"], speed=0)
+        self.assertEqual(source.to_dict(), before)
+        self.assertEqual(source_registry.component_changes(source, speed=1), {})
 
     def test_project_uses_registered_serializer(self) -> None:
         source = Source(SourceType.TEXT, "Title")

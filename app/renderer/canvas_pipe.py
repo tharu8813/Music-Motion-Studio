@@ -518,6 +518,10 @@ class PipedCanvasStream:
             # FFmpeg reached the timeline end (``-t``) a frame early and
             # stopped reading. Its exit status decides success; just drain.
             return
+        target_count = max(1, floor(self._written_seconds * self.fps + 0.5))
+        repeat_count = max(0, target_count - self._frame_count)
+        if repeat_count == 0:
+            return
         if not self._connected.is_set():
             try:
                 self._endpoint.connect(self._cancelled)
@@ -531,8 +535,6 @@ class PipedCanvasStream:
             QImage.Format.Format_RGBA8888
             if self.preserve_alpha else QImage.Format.Format_RGB32
         )
-        target_count = max(1, floor(self._written_seconds * self.fps + 0.5))
-        repeat_count = max(0, target_count - self._frame_count)
         pixels = memoryview(prepared.constBits()).cast("B")
         for _index in range(repeat_count):
             if self._cancelled():

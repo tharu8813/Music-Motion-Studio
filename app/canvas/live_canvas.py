@@ -517,6 +517,11 @@ class LiveCanvas(QGraphicsView):
         )
         self._interaction_hint.hide()
 
+    def source_content_bounds(self, source_id: str) -> QRectF | None:
+        """Expose transformed content geometry without exposing the item collection."""
+        item = self._items.get(source_id)
+        return item.mapRectToScene(item.content_rect()) if item is not None else None
+
     def add_source(self, source: Source) -> None:
         """Create or reactivate a source graphics item."""
         item = self._retired_items.pop(source.id, None)

@@ -112,7 +112,13 @@ def migrate_project_payload(data: dict[str, Any]) -> dict[str, Any]:
     """
     if not isinstance(data, dict):
         raise ValueError("Project root must be an object.")
-    version = int(data.get("version", 1))
+    raw_version = data.get("version", 1)
+    if isinstance(raw_version, bool) or not isinstance(raw_version, (int, str)):
+        raise ValueError("Project version must be an integer.")
+    try:
+        version = int(raw_version)
+    except ValueError as error:
+        raise ValueError("Project version must be an integer.") from error
     if version not in SUPPORTED_VERSIONS:
         raise ValueError("This project version is not supported.")
     migrated = {**data, "version": CURRENT_VERSION}

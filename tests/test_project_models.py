@@ -244,6 +244,14 @@ class ProjectMigrationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             migrate_project_payload([])
 
+    def test_malformed_versions_are_not_coerced_into_supported_versions(self) -> None:
+        for version in (True, False, 1.9, 2.0, None, [], {}, "1.9", "invalid"):
+            with self.subTest(version=version), self.assertRaisesRegex(ValueError, "integer"):
+                ProjectDocument.from_dict({"version": version})
+        # Numeric strings were accepted by the legacy loader.
+        for version in ("1", "2"):
+            self.assertEqual(ProjectDocument.from_dict({"version": version}).version, CURRENT_VERSION)
+
     def test_save_load_save_is_stable(self) -> None:
         for name in ("v1.json", "v2_legacy_automix.json"):
             with self.subTest(fixture=name):

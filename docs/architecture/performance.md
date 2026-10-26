@@ -1,5 +1,38 @@
 # 성능 분석과 검증
 
+## 2026-10-26: 출력되지 않는 Canvas 장면 캡처 생략
+
+가사와 애니메이션의 서로 다른 샘플 일정이 합쳐지면, 출력 FPS보다 많은 장면을 캡처할 수 있다.
+기존 인코더는 누적 길이를 `max(1, floor(seconds * fps + 0.5))`로 반올림해 프레임을 내보내므로
+일부 장면은 그리기와 RGBA 변환을 끝낸 뒤에도 실제로는 한 프레임도 출력되지 않았다.
+
+스트리밍 내보내기의 capturer가 같은 계산으로 이 장면을 식별하고 직전 이미지를 전달한다.
+각 샘플의 길이와 전달 순서는 그대로 유지해 부동소수점 누적, 첫 프레임, 다음 장면의 선택과
+타이밍을 보존한다. 파이프와 중간 영상 인코더도 출력 프레임이 없는 장면의 색상 변환을 생략한다.
+PNG 대체 경로에는 이 최적화를 적용하지 않는다. 스트림당 직전 이미지 하나만 추가로 보관한다.
+완료 로그의 `skipped_cfr_captures`에서 생략 횟수를 확인할 수 있다.
+
+실제 21분 프로젝트, 1920×1080/60 FPS, Canvas 스트림 3개로 측정했다.
+각 구간은 변경 전후 순서를 번갈아 실행했으며, 같은 PC에서 기존 설치본의 내보내기도 진행 중이었다.
+
+| 측정 구간 | 기존 중앙값 | 개선 중앙값 | 시간 감소 | 생략한 캡처 |
+|---|---:|---:|---:|---:|
+| 30–33초, 각 3회 | 9.30초 | 6.98초 | 24.9% | 157 / 553 |
+| 90–93초, 각 2회 | 10.72초 | 8.37초 | 21.9% | 104 / 503 |
+
+두 구간 모두 CFR 확장 후 프레임 수와 모든 출력 픽셀의 해시가 동일했다.
+이 수치는 Canvas 일정 처리·캡처·해시 검증 시간이며, 오디오/시각화 준비, FFmpeg 합성·압축,
+파이프 대기를 포함하는 전체 내보내기 속도 개선치가 아니다.
+원본 측정: [2026-10-26-export-capture.json](benchmarks/2026-10-26-export-capture.json).
+
+재현: `.build-venv312/Scripts/python.exe tools/export_capture_benchmark.py PROJECT.pvsproj --start 30 --seconds 3 --rounds 3 --output work/export-capture.json`.
+원본 프로젝트를 수정하지 않고 테스트용 임시 캐시에서 읽는다.
+24/30/60 FPS, 불투명/투명 스트림의 픽셀·길이 동일성, 첫 프레임과 짧은 장면,
+진행 callback 및 취소 검사, 불필요한 변환/I/O 생략을 회귀 테스트로 검증했다.
+관련 15개 모듈의 180개 테스트에서 실패는 없었고, 조건부 테스트 6개는 생략됐다.
+별도 NVENC 640×360/60 FPS/3초 실제 내보내기에서도 live·intermediate 경로가 모두
+180프레임을 출력했다. 두 경로 모두 개선 코드를 사용한 동작 검증으로, 변경 전후 성능 비교는 아니다.
+
 2026-10-05. 구조는 [overview.md](overview.md), 원본 측정은 [benchmarks/2026-10-05.json](benchmarks/2026-10-05.json)에 기록한다. Python/PySide6를 유지하고 새 dependency/native module을 추가하지 않았다.
 
 ## 조사 결과와 적용 범위
@@ -191,6 +224,13 @@ $env:PLAYLIST_CANVAS_PREVIEW_SOAK_SECONDS = '60'
 새 계측/benchmark: `app/utils/performance.py`, `tools/performance_benchmark.py`. 기존 호출 경계 계측: `app/dialogs/export_preview_dialog.py`, `app/preview/{canvas_snapshot,export_canvas_capture,export_session}.py`, `app/renderer/{ffmpeg_renderer,canvas_pipe,python_visualizer}.py`, `app/automix/analysis/{basic,beat_this_onnx,service,vocals}.py`, `app/automix/structure/{service,sonara}.py`, `app/automix/{renderer,parallel_mix}.py`, `app/utils/particle_painter.py`, `app/video/frame_filter.py`.
 
 검증: `tests/test_performance_profile.py`, `tests/test_gpu_texture_surface.py`, `tests/test_video_frame_filter.py`, `tests/__init__.py`, `tests/test_automix_editor_dialog.py`. 문서: 이 파일, `overview.md`, 원본 benchmark JSON. 이 목록은 이번 작업에서 추가한 변경만 설명한다. Git diff에는 작업 시작 전의 다른 사용자 변경도 있다.
+
+## 내보내기 블러 후속 최적화 (2026-10-26)
+
+블러 변환의 임시 메모리와 캐시 교체, 소비가 끝난 프레임의 참조 수명을 줄였다.
+격리된 블러 변환은 약 31% 빨라졌지만 실제 20초 내보내기는 51.046 → 50.781초로,
+전체 속도의 유의미한 추가 향상은 확인하지 못했다. 디코딩한 1,200프레임은 동일했다.
+측정 범위와 제외한 실험은 [후속 검증 기록](export-blur-2026-10-26.md)에 있다.
 
 ## 다음 최적화 순서
 

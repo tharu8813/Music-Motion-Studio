@@ -16,7 +16,7 @@ from app.dialogs.lyrics_line_style_dialog import LyricsLineStyleDialog
 from app.dialogs.video_source_dialog import VideoSourceDialog
 from app.models.project import ProjectDocument
 from app.models.source import Source, SourceType
-from app.models.source_components import VideoComponent
+from app.models.source_components import LyricsComponent, VideoComponent
 from app.models.source_registry import source_registry
 from app.services.history_service import HistoryService
 from app.services.source_store import SourceStore
@@ -131,6 +131,33 @@ class SourceComponentTests(unittest.TestCase):
             self.assertEqual(source.to_dict(), before)
         store.update_component("missing", speed=2)
         self.assertEqual(notifications, [])
+
+    def test_video_component_validation_is_independent_of_the_source_codec(self) -> None:
+        video = VideoComponent.from_source(Source(SourceType.VIDEO, "Video"))
+        video.validate("Video")
+        for changes in (
+            {"timing_mode": "bad"}, {"repeat_mode": "bad"}, {"paths": [3]},
+            {"cycle_count": 0}, {"speed": float("nan")}, {"speed": True},
+            {"speed": 9}, {"saturation": float("inf")}, {"random_seed": 1.5},
+        ):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                replace(video, **changes).validate("Video")
+        # Legacy flat files retain inactive video properties on non-video sources.
+        payload = Source(SourceType.TEXT, "Text").to_dict() | {"video_speed": 0}
+        with self.assertRaises(ValueError):
+            Source.from_dict(payload)
+
+    def test_lyric_style_validation_is_independent_of_the_source_codec(self) -> None:
+        styles = [{"color": "#FF0000", "font_size_offset": 4}]
+        roles = {"previous": {"scale": 0.7, "opacity": 0.4, "blur": 2}}
+        LyricsComponent.validate_styles(styles, roles, "Lyrics")
+        for invalid_styles, invalid_roles in (
+            ([{"color": "red"}], {}), ([{"font_size": 20, "font_size_offset": 2}], {}),
+            ([{"italic": "true"}], {}), ([{}] * 13, {}),
+            ([], {"current": {"scale": float("nan")}}), ([], {"unknown": {}}),
+        ):
+            with self.subTest(styles=invalid_styles, roles=invalid_roles), self.assertRaises(ValueError):
+                LyricsComponent.validate_styles(invalid_styles, invalid_roles, "Lyrics")
 
     def test_component_edits_survive_history_and_project_round_trip(self) -> None:
         source = Source(SourceType.VIDEO, "Video", video_paths=["a.mp4"])

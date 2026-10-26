@@ -88,7 +88,7 @@ def main() -> None:
     window.grab().save(str(args.output.with_suffix(".png")))
     metadata.grab().save(str(args.output.with_name(args.output.stem + "-metadata.png")))
     metadata.close()
-    window._project_dirty = False
+    window.project_session.dirty = False
     window.close()
     application.processEvents()
     print(json.dumps(result, indent=2))

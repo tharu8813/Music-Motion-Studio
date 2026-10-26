@@ -1,0 +1,162 @@
+[
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 1.01,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 0.92,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 0.89,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 0.81,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 0.85,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 0.95,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 0.74,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 1.05,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 1.58,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 1.19,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 0.91,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 2.59,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 1.19,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 4.33,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 1.51,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 3.17,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 5.58,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 1.7,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 1.98,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_qt_worker_lifecycle",
+    "status": "pass",
+    "seconds": 1.9,
+    "returncode": 0,
+    "tests": 5,
+    "skipped": 0
+  }
+]

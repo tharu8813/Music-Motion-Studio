@@ -242,7 +242,7 @@ def preview_benchmark(args) -> dict:
                 if rss_end is not None:
                     rss_peak = max(rss_peak or 0, rss_end)
                 images = [preview._base_image, preview._image, *preview._dynamic_region_buffers.values()]
-                images.extend(image for layers in preview._overlay_frame_cache.values() for image in layers)
+                images.extend(preview._overlay_cache.images())
                 # Unique Qt cache keys avoid double-counting implicitly shared QImages.
                 buffers = {int(image.cacheKey()): image.sizeInBytes() for image in images if not image.isNull()}
                 frame_buffer_peak = max(frame_buffer_peak, sum(buffers.values()))

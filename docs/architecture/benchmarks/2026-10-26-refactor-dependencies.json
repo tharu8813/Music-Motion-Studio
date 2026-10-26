@@ -1,0 +1,411 @@
+{
+  "head": "b870633e80478721dd1916ec9f8bd57d3d9bce80",
+  "method": "AST absolute import edges excluding TYPE_CHECKING; deferred imports included, so SCCs are static dependencies, not proof of runtime cycles. Relative package imports excluded.",
+  "modules": 260,
+  "absolute_internal_import_edges": 861,
+  "largest_static_sccs": [
+    [
+      "app.automix.analysis.service",
+      "app.automix.cache",
+      "app.automix.structure.cache",
+      "app.automix.structure.service",
+      "app.automix.workflow",
+      "app.renderer.ffmpeg_renderer",
+      "app.services.lyrics_alignment_service",
+      "app.services.playlist_service"
+    ]
+  ],
+  "highest_fan_in": [
+    [
+      "app.models.source",
+      52
+    ],
+    [
+      "app.models.playlist",
+      43
+    ],
+    [
+      "app.utils.i18n",
+      35
+    ],
+    [
+      "app.dialogs.help_dialog",
+      25
+    ],
+    [
+      "app.automix.models",
+      23
+    ],
+    [
+      "app.timeline.render_plan",
+      21
+    ],
+    [
+      "app.utils.subprocess_utils",
+      21
+    ],
+    [
+      "app.utils.performance",
+      19
+    ],
+    [
+      "app.canvas.renderers.base",
+      18
+    ],
+    [
+      "app.inspector.editors.base",
+      18
+    ],
+    [
+      "app.renderer.ffmpeg_renderer",
+      17
+    ],
+    [
+      "app.automix.structure.models",
+      15
+    ]
+  ],
+  "key_modules": {
+    "app.models.source": {
+      "lines_head": 674,
+      "lines_working": 615,
+      "imports": [
+        "app.models.source_components"
+      ],
+      "callers": [
+        "app.animation.canvas_preview",
+        "app.animation.lyrics",
+        "app.canvas.live_canvas",
+        "app.canvas.renderers.base",
+        "app.canvas.source_item",
+        "app.controllers.export_controller",
+        "app.controllers.source_layout_controller",
+        "app.dialogs.color_editor_dialog",
+        "app.dialogs.export_preview_dialog",
+        "app.dialogs.lyrics_alignment_dialog",
+        "app.dialogs.lyrics_animation_dialog",
+        "app.dialogs.lyrics_line_style_dialog",
+        "app.dialogs.new_project_dialog",
+        "app.dialogs.video_source_dialog",
+        "app.inspector.editors.album_cover_editor",
+        "app.inspector.editors.audio_level_meter_editor",
+        "app.inspector.editors.audio_visualizer_editor",
+        "app.inspector.editors.audio_waveform_editor",
+        "app.inspector.editors.background_editor",
+        "app.inspector.editors.base",
+        "app.inspector.editors.image_editor",
+        "app.inspector.editors.logo_editor",
+        "app.inspector.editors.lyrics_editor",
+        "app.inspector.editors.now_playing_editor",
+        "app.inspector.editors.particle_overlay_editor",
+        "app.inspector.editors.progress_editor",
+        "app.inspector.editors.shape_editor",
+        "app.inspector.editors.text_editor",
+        "app.inspector.editors.time_editor",
+        "app.inspector.editors.track_list_editor",
+        "app.inspector.editors.video_editor",
+        "app.inspector.editors.watermark_editor",
+        "app.inspector.source_inspector",
+        "app.layers.layer_panel",
+        "app.models.project",
+        "app.models.source_registry",
+        "app.presets.preset_preview",
+        "app.presets.preset_service",
+        "app.presets.user_preset_service",
+        "app.preview.canvas_snapshot",
+        "app.preview.export_canvas_capture",
+        "app.preview.export_plan",
+        "app.preview.export_session",
+        "app.preview.frame_state",
+        "app.renderer.export_timeline",
+        "app.services.lyrics_intro_service",
+        "app.services.project_media_service",
+        "app.services.source_store",
+        "app.timeline.timeline_panel",
+        "app.timeline.visual_timeline",
+        "app.ui.main_window",
+        "app.video.timeline"
+      ]
+    },
+    "app.models.source_registry": {
+      "lines_head": 87,
+      "lines_working": 104,
+      "imports": [
+        "app.models.source",
+        "app.models.source_components"
+      ],
+      "callers": [
+        "app.canvas.source_item",
+        "app.dialogs.video_source_dialog",
+        "app.inspector.source_inspector",
+        "app.models.project",
+        "app.services.source_store",
+        "app.ui.main_window"
+      ]
+    },
+    "app.ui.main_window": {
+      "lines_head": 5543,
+      "lines_working": 5465,
+      "imports": [
+        "app.animation.canvas_preview",
+        "app.animation.motion",
+        "app.automix.models",
+        "app.automix.settings",
+        "app.automix.structure.models",
+        "app.canvas.live_canvas",
+        "app.controllers.automix_analysis_controller",
+        "app.controllers.autosave_controller",
+        "app.controllers.export_controller",
+        "app.controllers.history_controller",
+        "app.controllers.preview_audio_controller",
+        "app.controllers.preview_controller",
+        "app.controllers.project_controller",
+        "app.controllers.source_layout_controller",
+        "app.dialogs.about_dialog",
+        "app.dialogs.audio_metadata_dialog",
+        "app.dialogs.export_preview_dialog",
+        "app.dialogs.export_progress_dialog",
+        "app.dialogs.ffmpeg_install_progress_dialog",
+        "app.dialogs.help_dialog",
+        "app.dialogs.lrc_generator_dialog",
+        "app.dialogs.lyrics_alignment_dialog",
+        "app.dialogs.lyrics_compare_dialog",
+        "app.dialogs.m3u_import_dialog",
+        "app.dialogs.missing_media_dialog",
+        "app.dialogs.mp3_metadata_editor_dialog",
+        "app.dialogs.new_project_dialog",
+        "app.dialogs.playlist_export_dialog",
+        "app.dialogs.preset_dialog",
+        "app.dialogs.project_crash_report_dialog",
+        "app.dialogs.project_settings_dialog",
+        "app.dialogs.settings_dialog",
+        "app.dialogs.shortcuts_dialog",
+        "app.dialogs.text_editor_dialog",
+        "app.dialogs.track_details_dialog",
+        "app.dialogs.update_dialogs",
+        "app.ffmpeg.install_worker",
+        "app.ffmpeg.managed_installer",
+        "app.inspector.source_inspector",
+        "app.layers.layer_panel",
+        "app.models.project",
+        "app.models.source",
+        "app.models.source_registry",
+        "app.presets.preset_service",
+        "app.presets.user_preset_service",
+        "app.preview.canvas_snapshot",
+        "app.preview.export_session",
+        "app.preview.gpu_texture_surface",
+        "app.renderer.ffmpeg_renderer",
+        "app.renderer.render_worker",
+        "app.services.app_settings_service",
+        "app.services.autosave_service",
+        "app.services.autosave_worker",
+        "app.services.export_storage_service",
+        "app.services.history_service",
+        "app.services.lyrics_service",
+        "app.services.m3u_playlist",
+        "app.services.maintenance_service",
+        "app.services.playlist_export_service",
+        "app.services.playlist_service",
+        "app.services.project_content_service",
+        "app.services.project_media_service",
+        "app.services.project_persistence_service",
+        "app.services.project_save_worker",
+        "app.services.project_service",
+        "app.services.recent_projects_service",
+        "app.services.smooth_scroll_service",
+        "app.services.source_store",
+        "app.services.theme_service",
+        "app.services.update_service",
+        "app.services.update_worker",
+        "app.timeline.timeline_panel",
+        "app.ui.design_system",
+        "app.ui.studio_icons",
+        "app.utils.i18n",
+        "app.utils.image_loader",
+        "app.utils.logging_setup",
+        "app.utils.qt_worker_lifecycle",
+        "app.widgets.activity_progress",
+        "app.widgets.content_library_panel",
+        "app.widgets.playlist_editor",
+        "app.widgets.source_template_button",
+        "app.widgets.track_analysis_panel"
+      ],
+      "callers": []
+    },
+    "app.controllers.export_controller": {
+      "lines_head": 2123,
+      "lines_working": 2123,
+      "imports": [
+        "app.automix.settings",
+        "app.controllers.preview_audio_controller",
+        "app.controllers.render_outcome_gate",
+        "app.dialogs.export_complete_dialog",
+        "app.dialogs.export_progress_dialog",
+        "app.dialogs.export_settings_dialog",
+        "app.models.source",
+        "app.preview.album_art",
+        "app.preview.export_plan",
+        "app.preview.export_session",
+        "app.renderer.canvas_pipe",
+        "app.renderer.ffmpeg_renderer",
+        "app.renderer.png_frame_staging",
+        "app.renderer.render_worker",
+        "app.services.app_settings_service",
+        "app.services.export_formats",
+        "app.services.export_policy",
+        "app.services.export_storage_service",
+        "app.services.lyrics_service",
+        "app.services.playlist_service",
+        "app.services.subtitle_export_service",
+        "app.services.video_encoder_service",
+        "app.timeline.compiler",
+        "app.timeline.render_plan",
+        "app.utils.logging_setup",
+        "app.utils.qt_worker_lifecycle",
+        "app.video.timeline"
+      ],
+      "callers": [
+        "app.ui.main_window"
+      ]
+    },
+    "app.dialogs.export_preview_dialog": {
+      "lines_head": 4152,
+      "lines_working": 4091,
+      "imports": [
+        "app.animation.curves",
+        "app.automix.progressive",
+        "app.canvas.live_canvas",
+        "app.canvas.source_item",
+        "app.controllers.preview_audio_controller",
+        "app.controllers.progressive_automix_controller",
+        "app.models.playlist",
+        "app.models.source",
+        "app.preview.adaptive_quality",
+        "app.preview.album_art",
+        "app.preview.canvas_snapshot",
+        "app.preview.frame_state",
+        "app.preview.gpu_health",
+        "app.preview.gpu_texture_surface",
+        "app.preview.live_mix_player",
+        "app.preview.overlay_frame_cache",
+        "app.preview.text_template",
+        "app.renderer.ffmpeg_renderer",
+        "app.renderer.python_visualizer",
+        "app.services.playlist_service",
+        "app.services.preview_audio_settings",
+        "app.services.source_store",
+        "app.timeline.compiler",
+        "app.timeline.crossfade",
+        "app.timeline.models",
+        "app.timeline.render_plan",
+        "app.utils.i18n",
+        "app.utils.performance",
+        "app.video.decoder_backpressure",
+        "app.video.frame_filter",
+        "app.video.preview_proxy",
+        "app.video.timeline",
+        "app.widgets.activity_progress",
+        "app.widgets.audio_sync_warning",
+        "app.widgets.automix_details_panel",
+        "app.widgets.transition_inspector"
+      ],
+      "callers": [
+        "app.controllers.preview_controller",
+        "app.ui.main_window"
+      ]
+    },
+    "app.renderer.ffmpeg_renderer": {
+      "lines_head": 2181,
+      "lines_working": 2110,
+      "imports": [
+        "app.automix.analysis.registry",
+        "app.automix.parallel_mix",
+        "app.automix.planner",
+        "app.automix.renderer",
+        "app.automix.settings",
+        "app.automix.structure.service",
+        "app.automix.structure.sonara",
+        "app.automix.workflow",
+        "app.ffmpeg.process",
+        "app.models.playlist",
+        "app.renderer.python_visualizer",
+        "app.renderer.static_video_stream",
+        "app.services.export_formats",
+        "app.services.export_policy",
+        "app.services.export_validation_service",
+        "app.timeline.compiler",
+        "app.timeline.crossfade",
+        "app.timeline.render_plan",
+        "app.utils.performance",
+        "app.utils.subprocess_utils"
+      ],
+      "callers": [
+        "app.controllers.export_controller",
+        "app.controllers.preview_audio_controller",
+        "app.controllers.preview_controller",
+        "app.controllers.progressive_automix_controller",
+        "app.dialogs.automix_editor_dialog",
+        "app.dialogs.export_preview_dialog",
+        "app.dialogs.settings_dialog",
+        "app.preview.export_canvas_capture",
+        "app.preview.export_plan",
+        "app.preview.export_session",
+        "app.renderer.ffmpeg.filter_graph",
+        "app.renderer.render_worker",
+        "app.services.app_settings_service",
+        "app.services.lyrics_alignment_service",
+        "app.services.lyrics_intro_service",
+        "app.services.playlist_service",
+        "app.ui.main_window"
+      ]
+    },
+    "app.automix.renderer": {
+      "lines_head": 1079,
+      "lines_working": 1036,
+      "imports": [
+        "app.ffmpeg.process",
+        "app.timeline.models",
+        "app.timeline.render_plan",
+        "app.utils.performance",
+        "app.utils.subprocess_utils"
+      ],
+      "callers": [
+        "app.automix.diagnostics",
+        "app.automix.exits",
+        "app.automix.intelligence",
+        "app.automix.parallel_mix",
+        "app.automix.planner",
+        "app.automix.progressive",
+        "app.controllers.progressive_automix_controller",
+        "app.controllers.transition_audition_controller",
+        "app.dialogs.automix_editor_dialog",
+        "app.renderer.ffmpeg_renderer",
+        "app.widgets.automix_timeline",
+        "app.widgets.transition_editor",
+        "app.widgets.transition_inspector"
+      ]
+    },
+    "app.preview.export_session": {
+      "lines_head": 897,
+      "lines_working": 899,
+      "imports": [
+        "app.models.playlist",
+        "app.models.source",
+        "app.preview.export_canvas_capture",
+        "app.preview.export_plan",
+        "app.renderer.canvas_pipe",
+        "app.renderer.export_timeline",
+        "app.renderer.ffmpeg_renderer",
+        "app.renderer.python_visualizer",
+        "app.renderer.static_video_stream",
+        "app.services.lyrics_intro_service",
+        "app.utils.performance"
+      ],
+      "callers": [
+        "app.controllers.export_controller",
+        "app.ui.main_window"
+      ]
+    }
+  }
+}

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from app.dialogs.export_preview_dialog import ExportPreviewDialog, OverlayFrameWorker
 from app.renderer.ffmpeg_renderer import VisualizerOverlay
+from app.preview.overlay_frame_cache import OverlayFrameCache
 
 
 class PreviewHarness(QWidget):
@@ -23,7 +24,7 @@ class PreviewHarness(QWidget):
         self._overlay_worker = None
         self._overlay_generation = 0
         self._overlay_prefetch_count = 2
-        self._overlay_frame_cache = {}
+        self._overlay_cache = OverlayFrameCache()
         self.preview_fps = 30
         self.frames = []
         self.errors = []

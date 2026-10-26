@@ -1,13 +1,7 @@
-"""Autosave and recovery orchestration, extracted from MainWindow.
+"""Autosave/recovery sequencing and ownership of the recovery writer.
 
-MainWindow still owns the live state (dirty flag, debounce timer, active
-worker reference) and UI widgets/dialogs; this controller centralizes the
-periodic-autosave and startup-recovery sequencing that used to live inline
-in MainWindow. Pure move, not a rewrite.
-
-Cross-calls into project load/apply/document logic go through the window's
-existing `_xxx` wrapper methods (not straight to ProjectController) so that
-tests which monkeypatch a specific window method keep intercepting it.
+ProjectSession supplies change state. The window supplies document/UI
+adapters, while this controller keeps recovery writes alive until joined.
 """
 
 from __future__ import annotations
@@ -19,6 +13,8 @@ from PySide6.QtWidgets import QMessageBox
 
 from app.services.autosave_worker import AutosaveWorker
 from app.services.project_service import ProjectError, ProjectLoadCancelled, ProjectService
+from app.services.project_session import ProjectSession
+from app.utils.qt_worker_lifecycle import stop_qthread_now, wait_for_qthread
 
 if TYPE_CHECKING:
     from app.ui.main_window import MainWindow
@@ -27,8 +23,11 @@ if TYPE_CHECKING:
 class AutosaveController:
     """Own periodic autosave and startup recovery on behalf of a MainWindow."""
 
-    def __init__(self, window: "MainWindow") -> None:
+    def __init__(self, window: "MainWindow", session: ProjectSession) -> None:
         self.window = window
+        self.session = session
+        self.worker: AutosaveWorker | None = None
+        self._waiting_for_pending = False
 
     def autosave(self) -> None:
         """Periodically write a recovery document without changing the active project.
@@ -38,9 +37,9 @@ class AutosaveController:
         not stutter the editor every few seconds.
         """
         window = self.window
-        if (not window._history_ready or not window._project_dirty
+        if (not self.session.tracking_changes or not self.session.dirty
                 or window.project_controller.saving
-                or window._autosave_worker is not None):
+                or self.worker is not None):
             return
         korean = window.translator.is_korean
         try:
@@ -58,8 +57,25 @@ class AutosaveController:
         worker.succeeded.connect(window._autosave_succeeded)
         worker.failed.connect(window._autosave_failed)
         worker.finished.connect(lambda: self.thread_finished(worker))
-        window._autosave_worker = worker
+        self.worker = worker
         worker.start()
+
+    def wait_for_pending(self) -> None:
+        """Finish recovery IO before clear/update handoff while keeping paints responsive."""
+        worker = self.worker
+        if worker is None:
+            return
+        if self._waiting_for_pending:
+            wait_for_qthread(worker)
+            return
+        self._waiting_for_pending = True
+        try:
+            stop_qthread_now(worker)
+        finally:
+            if self.worker is worker:
+                self.worker = None
+            self._waiting_for_pending = False
+            self.window.activity_progress.finish("autosave")
 
     def succeeded(self, _path: object) -> None:
         window = self.window
@@ -73,10 +89,12 @@ class AutosaveController:
         self.window.statusBar().showMessage(message, 5000)
 
     def thread_finished(self, worker: AutosaveWorker) -> None:
+        # A queued finished callback can outlive disconnect() during an explicit drain.
+        if self._waiting_for_pending or self.worker is not worker:
+            return
         window = self.window
         window.activity_progress.finish("autosave")
-        if window._autosave_worker is worker:
-            window._autosave_worker = None
+        self.worker = None
         worker.deleteLater()
 
     def offer_recovery(self, *, snapshot_path: Path | None = None, confirm: bool = True) -> bool:
@@ -115,8 +133,7 @@ class AutosaveController:
             window.project_controller.media_relinked = False
             if not window._resolve_project_media(snapshot.document, media_reference):
                 return False
-            window._history_restoring = True
-            try:
+            with self.session.suspend_changes():
                 window._apply_project(snapshot.document)
                 window.current_project_path = snapshot.project_path
                 window._legacy_project_path = (
@@ -126,17 +143,15 @@ class AutosaveController:
                 )
                 window.upgrade_project_action.setEnabled(window._legacy_project_path is not None)
                 window.history.reset(window._project_document().to_dict())
-            finally:
-                window._history_restoring = False
-            window._project_dirty = snapshot.dirty or window.project_controller.media_relinked
+            self.session.dirty = snapshot.dirty or window.project_controller.media_relinked
             # Own the restored backup so saving this window cannot clear another window's work.
             try:
-                owned = window.autosave.save(window._project_document(), snapshot.project_path, dirty=window._project_dirty)
+                owned = window.autosave.save(window._project_document(), snapshot.project_path, dirty=self.session.dirty)
                 if owned.path != snapshot.path:
                     window.autosave.clear_snapshot(snapshot)
             except ProjectError as error:
                 window.statusBar().showMessage(str(error), 5000)
-            if window._project_dirty:
+            if self.session.dirty:
                 window._autosave_debounce_timer.start()
             window._update_project_status()
             if snapshot.project_path is not None:

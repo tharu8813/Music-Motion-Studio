@@ -184,10 +184,10 @@ class AuditWorkspaceTests(MainWindowTestCase):
             self.assertTrue(self.window._offer_recovery(confirm=False))
             self.assertEqual(self.window.store.sources()[0].text, "Keep A")
             self.assertEqual(ProjectService.load(project).sources[0].name, "Saved in B")
-            self.assertTrue(self.window._project_dirty)
+            self.assertTrue(self.window.project_session.dirty)
 
     def test_saved_workspace_accepts_a_dropped_project(self):
-        self.window._project_dirty = False
+        self.window.project_session.dirty = False
         path = Path("drop.pvsproj")
         with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes) as question, \
              patch.object(self.window, "_load_project_path", return_value=True) as load:
@@ -228,7 +228,7 @@ class AuditWorkspaceTests(MainWindowTestCase):
                 with patch.object(self.window.autosave, "write_document_data", side_effect=delayed):
                     self.window._autosave_project()
                     self.assertTrue(started.wait(3))
-                    worker = self.window._autosave_worker
+                    worker = self.window.autosave_controller.worker
                     self.window.store.update(source.id, text="New saved work")
                     self.assertTrue(self.window._save_project(wait_for_completion=True))
                     release.set()
@@ -239,8 +239,8 @@ class AuditWorkspaceTests(MainWindowTestCase):
                 self.assertFalse(self.window._offer_recovery(confirm=False))
             finally:
                 release.set()
-                if self.window._autosave_worker is not None:
-                    self.window._autosave_worker.wait()
+                if self.window.autosave_controller.worker is not None:
+                    self.window.autosave_controller.worker.wait()
 
     def test_update_keeps_editor_open_until_setup_is_ready_and_recaptures_new_edits(self):
         with TemporaryDirectory() as raw:
@@ -284,17 +284,17 @@ class AuditWorkspaceTests(MainWindowTestCase):
         self.window.history.reset(self.window._project_document().to_dict())
         self.window.store.update(source.id, text="Saved")
         self.window.history_controller.flush_pending()
-        self.window._project_dirty = False
-        before_serial = self.window._project_change_serial
+        self.window.project_session.dirty = False
+        before_serial = self.window.project_session.change_serial
         self.window.history_controller.undo()
         self.assertEqual(self.window.store.get(source.id).text, "Before")
-        self.assertTrue(self.window._project_dirty)
-        self.assertGreater(self.window._project_change_serial, before_serial)
+        self.assertTrue(self.window.project_session.dirty)
+        self.assertGreater(self.window.project_session.change_serial, before_serial)
         self.assertTrue(self.window._autosave_debounce_timer.isActive())
-        self.window._project_dirty = False
+        self.window.project_session.dirty = False
         self.window.history_controller.redo()
         self.assertEqual(self.window.store.get(source.id).text, "Saved")
-        self.assertTrue(self.window._project_dirty)
+        self.assertTrue(self.window.project_session.dirty)
 
     def test_blank_source_name_reverts_in_inspector_and_remains_recoverable(self):
         source = Source(SourceType.TEXT, "Title")
@@ -340,7 +340,7 @@ class AuditWorkspaceTests(MainWindowTestCase):
             with patch("app.controllers.project_controller.MissingMediaDialog.exec", new=relink), \
                  patch.object(self.window, "_offer_legacy_upgrade"):
                 self.assertTrue(self.window._load_project_path(project))
-            self.assertTrue(self.window._project_dirty)
+            self.assertTrue(self.window.project_session.dirty)
             self.assertTrue(self.window._autosave_debounce_timer.isActive())
             self.assertEqual(self.window.playlist_service.tracks[0].file_path, str(replacement.resolve()))
             self.assertEqual(ProjectService.load(project).playlist[0].file_path, original)

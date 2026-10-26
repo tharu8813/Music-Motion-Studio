@@ -1,0 +1,99 @@
+{
+  "date": "2026-10-26",
+  "hardware": {
+    "cpu": "Intel Core i5-14600KF",
+    "logical_processors": 20,
+    "memory_gb": 32
+  },
+  "environment": "Windows, Python 3.12.15, PySide6 6.11.1; existing installed app exporting concurrently. Alternating baseline/optimized order; not an isolated whole-export benchmark.",
+  "samples": [
+    {
+      "benchmark": "canvas_capture_only",
+      "start": 30.0,
+      "seconds": 3.0,
+      "fps": 60,
+      "width": 1920,
+      "bands": 3,
+      "runs_seconds": {
+        "baseline": [
+          11.275720600009663,
+          9.05245260000811,
+          9.299422399984905
+        ],
+        "optimized": [
+          6.768797500000801,
+          6.983646199980285,
+          7.142675999988569
+        ]
+      },
+      "median_seconds": {
+        "baseline": 9.299422399984905,
+        "optimized": 6.983646199980285
+      },
+      "improvement_percent": 24.902365979293283,
+      "details": {
+        "baseline": {
+          "states": 553,
+          "skipped_captures": 0
+        },
+        "optimized": {
+          "states": 553,
+          "skipped_captures": 157
+        }
+      },
+      "encoded_pixels_equal": true,
+      "limitation": "Capture-only sample; excludes FFmpeg, audio, visualizer preparation and pipe backpressure."
+    },
+    {
+      "benchmark": "canvas_capture_only",
+      "start": 90.0,
+      "seconds": 3.0,
+      "fps": 60,
+      "width": 1920,
+      "bands": 3,
+      "runs_seconds": {
+        "baseline": [
+          10.602751300000818,
+          10.83188360001077
+        ],
+        "optimized": [
+          8.27499999999418,
+          8.462189800018677
+        ]
+      },
+      "median_seconds": {
+        "baseline": 10.717317450005794,
+        "optimized": 8.368594900006428
+      },
+      "improvement_percent": 21.915209295196302,
+      "details": {
+        "baseline": {
+          "states": 503,
+          "skipped_captures": 0
+        },
+        "optimized": {
+          "states": 503,
+          "skipped_captures": 104
+        }
+      },
+      "encoded_pixels_equal": true,
+      "limitation": "Capture-only sample; excludes FFmpeg, audio, visualizer preparation and pipe backpressure."
+    }
+  ],
+  "regressions": {
+    "modules_passed": 15,
+    "tests": 180,
+    "skipped": 6
+  },
+  "pipeline_smoke": {
+    "encoder": "h264_nvenc",
+    "width": 640,
+    "height": 360,
+    "fps": 60,
+    "seconds": 3,
+    "intermediate_frames": 180,
+    "live_frames": 180,
+    "psnr_live_vs_intermediate_db": 57.552127,
+    "purpose": "Both paths use optimized code; end-to-end functionality check, not before/after speed comparison."
+  }
+}

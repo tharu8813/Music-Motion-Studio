@@ -74,6 +74,7 @@ from app.preview.frame_state import (
     MixJunction, resolve_mix_phase, segment_junction,
 )
 from app.preview.album_art import prewarm_cover_thumbnail
+from app.preview.overlay_frame_cache import OverlayFrameCache, OverlaySignature
 from app.video.timeline import resolve_video_position, source_video_paths
 from app.video.frame_filter import VideoFrameFilterSettings, filter_video_frame
 from app.video.decoder_backpressure import VideoDecoderBackpressure
@@ -113,7 +114,6 @@ def _transition_display_regions(
         )
     )
 LOGGER = logging.getLogger(__name__)
-OverlaySignature = tuple[int, ...]
 
 
 class PreviewCoverWorker(QThread):
@@ -733,15 +733,9 @@ class ExportPreviewDialog(QDialog):
         self._analysis_worker: AudioAnalysisWorker | None = None
         self._analysis_track_id = ""
         self._overlay_worker: OverlayFrameWorker | None = None
-        self._overlay_frame_cache: dict[
-            tuple[str, OverlaySignature, int], tuple[QImage, ...]
-        ] = {}
-        self._last_overlay_layers: tuple[QImage, ...] = ()
-        self._last_overlay_track_id = ""
-        self._last_overlay_signature: OverlaySignature = ()
+        self._overlay_cache = OverlayFrameCache()
         self._overlay_prefetch_count = 6
         self._overlay_generation = 0
-        self._overlay_content_revision = 0
         self._idle_overlay_analyses: dict[int, dict[str, np.ndarray]] = {}
         self._refresh_queued = False
         self._refresh_timer = QTimer(self)
@@ -2252,7 +2246,7 @@ class ExportPreviewDialog(QDialog):
             direct_video_ids,
             video_revisions,
             active_overlay_signature,
-            self._overlay_content_revision if active_overlay_signature else 0,
+            self._overlay_cache.revision if active_overlay_signature else 0,
             cadence_key,
         )
 
@@ -3021,11 +3015,8 @@ class ExportPreviewDialog(QDialog):
                 self._overlay_worker.cancel()
             return
         end_frame = frame_index + self._overlay_prefetch_count
-        missing_frame = next(
-            (index for index in range(frame_index, end_frame)
-             if (track_id, overlay_signature, index)
-             not in self._overlay_frame_cache),
-            None,
+        missing_frame = self._overlay_cache.first_missing(
+            track_id, overlay_signature, frame_index, self._overlay_prefetch_count,
         )
         if missing_frame is None:
             return
@@ -3053,12 +3044,7 @@ class ExportPreviewDialog(QDialog):
                 or not all(isinstance(index, int) for index in overlay_signature)
                 or not isinstance(frames, list)):
             return
-        for frame_index, layers in frames:
-            if isinstance(frame_index, int) and isinstance(layers, tuple):
-                self._overlay_frame_cache[
-                    (track_id, overlay_signature, frame_index)
-                ] = layers
-        self._overlay_content_revision += 1
+        self._overlay_cache.store(track_id, overlay_signature, frames)
         self._trim_overlay_frame_cache(track_id)
         self._schedule_refresh()
 
@@ -3079,37 +3065,7 @@ class ExportPreviewDialog(QDialog):
         overlay_signature: OverlaySignature,
     ) -> tuple[QImage, ...]:
         """Use the exact frame when ready, otherwise keep the newest completed frame."""
-        overlay_count = len(overlay_signature)
-        layers = self._overlay_frame_cache.get(
-            (track_id, overlay_signature, frame_index)
-        )
-        if layers is not None and len(layers) == overlay_count:
-            self._last_overlay_layers = layers
-            self._last_overlay_track_id = track_id
-            self._last_overlay_signature = overlay_signature
-            return layers
-        if (
-            self._last_overlay_track_id == track_id
-            and self._last_overlay_signature == overlay_signature
-            and len(self._last_overlay_layers) == overlay_count
-        ):
-            return self._last_overlay_layers
-        prior_frames = [
-            (cached_index, cached_layers)
-            for (
-                cached_track_id, cached_signature, cached_index
-            ), cached_layers in self._overlay_frame_cache.items()
-            if cached_track_id == track_id and cached_index < frame_index
-            and cached_signature == overlay_signature
-            and len(cached_layers) == overlay_count
-        ]
-        if prior_frames:
-            _cached_index, cached_layers = max(prior_frames, key=lambda entry: entry[0])
-            self._last_overlay_layers = cached_layers
-            self._last_overlay_track_id = track_id
-            self._last_overlay_signature = overlay_signature
-            return cached_layers
-        return ()
+        return self._overlay_cache.layers_for_frame(track_id, frame_index, overlay_signature)
 
     def _trim_overlay_frame_cache(self, active_track_id: str) -> None:
         """Bound cached QImages so a long playlist never accumulates frame memory."""
@@ -3118,34 +3074,17 @@ class ExportPreviewDialog(QDialog):
         # stored, freezing visualizers/meters until the handover.
         selected, _junction = self._visual_track_at(self.timeline.value() / TIMELINE_SCALE)
         current_frame = round(selected[2] * self.preview_fps) if selected else 0
-        minimum = max(0, current_frame - 3)
-        maximum = current_frame + self._overlay_prefetch_count * 3
-        for key in list(self._overlay_frame_cache):
-            track_id, _overlay_signature, frame_index = key
-            if track_id != active_track_id or frame_index < minimum or frame_index > maximum:
-                self._overlay_frame_cache.pop(key, None)
+        self._overlay_cache.trim(active_track_id, current_frame, self._overlay_prefetch_count)
 
     def _clear_overlay_frames(self, track_id: str | None = None) -> None:
         """Discard stale prefetch output after a seek, track analysis, or quality change."""
-        self._overlay_content_revision += 1
+        self._overlay_cache.clear(track_id)
         if (track_id is None or self._overlay_worker is None
                 or self._overlay_worker.track_id == track_id):
             self._overlay_generation += 1
         if (self._overlay_worker is not None and self._overlay_worker.isRunning()
                 and (track_id is None or self._overlay_worker.track_id == track_id)):
             self._overlay_worker.cancel()
-        if track_id is None:
-            self._overlay_frame_cache.clear()
-            self._last_overlay_layers = ()
-            self._last_overlay_track_id = ""
-            self._last_overlay_signature = ()
-            return
-        for key in [key for key in self._overlay_frame_cache if key[0] == track_id]:
-            self._overlay_frame_cache.pop(key, None)
-        if self._last_overlay_track_id == track_id:
-            self._last_overlay_layers = ()
-            self._last_overlay_track_id = ""
-            self._last_overlay_signature = ()
 
     def _ensure_track_analysis(self, track: PlaylistTrack, bands: int) -> None:
         """Analyze each selected track once, then reuse its moving FFT frames."""

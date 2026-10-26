@@ -13,7 +13,6 @@ import threading
 import os
 import logging
 import re
-from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack
 from collections.abc import Callable
@@ -23,6 +22,9 @@ from tempfile import TemporaryDirectory, mkstemp
 
 from PySide6.QtGui import QImage, QImageReader
 
+from app.ffmpeg.process import (
+    FFmpegProcessCancelled, FFmpegProcessError, parse_progress_seconds, run_ffmpeg,
+)
 from app.models.playlist import PlaylistTrack
 from app.timeline.compiler import compile_playlist
 from app.timeline.render_plan import (
@@ -2004,73 +2006,11 @@ class FFmpegRenderer:
         """Run FFmpeg, forward machine progress, and terminate safely on cancellation."""
         command = [str(self.executable), "-hide_banner", "-loglevel", "error", *arguments]
         try:
-            process = subprocess.Popen(
-                command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                encoding="utf-8", errors="replace",
-                **hidden_process_kwargs(),
-            )
-        except OSError as error:
-            raise RenderError(f"Could not start FFmpeg: {error}") from error
-        # FFmpeg can print several progress lines per encoded frame.  Keeping the
-        # entire stream made long QHD/60 exports grow memory for hours, although
-        # only the newest diagnostics are useful after a failure.
-        stdout_lines: deque[str] = deque(maxlen=80)
-        stderr_lines: deque[str] = deque(maxlen=400)
-
-        def read_stream(stream: object, sink: deque[str]) -> None:
-            for line in iter(stream.readline, ""):  # type: ignore[union-attr]
-                sink.append(line)
-                if sink is stdout_lines and progress_parser:
-                    progress_parser(line.strip())
-
-        stdout_thread = threading.Thread(target=read_stream, args=(process.stdout, stdout_lines), daemon=True)
-        stderr_thread = threading.Thread(target=read_stream, args=(process.stderr, stderr_lines), daemon=True)
-        stdout_thread.start()
-        stderr_thread.start()
-        cancelled = False
-        while process.poll() is None:
-            if cancel_event and cancel_event.is_set():
-                cancelled = True
-                try:
-                    process.terminate()
-                except OSError:
-                    pass
-                try:
-                    process.wait(timeout=3.0)
-                except subprocess.TimeoutExpired:
-                    try:
-                        process.kill()
-                    except OSError:
-                        pass
-                    try:
-                        process.wait(timeout=3.0)
-                    except (OSError, subprocess.TimeoutExpired):
-                        pass
-                break
-            try:
-                process.wait(timeout=0.1)
-            except subprocess.TimeoutExpired:
-                pass
-        stdout_thread.join(timeout=1.0)
-        stderr_thread.join(timeout=1.0)
-        for stream in (process.stdout, process.stderr):
-            if stream is None or stream.closed:
-                continue
-            try:
-                stream.close()
-            except OSError:
-                pass
-        if stdout_thread.is_alive():
-            stdout_thread.join(timeout=1.0)
-        if stderr_thread.is_alive():
-            stderr_thread.join(timeout=1.0)
-        if capture_stderr is not None:
-            capture_stderr.extend(stderr_lines)
-        if cancelled:
-            raise RenderCancelledError("Rendering was cancelled.")
-        if process.returncode != 0:
-            message = "".join(stderr_lines).strip() or "FFmpeg returned an unknown error."
-            raise RenderError(message)
+            run_ffmpeg(command, progress_parser, cancel_event, capture_stderr)
+        except FFmpegProcessCancelled as error:
+            raise RenderCancelledError(str(error)) from error
+        except FFmpegProcessError as error:
+            raise RenderError(str(error)) from error
 
     @staticmethod
     def _piped_progress(
@@ -2157,18 +2097,7 @@ class FFmpegRenderer:
 
     @staticmethod
     def _parse_progress_seconds(line: str) -> float | None:
-        if line.startswith("out_time_us=") or line.startswith("out_time_ms="):
-            try:
-                return float(line.split("=", 1)[1]) / 1_000_000
-            except ValueError:
-                return None
-        if line.startswith("out_time="):
-            try:
-                hours, minutes, seconds = line.split("=", 1)[1].split(":")
-                return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
-            except ValueError:
-                return None
-        return None
+        return parse_progress_seconds(line)
 
     @staticmethod
     def _timed_progress_message(

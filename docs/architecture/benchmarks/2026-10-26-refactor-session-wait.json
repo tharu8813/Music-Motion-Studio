@@ -1,0 +1,53 @@
+{
+  "scope": "Offscreen Qt, real AutosaveWorker and atomic recovery write; writer release deliberately delayed 200ms by a threading.Timer. Compares the previous native QThread.wait() with AutosaveController.wait_for_pending(). Three alternating pairs; 10ms GUI heartbeat. This measures responsiveness, not disk or render throughput.",
+  "samples": [
+    {
+      "mode": "native_wait_baseline",
+      "wait_ms": 207.03089999733493,
+      "gui_timer_pulses": 0,
+      "max_gui_gap_ms": 207.03089999733493,
+      "recovery_written": true,
+      "worker_released": true
+    },
+    {
+      "mode": "controller_drain",
+      "wait_ms": 204.96000000275671,
+      "gui_timer_pulses": 20,
+      "max_gui_gap_ms": 11.112500011222437,
+      "recovery_written": true,
+      "worker_released": true
+    },
+    {
+      "mode": "controller_drain",
+      "wait_ms": 206.30760001949966,
+      "gui_timer_pulses": 20,
+      "max_gui_gap_ms": 11.53559997328557,
+      "recovery_written": true,
+      "worker_released": true
+    },
+    {
+      "mode": "native_wait_baseline",
+      "wait_ms": 205.80900000641122,
+      "gui_timer_pulses": 0,
+      "max_gui_gap_ms": 205.80900000641122,
+      "recovery_written": true,
+      "worker_released": true
+    },
+    {
+      "mode": "native_wait_baseline",
+      "wait_ms": 205.15530000557192,
+      "gui_timer_pulses": 0,
+      "max_gui_gap_ms": 205.15530000557192,
+      "recovery_written": true,
+      "worker_released": true
+    },
+    {
+      "mode": "controller_drain",
+      "wait_ms": 205.68559999810532,
+      "gui_timer_pulses": 20,
+      "max_gui_gap_ms": 10.813999979291111,
+      "recovery_written": true,
+      "worker_released": true
+    }
+  ]
+}

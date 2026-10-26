@@ -32,6 +32,17 @@ def _runtime_imports(path: Path) -> set[str]:
 
 
 class ArchitectureRuleTests(unittest.TestCase):
+    def test_model_and_shared_process_boundaries_do_not_import_widgets(self) -> None:
+        paths = [*APP.joinpath("models").glob("*.py"), APP / "ffmpeg" / "process.py",
+                 APP / "preview" / "overlay_frame_cache.py",
+                 APP / "controllers" / "source_layout_controller.py",
+                 APP / "services" / "project_session.py"]
+        for path in paths:
+            with self.subTest(path=path.name):
+                imports = _runtime_imports(path)
+                self.assertFalse(any(module.startswith(("app.ui", "app.dialogs", "PySide6.QtWidgets"))
+                                     for module in imports), imports)
+
     def test_nothing_in_app_imports_main_window_at_runtime(self) -> None:
         # Controllers take the window as a parameter; importing main_window back
         # (e.g. to let tests patch "app.ui.main_window.X") couples them to it.
@@ -62,6 +73,9 @@ class ArchitectureRuleTests(unittest.TestCase):
             "_last_export_frame_metrics",
             # ProjectController.save_*
             "_project_save_worker", "_project_save_context", "_project_save_succeeded",
+            # ProjectSession and AutosaveController own editing/worker state.
+            "_project_dirty", "_project_change_serial", "_history_ready",
+            "_history_restoring", "_history_applying", "_autosave_worker",
         ):
             with self.subTest(field=field):
                 self.assertNotIn(f"self.{field}", source)
