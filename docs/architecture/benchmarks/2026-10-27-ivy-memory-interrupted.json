@@ -1,0 +1,28 @@
+{
+  "scope": "Full IVY 8-track 1275.694s export, source UI harness, compiled renderer workers, includes FFmpeg",
+  "sample_count": 870,
+  "export_result_exists": false,
+  "logging_io_failures": 0,
+  "measurement_gap_seconds": [
+    1529.0,
+    1759.65
+  ],
+  "peak_private_working_set_mib": 1939.8,
+  "peak_private_commit_mib": 7123.6,
+  "peak_working_set_sum_mib": 2198.3,
+  "stopped_by_user": true,
+  "completed_export": false,
+  "last_recorded_export_progress": {
+    "stage": "Capturing and encoding",
+    "fraction": 0.916591648837648,
+    "message": "Capturing and encoding 1209.8s / 1275.7s"
+  },
+  "owned_processes_after_explicit_cleanup": 0,
+  "private_ram_samples_over_2_gib": 0,
+  "limitations": [
+    "Sampling gap after a diagnostic file lock; timestamps retained.",
+    "Stopped before completion at user request; not a full-export memory ceiling guarantee.",
+    "Working-set sum includes shared pages counted across processes; private working set is reported separately.",
+    "Source UI harness with compiled render workers and real FFmpeg, Qt offscreen."
+  ]
+}

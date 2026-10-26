@@ -22,6 +22,7 @@ def run_ffmpeg(
     command: list[str], progress_parser: Callable[[str], None] | None = None,
     cancel_event: threading.Event | None = None,
     capture_stderr: list[str] | None = None,
+    stderr_parser: Callable[[str], None] | None = None,
 ) -> None:
     """Drain both pipes, retain bounded diagnostics, and reap on every exit path.
 
@@ -48,6 +49,8 @@ def run_ffmpeg(
             for line in iter(stream.readline, ""):
                 if not progress:
                     stderr_lines.append(line)
+                    if stderr_parser is not None:
+                        stderr_parser(line)
                 elif progress_parser is not None and not reader_failed.is_set():
                     progress_parser(line.strip())
         except Exception as error:

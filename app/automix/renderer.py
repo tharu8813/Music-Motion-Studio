@@ -1001,7 +1001,8 @@ class AutoMixAudioPipeline:
 
         diagnostics: list[str] = []
         try:
-            run_ffmpeg(arguments, progress, cancel_event, diagnostics)
+            # Loudness analysis consumes every block, beyond the bounded error tail.
+            run_ffmpeg(arguments, progress, cancel_event, stderr_parser=diagnostics.append)
         except FFmpegProcessCancelled as error:
             raise AutoMixRenderCancelled("AutoMix rendering was cancelled.") from error
         except FFmpegProcessError as error:

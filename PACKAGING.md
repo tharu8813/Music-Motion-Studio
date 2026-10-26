@@ -63,14 +63,14 @@ Inno Setup 6을 설치한 뒤 프로젝트 루트에서 다음 명령을 실행�
 완성된 설치 파일은 다음 위치에 생성됩니다.
 
 ```text
-output-setup\Playlist Canvas-1.3.1.3-setup.exe
+output-setup\Playlist Canvas-1.3.1.4-setup.exe
 ```
 
 이 Setup EXE를 GitHub Release에 첨부합니다. 사용자는 ZIP을 직접 관리하지 않고 설치 마법사를 통해 프로그램 위치, 시작 메뉴와 바탕 화면 바로가기를 설정할 수 있습니다.
 
 앱의 자동 업데이트가 Setup 자산을 찾고 검증할 수 있도록 릴리즈를 정식 공개 상태로 만들고 다음 조건을 지킵니다.
 
-- 태그는 `1.3.1.3`처럼 네 자리 버전 형식을 사용합니다. (`v` 접두사도 허용됩니다.)
+- 태그는 `1.3.1.4`처럼 네 자리 버전 형식을 사용합니다. (`v` 접두사도 허용됩니다.)
 - Setup 자산 이름에는 `Playlist Canvas`와 `setup`이 포함되어야 하며 확장자는 `.exe`여야 합니다.
 - Setup 파일은 반드시 이 저장소의 GitHub Release 자산으로 직접 첨부합니다. 외부 다운로드 URL은 앱이 거부합니다.
 - 초안 또는 사전 릴리즈는 자동 업데이트 대상에서 제외됩니다.
@@ -80,7 +80,7 @@ output-setup\Playlist Canvas-1.3.1.3-setup.exe
 
 새 Windows 사용자 계정 또는 가상 머신에서 다음을 확인합니다.
 
-1. `Playlist Canvas-1.3.1.3-setup.exe`로 설치와 제거가 정상 동작하는지 확인합니다.
+1. `Playlist Canvas-1.3.1.4-setup.exe`로 설치와 제거가 정상 동작하는지 확인합니다.
 2. 설치된 `Playlist Canvas.exe`가 실행되는지 확인합니다.
 3. 설정 화면에서 언어·테마·출력 폴더를 저장하고 재시작 후 유지되는지 확인합니다.
 4. 설정 화면의 FFmpeg 다운로드를 사용해 설치와 SHA-256 검증이 완료되는지 확인합니다.

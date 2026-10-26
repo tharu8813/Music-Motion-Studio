@@ -3,7 +3,7 @@
   <h1>Playlist Canvas</h1>
   <p><b>좋아하는 음악에 가사와 움직이는 화면을 더해, 나만의 플레이리스트 영상을 만드세요.</b></p>
   <p>
-    <img src="https://img.shields.io/badge/version-1.3.1.3-1685D1" alt="버전 1.3.1.3">
+    <img src="https://img.shields.io/badge/version-1.3.1.4-1685D1" alt="버전 1.3.1.4">
     <img src="https://img.shields.io/badge/platform-Windows%2064--bit-0078D4" alt="Windows 64비트">
     <img src="https://img.shields.io/badge/language-한국어%20%2F%20English-41CD52" alt="한국어·영어 지원">
   </p>
@@ -92,7 +92,7 @@ LRC·SRT 자막은 곡의 자르기, 속도, 가사 시간 보정과 실제 믹�
 ## 다운로드와 설치
 
 1. [공식 다운로드 페이지](https://github.com/tharu8813/Playlist-Canvas/releases/latest)를 엽니다.
-2. **Assets**에서 이름이 `setup.exe`로 끝나는 Windows 설치 파일을 받습니다. 파일명 예시는 `Playlist.Canvas-1.3.1.3-setup.exe`입니다. `Source code`는 소스 코드 압축 파일입니다.
+2. **Assets**에서 이름이 `setup.exe`로 끝나는 Windows 설치 파일을 받습니다. 파일명 예시는 `Playlist.Canvas-1.3.1.4-setup.exe`입니다. `Source code`는 소스 코드 압축 파일입니다.
 3. 설치 파일을 실행해 언어와 설치 위치를 선택한 뒤, 시작 메뉴나 바탕 화면에서 **Playlist Canvas**를 엽니다.
    기본 설치 위치는 `%ProgramFiles%\Playlist Canvas`이며 설치 시 관리자 권한을 요청합니다.
 4. 프로그램의 **도구 → 설정 → FFmpeg**에서 **(권장)** 버전을 고르고 **선택 버전 다운로드 및 설치**를 누릅니다. 다운로드와 설치가 끝나면 자동으로 적용됩니다.

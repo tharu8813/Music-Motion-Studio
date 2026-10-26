@@ -33,15 +33,19 @@ class FFmpegProcessTests(unittest.TestCase):
     def test_drains_both_pipes_and_bounds_diagnostics(self):
         progress = []
         diagnostics = []
+        analysis = []
         self.run_child(
             "import sys\nfor n in range(3000):\n print('out_time_us=' + str(n))\n"
             " print('diagnostic-' + str(n), file=sys.stderr)",
-            progress_parser=progress.append, capture_stderr=diagnostics,
+            progress_parser=progress.append, capture_stderr=diagnostics, stderr_parser=analysis.append,
         )
         self.assertEqual(len(progress), 3000)
         self.assertEqual(len(diagnostics), 400)
         self.assertEqual(diagnostics[0], "diagnostic-2600\n")
         self.assertEqual(diagnostics[-1], "diagnostic-2999\n")
+        self.assertEqual(len(analysis), 3000)
+        self.assertEqual(analysis[0], "diagnostic-0\n")
+        self.assertEqual(analysis[-1], "diagnostic-2999\n")
 
     def test_cancels_a_process_that_stops_writing_progress(self):
         cancel = threading.Event()
