@@ -18,7 +18,7 @@ from PySide6.QtGui import QImage
 
 from app.models.playlist import PlaylistTrack
 from app.models.source import SourceType
-from app.services.lyrics_intro_service import request_instrumental_analysis
+from app.services.lyrics_intro_service import completed_instrumental_spans, request_instrumental_analysis
 from app.preview.export_canvas_capture import ExportCanvasCapturer
 from app.preview.export_plan import ExportPlan
 from app.renderer.export_timeline import ExportFrameSample, ExportFrameSchedule
@@ -43,6 +43,7 @@ from app.renderer.static_video_stream import (
     StaticVideoStreamEncoder,
     StaticVideoStreamError,
 )
+from app.preview.canvas_process_stream import CanvasProcessStream, parallel_canvas_supported
 
 LOGGER = logging.getLogger(__name__)
 
@@ -130,7 +131,7 @@ class ExportSession:
         self._stream_wait_last_update: dict[str, float] = {}
         self._capturer: ExportCanvasCapturer | None = None
         self._piped = False
-        self._pipes: dict[str, PipedCanvasStream] = {}
+        self._pipes: dict[str, PipedCanvasStream | CanvasProcessStream] = {}
         self._live_encoder_reached = False
         self._encoder_reached_at: float | None = None
         self._final_render_stopped: Callable[[], str | None] = lambda: None
@@ -195,8 +196,9 @@ class ExportSession:
         sources = [item.source.resolved_lyrics() for item in scene_items()
                    if hasattr(item, "source") and item.source.visible
                    and item.source.source_type is SourceType.LYRICS]
-        futures = {future for track in self._tracks for source in sources
-                   if (future := request_instrumental_analysis(track, source)) is not None}
+        analysis_jobs = [(track, source, request_instrumental_analysis(track, source))
+                         for track in self._tracks for source in sources]
+        futures = {future for _track, _source, future in analysis_jobs if future is not None}
         if futures:
             self._report_progress(0, "가사 공백의 보컬을 분석하고 있습니다." if self._korean else
                                   "Analyzing vocals in lyric gaps.")
@@ -204,6 +206,10 @@ class ExportSession:
             self._ensure_not_cancelled()
             _done, futures = wait(futures, timeout=0.05)
             self._pump_ui()
+
+        instrumental_by_track = {track.id: {} for track in self._tracks}
+        for track, source, future in analysis_jobs:
+            instrumental_by_track[track.id][source.id] = completed_instrumental_spans(source, future)
 
         capturer = ExportCanvasCapturer(
             self._scene,
@@ -219,6 +225,7 @@ class ExportSession:
             bass_envelopes=self._prepare_bass_envelopes(),
             bass_fps=self._settings.fps,
             output_fps=self._settings.fps if plan.use_streamed_visuals or piped else None,
+            instrumental_spans_by_track=instrumental_by_track,
         )
         self._capturer = capturer
         self._invariant_stream_keys = capturer.invariant_stream_keys
@@ -530,20 +537,27 @@ class ExportSession:
         samples_by_stream = self._stream_timeline_samples
         playlist_duration = plan.playlist_duration
         pipe_root = self._stream_root / "pipes"
+        parallel = parallel_canvas_supported(self._capturer, len(piped_keys))
         try:
             for stream_key in piped_keys:
-                self._pipes[stream_key] = PipedCanvasStream(
-                    pipe_root,
-                    stream_key,
-                    self._settings.fps,
-                    preserve_alpha=stream_key != "base",
-                    queue_capacity=3 if stream_key == "base" else 2,
-                    producer_cancel_event=self._cancel,
-                    producer_wait_callback=self._pipe_wait,
-                )
+                if parallel:
+                    self._pipes[stream_key] = CanvasProcessStream(
+                        pipe_root, stream_key, self._settings.fps, capturer=self._capturer,
+                        producer_cancel_event=self._cancel, producer_wait_callback=self._pipe_wait,
+                    )
+                else:
+                    self._pipes[stream_key] = PipedCanvasStream(
+                        pipe_root,
+                        stream_key,
+                        self._settings.fps,
+                        preserve_alpha=stream_key != "base",
+                        queue_capacity=3 if stream_key == "base" else 2,
+                        producer_cancel_event=self._cancel,
+                        producer_wait_callback=self._pipe_wait,
+                    )
             LOGGER.info(
-                "Canvas live capture: piped=%s sparse_invariant=%d",
-                ",".join(piped_keys), len(self._sparse_invariant_stream_keys),
+                "Canvas live capture: piped=%s sparse_invariant=%d parallel=%s",
+                ",".join(piped_keys), len(self._sparse_invariant_stream_keys), parallel,
             )
             for stream_key in stream_keys:
                 if stream_key in self._sparse_invariant_stream_keys:
@@ -560,7 +574,7 @@ class ExportSession:
             pending: list[tuple[float, int, int, str, ExportFrameSample]] = []
             iterators = {key: iter(samples_by_stream[key]) for key in piped_keys}
             for stream_order, stream_key in enumerate(piped_keys):
-                self._capturer.capture_stream(next(iterators[stream_key]), stream_key)
+                self._capture_piped_sample(next(iterators[stream_key]), stream_key)
                 second = next(iterators[stream_key], None)
                 if second is not None:
                     heappush(pending, (
@@ -573,7 +587,7 @@ class ExportSession:
                     _timeline_seconds, stream_order, sample_index,
                     stream_key, sample,
                 ) = heappop(pending)
-                self._capturer.capture_stream(sample, stream_key)
+                self._capture_piped_sample(sample, stream_key)
                 next_index = sample_index + 1
                 next_sample = next(iterators[stream_key], None)
                 if next_sample is not None:
@@ -584,6 +598,9 @@ class ExportSession:
             duration_tolerance = 1e-6 * max(1.0, playlist_duration)
             for stream_key in piped_keys:
                 result = self._pipes[stream_key].finish()
+                if isinstance(self._pipes[stream_key], CanvasProcessStream):
+                    for name, value in self._pipes[stream_key].capture_metrics.items():
+                        setattr(self._capturer, name, getattr(self._capturer, name) + value)
                 self._live_encoder_reached |= self._pipes[stream_key].connected
                 self._pipes.pop(stream_key, None)
                 LOGGER.info(
@@ -615,6 +632,15 @@ class ExportSession:
         if self._cancel.is_set():
             raise RenderCancelledError("Export preparation was cancelled.")
         return artifacts
+
+    def _capture_piped_sample(self, sample: ExportFrameSample, stream_key: str) -> None:
+        pipe = self._pipes[stream_key]
+        if isinstance(pipe, CanvasProcessStream):
+            pipe.submit_sample(sample)
+            self._captured_seconds[stream_key] += sample.duration_seconds
+            self._after_capture(sample.track_number, stream_key)
+        else:
+            self._capturer.capture_stream(sample, stream_key)
 
     def _piped_artifacts(self) -> ExportArtifacts:
         plan = self._plan

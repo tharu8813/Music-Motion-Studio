@@ -92,8 +92,12 @@ def request_instrumental_analysis(track: PlaylistTrack, source: Source) -> Futur
 
 
 def instrumental_spans(track: PlaylistTrack, source: Source):
+    return completed_instrumental_spans(source, request_instrumental_analysis(track, source))
+
+
+def completed_instrumental_spans(source: Source, future: Future | None):
+    """Resolve a retained job without re-requesting an evicted analysis cache entry."""
     source = source.resolved_lyrics()
-    future = request_instrumental_analysis(track, source)
     if future is None or not future.done():
         return ()
     try:

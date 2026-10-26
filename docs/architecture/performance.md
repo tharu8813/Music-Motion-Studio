@@ -232,6 +232,15 @@ $env:PLAYLIST_CANVAS_PREVIEW_SOAK_SECONDS = '60'
 전체 속도의 유의미한 추가 향상은 확인하지 못했다. 디코딩한 1,200프레임은 동일했다.
 측정 범위와 제외한 실험은 [후속 검증 기록](export-blur-2026-10-26.md)에 있다.
 
+## Canvas 내보내기 병렬화 (2026-10-27)
+
+독립 Canvas 밴드의 래스터화를 별도 Qt 프로세스로 분리하고 기존 FFmpeg 파이프에
+직접 공급한다. IVY 1080p/60fps/20초 표본에서 상세 계측 없이 49.406초 →
+35.578/35.172초로 약 28.4% 단축됐다. 프레임·타임스탬프·음성 PCM은 동일했다.
+최종 빌드된 렌더 작업자는 첫 실행 44.093초, 재실행 36.187초였고 기존 경로의 후속
+재측정은 54.391초였다. 실행 편차가 있어 소스 측정 개선율을 설치본에 그대로 적용하지 않는다.
+범위, 취소와 메모리 비용은 [병렬화 검증 기록](parallel-canvas-2026-10-27.md)에 있다.
+
 ## 다음 최적화 순서
 
 1. **Preview**: 실제 프로젝트의 여러 video/blur/lyrics/visualizer 조합과 60fps/4K에서 unique scene p95 및 callback/toImage/filter 구간 확인. NoHandle fallback 비용과 flatten 트리거를 구분한다.

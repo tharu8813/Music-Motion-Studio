@@ -10,6 +10,11 @@ from PySide6.QtGui import QFontDatabase
 _REGISTERED_FONTS: dict[str, tuple[str, ...]] = {}
 
 
+def application_font_paths() -> tuple[str, ...]:
+    """Fonts already loaded by this editor, including imported project fonts."""
+    return tuple(path for path, families in _REGISTERED_FONTS.items() if families)
+
+
 def load_application_font(path: str | Path) -> tuple[str, ...]:
     """Register a TTF/OTF font for this app session and return its family names.
 

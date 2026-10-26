@@ -48,6 +48,7 @@ class ExportCanvasCapturer:
         bass_envelopes: dict[object, object] | None = None,
         bass_fps: int = 30,
         output_fps: int | None = None,
+        instrumental_spans_by_track: dict[str, dict[str, tuple]] | None = None,
     ) -> None:
         self.scene = scene
         self.tracks = list(tracks)
@@ -64,6 +65,7 @@ class ExportCanvasCapturer:
         self.bass_envelopes = bass_envelopes or {}
         self.bass_fps = max(1, int(bass_fps))
         self.output_fps = output_fps
+        self.instrumental_spans_by_track = instrumental_spans_by_track
         self._stream_seconds: dict[str, float] = {}
         self._last_stream_images: dict[str, QImage] = {}
         self.skipped_cfr_captures = 0
@@ -219,7 +221,8 @@ class ExportCanvasCapturer:
             )
             transition = cue_state.transition_progress if cue_state.transitioning else None
             intro_state = resolve_lyrics_intro_state(sample.track, source, sample.elapsed_seconds,
-                                                    instrumental_spans(sample.track, source))
+                instrumental_spans(sample.track, source) if self.instrumental_spans_by_track is None
+                else self.instrumental_spans_by_track[sample.track.id][source.id])
             content_state = (
                 "lyrics", id(sample.track), cue_state.cue_index, cue_state.active_cue_index,
                 transition, cue_state.release_progress,
@@ -425,6 +428,8 @@ class ExportCanvasCapturer:
                 "animation_progress": sample.animation_progress,
                 "animation_phase_duration": sample.animation_phase_duration,
             })
+        if self.instrumental_spans_by_track is not None:
+            common['lyric_instrumental_spans_by_source'] = self.instrumental_spans_by_track[sample.track.id]
         z_min, z_max, transparent, retained_layer_index = (
             self._stream_parameters(stream_key)
         )

@@ -75,6 +75,36 @@ class LyricsIntroTests(unittest.TestCase):
         self.assertIsNone(item._subtitle_intro_state)
         return rows, dots, image
 
+    def test_completed_analysis_uses_retained_job_without_requesting_again(self):
+        source = self.source(subtitle_intro_midtrack=True)
+        pending = Future()
+        self.assertEqual(service.completed_instrumental_spans(source, pending), ())
+        completed = Future()
+        completed.set_result((((6, 17),), ()))
+        with patch.object(service, 'request_instrumental_analysis', side_effect=AssertionError):
+            self.assertEqual(service.completed_instrumental_spans(source, completed), ((6, 17),))
+        failed = Future()
+        failed.set_exception(RuntimeError('Unavailable'))
+        self.assertEqual(service.completed_instrumental_spans(source, failed), ())
+
+    def test_worker_snapshot_uses_source_specific_completed_spans(self):
+        from app.preview import canvas_snapshot as snapshot_module
+
+        source = self.source(subtitle_intro_midtrack=True)
+        track = self.track()
+        spans = ((6, 17),)
+        _, _, expected = self.capture(source, 10, spans=spans, track=track)
+        scene = CanvasScene()
+        scene.set_artboard_size(source.width, source.height)
+        scene.addItem(SourceItem(source))
+        with patch.object(snapshot_module, 'instrumental_spans', side_effect=AssertionError):
+            actual = CanvasSnapshot.capture_track(
+                scene, track, 1, 1, 0, elapsed_seconds=10, transparent=True,
+                lyric_instrumental_spans_by_source={source.id: spans},
+            )
+        self.assertEqual(actual, expected)
+        scene.clear()
+
     def test_timing_and_vocal_evidence(self):
         source, track = self.source(subtitle_intro_midtrack=True), self.track()
         self.assertIsNotNone(resolve_lyrics_intro_state(track, source, 1))

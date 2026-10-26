@@ -1,0 +1,50 @@
+{
+  "canvas-process-serial-plain": {
+    "seconds": 49.40599999999904,
+    "frames": 1200,
+    "video_sha256": "714055cd9289b6aea4a64e253fc350f711584039e34c7c36cd06c86e6531f3bc",
+    "audio_pcm_sha256": "5f20a6ea146c4acab7969173b72485268107b538bec9f0f2d288f8944d2e73b2"
+  },
+  "canvas-process-product-v2": {
+    "seconds": 35.57799999999952,
+    "frames": 1200,
+    "video_sha256": "714055cd9289b6aea4a64e253fc350f711584039e34c7c36cd06c86e6531f3bc",
+    "audio_pcm_sha256": "5f20a6ea146c4acab7969173b72485268107b538bec9f0f2d288f8944d2e73b2"
+  },
+  "canvas-process-product-final": {
+    "seconds": 35.17200000000048,
+    "frames": 1200,
+    "video_sha256": "714055cd9289b6aea4a64e253fc350f711584039e34c7c36cd06c86e6531f3bc",
+    "audio_pcm_sha256": "5f20a6ea146c4acab7969173b72485268107b538bec9f0f2d288f8944d2e73b2"
+  },
+  "limitation": "20-second first-track copy, 1080p60 NVENC, offscreen Qt; preparation included, detailed instrumentation disabled, full 21-minute export not measured.",
+  "canvas-process-frozen-final": {
+    "seconds": 44.09300000000076,
+    "frames": 1200,
+    "video_sha256": "714055cd9289b6aea4a64e253fc350f711584039e34c7c36cd06c86e6531f3bc",
+    "audio_pcm_sha256": "5f20a6ea146c4acab7969173b72485268107b538bec9f0f2d288f8944d2e73b2"
+  },
+  "canvas-process-frozen-warm": {
+    "seconds": 36.1869999999999,
+    "frames": 1200,
+    "video_sha256": "714055cd9289b6aea4a64e253fc350f711584039e34c7c36cd06c86e6531f3bc",
+    "audio_pcm_sha256": "5f20a6ea146c4acab7969173b72485268107b538bec9f0f2d288f8944d2e73b2"
+  },
+  "canvas-process-serial-final": {
+    "seconds": 54.39100000000144,
+    "frames": 1200,
+    "video_sha256": "714055cd9289b6aea4a64e253fc350f711584039e34c7c36cd06c86e6531f3bc",
+    "audio_pcm_sha256": "5f20a6ea146c4acab7969173b72485268107b538bec9f0f2d288f8944d2e73b2"
+  },
+  "validation": {
+    "regression_modules": 28,
+    "regression_tests": 392,
+    "regression_skipped": 9,
+    "frozen_worker_tests": 7,
+    "worker_cleanup_repeats": 2,
+    "worker_cleanup_tests": 14,
+    "failures": 0,
+    "full_project_export_tested": false,
+    "packaged_worker_note": "Source UI harness with compiled executable as each renderer; compiled CLI and bytecode verified. Installed GUI not driven."
+  }
+}

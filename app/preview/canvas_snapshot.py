@@ -693,7 +693,8 @@ class CanvasSnapshot:
                       junction: MixJunction | None = None,
                       bass_level: float = 0.0,
                       music_levels: dict[str, float] | None = None,
-                      lyric_instrumental_spans: tuple | None = None) -> QImage:
+                      lyric_instrumental_spans: tuple | None = None,
+                      lyric_instrumental_spans_by_source: dict[str, tuple] | None = None) -> QImage:
         """Capture one track state with metadata, cover art, and an optional Z band.
 
         ``junction``: the frame sits at a crossfade/AutoMix handover of the
@@ -813,7 +814,9 @@ class CanvasSnapshot:
                 ))
                 graphics_item._subtitle_intro_state = resolve_lyrics_intro_state(
                     track, source, elapsed_seconds,
-                    instrumental_spans(track, source) if lyric_instrumental_spans is None else lyric_instrumental_spans,
+                    (lyric_instrumental_spans_by_source[source.id]
+                     if lyric_instrumental_spans_by_source is not None else
+                     instrumental_spans(track, source) if lyric_instrumental_spans is None else lyric_instrumental_spans),
                 )
                 original_subtitle_anchors.append((
                     graphics_item, graphics_item._subtitle_anchor_line,
