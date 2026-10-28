@@ -189,11 +189,28 @@ class LyricsSearchDialogTests(unittest.TestCase):
     def test_both_languages_and_no_unsupported_country_option(self):
         dialog = self.dialog()
         self.assertNotIn("country", dialog.labels)
-        self.assertEqual(dialog.windowTitle(), "가사 찾아보기")
+        self.assertEqual(dialog.windowTitle(), "가사 검색 및 가져오기")
         dialog.translator.set_language(Language.ENGLISH)
-        self.assertEqual(dialog.windowTitle(), "Find lyrics")
+        self.assertEqual(dialog.windowTitle(), "Search & Import Lyrics")
         dialog.provider_combo.setCurrentIndex(dialog.provider_combo.findData("lrclib"))
         self.assertEqual(dialog.provider_combo.currentData(), "lrclib")
+
+    def test_discovery_ui_filter_preview_and_copy(self):
+        dialog = self.dialog()
+        first = lrc_result()
+        from dataclasses import replace
+        second = replace(first, provider="apple_music_liriqo")
+        dialog._show_results(LyricsSearchBatch([first, second]))
+        self.assertEqual(dialog.result_count.text(), "2 / 2개")
+        dialog.result_filter.setText("QQ Music")
+        self.assertEqual(dialog.result_count.text(), "0 / 2개")
+        dialog.result_filter.clear()
+        self.assertEqual(dialog.result_count.text(), "2 / 2개")
+        dialog._show_document(LyricsSearchService().fetch(first))
+        self.assertEqual(dialog.preview_stack.currentIndex(), 1)
+        self.assertTrue(dialog.copy_button.isEnabled())
+        dialog.copy_button.click()
+        self.assertEqual(QApplication.clipboard().text(), dialog.preview.toPlainText())
 
     def test_ttml_in_track_settings_only_stages_lyrics(self):
         track = PlaylistTrack("", "Song", lyrics_timing_offset_seconds=0.25)
