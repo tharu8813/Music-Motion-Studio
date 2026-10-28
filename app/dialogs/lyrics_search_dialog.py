@@ -357,6 +357,7 @@ class LyricsSearchDialog(QDialog):
                 timing = self._timing_text(result.timing)
                 item.setText(timing)
                 item.setToolTip(timing)
+        self._filter_results()
         if self.document is not None:
             self._update_preview_details(self.document)
         self.preview_heading.setText(self._tr("03  가사 미리보기", "03  Lyrics preview"))
@@ -372,13 +373,16 @@ class LyricsSearchDialog(QDialog):
         self.table.setToolTip(self._tr(
             "한 번 클릭해 미리보기 · 불러오기 실패 시 두 번 클릭해 재시도",
             "Click to preview · double-click to retry a failed request"))
-        self.copy_button.setText(self._tr("가사 복사", "Copy lyrics"))
+        self.copy_button.setText(self._tr("가사 텍스트 복사", "Copy lyrics text"))
+        self.copy_button.setToolTip(self._tr(
+            "미리보기에 표시된 가사 텍스트를 시간 정보 없이 복사합니다.",
+            "Copy the text displayed in the preview, without timestamps."))
         self.download_button.setText(self._tr("파일로 저장…", "Save file…"))
         self.attach_button.setText(self._tr("곡에 적용", "Attach to track"))
         self.close_button.setText(self._tr("닫기", "Close"))
         self.note.setText(self._tr(
-            "시간 정보가 없는 가사는 저장만 가능합니다.",
-            "Untimed lyrics can be saved, but not attached to a track.") +
+            "시간 정보가 없는 가사는 복사·저장만 가능합니다.",
+            "Untimed lyrics can be copied or saved, but not attached to a track.") +
             (self._tr(" 곡 설정에서 적용을 눌러야 변경사항이 유지됩니다.",
                       " Click Apply in track settings to keep changes.") if self.staged else ""))
         if not self.status.text():
