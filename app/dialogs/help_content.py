@@ -1128,8 +1128,8 @@ _LYRICS = (
        ("가사,플레이리스트", "lyrics,playlist"),
        """<ul>
 <li>지원 형식: <b>LRC</b>, <b>SRT</b>, <b>WebVTT(.vtt)</b>, <b>TTML</b></li>
-<li><b>온라인 검색</b>: <b>도구 → 가사 찾아보기</b> 또는 곡 설정의 <b>가사 찾아보기</b>를 엽니다. 제목은 필수이며 아티스트·앨범은 일부만 입력할 수 있습니다. 길이와 제공자를 지정할 수 있고 Apple Music은 US로 검색합니다. 제목과 아티스트가 있는 플레이리스트 곡을 선택하면 검색 정보를 채웁니다. 반복 요청은 캐시로 줄이며 검색과 가사 불러오기는 각각 제공자당 한 번만 요청합니다. 오류나 결과 없음에 따른 자동 재요청은 하지 않습니다.</li>
-<li>검색 결과를 선택해 미리 본 뒤 <b>로컬 다운로드</b>로 원본 TTML/LRC 파일을 저장하거나 <b>플레이리스트에 추가</b>로 선택한 곡에 연결합니다. 기존 가사는 비교 후 교체합니다. 시간 정보 없는 가사는 TXT로 다운로드할 수 있습니다.</li>
+<li><b>온라인 검색</b>: <b>도구 → 가사 검색 및 가져오기</b> 또는 곡 설정의 <b>가사 검색 및 가져오기</b>를 엽니다. 제목은 필수이고 아티스트·앨범·길이·제공자는 선택 사항입니다. 앨범은 검색 결과를 좁히는 데 사용하며 국가 선택은 지원하지 않습니다. 플레이리스트에서 제목과 아티스트가 있는 곡을 고르면 입력값과 연결할 곡이 채워집니다. LiriQo는 한 음원의 여러 제공자별 가사를 반환하며 결과를 캐시합니다. 오류나 결과 없음에 대한 자동 재요청은 하지 않습니다.</li>
+<li>검색 결과를 선택해 내용을 확인하고 <b>가사 텍스트 복사</b>로 시간 정보를 제외한 글자만 복사하거나 <b>파일로 저장</b>으로 원본 TTML/LRC 파일을 저장할 수 있습니다. <b>곡에 적용</b>으로 선택한 곡에 연결하며 기존 가사가 있으면 비교 후 교체합니다. 시간 정보 없는 가사는 TXT로 저장하거나 텍스트를 복사할 수 있습니다. 결과 내 검색은 Ctrl+Shift+F로 이용할 수 있습니다.</li>
 <li><b>실시간 가사 설정</b>: 캔버스의 <b>가사/자막 요소 → 속성 → 실시간 가사</b>에서 사용 여부, 강조할 줄, 색상과 단어 강조 보정을 설정합니다. 해당 요소에 표시되는 모든 곡에 공통으로 적용되며, 곡별 파일 연결과 타이밍 보정은 <b>곡 정보/설정 → 가사 설정</b>에서 관리합니다.</li>
 <li><b>실시간 가사</b>: LRC·SRT·VTT는 곡 시작부터 첫 줄 전체를 표시하고 다음 가사 시간에 전환합니다. TTML은 파일의 줄·단어·음절 시간을 사용합니다. 음악을 분석하거나 단어 시간을 추정하지 않습니다.</li>
 <li>TTML 가사는 종료 시간까지 현재 상태를 유지합니다. 동시에 진행되는 가사는 한 묶음으로 중앙에 표시합니다. 가사 사이 공백에서는 마지막에 끝난 줄을 유지하고 해당 줄의 블러만 해제합니다.</li>
@@ -1141,8 +1141,8 @@ _LYRICS = (
 <div class='note'>여러 줄 가사는 LRC로 내보낼 때 문자 <code>\\n</code>으로 저장됩니다.</div>""",
        """<ul>
 <li>Supported: <b>LRC</b>, <b>SRT</b>, <b>WebVTT (.vtt)</b> and <b>TTML</b></li>
-<li><b>Online lookup</b>: open <b>Tools → Find lyrics</b> or <b>Find lyrics</b> in track settings. Title is required; title, artist and album accept fragments. Duration and provider are optional; Apple Music uses US. Select a playlist song with a title and artist to fill the search fields. Cached responses reduce repeat requests. Each provider is requested once per search or lyric load, without automatic retries or fallback searches.</li>
-<li>Select a result to preview, then <b>Download</b> its original TTML/LRC file or <b>Add to playlist</b> to attach it to a chosen track. Existing lyrics are compared before replacement. Untimed lyrics can be downloaded as TXT.</li>
+<li><b>Online lookup</b>: open <b>Tools → Search &amp; Import Lyrics</b> or <b>Search &amp; Import Lyrics</b> in track settings. Title is required; artist, album, duration and provider are optional. Album filters returned results, and country selection is not supported. Choosing a playlist song with title and artist fills the query and target. LiriQo returns provider-specific lyric versions for one resolved recording and caches the response. Failed requests do not automatically retry.</li>
+<li>Choose a result to preview, use <b>Copy lyrics text</b> for words without timestamps, or <b>Save file</b> for the original TTML/LRC file. <b>Attach to track</b> connects it to the chosen song, comparing existing lyrics before replacement. Untimed lyrics can be copied or saved as TXT. Ctrl+Shift+F filters the existing results.</li>
 <li><b>Real-time lyric settings</b>: select the canvas <b>Lyrics/Subtitles element → Properties → Real-time lyrics</b> to set enabled state, highlighted lines, colors and word highlight offset. These settings apply to every track displayed by that element. Manage individual lyric attachments and timing offsets in <b>Track information/settings → Lyrics settings</b>.</li>
 <li><b>Real-time lyrics</b>: LRC, SRT and VTT show the complete first line from track start and switch at the next cue. TTML uses the file's line, word and syllable timings. No audio analysis or word timing estimation is used.</li>
 <li>TTML lyrics stay current until their end times. Overlapping lyrics form one centered group. In gaps, the last line to finish remains visible with its blur disabled.</li>
