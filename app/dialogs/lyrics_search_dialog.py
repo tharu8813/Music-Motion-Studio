@@ -7,16 +7,18 @@ from threading import Event
 from typing import Callable
 
 from PySide6.QtCore import QThread, Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog,
-    QDoubleSpinBox, QFileDialog, QGridLayout, QGroupBox,
+    QDoubleSpinBox, QFileDialog, QFrame, QGridLayout, QGroupBox,
     QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
-    QProgressBar, QPushButton, QSplitter, QTableWidget, QTableWidgetItem,
+    QProgressBar, QPushButton, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
 
 from app.dialogs.help_dialog import install_help_shortcut
 from app.models.playlist import PlaylistTrack
+from app.ui.studio_icons import menu_icon
 from app.services.lyrics_search_service import (
     FoundLyrics, LyricsSearchBatch, LyricsSearchCancelled, LyricsSearchError,
     LyricsSearchQuery, LyricsSearchService, PROVIDERS,
@@ -68,26 +70,42 @@ class LyricsSearchDialog(QDialog):
         self.saved_paths = []
         self.attached_track_ids = []
         install_help_shortcut(self, ("lyrics_editor", "lyrics_files"), translator)
-        self.resize(980, 680)
-        self.setMinimumSize(760, 540)
+        self.setObjectName("lyricsDiscoveryDialog")
+        self.setWindowIcon(menu_icon("lyrics_search"))
+        self.resize(1120, 740)
+        self.setMinimumSize(850, 600)
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 14, 16, 14)
-        root.setSpacing(10)
+        root.setContentsMargins(20, 18, 20, 16)
+        root.setSpacing(12)
 
+        # A compact workflow header, shared visually with the lyrics editor.
+        self.heading = QLabel()
+        self.heading.setObjectName("dialogTitle")
+        root.addWidget(self.heading)
         self.intro = QLabel()
+        self.intro.setObjectName("mutedLabel")
         self.intro.setWordWrap(True)
         root.addWidget(self.intro)
+        self.flow_label = QLabel()
+        self.flow_label.setObjectName("lyricsDiscoveryFlow")
+        root.addWidget(self.flow_label)
+
         self.form_group = QGroupBox()
         grid = QGridLayout(self.form_group)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(8)
         self.playlist_combo = QComboBox()
         self.playlist_combo.addItem("", "")
         for track in self.tracks:
             if searchable_track(track):
                 self.playlist_combo.addItem(f"{track.title} — {track.artist}", track.id)
         self.playlist_label = QLabel()
+        self.playlist_label.setBuddy(self.playlist_combo)
         grid.addWidget(self.playlist_label, 0, 0)
-        grid.addWidget(self.playlist_combo, 0, 1, 1, 5)
+        grid.addWidget(self.playlist_combo, 0, 1, 1, 3)
         self.title_edit, self.artist_edit, self.album_edit = QLineEdit(), QLineEdit(), QLineEdit()
+        for edit in (self.title_edit, self.artist_edit, self.album_edit):
+            edit.setClearButtonEnabled(True)
         self.duration_spin = QDoubleSpinBox()
         self.duration_spin.setRange(0, 86400)
         self.duration_spin.setDecimals(1)
@@ -96,17 +114,20 @@ class LyricsSearchDialog(QDialog):
         for key in ("all", *PROVIDERS):
             self.provider_combo.addItem("", key)
         self.labels = {}
-        fields = (("title", self.title_edit), ("artist", self.artist_edit), ("album", self.album_edit),
-                  ("duration", self.duration_spin), ("provider", self.provider_combo))
-        for index, (key, widget) in enumerate(fields):
+        for key, widget, row, column in (
+            ("title", self.title_edit, 1, 0),
+            ("artist", self.artist_edit, 1, 2),
+            ("album", self.album_edit, 2, 0),
+            ("duration", self.duration_spin, 2, 2),
+            ("provider", self.provider_combo, 3, 0),
+        ):
             label = QLabel()
             label.setBuddy(widget)
             self.labels[key] = label
-            row, column = 1 + index // 3, (index % 3) * 2
             grid.addWidget(label, row, column)
-            grid.addWidget(widget, row, column + 1)
-        for column in (1, 3, 5):
-            grid.setColumnStretch(column, 1)
+            grid.addWidget(widget, row, column + 1, 1, 3 if key == "provider" else 1)
+        grid.setColumnStretch(1, 3)
+        grid.setColumnStretch(3, 3)
         self.synced_only = QCheckBox()
         self.synced_only.setChecked(True)
         self.search_button, self.cancel_button = QPushButton(), QPushButton()
@@ -118,39 +139,91 @@ class LyricsSearchDialog(QDialog):
         search_row.addStretch(1)
         search_row.addWidget(self.cancel_button)
         search_row.addWidget(self.search_button)
-        grid.addLayout(search_row, 3, 0, 1, 6)
+        grid.addLayout(search_row, 4, 0, 1, 4)
         root.addWidget(self.form_group)
 
         self.warning = QLabel()
+        self.warning.setObjectName("warningLabel")
         self.warning.setWordWrap(True)
         self.warning.setTextFormat(Qt.TextFormat.PlainText)
         self.warning.hide()
         root.addWidget(self.warning)
+
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        results_pane = QWidget()
+        results_layout = QVBoxLayout(results_pane)
+        results_layout.setContentsMargins(0, 0, 6, 0)
+        results_layout.setSpacing(8)
+        results_heading_row = QHBoxLayout()
+        self.results_heading = QLabel()
+        self.results_heading.setObjectName("panelTitle")
+        self.result_count = QLabel()
+        self.result_count.setObjectName("lyricsDiscoveryCount")
+        results_heading_row.addWidget(self.results_heading)
+        results_heading_row.addWidget(self.result_count)
+        results_heading_row.addStretch(1)
+        results_layout.addLayout(results_heading_row)
+        self.result_filter = QLineEdit()
+        self.result_filter.setObjectName("lyricsDiscoveryFilter")
+        self.result_filter.setClearButtonEnabled(True)
+        self.result_filter.setEnabled(False)
+        results_layout.addWidget(self.result_filter)
         self.table = QTableWidget(0, 6)
+        self.table.setObjectName("lyricsDiscoveryTable")
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().hide()
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        for column, width in ((0, 180), (1, 110), (2, 120), (3, 58), (4, 90), (5, 100)):
+        for column, width in ((0, 166), (1, 112), (2, 110), (3, 65), (4, 92), (5, 105)):
             self.table.setColumnWidth(column, width)
-        splitter.addWidget(self.table)
+        results_layout.addWidget(self.table, 1)
+        splitter.addWidget(results_pane)
+
         preview_box = QWidget()
         preview_layout = QVBoxLayout(preview_box)
-        preview_layout.setContentsMargins(6, 0, 0, 0)
+        preview_layout.setContentsMargins(10, 0, 0, 0)
+        preview_layout.setSpacing(8)
+        self.preview_heading = QLabel()
+        self.preview_heading.setObjectName("panelTitle")
+        preview_layout.addWidget(self.preview_heading)
         self.detail_label = QLabel()
+        self.detail_label.setObjectName("mutedLabel")
         self.detail_label.setWordWrap(True)
         self.detail_label.setTextFormat(Qt.TextFormat.PlainText)
         preview_layout.addWidget(self.detail_label)
+        self.preview_stack = QStackedWidget()
+        empty_page = QWidget()
+        empty_layout = QVBoxLayout(empty_page)
+        empty_layout.setContentsMargins(16, 16, 16, 16)
+        empty_layout.addStretch(1)
+        self.empty_heading = QLabel()
+        self.empty_heading.setObjectName("lyricsDiscoveryEmptyHeading")
+        self.empty_heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_heading.setWordWrap(True)
+        self.empty_hint = QLabel()
+        self.empty_hint.setObjectName("mutedLabel")
+        self.empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_hint.setWordWrap(True)
+        empty_layout.addWidget(self.empty_heading)
+        empty_layout.addWidget(self.empty_hint)
+        empty_layout.addStretch(1)
+        self.preview_stack.addWidget(empty_page)
         self.preview = QPlainTextEdit()
+        self.preview.setObjectName("lyricsDiscoveryPreview")
         self.preview.setReadOnly(True)
-        preview_layout.addWidget(self.preview, 1)
+        self.preview_stack.addWidget(self.preview)
+        preview_layout.addWidget(self.preview_stack, 1)
+        self.preview_info = QLabel()
+        self.preview_info.setObjectName("mutedLabel")
+        self.preview_info.setWordWrap(True)
+        preview_layout.addWidget(self.preview_info)
         splitter.addWidget(preview_box)
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
-        splitter.setSizes([670, 290])
+        splitter.setSizes([690, 390])
         root.addWidget(splitter, 1)
 
         self.progress = QProgressBar()
@@ -160,30 +233,43 @@ class LyricsSearchDialog(QDialog):
         self.progress.hide()
         root.addWidget(self.progress)
         self.status = QLabel()
+        self.status.setObjectName("lyricsDiscoveryStatus")
         self.status.setTextFormat(Qt.TextFormat.PlainText)
         self.status.setWordWrap(True)
         root.addWidget(self.status)
+
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setObjectName("lyricsDiscoverySeparator")
+        root.addWidget(separator)
         target_row = QHBoxLayout()
+        target_row.setSpacing(8)
         self.target_label = QLabel()
         self.target_combo = QComboBox()
+        self.target_combo.setMinimumWidth(175)
         self.target_combo.addItem("", "")
         for track in self.tracks:
             self.target_combo.addItem(f"{track.title} — {track.artist}", track.id)
         target_row.addWidget(self.target_label)
         target_row.addWidget(self.target_combo, 1)
+        self.copy_button = QPushButton()
         self.download_button, self.attach_button, self.close_button = QPushButton(), QPushButton(), QPushButton()
+        self.attach_button.setProperty("primary", True)
+        target_row.addWidget(self.copy_button)
         target_row.addWidget(self.download_button)
         target_row.addWidget(self.attach_button)
         target_row.addWidget(self.close_button)
         root.addLayout(target_row)
+        footer_row = QHBoxLayout()
         self.note = QLabel()
         self.note.setObjectName("mutedLabel")
         self.note.setWordWrap(True)
-        root.addWidget(self.note)
+        footer_row.addWidget(self.note, 1)
         self.credit = QLabel('<a href="https://github.com/AlFarrizi-Studio/LiriQo">LiriQo</a>')
         self.credit.setOpenExternalLinks(True)
         self.credit.setObjectName("mutedLabel")
-        root.addWidget(self.credit)
+        footer_row.addWidget(self.credit, 0, Qt.AlignmentFlag.AlignRight)
+        root.addLayout(footer_row)
 
         self.playlist_combo.currentIndexChanged.connect(self._use_playlist_track)
         self.title_edit.textChanged.connect(self._sync_actions)
@@ -192,9 +278,13 @@ class LyricsSearchDialog(QDialog):
         self.cancel_button.clicked.connect(self._cancel_request)
         self.table.currentCellChanged.connect(self._select_result)
         self.table.itemDoubleClicked.connect(self._select_result)
+        self.result_filter.textChanged.connect(self._filter_results)
+        self.copy_button.clicked.connect(self._copy_lyrics)
         self.download_button.clicked.connect(self._download)
         self.attach_button.clicked.connect(self._attach)
         self.close_button.clicked.connect(self.reject)
+        QShortcut(QKeySequence("Ctrl+F"), self, activated=self.title_edit.setFocus)
+        QShortcut(QKeySequence("Ctrl+Shift+F"), self, activated=self.result_filter.setFocus)
         self.translator.language_changed.connect(self.retranslate)
         app = QApplication.instance()
         if app is not None:
@@ -213,46 +303,101 @@ class LyricsSearchDialog(QDialog):
         return ko if self.translator.is_korean else en
 
     def retranslate(self):
-        self.setWindowTitle(self._tr("가사 찾아보기", "Find lyrics"))
-        self.intro.setText(self._tr("곡을 검색하고 가사를 미리 본 뒤, 파일로 내려받거나 플레이리스트의 곡에 연결하세요.",
-                                   "Search for a recording, preview its lyrics, then download a file or attach lyrics to a playlist track."))
-        self.form_group.setTitle(self._tr("곡 정보", "Song information"))
-        self.playlist_label.setText(self._tr("검색에 사용할 곡", "Search using"))
+        self.setWindowTitle(self._tr("가사 검색 및 가져오기", "Search & Import Lyrics"))
+        self.heading.setText(self._tr("가사 검색 및 가져오기", "Search & Import Lyrics"))
+        self.intro.setText(self._tr(
+            "곡 정보를 입력해 동기화 가사를 검색하고, 결과를 비교한 뒤 다운로드하거나 플레이리스트에 연결하세요.",
+            "Find synced lyrics by song metadata, compare versions, then download or attach the best match."))
+        self.flow_label.setText(self._tr(
+            "01  곡 정보 입력     ›     02  검색 결과 비교     ›     03  가사 확인 및 적용",
+            "01  Song details     ›     02  Compare results     ›     03  Preview & apply"))
+        self.form_group.setTitle(self._tr("01  곡 정보", "01  Song details"))
+        self.playlist_label.setText(self._tr("플레이리스트에서 선택", "From playlist"))
         self.playlist_combo.setItemText(0, self._tr("직접 입력", "Enter manually"))
         for key, labels in {
             "title": ("제목 *", "Title *"), "artist": ("아티스트", "Artist"), "album": ("앨범", "Album"),
             "duration": ("길이 (초)", "Duration (s)"), "provider": ("제공자", "Provider"),
         }.items():
             self.labels[key].setText(self._tr(*labels))
-        self.title_edit.setPlaceholderText(self._tr("필수 입력", "Required"))
-        self.artist_edit.setPlaceholderText(self._tr("선택 입력", "Optional"))
-        self.album_edit.setPlaceholderText(self._tr("선택 입력", "Optional"))
+        self.title_edit.setPlaceholderText(self._tr("검색할 곡의 제목", "Song title to search"))
+        self.artist_edit.setPlaceholderText(self._tr("정확도를 높이려면 입력", "Optional, improves matching"))
+        self.album_edit.setPlaceholderText(self._tr("앨범으로 결과 좁히기 (선택)", "Optional album filter"))
         for widget in (self.title_edit, self.artist_edit, self.album_edit):
-            widget.setToolTip(self._tr("LiriQo가 제목과 아티스트로 곡을 찾습니다. 앨범은 결과 필터로 사용합니다.",
-                                      "LiriQo resolves a recording by title and artist. Album filters the returned results."))
+            widget.setToolTip(self._tr(
+                "LiriQo가 제목과 아티스트로 곡을 찾습니다. 앨범은 결과 필터로 사용합니다.",
+                "LiriQo resolves a recording by title and artist. Album filters the returned results."))
         self.duration_spin.setSpecialValueText(self._tr("지정 안 함", "Any"))
-        self.duration_spin.setToolTip(self._tr("길이가 비슷한 검색 결과를 우선 표시합니다.", "Ranks recordings with a similar duration first."))
+        self.duration_spin.setToolTip(self._tr(
+            "검색할 음원의 길이를 초 단위로 입력합니다.", "Optional song duration in seconds."))
         for index, key in enumerate(("all", *PROVIDERS)):
-            self.provider_combo.setItemText(index, self._tr("모든 제공자", "All providers") if key == "all" else PROVIDERS[key])
+            self.provider_combo.setItemText(
+                index, self._tr("모든 제공자", "All providers") if key == "all" else PROVIDERS[key])
         self.synced_only.setText(self._tr("시간 정보가 있는 가사만", "Timed lyrics only"))
-        self.synced_only.setToolTip(self._tr("LiriQo에서 시간 정보가 있는 결과만 표시합니다.", "Shows only timed lyric variants returned by LiriQo."))
-        self.search_button.setText(self._tr("검색", "Search"))
-        self.cancel_button.setText(self._tr("작업 취소", "Cancel request"))
+        self.synced_only.setToolTip(self._tr(
+            "시간 정보가 없는 가사를 검색 결과에서 제외합니다.",
+            "Hide untimed lyrics from search results."))
+        self.search_button.setText(self._tr("가사 검색", "Search lyrics"))
+        self.cancel_button.setText(self._tr("요청 취소", "Cancel request"))
+        self.results_heading.setText(self._tr("02  검색 결과", "02  Search results"))
+        self.result_filter.setPlaceholderText(self._tr(
+            "결과 내 검색 (곡·아티스트·제공자)", "Filter results by song, artist, or provider"))
+        self.result_filter.setToolTip(self._tr(
+            "이미 검색된 결과만 필터링합니다. Ctrl+Shift+F",
+            "Filter the current results without another request. Ctrl+Shift+F"))
+        self._update_result_count()
         self.table.setHorizontalHeaderLabels([self._tr(*pair) for pair in (
             ("제목", "Title"), ("아티스트", "Artist"), ("앨범", "Album"),
             ("길이", "Length"), ("제공자", "Provider"), ("가사", "Lyrics"))])
+        self.preview_heading.setText(self._tr("03  가사 미리보기", "03  Lyrics preview"))
+        self.empty_heading.setText(self._tr(
+            "여기에 가사가 표시됩니다", "Lyrics preview appears here"))
+        self.empty_hint.setText(self._tr(
+            "왼쪽에서 결과를 선택해 가사의 내용과 동기화 방식을 확인하세요.",
+            "Select a result on the left to inspect its lyrics and timing."))
         self.target_label.setText(self._tr("연결할 곡", "Attach to"))
-        self.target_combo.setItemText(0, self._tr("연결할 곡을 선택하세요", "Choose a target track"))
-        self.preview.setPlaceholderText(self._tr("검색 결과에서 곡을 선택하면 가사를 표시합니다.", "Select a recording from the search results to preview lyrics."))
-        self.table.setToolTip(self._tr("곡을 선택해 가사를 확인하세요. 실패한 결과는 두 번 클릭해 다시 불러올 수 있습니다.", "Select a recording to inspect lyrics. Double-click a failed result to retry."))
-        self.download_button.setText(self._tr("로컬 다운로드…", "Download…"))
-        self.attach_button.setText(self._tr("플레이리스트에 추가", "Add to playlist"))
+        self.target_combo.setItemText(0, self._tr("곡 선택", "Choose a track"))
+        self.preview.setPlaceholderText(self._tr(
+            "결과를 선택하면 가사가 표시됩니다.", "Select a result to preview lyrics."))
+        self.table.setToolTip(self._tr(
+            "한 번 클릭해 미리보기 · 불러오기 실패 시 두 번 클릭해 재시도",
+            "Click to preview · double-click to retry a failed request"))
+        self.copy_button.setText(self._tr("가사 복사", "Copy lyrics"))
+        self.download_button.setText(self._tr("파일로 저장…", "Save file…"))
+        self.attach_button.setText(self._tr("곡에 적용", "Attach to track"))
         self.close_button.setText(self._tr("닫기", "Close"))
-        self.note.setText(self._tr("플레이리스트에 추가하면 선택한 곡에 가사를 연결합니다. 시간 정보 없는 가사는 다운로드만 가능합니다.",
-                                  "Add to playlist attaches lyrics to the chosen track. Untimed lyrics can only be downloaded.") +
-                          (self._tr(" 곡 설정에서 적용을 눌러야 반영됩니다.", " Click Apply in track settings to keep the attachment.") if self.staged else ""))
+        self.note.setText(self._tr(
+            "시간 정보가 없는 가사는 저장만 가능합니다.",
+            "Untimed lyrics can be saved, but not attached to a track.") +
+            (self._tr(" 곡 설정에서 적용을 눌러야 변경사항이 유지됩니다.",
+                      " Click Apply in track settings to keep changes.") if self.staged else ""))
         if not self.status.text():
-            self.status.setText(self._tr("제목을 입력하고 검색하세요.", "Enter a title to search."))
+            self.status.setText(self._tr(
+                "곡 제목을 입력하고 가사를 검색하세요.", "Enter a song title to search for lyrics."))
+
+    def _update_result_count(self):
+        visible = sum(not self.table.isRowHidden(row) for row in range(self.table.rowCount()))
+        total = len(self.results)
+        self.result_count.setText(
+            self._tr(f"{visible} / {total}개", f"{visible} / {total}") if total else
+            self._tr("검색 전", "Not searched"))
+
+    def _filter_results(self, *_args):
+        query = self.result_filter.text().strip().casefold()
+        selected_row = self.table.currentRow()
+        for row, result in enumerate(self.results):
+            content = " ".join((
+                result.title, result.artist, result.album, PROVIDERS[result.provider], result.timing
+            )).casefold()
+            self.table.setRowHidden(row, bool(query and query not in content))
+        if selected_row >= 0 and self.table.isRowHidden(selected_row):
+            self.table.clearSelection()
+            self.document = None
+            self.preview.clear()
+            self.preview_stack.setCurrentIndex(0)
+            self.detail_label.clear()
+            self.preview_info.clear()
+            self._sync_actions()
+        self._update_result_count()
 
     def _use_playlist_track(self, *_args):
         track_id = self.playlist_combo.currentData()
@@ -269,6 +414,8 @@ class LyricsSearchDialog(QDialog):
         busy = self.worker is not None
         self.search_button.setEnabled(not busy and bool(self.title_edit.text().strip()))
         self.download_button.setEnabled(not busy and self.document is not None)
+        self.copy_button.setEnabled(not busy and self.document is not None)
+        self.result_filter.setEnabled(not busy and bool(self.results))
         self.attach_button.setEnabled(not busy and self.document is not None and bool(self.document.cues)
                                       and bool(self.target_combo.currentData()) and self.on_attach is not None)
         self.target_combo.setEnabled(not busy and bool(self.tracks))
@@ -306,7 +453,11 @@ class LyricsSearchDialog(QDialog):
         self.results = []
         self.table.setRowCount(0)
         self.preview.clear()
+        self.preview_stack.setCurrentIndex(0)
         self.detail_label.clear()
+        self.preview_info.clear()
+        self.result_filter.clear()
+        self._update_result_count()
         self.warning.hide()
         self._start("search", lambda cancel: self.service.search(query, cancel))
 
@@ -357,6 +508,7 @@ class LyricsSearchDialog(QDialog):
                 item = QTableWidgetItem(value)
                 item.setToolTip(value)
                 self.table.setItem(row, column, item)
+        self._filter_results()
         self.status.setText(self._tr(f"검색 결과 {len(self.results)}개 · 가사를 확인할 곡을 선택하세요.",
                                     f"{len(self.results)} results · select a recording to inspect its lyrics.") if self.results else
                             self._tr("검색 결과가 없습니다. 제목·아티스트·앨범 또는 제공자를 바꿔 보세요.",
@@ -367,9 +519,12 @@ class LyricsSearchDialog(QDialog):
             return
         self.document = None
         self.preview.clear()
+        self.preview_stack.setCurrentIndex(0)
+        self.preview_info.clear()
         self._sync_actions()
         row = self.table.currentRow()
-        if not 0 <= row < len(self.results):
+        if not 0 <= row < len(self.results) or self.table.isRowHidden(row):
+            self.detail_label.clear()
             return
         result = self.results[row]
         self.detail_label.setText(f"{result.title}\n{result.artist} · {result.album}")
@@ -381,12 +536,22 @@ class LyricsSearchDialog(QDialog):
 
     def _show_document(self, document):
         self.document = document
+        self.detail_label.setText(f"{document.result.title}\n{document.result.artist} · {document.result.album}")
+        self.preview_stack.setCurrentIndex(1)
         self.preview.setPlainText("\n".join(str(cue["text"]) for cue in document.cues) if document.cues else document.content)
         word_timed = any(cue.get("words") for cue in document.cues)
         timing = self._tr("단어·음절 동기화", "Word / syllable timing") if word_timed else (
             self._tr("줄 동기화", "Line timing") if document.cues else self._tr("시간 정보 없음 · 다운로드만 가능", "Untimed · download only"))
-        self.status.setText(f"{PROVIDERS[document.result.provider]} · {document.format.upper()} · {timing}")
+        self.preview_info.setText(f"{PROVIDERS[document.result.provider]}  ·  {document.format.upper()}  ·  {timing}")
+        self.status.setText(self._tr("가사를 확인했습니다. 아래에서 복사·저장하거나 곡에 적용하세요.",
+                                     "Lyrics ready. Copy, save, or attach them below."))
         self._sync_actions()
+
+    def _copy_lyrics(self):
+        if self.document is None or self.worker is not None:
+            return
+        QApplication.clipboard().setText(self.preview.toPlainText())
+        self.status.setText(self._tr("가사 텍스트를 복사했습니다.", "Lyrics text copied."))
 
     def _download(self):
         if self.document is None or self.worker is not None:
