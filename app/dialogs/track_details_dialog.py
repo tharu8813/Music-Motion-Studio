@@ -1451,7 +1451,7 @@ class TrackDetailsDialog(QDialog):
         self.export_lrc_button.setText(
             "LRC로 내보내기…" if korean else "Export as LRC…"
         )
-        self.search_lyrics_button.setText("가사 검색 및 가져오기…" if korean else "Search & Import Lyrics…")
+        self.search_lyrics_button.setText("가사 검색 및 가져오기…" if korean else "Search && Import Lyrics…")
         self.export_lrc_button.setToolTip(
             "현재 곡의 타이밍 보정을 적용하고 여러 줄 가사는 문자 \\n으로 저장합니다."
             if korean else
