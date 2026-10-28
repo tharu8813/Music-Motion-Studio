@@ -383,3 +383,34 @@ QPushButton#previewTransportButton:hover { background: @hover; border-color: @bo
 #lyricsAnimationDialog QGroupBox#lyricOptionGroup { margin-top: 16px; padding: 12px 0 4px; }
 #lyricsAnimationDialog QGroupBox#lyricOptionGroup::title { color: @text; font-size: 12px; }
 #lyricsAnimationDialog QGroupBox#lyricOptionGroup::title:disabled { color: @disabled_text; }
+
+/* Lyrics discovery: consistent with the lyrics editor, using existing palette tokens. */
+#lyricsDiscoveryDialog #lyricsDiscoveryFlow {
+    color: @muted; background: @panel; border: 1px solid @border;
+    border-radius: 5px; padding: 9px 12px; font-size: 11px;
+}
+#lyricsDiscoveryDialog QGroupBox { margin-top: 16px; padding-top: 14px; }
+#lyricsDiscoveryDialog QLineEdit, #lyricsDiscoveryDialog QComboBox,
+#lyricsDiscoveryDialog QDoubleSpinBox { min-height: 28px; }
+#lyricsDiscoveryDialog #lyricsDiscoveryTable {
+    background: @panel; border: 1px solid @border; border-radius: 5px;
+    selection-background-color: #304B44;
+}
+#lyricsDiscoveryDialog #lyricsDiscoveryTable::item { padding: 6px 5px; }
+#lyricsDiscoveryDialog #lyricsDiscoveryFilter { min-height: 30px; }
+#lyricsDiscoveryDialog #lyricsDiscoveryPreview {
+    background: @panel; border: 1px solid @border; border-radius: 5px;
+    padding: 12px; font-size: 13px;
+}
+#lyricsDiscoveryDialog #lyricsDiscoveryCount {
+    color: @muted; background: @alternate; border: 1px solid @border;
+    border-radius: 4px; padding: 3px 8px; font-size: 11px;
+}
+#lyricsDiscoveryDialog #lyricsDiscoveryEmptyHeading {
+    color: @text; font-size: 15px; font-weight: 600;
+}
+#lyricsDiscoveryDialog #lyricsDiscoveryStatus {
+    color: @muted; background: @panel; border-radius: 4px; padding: 7px 10px;
+}
+#lyricsDiscoveryDialog #lyricsDiscoverySeparator { color: @border; }
+#lyricsDiscoveryDialog QPushButton { min-height: 26px; padding: 6px 12px; }
