@@ -189,11 +189,59 @@ class LyricsSearchDialogTests(unittest.TestCase):
     def test_both_languages_and_no_unsupported_country_option(self):
         dialog = self.dialog()
         self.assertNotIn("country", dialog.labels)
-        self.assertEqual(dialog.windowTitle(), "가사 찾아보기")
+        self.assertEqual(dialog.windowTitle(), "가사 검색 및 가져오기")
         dialog.translator.set_language(Language.ENGLISH)
-        self.assertEqual(dialog.windowTitle(), "Find lyrics")
+        self.assertEqual(dialog.windowTitle(), "Search & Import Lyrics")
         dialog.provider_combo.setCurrentIndex(dialog.provider_combo.findData("lrclib"))
         self.assertEqual(dialog.provider_combo.currentData(), "lrclib")
+
+    def test_discovery_ui_filter_preview_and_copy(self):
+        from dataclasses import replace
+        dialog = self.dialog()
+        first = lrc_result()
+        second = replace(first, provider="qq_portato", timing="word")
+        document = LyricsSearchService().fetch(first)
+        dialog._documents[first.key] = document
+        self.assertEqual(dialog.result_count.text(), "검색 전")
+        dialog._show_results(LyricsSearchBatch([first, second]))
+        self.assertEqual(dialog.result_count.text(), "2 / 2개")
+        dialog.table.selectRow(0)
+        self.assertIs(dialog.document, document)
+        self.assertEqual(dialog.preview_stack.currentIndex(), 1)
+
+        # A localized label and multi-word provider search must both work.
+        dialog.result_filter.setText("단어")
+        self.assertEqual(dialog.result_count.text(), "1 / 2개")
+        self.assertTrue(dialog.table.isRowHidden(0))
+        self.assertFalse(dialog.table.isRowHidden(1))
+        self.assertIsNone(dialog.document)
+        self.assertEqual(dialog.table.currentRow(), -1)
+        self.assertEqual(dialog.preview_stack.currentIndex(), 0)
+        dialog.result_filter.setText("QQ Music")
+        self.assertEqual(dialog.result_count.text(), "1 / 2개")
+        dialog.result_filter.setText("Song QQ")
+        self.assertEqual(dialog.result_count.text(), "1 / 2개")
+
+        # The previously hidden row can be selected again after clearing.
+        dialog.result_filter.clear()
+        self.assertEqual(dialog.result_count.text(), "2 / 2개")
+        dialog.table.selectRow(0)
+        self.assertIs(dialog.document, document)
+        self.assertTrue(dialog.copy_button.isEnabled())
+        dialog.copy_button.click()
+        self.assertEqual(QApplication.clipboard().text(), dialog.preview.toPlainText())
+
+        # Existing timing labels should reflect runtime language changes.
+        dialog.translator.set_language(Language.ENGLISH)
+        self.assertEqual(dialog.table.item(1, 5).text(), "Word timing")
+        self.assertIn("Line timing", dialog.preview_info.text())
+
+    def test_empty_search_count_is_not_mistaken_for_not_searched(self):
+        dialog = self.dialog()
+        dialog._show_results(LyricsSearchBatch([]))
+        self.assertEqual(dialog.result_count.text(), "0 / 0개")
+        dialog.translator.set_language(Language.ENGLISH)
+        self.assertEqual(dialog.result_count.text(), "0 / 0")
 
     def test_ttml_in_track_settings_only_stages_lyrics(self):
         track = PlaylistTrack("", "Song", lyrics_timing_offset_seconds=0.25)

@@ -71,6 +71,7 @@ def source_icon(source_type: str) -> QIcon | None:
 
 _DASHED_FRAME = 'M4 7V4h3 M10 4h4 M17 4h3v3 M20 10v4 M20 17v3h-3 M14 20h-4 M7 20H4v-3 M4 14v-4'
 _MENU_SHAPES = {
+    "lyrics_search": '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5 M7.5 10.5h6 M10.5 7.5v6"/>',
     "save_as": '<path d="M11 21H4V3h11l3 3v4 M8 3v5h7V3"/><path d="m13 21 .8-3.2 5.4-5.4 2.4 2.4-5.4 5.4z"/>',
     "recent": '<path d="M3 12a9 9 0 1 0 2.6-6.4 M3 4v5h5 M12 7v5l3 2"/>',
     "import_playlist": '<path d="M3 5h10 M3 10h10 M3 15h6 M18 4v12 m-3-3 3 3 3-3"/>',
