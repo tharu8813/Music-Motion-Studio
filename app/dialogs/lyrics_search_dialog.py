@@ -283,8 +283,10 @@ class LyricsSearchDialog(QDialog):
         self.download_button.clicked.connect(self._download)
         self.attach_button.clicked.connect(self._attach)
         self.close_button.clicked.connect(self.reject)
-        QShortcut(QKeySequence("Ctrl+F"), self, activated=self.title_edit.setFocus)
-        QShortcut(QKeySequence("Ctrl+Shift+F"), self, activated=self.result_filter.setFocus)
+        title_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
+        title_shortcut.activated.connect(self.title_edit.setFocus)
+        results_shortcut = QShortcut(QKeySequence("Ctrl+Shift+F"), self)
+        results_shortcut.activated.connect(self.result_filter.setFocus)
         self.translator.language_changed.connect(self.retranslate)
         app = QApplication.instance()
         if app is not None:
