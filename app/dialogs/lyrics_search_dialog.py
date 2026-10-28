@@ -65,6 +65,7 @@ class LyricsSearchDialog(QDialog):
         self.worker: _LookupWorker | None = None
         self._close_result: int | None = None
         self.results = []
+        self._has_searched = False
         self.document: FoundLyrics | None = None
         self._documents: dict[tuple[str, str], FoundLyrics] = {}
         self.saved_paths = []
@@ -350,6 +351,14 @@ class LyricsSearchDialog(QDialog):
         self.table.setHorizontalHeaderLabels([self._tr(*pair) for pair in (
             ("제목", "Title"), ("아티스트", "Artist"), ("앨범", "Album"),
             ("길이", "Length"), ("제공자", "Provider"), ("가사", "Lyrics"))])
+        for row, result in enumerate(self.results):
+            item = self.table.item(row, 5)
+            if item is not None:
+                timing = self._timing_text(result.timing)
+                item.setText(timing)
+                item.setToolTip(timing)
+        if self.document is not None:
+            self._update_preview_details(self.document)
         self.preview_heading.setText(self._tr("03  가사 미리보기", "03  Lyrics preview"))
         self.empty_heading.setText(self._tr(
             "여기에 가사가 표시됩니다", "Lyrics preview appears here"))
@@ -376,23 +385,37 @@ class LyricsSearchDialog(QDialog):
             self.status.setText(self._tr(
                 "곡 제목을 입력하고 가사를 검색하세요.", "Enter a song title to search for lyrics."))
 
+    def _timing_text(self, timing: str) -> str:
+        labels = {
+            "line": ("줄 동기화", "Line timing"),
+            "plain": ("일반 텍스트", "Plain text"),
+            "word": ("단어 동기화", "Word timing"),
+            "syllable": ("음절 동기화", "Syllable timing"),
+            "unknown": ("선택 후 확인", "Check on select"),
+        }
+        return self._tr(*labels.get(timing, labels["unknown"]))
+
     def _update_result_count(self):
         visible = sum(not self.table.isRowHidden(row) for row in range(self.table.rowCount()))
         total = len(self.results)
         self.result_count.setText(
-            self._tr(f"{visible} / {total}개", f"{visible} / {total}") if total else
-            self._tr("검색 전", "Not searched"))
+            self._tr(f"{visible} / {total}개", f"{visible} / {total}")
+            if self._has_searched else self._tr("검색 전", "Not searched"))
 
     def _filter_results(self, *_args):
-        query = self.result_filter.text().strip().casefold()
+        terms = self.result_filter.text().casefold().split()
         selected_row = self.table.currentRow()
-        for row, result in enumerate(self.results):
-            content = " ".join((
-                result.title, result.artist, result.album, PROVIDERS[result.provider], result.timing
-            )).casefold()
-            self.table.setRowHidden(row, bool(query and query not in content))
+        for row in range(self.table.rowCount()):
+            # Search the visible translated labels, not internal timing codes.
+            content = " ".join(
+                self.table.item(row, column).text()
+                for column in range(self.table.columnCount())
+                if self.table.item(row, column) is not None
+            ).casefold()
+            self.table.setRowHidden(row, not all(term in content for term in terms))
         if selected_row >= 0 and self.table.isRowHidden(selected_row):
             self.table.clearSelection()
+            self.table.setCurrentCell(-1, -1)
             self.document = None
             self.preview.clear()
             self.preview_stack.setCurrentIndex(0)
@@ -453,6 +476,7 @@ class LyricsSearchDialog(QDialog):
         self.document = None
         self._documents.clear()
         self.results = []
+        self._has_searched = False
         self.table.setRowCount(0)
         self.preview.clear()
         self.preview_stack.setCurrentIndex(0)
@@ -497,14 +521,12 @@ class LyricsSearchDialog(QDialog):
 
     def _show_results(self, batch):
         self.results = batch.results
+        self._has_searched = True
         self.warning.setText("\n".join(batch.warnings))
         self.warning.setVisible(bool(batch.warnings))
         self.table.setRowCount(len(self.results))
         for row, result in enumerate(self.results):
-            timing = {"line": self._tr("줄 동기화", "Line timing"), "plain": self._tr("일반 텍스트", "Plain text"),
-                      "word": self._tr("단어 동기화", "Word timing"),
-                      "syllable": self._tr("음절 동기화", "Syllable timing"),
-                      "unknown": self._tr("선택 후 확인", "Check on select")}[result.timing]
+            timing = self._timing_text(result.timing)
             values = (result.title, result.artist, result.album, format_clock(round(result.duration), hours=False), PROVIDERS[result.provider], timing)
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
@@ -541,13 +563,18 @@ class LyricsSearchDialog(QDialog):
         self.detail_label.setText(f"{document.result.title}\n{document.result.artist} · {document.result.album}")
         self.preview_stack.setCurrentIndex(1)
         self.preview.setPlainText("\n".join(str(cue["text"]) for cue in document.cues) if document.cues else document.content)
-        word_timed = any(cue.get("words") for cue in document.cues)
-        timing = self._tr("단어·음절 동기화", "Word / syllable timing") if word_timed else (
-            self._tr("줄 동기화", "Line timing") if document.cues else self._tr("시간 정보 없음 · 다운로드만 가능", "Untimed · download only"))
-        self.preview_info.setText(f"{PROVIDERS[document.result.provider]}  ·  {document.format.upper()}  ·  {timing}")
+        self._update_preview_details(document)
         self.status.setText(self._tr("가사를 확인했습니다. 아래에서 복사·저장하거나 곡에 적용하세요.",
                                      "Lyrics ready. Copy, save, or attach them below."))
         self._sync_actions()
+
+    def _update_preview_details(self, document: FoundLyrics):
+        word_timed = any(cue.get("words") for cue in document.cues)
+        timing = self._tr("단어·음절 동기화", "Word / syllable timing") if word_timed else (
+            self._tr("줄 동기화", "Line timing") if document.cues else
+            self._tr("시간 정보 없음 · 다운로드만 가능", "Untimed · download only"))
+        self.preview_info.setText(
+            f"{PROVIDERS[document.result.provider]}  ·  {document.format.upper()}  ·  {timing}")
 
     def _copy_lyrics(self):
         if self.document is None or self.worker is not None:
