@@ -261,6 +261,7 @@ class TrackDetailsDialog(QDialog):
         self.lyrics_path.setObjectName("mutedLabel")
         self.lyrics_path.setWordWrap(True)
         self.load_button = QPushButton()
+        self.search_lyrics_button = QPushButton()
         self.content_lyrics_button = QPushButton()
         self.content_lyrics_button.setVisible(bool(self._content_lyrics))
         self.edit_lrc_button = QPushButton()
@@ -273,6 +274,7 @@ class TrackDetailsDialog(QDialog):
         path_row.addWidget(self.clear_button)
         lyrics_layout.addLayout(path_row)
         lyrics_action_row = QHBoxLayout()
+        lyrics_action_row.addWidget(self.search_lyrics_button)
         lyrics_action_row.addStretch(1)
         lyrics_action_row.addWidget(self.align_words_button)
         lyrics_action_row.addWidget(self.edit_lrc_button)
@@ -468,6 +470,7 @@ class TrackDetailsDialog(QDialog):
         root.addWidget(self.buttons)
 
         self.load_button.clicked.connect(self._load_lyrics)
+        self.search_lyrics_button.clicked.connect(self._find_lyrics)
         self.content_lyrics_button.clicked.connect(self._show_content_lyrics_menu)
         self.edit_lrc_button.clicked.connect(self._edit_in_lrc_generator)
         self.export_lrc_button.clicked.connect(self._export_current_lyrics_as_lrc)
@@ -970,6 +973,35 @@ class TrackDetailsDialog(QDialog):
         self._refresh_preview()
         return True
 
+    def _find_lyrics(self) -> None:
+        from copy import deepcopy
+        from app.dialogs.lyrics_compare_dialog import LyricsCompareDialog
+        from app.dialogs.lyrics_search_dialog import LyricsSearchDialog
+
+        self.media_player.pause()
+        snapshot = deepcopy(self.track)
+        snapshot.title = self.title_edit.text().strip()
+        snapshot.artist = self.artist_edit.text().strip()
+        snapshot.album = self.album_edit.text().strip()
+
+        def attach(document, _track_id):
+            if self.selected_lyrics or self.selected_lyrics_path:
+                comparison = LyricsCompareDialog(self.selected_lyrics, document.cues, self.selected_lyrics_path,
+                                                 document.filename, self.translator, self)
+                accepted = comparison.exec() == QDialog.DialogCode.Accepted and comparison.replace_requested
+                comparison.deleteLater()
+                if not accepted:
+                    return False
+            self.selected_lyrics = deepcopy(document.cues)
+            self.selected_lyrics_path = ""
+            self._refresh_preview()
+            return True
+
+        dialog = LyricsSearchDialog([snapshot], self.translator, self, initial_track_id=snapshot.id,
+                                    on_attach=attach, staged=True)
+        dialog.exec()
+        dialog.deleteLater()
+
     def _clear_lyrics(self) -> None:
         self.selected_lyrics_path = ""
         self.selected_lyrics = []
@@ -1443,6 +1475,7 @@ class TrackDetailsDialog(QDialog):
         self.export_lrc_button.setText(
             "LRC로 내보내기…" if korean else "Export as LRC…"
         )
+        self.search_lyrics_button.setText("가사 찾아보기…" if korean else "Find lyrics…")
         self.align_words_button.setText("자동 노래방 (베타)…" if korean else "Automatic karaoke (Beta)…")
         self.align_words_button.setToolTip(
             "원문·번역 줄을 선택하고 분석 결과를 확인한 뒤 체크한 줄만 적용합니다. 1번째 줄만 기본 선택됩니다. "

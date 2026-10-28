@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 from unicodedata import east_asian_width
 
-LYRICS_EXTENSIONS = (".lrc", ".srt", ".vtt")
+LYRICS_EXTENSIONS = (".lrc", ".srt", ".vtt", ".ttml")
 _SIMILAR_RATIO = 0.72
 
 
@@ -245,12 +245,23 @@ class LyricsService:
         except UnicodeError as error:
             raise LyricsError("가사 파일의 문자 인코딩을 읽을 수 없습니다. UTF-8 또는 UTF-16으로 저장한 뒤 다시 불러오세요.\n"
                               "Cannot decode lyrics. Save the file as UTF-8 or UTF-16 and try again.") from error
-        suffix = lyric_path.suffix.lower()
+        return cls.parse(content, lyric_path.suffix)
+
+    @classmethod
+    def parse(cls, content: str, suffix: str) -> list[dict[str, object]]:
+        """Parse file or downloaded content without writing a temporary lyric file."""
+        suffix = suffix.lower()
         if suffix == ".lrc":
             return cls._parse_lrc(content)
         if suffix in {".srt", ".vtt"}:
             return cls._parse_srt(content)
-        raise LyricsError("Only .lrc, .srt, and .vtt lyric files are supported.")
+        if suffix == ".ttml":
+            from app.services.ttml_parser import TTMLParseError, parse_ttml
+            try:
+                return parse_ttml(content)
+            except TTMLParseError as error:
+                raise LyricsError(str(error)) from error
+        raise LyricsError("Only .lrc, .srt, .vtt, and .ttml lyric files are supported.")
 
     @classmethod
     def current_text(cls, cues: list[dict[str, object]], elapsed: float) -> str:

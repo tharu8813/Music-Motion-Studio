@@ -72,6 +72,7 @@ from app.dialogs.m3u_import_dialog import M3uImportDialog
 from app.dialogs.project_settings_dialog import ProjectSettingsDialog
 from app.dialogs.project_crash_report_dialog import ProjectCrashReportDialog
 from app.dialogs.lrc_generator_dialog import LrcGeneratorDialog
+from app.dialogs.lyrics_search_dialog import LyricsSearchDialog
 from app.dialogs.lyrics_compare_dialog import LyricsCompareDialog
 from app.dialogs.settings_dialog import SettingsDialog
 from app.dialogs.track_details_dialog import TrackDetailsDialog
@@ -1332,6 +1333,9 @@ class MainWindow(QMainWindow):
         self.view_menu.addAction(self.preview_action)
 
         self.tools_menu = menu_bar.addMenu("")
+        self.lyrics_search_action = QAction(self)
+        self.lyrics_search_action.triggered.connect(self._show_lyrics_search)
+        self.tools_menu.addAction(self.lyrics_search_action)
         self.lrc_generator_action = QAction(self)
         self.lrc_generator_action.triggered.connect(self._show_lrc_generator)
         self.tools_menu.addAction(self.lrc_generator_action)
@@ -1379,6 +1383,7 @@ class MainWindow(QMainWindow):
             self.clear_selection_action: "clear_selection", self.reset_layout_action: "reset_layout",
             self.show_playlist_action: "track_list", self.show_timeline_action: "timeline",
             self.lrc_generator_action: "lyrics", self.automix_editor_action: "automix",
+            self.lyrics_search_action: "lyrics",
             self.mp3_metadata_action: "audio",
             self.language_menu.menuAction(): "language", self.help_action: "help",
             self.shortcuts_action: "shortcuts", self.check_updates_action: "check_updates",
@@ -4873,6 +4878,40 @@ class MainWindow(QMainWindow):
             )
             self.canvas.fit_artboard()
 
+    def _show_lyrics_search(self) -> None:
+        """Find lyrics using typed metadata or a song already in the playlist."""
+        selected_ids = self.playlist_editor._selected_ids()
+        dialog = LyricsSearchDialog(
+            self.playlist_service.tracks, self.translator, self,
+            initial_track_id=selected_ids[0] if len(selected_ids) == 1 else "",
+            on_attach=self._attach_found_lyrics,
+        )
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _attach_found_lyrics(self, document, track_id: str) -> bool:
+        """Embed downloaded cues; retain the normal comparison before replacement."""
+        from copy import deepcopy
+        target = next((track for track in self.playlist_service.tracks if track.id == track_id), None)
+        korean = self.translator.is_korean
+        if target is None or not document.cues:
+            QMessageBox.warning(self, "가사 연결" if korean else "Attach lyrics",
+                "연결할 곡 또는 시간 정보가 있는 가사를 찾을 수 없습니다." if korean else
+                "The target track or timed lyrics are no longer available.")
+            return False
+        if target.lyrics or target.lyrics_path:
+            comparison = LyricsCompareDialog(target.lyrics, document.cues, target.lyrics_path,
+                                             document.filename, self.translator, self)
+            accepted = comparison.exec() == QDialog.DialogCode.Accepted and comparison.replace_requested
+            comparison.deleteLater()
+            if not accepted:
+                return False
+        self.playlist_service.update_track(target.id, lyrics=deepcopy(document.cues), lyrics_path="")
+        if not any(source.source_type is SourceType.LYRICS for source in self.store.sources()):
+            self._add_source(SourceType.LYRICS)
+        self.statusBar().showMessage("선택한 곡에 가사를 연결했습니다." if korean else "Lyrics attached to the selected track.", 5000)
+        return True
+
     def _show_lrc_generator(self) -> None:
         """Open the audio-assisted LRC authoring workflow."""
         selected_ids = self.playlist_editor._selected_ids()
@@ -4998,6 +5037,7 @@ class MainWindow(QMainWindow):
         self.export_action.setText(text("export"))
         self.preview_action.setText("미리보기" if self.translator.is_korean else "Preview")
         self.settings_action.setText("설정" if self.translator.is_korean else "Settings")
+        self.lyrics_search_action.setText("가사 찾아보기…" if korean else "Find lyrics…")
         self.lrc_generator_action.setText(
             "LRC 파일 생성기" if self.translator.is_korean
             else "LRC File Generator"
