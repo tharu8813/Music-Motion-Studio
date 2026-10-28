@@ -4,7 +4,6 @@ from concurrent.futures import Future
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from types import SimpleNamespace
 import subprocess
 import threading
 import unittest
@@ -13,7 +12,7 @@ from unittest.mock import patch
 from PySide6.QtWidgets import QDialog, QMessageBox
 
 from app.animation.curves import animation_pose
-from app.dialogs.lyrics_alignment_dialog import LyricsAlignmentDialog
+from app.dialogs.track_details_dialog import TrackDetailsDialog
 from app.models.playlist import PlaylistTrack
 from app.models.project import ProjectContent, ProjectDocument
 from app.models.source import Source, SourceType
@@ -367,21 +366,20 @@ class AuditWorkspaceTests(MainWindowTestCase):
             self.window.store.add(Source(SourceType.TEXT, "Text"))
             self.assertTrue(self.window.inspector.animation_in_combo.model().item(spin_index).isEnabled())
 
-    def test_analysis_error_is_visible_while_cue_time_fallback_remains_available(self):
+    def test_track_lyrics_keep_timing_but_have_no_real_time_display_settings(self):
         track = PlaylistTrack("song.wav", "Song", duration_seconds=5,
                               lyrics=[{"start": 0, "end": 5, "text": "Hello world"}])
-        dialog = LyricsAlignmentDialog(track, None, True)
+        dialog = TrackDetailsDialog(track, self.window.translator)
         try:
-            dialog.line_positions = (0,)
-            dialog.worker = SimpleNamespace(wait=lambda: None, cancel_event=threading.Event(), isRunning=lambda: False)
-            dialog._failed("RECOGNITION_DOWNLOAD_FAILED")
-            dialog._finished()
-            self.assertIn("RECOGNITION_DOWNLOAD_FAILED", dialog.label.text())
-            self.assertIn("실패", dialog.label.text())
-            self.assertFalse(dialog.apply_button.isHidden())
-            self.assertTrue(dialog.apply_button.isEnabled())
+            self.assertFalse(hasattr(dialog, "align_words_button"))
+            self.assertFalse(hasattr(dialog, "selected_karaoke_settings"))
+            self.assertTrue(dialog.export_lrc_button.isEnabled())
+            dialog.timing_offset_spin.setValue(0.35)
+            dialog._accept()
+            self.assertEqual(dialog.selected_timing_offset, 0.35)
+            self.assertEqual(dialog.selected_lyrics, track.lyrics)
+            self.assertEqual(track.lyrics_timing_offset_seconds, 0)
         finally:
-            dialog.worker = None
             dialog.close()
 
     def test_failed_interlude_analysis_retries_after_tool_change_or_cooldown(self):

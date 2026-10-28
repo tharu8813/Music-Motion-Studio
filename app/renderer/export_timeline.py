@@ -544,9 +544,9 @@ class ExportTimelinePlanner:
                 intervals = list(lyric_instrumental_windows(track, source)) if source.subtitle_intro_midtrack else []
                 cues = [cue for cue in track.lyrics if str(cue.get("text", "")).strip()]
                 if source.subtitle_karaoke_enabled:
-                    offset = track_offset + source.subtitle_timing_offset
+                    offset = track_offset + source.subtitle_timing_offset + source.subtitle_karaoke_offset
                     intervals.extend((float(cue["start"]) - offset, float(cue["end"]) - offset)
-                                     for cue in cues)
+                                     for cue in cues if cue.get("format") == "ttml" and cue.get("words"))
                 if source.subtitle_intro_enabled and cues:
                     intervals.append((0.0, float(cues[0]["start"]) - track_offset - source.subtitle_timing_offset))
                 for a, b in intervals:

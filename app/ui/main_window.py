@@ -1565,7 +1565,6 @@ class MainWindow(QMainWindow):
         self.inspector.animation_preview_requested.connect(
             self._preview_source_animation
         )
-        self.inspector.karaoke_requested.connect(self._configure_karaoke)
         self.inspector_stack = QStackedWidget()
         self.inspector_stack.setObjectName("inspectorWorkspaceStack")
         self.inspector_stack.setSizePolicy(
@@ -2488,15 +2487,11 @@ class MainWindow(QMainWindow):
             ffmpeg_executable = FFmpegRenderer.find_executable(self.settings_service.current.ffmpeg_path or None)
         except FFmpegNotFoundError:
             ffmpeg_executable = None  # the dialog plays the original, without EQ
-        lyrics_source = self.store.selected
-        if lyrics_source is None or lyrics_source.source_type is not SourceType.LYRICS:
-            lyrics_source = next((source for source in self.store.sources() if source.source_type is SourceType.LYRICS), None)
         dialog = TrackDetailsDialog(
             track, self.translator, self, content_lyrics=content_lyrics,
             analysis=self.automix_analyses.get(track_id),
             structure=self.automix_structures.get(track_id),
             ffmpeg_executable=ffmpeg_executable,
-            karaoke_source=lyrics_source,
         )
         controller = self.track_analysis_controller
         dialog.analysis_requested.connect(lambda: self._analyze_track(track_id, dialog))
@@ -2523,37 +2518,6 @@ class MainWindow(QMainWindow):
                 volume_db=dialog.selected_volume_db,
                 eq_db=dialog.selected_eq_db,
             )
-            if dialog.selected_karaoke_settings:
-                if lyrics_source is None:
-                    self._add_source(SourceType.LYRICS)
-                    lyrics_source = self.store.selected
-                if lyrics_source is not None:
-                    self.store.update(lyrics_source.id, **dialog.selected_karaoke_settings)
-
-    def _configure_karaoke(self) -> None:
-        """One entry point: align lyrics, set colors, enable display and save together."""
-        from app.dialogs.lyrics_alignment_dialog import LyricsAlignmentDialog
-        selected_ids = set(self.playlist_editor._selected_ids())
-        tracks = self.playlist_service.tracks
-        track = next((entry for entry in tracks if entry.id in selected_ids), None)
-        if track is None:
-            track = next((entry for entry in tracks if entry.enabled and entry.lyrics), None)
-        source = self.store.selected
-        korean = self.translator.is_korean
-        if track is None or not track.lyrics:
-            QMessageBox.information(self, "자동 노래방" if korean else "Automatic karaoke",
-                "먼저 곡에 가사를 연결하세요. 플레이리스트에서 곡을 두 번 클릭한 뒤 가사 파일을 불러올 수 있습니다."
-                if korean else "Attach lyrics first. Double-click a playlist track to load a lyric file.")
-            return
-        dialog = LyricsAlignmentDialog(track, self.settings_service.current.ffmpeg_path or None, korean, self, source=source)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.playlist_service.update_track(track.id, lyrics=dialog.result_data.cues)
-            if source is not None and source.source_type is SourceType.LYRICS:
-                self.store.update(source.id, **dialog.karaoke_settings())
-            self.statusBar().showMessage("노래방 가사와 색상을 적용했습니다." if korean else "Applied karaoke lyrics and colors.", 5000)
-        elif dialog.error:
-            QMessageBox.warning(self, "자동 노래방" if korean else "Automatic karaoke", dialog.error)
-        dialog.deleteLater()
 
     def _choose_audio_files(self) -> None:
         """Let the user select audio files or M3U8 playlists for the playlist."""
@@ -2829,7 +2793,10 @@ class MainWindow(QMainWindow):
                     folder_entries[folder] = []
             exact, similar = find_sidecar_lyrics(track.file_path, entries=folder_entries[folder])
             sidecar = None
-            if exact:
+            candidates = exact or similar
+            if len(candidates) > 1:
+                sidecar = self._choose_sidecar_lyrics(track.title, candidates, korean)
+            elif exact:
                 sidecar = exact[0]
                 if mode == "ask" and not self._confirm_sidecar_lyrics(
                     track.title, sidecar, korean,
@@ -2851,6 +2818,21 @@ class MainWindow(QMainWindow):
             track.lyrics_path = str(sidecar.path.resolve())
             notes.append(f"'{track.title}' ← {sidecar.path.name}")
         return notes
+
+    def _choose_sidecar_lyrics(self, track_title: str, candidates: list, korean: bool):
+        """Always let the user resolve competing lyric files, even in auto mode."""
+        labels = [f"{entry.path.name} · " + (
+            ("실시간 가사 (TTML)" if korean else "Real-time lyrics (TTML)")
+            if entry.path.suffix.lower() == ".ttml" else
+            ("줄 단위 가사" if korean else "Line lyrics")
+        ) for entry in candidates]
+        chosen, accepted = QInputDialog.getItem(
+            self, "가사 파일 선택" if korean else "Choose lyric file",
+            (f"'{track_title}' 곡의 가사 파일이 여러 개 있습니다. 추가할 파일을 선택하세요."
+             if korean else f"Multiple lyric files were found for '{track_title}'. Choose one to attach."),
+            labels, 0, False,
+        )
+        return candidates[labels.index(chosen)] if accepted and chosen in labels else None
 
     def _confirm_sidecar_lyrics(
         self, track_title: str, sidecar: object, korean: bool,
@@ -3812,10 +3794,10 @@ class MainWindow(QMainWindow):
                 notice.setText("FFmpeg를 찾을 수 없습니다." if korean else "FFmpeg could not be found.")
                 notice.setInformativeText(
                     "음악에 맞춰 반응, 오디오 시각화, 믹스 미리보기와 영상 내보내기에는 FFmpeg가 필요합니다. "
-                    "가사 단어별 노래방 표시는 사용할 수 있습니다.\n\n설정 → FFmpeg에서 설치하거나 기존 실행 파일을 지정해 주세요."
+                    "실시간 가사 표시는 사용할 수 있습니다.\n\n설정 → FFmpeg에서 설치하거나 기존 실행 파일을 지정해 주세요."
                     if korean else
                     "Music reactions, audio visualizers, mix preview and video export require FFmpeg. "
-                    "Word karaoke highlighting remains available.\n\nInstall FFmpeg or select an existing executable in Settings → FFmpeg."
+                    "Real-time lyric display remains available.\n\nInstall FFmpeg or select an existing executable in Settings → FFmpeg."
                 )
                 notice.setStandardButtons(QMessageBox.StandardButton.Close)
                 install = notice.addButton("설치 설정 열기" if korean else "Open install settings", QMessageBox.ButtonRole.AcceptRole)

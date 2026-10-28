@@ -202,6 +202,8 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
             weight = round(weight + (float(waiting["font_weight"]) - weight) * amount)
             if amount >= 0.5:
                 italic = bool(waiting["italic"])
+        if item._subtitle_gap_unblurred and slot == anchor_slot:
+            blur = 0.0  # Keep the held lyric readable until the next cue begins.
         if is_current and transitioning and not item._subtitle_incoming_visible:
             alpha *= p
         if index < leaving:

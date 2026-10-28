@@ -155,7 +155,7 @@ _CANVAS = (
 <p>여기서 고른 내용은 모두 나중에 <a href='topic:project_settings'>프로젝트 설정</a>에서 바꿀 수 있습니다.</p>
 <h2>기본 작업 순서</h2>
 <ol>
-<li><b>음악 추가</b> — 하단 플레이리스트의 <b>+ 음악 추가</b> 또는 파일 끌어 놓기. 이름이 같은 .lrc/.srt/.vtt가 있으면 가사로 연결됩니다.</li>
+<li><b>음악 추가</b> — 하단 플레이리스트의 <b>+ 음악 추가</b> 또는 파일 끌어 놓기. 이름이 같은 .lrc/.srt/.vtt/.ttml가 있으면 가사로 연결됩니다.</li>
 <li><b>화면 꾸미기</b> — 왼쪽 <b>요소</b> 탭에서 배경·텍스트·앨범 커버·가사·진행 바·비주얼라이저를 추가하고 속성 패널에서 다듬습니다.</li>
 <li><b>확인</b> — <b>미리보기</b>(<code>Ctrl+Alt+3</code>)로 음악과 함께 재생해 봅니다.</li>
 <li><b>내보내기</b> — <b>내보내기</b>(<code>Ctrl+E</code>)에서 영상·오디오·자막을 선택합니다. 영상·오디오와 믹싱 시간 확인에는 <a href='topic:ffmpeg'>FFmpeg 설치</a>가 필요합니다.</li>
@@ -175,7 +175,7 @@ _CANVAS = (
 <p>Everything chosen here can be changed later in <a href='topic:project_settings'>Project settings</a>.</p>
 <h2>Basic workflow</h2>
 <ol>
-<li><b>Add music</b> — <b>+ Add music</b> in the Playlist, or drop files. A .lrc/.srt/.vtt with the same name is attached as lyrics.</li>
+<li><b>Add music</b> — <b>+ Add music</b> in the Playlist, or drop files. A .lrc/.srt/.vtt/.ttml with the same name is attached as lyrics.</li>
 <li><b>Design the screen</b> — add a background, text, album art, lyrics, a progress bar or visualizers from <b>Sources</b> and fine-tune them in the inspector.</li>
 <li><b>Check</b> — play it with the music in <b>Preview</b> (<code>Ctrl+Alt+3</code>).</li>
 <li><b>Export</b> — choose video, audio, or subtitles under <b>Export</b> (<code>Ctrl+E</code>). Video/audio and mix timing need <a href='topic:ffmpeg'>FFmpeg</a>.</li>
@@ -597,7 +597,7 @@ _CANVAS = (
 <h2>곡 추가</h2>
 <ul>
 <li><b>+ 음악 추가</b>를 누르거나 음악 파일·M3U8/M3U 플레이리스트를 목록으로 끌어 놓습니다. 지원 형식: MP3, WAV, FLAC, AAC, M4A, OGG.</li>
-<li>같은 폴더에 이름이 같은 <code>.lrc</code>/<code>.srt</code>/<code>.vtt</code>가 있으면 가사로 연결합니다(<a href='topic:settings'>설정 → 콘텐츠</a>에서 동작 변경). 이름이 비슷한 파일은 추가할지 물어봅니다.</li>
+<li>같은 폴더에 이름이 같은 <code>.lrc</code>/<code>.srt</code>/<code>.vtt</code>/<code>.ttml</code>가 있으면 가사로 연결합니다(<a href='topic:settings'>설정 → 콘텐츠</a>에서 동작 변경). 이름이 비슷한 파일은 추가할지 물어봅니다.</li>
 <li>M3U8을 추가하면 담긴 곡의 아트·제목·아티스트·앨범을 확인하는 창이 먼저 열립니다. 찾을 수 없는 파일과 웹 스트림은 건너뜁니다. <b>파일</b> 메뉴에서 M3U8 가져오기·내보내기를 선택할 수 있습니다. <b>타임라인 내보내기</b>는 믹싱 후 곡 시작 시간과 곡 정보를 설명문·CSV로 저장합니다.</li>
 </ul>
 <h2>목록 다루기</h2>
@@ -614,7 +614,7 @@ _CANVAS = (
 <h2>Adding songs</h2>
 <ul>
 <li>Choose <b>+ Add music</b>, or drop music files or an M3U8/M3U playlist on the list. Supported: MP3, WAV, FLAC, AAC, M4A, OGG.</li>
-<li>A <code>.lrc</code>/<code>.srt</code>/<code>.vtt</code> with the same name in the same folder is attached as lyrics (change this in <a href='topic:settings'>Settings → Content</a>); for similarly named files you are asked.</li>
+<li>A <code>.lrc</code>/<code>.srt</code>/<code>.vtt</code>/<code>.ttml</code> with the same name in the same folder is attached as lyrics (change this in <a href='topic:settings'>Settings → Content</a>); for similarly named files you are asked.</li>
 <li>Adding an M3U8 first shows its tracks with art, title, artist and album to confirm. Missing files and web streams are skipped. The <b>File</b> menu imports and exports M3U8. <b>Export timeline</b> saves mixed track start times and track details as a description and CSV.</li>
 </ul>
 <h2>Working with the list</h2>
@@ -1127,21 +1127,33 @@ _LYRICS = (
     _e("lyrics_editor", "lyrics_files", ("가사 파일 연결하기", "Attaching lyric files"),
        ("가사,플레이리스트", "lyrics,playlist"),
        """<ul>
-<li>지원 형식: <b>LRC</b>, <b>SRT</b>, <b>WebVTT(.vtt)</b></li>
+<li>지원 형식: <b>LRC</b>, <b>SRT</b>, <b>WebVTT(.vtt)</b>, <b>TTML</b></li>
+<li><b>온라인 검색</b>: <b>도구 → 가사 찾아보기</b> 또는 곡 설정의 <b>가사 찾아보기</b>를 엽니다. 제목은 필수이며 아티스트·앨범은 일부만 입력할 수 있습니다. 길이와 제공자를 지정할 수 있고 Apple Music은 US로 검색합니다. 제목과 아티스트가 있는 플레이리스트 곡을 선택하면 검색 정보를 채웁니다. 반복 요청은 캐시로 줄이며 검색과 가사 불러오기는 각각 제공자당 한 번만 요청합니다. 오류나 결과 없음에 따른 자동 재요청은 하지 않습니다.</li>
+<li>검색 결과를 선택해 미리 본 뒤 <b>로컬 다운로드</b>로 원본 TTML/LRC 파일을 저장하거나 <b>플레이리스트에 추가</b>로 선택한 곡에 연결합니다. 기존 가사는 비교 후 교체합니다. 시간 정보 없는 가사는 TXT로 다운로드할 수 있습니다.</li>
+<li><b>실시간 가사 설정</b>: 캔버스의 <b>가사/자막 요소 → 속성 → 실시간 가사</b>에서 사용 여부, 강조할 줄, 색상과 단어 강조 보정을 설정합니다. 해당 요소에 표시되는 모든 곡에 공통으로 적용되며, 곡별 파일 연결과 타이밍 보정은 <b>곡 정보/설정 → 가사 설정</b>에서 관리합니다.</li>
+<li><b>실시간 가사</b>: LRC·SRT·VTT는 곡 시작부터 첫 줄 전체를 표시하고 다음 가사 시간에 전환합니다. TTML은 파일의 줄·단어·음절 시간을 사용합니다. 음악을 분석하거나 단어 시간을 추정하지 않습니다.</li>
+<li>TTML 가사는 종료 시간까지 현재 상태를 유지합니다. 동시에 진행되는 가사는 한 묶음으로 중앙에 표시합니다. 가사 사이 공백에서는 마지막에 끝난 줄을 유지하고 해당 줄의 블러만 해제합니다.</li>
+<li>같은 곡의 가사 파일이 여러 개면 자동 연결 설정이 '항상 함께 추가'여도 파일 선택창이 나타납니다. 취소하면 가사를 연결하지 않습니다.</li>
 <li><b>자동 연결</b>: 음악을 추가할 때 같은 폴더에 이름이 같은 가사 파일이 있으면 함께 연결합니다. <b>도구 → 설정 → 콘텐츠 → 가사·자막 파일 자동 연결</b>에서 항상 함께 추가(권장) · 물어보기 · 추가하지 않음을 고릅니다. 이름이 비슷한 파일은 설정과 관계없이 물어봅니다.</li>
 <li><b>끌어 놓기</b>: 가사 파일을 플레이리스트의 곡 위나 프로젝트 콘텐츠에서 곡 위로 끌어 놓습니다.</li>
 <li><b>곡 정보/설정 → 가사 설정</b>: 파일 불러오기, 프로젝트 콘텐츠에서 고르기, 연결 해제, LRC로 내보내기</li>
 </ul>
 <div class='note'>여러 줄 가사는 LRC로 내보낼 때 문자 <code>\\n</code>으로 저장됩니다.</div>""",
        """<ul>
-<li>Supported: <b>LRC</b>, <b>SRT</b> and <b>WebVTT (.vtt)</b></li>
+<li>Supported: <b>LRC</b>, <b>SRT</b>, <b>WebVTT (.vtt)</b> and <b>TTML</b></li>
+<li><b>Online lookup</b>: open <b>Tools → Find lyrics</b> or <b>Find lyrics</b> in track settings. Title is required; title, artist and album accept fragments. Duration and provider are optional; Apple Music uses US. Select a playlist song with a title and artist to fill the search fields. Cached responses reduce repeat requests. Each provider is requested once per search or lyric load, without automatic retries or fallback searches.</li>
+<li>Select a result to preview, then <b>Download</b> its original TTML/LRC file or <b>Add to playlist</b> to attach it to a chosen track. Existing lyrics are compared before replacement. Untimed lyrics can be downloaded as TXT.</li>
+<li><b>Real-time lyric settings</b>: select the canvas <b>Lyrics/Subtitles element → Properties → Real-time lyrics</b> to set enabled state, highlighted lines, colors and word highlight offset. These settings apply to every track displayed by that element. Manage individual lyric attachments and timing offsets in <b>Track information/settings → Lyrics settings</b>.</li>
+<li><b>Real-time lyrics</b>: LRC, SRT and VTT show the complete first line from track start and switch at the next cue. TTML uses the file's line, word and syllable timings. No audio analysis or word timing estimation is used.</li>
+<li>TTML lyrics stay current until their end times. Overlapping lyrics form one centered group. In gaps, the last line to finish remains visible with its blur disabled.</li>
+<li>Multiple lyric files for one song always open a file chooser, even when automatic attachment is set to Always. Cancel leaves lyrics unattached.</li>
 <li><b>Automatic</b>: when you add music, a lyric file with the same name in the same folder is attached. Choose always (recommended), ask, or never in <b>Tools → Settings → Content → Attach lyric and subtitle files</b>. Similarly named files are always asked about.</li>
 <li><b>Drag and drop</b>: drop a lyric file on a track in the playlist, or from Project Content onto a track.</li>
 <li><b>Track information/settings → Lyrics settings</b>: load a file, pick one from project content, detach, or export as LRC</li>
 </ul>
 <div class='note'>Multi-line lyrics are written to LRC with a literal <code>\\n</code>.</div>""",
        ("lyrics", "track_lyrics", "playlist"),
-       ("lrc srt vtt 자막 파일 자동 연결 사이드카 끌어 놓기", "lrc srt vtt subtitle file auto attach sidecar drag drop")),
+       ("lrc srt vtt ttml 실시간 가사 자막 파일 자동 연결 사이드카 끌어 놓기", "lrc srt vtt ttml real-time lyrics subtitle file auto attach sidecar drag drop")),
 )
 
 

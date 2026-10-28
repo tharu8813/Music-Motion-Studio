@@ -100,10 +100,19 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('StringStruct("FileVersion", "' + __version__ + '")', version_info)
         self.assertIn(f'#define MyAppVersion "{__version__}"', installer)
         self.assertIn(f'#define MyAppFileVersion "{__version__}"', installer)
-        self.assertIn("Python 3.12", packaging)
-        self.assertIn("python312.dll", packaging)
-        self.assertIn("Python 3.12", lock_file.splitlines()[0])
-        self.assertNotIn("python314.dll", packaging)
+        self.assertIn("Python 3.14", packaging)
+        self.assertIn("python314.dll", packaging)
+        self.assertIn("Python 3.14", lock_file.splitlines()[0])
+        self.assertNotIn("python312.dll", packaging)
+
+    def test_ci_uses_the_documented_python_runtime(self) -> None:
+        version = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
+        workflow = (ROOT / ".github/workflows/deployment.yml").read_text(encoding="utf-8")
+        packaging = (ROOT / "PACKAGING.md").read_text(encoding="utf-8")
+        lock_file = (ROOT / "requirements-lock.txt").read_text(encoding="utf-8")
+        self.assertIn("python-version-file: '.python-version'", workflow)
+        self.assertIn(f"Python {version}", packaging)
+        self.assertIn(f"CPython {version}", lock_file)
 
     def test_documented_setup_names_and_badge_match_the_app_version(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

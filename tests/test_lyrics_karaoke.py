@@ -32,25 +32,25 @@ class KaraokeTests(unittest.TestCase):
             for font in ("segoeui.ttf", "malgun.ttf"):
                 QFontDatabase.addApplicationFont(str(Path(os.environ["WINDIR"]) / "Fonts" / font))
 
-    def test_automatic_words_multiline_and_no_space_cjk(self):
+    def test_untimed_words_show_whole_lines_without_estimation(self):
         cue = {"start": 2, "end": 10, "text": "하나 둘\n셋 넷"}
         self.assertEqual(LyricsService.word_reveal(cue, 0), (0, 0))
-        self.assertEqual(LyricsService.word_reveal(cue, 6), (3.5, 0))
+        self.assertEqual(LyricsService.word_reveal(cue, 6), (4, 3))
         self.assertEqual(LyricsService.word_reveal(cue, 10), (4, 3))
         self.assertEqual(LyricsService.word_reveal(cue, 20), (4, 3))
-        self.assertEqual(LyricsService.word_reveal({"start": 0, "end": 4, "text": "가나다라"}, 1), (1,))
+        self.assertEqual(LyricsService.word_reveal({"start": 0, "end": 4, "text": "가나다라"}, 1), (4,))
         self.assertEqual(LyricsService.word_reveal({"start": 0, "end": 0, "text": ""}, 0), ())
 
-    def test_selected_lines_use_full_cue_duration_and_fill_partial_word_gaps(self):
+    def test_selected_lines_use_only_explicit_word_times(self):
         cue = {"start": 0, "end": 8, "text": "one two three four\r\n번역 가사", "words": [
             {"offset": 4, "text": "two", "start": 2, "end": 3},
             {"offset": 8, "text": "three", "start": 5, "end": 6},
         ]}
         before = deepcopy(cue)
         progress = [LyricsService.word_reveal(cue, time, line_positions=(0,)) for time in (0, 1, 2, 4, 7, 8)]
-        self.assertEqual(progress[1], (1.5, 0))  # Fill the missing first word before its anchor.
-        self.assertEqual(progress[-2], (16, 0))  # Fill the missing final word after its anchor.
-        self.assertEqual(progress[-1], (18, 0))
+        self.assertEqual(progress[1], (0, 0))  # No estimated first word.
+        self.assertEqual(progress[-2], (13, 0))  # Untimed tail is never animated.
+        self.assertEqual(progress[-1], (13, 0))
         self.assertTrue(all(a[0] <= b[0] for a, b in zip(progress, progress[1:])))
         self.assertEqual(LyricsService.word_reveal(cue, 1, line_positions=(0,)), progress[1])
         self.assertEqual(cue, before)
@@ -65,19 +65,19 @@ class KaraokeTests(unittest.TestCase):
         self.assertEqual(LyricsService.word_reveal(cue, 1, line_positions=(1,)), (0, 0.5))
         self.assertEqual(LyricsService.word_reveal(cue, 4, line_positions=(1,)), (0, 3))
 
-    def test_missing_middle_words_are_interpolated_and_prepared_timings_are_cached(self):
+    def test_missing_middle_words_are_not_estimated_and_timings_are_cached(self):
         cue = {"start": 0, "end": 8, "text": "one two three", "words": [
             {"offset": 0, "text": "one", "start": 0, "end": 2},
             {"offset": 8, "text": "three", "start": 6, "end": 8},
         ]}
         LyricsService._reveal_spans.cache_clear()
-        self.assertEqual(LyricsService.word_reveal(cue, 4), (5.5,))
+        self.assertEqual(LyricsService.word_reveal(cue, 4), (3,))
         for time in (4.1, 4.2, 4.3):
             LyricsService.word_reveal(cue, time)
         self.assertEqual(LyricsService._reveal_spans.cache_info().misses, 1)
         self.assertEqual(LyricsService._reveal_spans.cache_info().hits, 3)
         cue["words"][1]["start"] = 4
-        self.assertEqual(LyricsService.word_reveal(cue, 3), (5.5,))
+        self.assertEqual(LyricsService.word_reveal(cue, 3), (3,))
         self.assertEqual(LyricsService._reveal_spans.cache_info().misses, 2)
 
     def test_timed_lrc_roundtrip_and_repeated_timestamps(self):
@@ -120,6 +120,14 @@ class KaraokeTests(unittest.TestCase):
         scene.addItem(item)
         track = PlaylistTrack("", "Track", duration_seconds=8,
                               lyrics=[{"start": 1, "end": 5, "text": text}])
+        # Explicit TTML fixture: each physical line has a recorded span.
+        cue = track.lyrics[0]
+        cue["format"] = "ttml"
+        cue["words"] = []
+        offset = 0
+        for line in text.splitlines(keepends=True):
+            cue["words"].append({"start": 1, "end": 5, "text": line.rstrip("\n"), "offset": offset})
+            offset += len(line)
         return scene, item, track
 
     @staticmethod
@@ -147,6 +155,34 @@ class KaraokeTests(unittest.TestCase):
                 item.source.subtitle_timing_offset = 0
                 self.assertEqual(item.source.to_dict(), original)
                 self.assertEqual(item._subtitle_word_reveal, ())
+
+    def test_ordinary_lyrics_render_whole_from_start_and_hold_until_next_cue(self):
+        scene, item, track = self.scene("First line")
+        # Ordinary LRC/SRT data, including a legacy word result, cannot animate.
+        track.lyrics = [
+            {"start": 5, "end": 7, "text": "First line", "words": [
+                {"offset": 0, "text": "First", "start": 5, "end": 6}]},
+            {"start": 12, "end": 14, "text": "Next line"},
+        ]
+        track.duration_seconds = 20
+        item.source.subtitle_intro_enabled = True
+        item.source.subtitle_intro_midtrack = True
+        images = [CanvasSnapshot.capture_track(scene, track, 1, 1, 0,
+            elapsed_seconds=time, transparent=True) for time in (0, 5.5, 9, 11.9, 12, 19)]
+        self.assertGreater(self.red_pixels(images[0]), 0)
+        self.assertTrue(all(image == images[0] for image in images[:4]))
+        self.assertEqual(images[4], images[5])
+        self.assertNotEqual(images[0], images[4])
+        capturer = ExportCanvasCapturer(scene, [track], 20, set(), [(None, None)],
+                                      lambda *args: None, lambda: None, lambda *args: None)
+        capturer.stage_frame = lambda image, duration, _key: RenderFrame(image, duration)
+        for elapsed in (0, 9, 12, 19):
+            sample = ExportFrameSample(track, 1, 0, .1, elapsed, elapsed)
+            exported = capturer.capture(sample).image
+            preview = CanvasSnapshot.capture_track(scene, track, 1, 1, 0,
+                elapsed_seconds=elapsed, playlist_duration_seconds=20,
+                playlist_tracks=[track], timeline_seconds=elapsed)
+            self.assertEqual(exported, preview)
 
     def test_export_samples_do_not_freeze_word_fill(self):
         scene, item, track = self.scene()
@@ -183,8 +219,8 @@ class KaraokeTests(unittest.TestCase):
             source.subtitle_animation, source.subtitle_animation_duration = "glow", 0.5
             source.subtitle_next_lines = 1
             track.duration_seconds = 14
-            track.lyrics = [{"start": 1, "end": 10, "text": "First lyric\nTranslation"},
-                            {"start": 10, "end": 13, "text": "Next lyric\nTranslation"}]
+            track.lyrics = [{"start": 1, "end": 10, "text": "First lyric\nTranslation", "format": "ttml"},
+                            {"start": 10, "end": 13, "text": "Next lyric\nTranslation", "format": "ttml"}]
             capturer = ExportCanvasCapturer(scene, [track], 14, set(), [(None, None)],
                                           lambda *args: None, lambda: None, lambda *args: None)
             capturer.stage_frame = lambda image, duration, _key: RenderFrame(image, duration)
@@ -200,21 +236,21 @@ class KaraokeTests(unittest.TestCase):
                     images.append(preview)
                 self.assertEqual(images[0], images[2])
 
-    def test_selected_fallback_keeps_canvas_and_export_frame_state_in_sync(self):
+    def test_untimed_prefix_keeps_canvas_and_export_frame_state_in_sync(self):
         scene, item, track = self.scene("하나 둘\nTranslation", subtitle_karaoke_lines=[0])
         track.lyrics[0]["words"] = [{"offset": 3, "text": "둘", "start": 3, "end": 4}]
         capturer = ExportCanvasCapturer(scene, [track], 8, set(), [(None, None)],
                                       lambda *args: None, lambda: None, lambda *args: None)
-        pair = [ExportFrameSample(track, 1, 0, 0.1, time, time) for time in (1.5, 1.6)]
+        pair = [ExportFrameSample(track, 1, 0, 0.1, time, time) for time in (3.5, 3.6)]
         self.assertEqual(len(capturer.coalesce_samples(pair, "base")), 2)
         images = [CanvasSnapshot.capture_track(scene, track, 1, 1, 0,
-                    elapsed_seconds=time, transparent=True) for time in (1.5, 1.6, 1.5)]
+                    elapsed_seconds=time, transparent=True) for time in (3.5, 3.6, 3.5)]
         self.assertLess(self.red_pixels(images[0]), self.red_pixels(images[1]))
         self.assertEqual(images[0], images[2])
         self.assertEqual(len(item._lyric_reveal_cache), 1)
         with patch.object(lyrics_renderer, "QTextLayout", side_effect=AssertionError("Repeated shaping")):
             self.assertEqual(CanvasSnapshot.capture_track(scene, track, 1, 1, 0,
-                elapsed_seconds=1.5, transparent=True), images[0])
+                elapsed_seconds=3.5, transparent=True), images[0])
         capturer.stage_frame = lambda image, duration, _key: RenderFrame(image, duration)
         for sample in pair:
             exported = capturer.capture(sample).image
@@ -235,7 +271,7 @@ class KaraokeTests(unittest.TestCase):
                 source.subtitle_role_styles = {"next": {"blur": blur}}
                 track.lyrics = [
                     {"start": 1, "end": 2, "text": "Previous"},
-                    {"start": 2, "end": 5, "text": "Hello world", "words": [
+                    {"start": 2, "end": 5, "text": "Hello world", "format": "ttml", "words": [
                         {"offset": 0, "text": "Hello", "start": 2, "end": 2.25},
                         {"offset": 6, "text": "world", "start": 2.75, "end": 5},
                     ]},

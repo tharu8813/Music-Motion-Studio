@@ -571,7 +571,7 @@ class ContentLibraryPanel(QWidget):
             "콘텐츠 가져오기" if self.translator.is_korean else "Import content",
             "",
             "Supported content (*.jpg *.jpeg *.png *.webp *.svg *.mp4 *.mov *.mkv *.webm *.avi *.m4v *.mp3 *.wav *.flac "
-            "*.aac *.m4a *.ogg *.ttf *.otf *.woff *.woff2 *.lrc *.srt *.vtt)",
+            "*.aac *.m4a *.ogg *.ttf *.otf *.woff *.woff2 *.lrc *.srt *.vtt *.ttml)",
         )
         if paths:
             self.service.add_paths(paths)

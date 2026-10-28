@@ -218,6 +218,7 @@ class ExportCanvasCapturer:
                 sample.track, sample.elapsed_seconds,
                 sample.track.lyrics_timing_offset_seconds, source.subtitle_timing_offset,
                 source.subtitle_animation, source.subtitle_animation_duration,
+                whole_lines=source.subtitle_karaoke_enabled,
             )
             transition = cue_state.transition_progress if cue_state.transitioning else None
             intro_state = resolve_lyrics_intro_state(sample.track, source, sample.elapsed_seconds,
@@ -225,6 +226,8 @@ class ExportCanvasCapturer:
                 else self.instrumental_spans_by_track[sample.track.id][source.id])
             content_state = (
                 "lyrics", id(sample.track), cue_state.cue_index, cue_state.active_cue_index,
+                cue_state.active_cue_indices, cue_state.held_cue_indices,
+                cue_state.latest_started_cue_index, cue_state.gap_unblurred,
                 transition, cue_state.release_progress,
                 intro_state,
                 resolve_lyrics_word_reveal(sample.track, source, sample.elapsed_seconds, cue_state, intro_state),

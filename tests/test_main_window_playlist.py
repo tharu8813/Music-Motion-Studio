@@ -98,6 +98,32 @@ class MainWindowPlaylistTests(MainWindowTestCase):
         self.assertEqual(imported.lyrics_path, "")
         self.assertEqual(notes, [])
 
+    def test_ttml_sidecar_is_attached_automatically(self) -> None:
+        imported, notes = self._import_with_sidecar(
+            {"Nightfall.ttml": '<tt xmlns="http://www.w3.org/ns/ttml"><body><p begin="1s" end="5s">Hello</p></body></tt>'},
+            "always", "Nightfall.mp3",
+        )
+        self.assertEqual(Path(imported.lyrics_path).name, "Nightfall.ttml")
+        self.assertEqual(imported.lyrics[0]["format"], "ttml")
+        self.assertEqual(len(notes), 1)
+
+    def test_competing_lyrics_always_offer_file_choice_and_honor_cancel(self) -> None:
+        files = {"Nightfall.lrc": self._LRC, "Nightfall.srt": "1\n00:00:01,000 --> 00:00:05,000\nHello\n",
+                 "Nightfall.ttml": '<tt xmlns="http://www.w3.org/ns/ttml"><body><p begin="1s" end="5s">Hello</p></body></tt>'}
+        for mode in ("always", "ask"):
+            with self.subTest(mode=mode), patch("app.ui.main_window.QInputDialog.getItem") as choose, patch.object(QMessageBox, "question") as confirm:
+                choose.side_effect = lambda *args: (next(label for label in args[3] if "Nightfall.ttml" in label), True)
+                imported, notes = self._import_with_sidecar(files, mode, "Nightfall.mp3")
+                choose.assert_called_once()
+                confirm.assert_not_called()
+                self.assertEqual(Path(imported.lyrics_path).name, "Nightfall.ttml")
+                self.assertEqual(len(notes), 1)
+            with patch("app.ui.main_window.QInputDialog.getItem", return_value=("", False)):
+                imported, notes = self._import_with_sidecar(files, mode, "Nightfall.mp3")
+                self.assertEqual(imported.lyrics, [])
+                self.assertEqual(imported.lyrics_path, "")
+                self.assertEqual(notes, [])
+
     def test_similar_name_lyric_always_prompts_even_in_always_mode(self) -> None:
         with patch.object(
             QMessageBox, "question",

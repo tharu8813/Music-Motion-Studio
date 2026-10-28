@@ -32,6 +32,7 @@ from app.preview.album_art import (
 from app.preview.frame_state import (
     MixJunction, resolve_edge_animation, resolve_lyrics_cue_state, resolve_lyrics_intro_state,
     resolve_lyrics_word_reveal,
+    lyrics_display_groups,
     resolve_now_playing_exit_state, resolve_timeline_window_phase,
 )
 from app.preview.text_template import (
@@ -811,6 +812,7 @@ class CanvasSnapshot:
                     graphics_item, graphics_item._subtitle_transition_raw, graphics_item._subtitle_cue_layout,
                     graphics_item._subtitle_intro_state,
                     graphics_item._subtitle_word_reveal,
+                    graphics_item._subtitle_gap_unblurred,
                 ))
                 graphics_item._subtitle_intro_state = resolve_lyrics_intro_state(
                     track, source, elapsed_seconds,
@@ -841,10 +843,12 @@ class CanvasSnapshot:
                     track, elapsed_seconds,
                     track.lyrics_timing_offset_seconds, source.subtitle_timing_offset,
                     source.subtitle_animation, source.subtitle_animation_duration,
+                    whole_lines=source.subtitle_karaoke_enabled,
                 )
                 active_cue_index = cue_state.active_cue_index
-                cue_index = cue_state.cue_index
-                lyric_cue = track.lyrics[cue_index] if cue_index is not None else None
+                display_cues, cue_index = lyrics_display_groups(track, cue_state)
+                lyric_cue = display_cues[cue_index] if cue_index is not None else None
+                graphics_item._subtitle_gap_unblurred = cue_state.gap_unblurred
                 graphics_item._subtitle_word_reveal = resolve_lyrics_word_reveal(
                     track, source, elapsed_seconds, cue_state, graphics_item._subtitle_intro_state,
                 )
@@ -858,7 +862,7 @@ class CanvasSnapshot:
                     graphics_item._subtitle_transition_raw = cue_state.transition_progress
                 if cue_index is not None:
                     context, next_context = _effective_lyric_context(
-                        graphics_item, track.lyrics, cue_index,
+                        graphics_item, display_cues, cue_index,
                     )
                 else:
                     context = max(0, source.subtitle_context_lines)
@@ -874,10 +878,10 @@ class CanvasSnapshot:
                 )
                 if cue_index is not None:
                     first = max(0, cue_index - context - extra_leading)
-                    last = min(len(track.lyrics), cue_index + next_context + 1)
+                    last = min(len(display_cues), cue_index + next_context + 1)
                     blocks = [
                         LyricsService.decode_line_breaks(cue.get("text", "")).strip()
-                        for cue in track.lyrics[first:last]
+                        for cue in display_cues[first:last]
                     ]
                     block_line_counts = [
                         max(1, len([line for line in block.splitlines() if line.strip()]))
@@ -885,8 +889,8 @@ class CanvasSnapshot:
                     ]
                     graphics_item._subtitle_line_style_indices = tuple(
                         line_index
-                        for line_count in block_line_counts
-                        for line_index in range(line_count)
+                        for cue, line_count in zip(display_cues[first:last], block_line_counts)
+                        for line_index in cue.get("display_line_positions", tuple(range(line_count)))
                     )
                     graphics_item._subtitle_cue_layout = tuple(
                         (slot, line_index, line_count)
@@ -897,8 +901,10 @@ class CanvasSnapshot:
                     relative_index = max(0, cue_index - first)
                     intro_state = graphics_item._subtitle_intro_state
                     if intro_state is not None and intro_state.held_cue_index is not None:
+                        held_display_index = (display_cues.index_for_cue(intro_state.held_cue_index)
+                            if hasattr(display_cues, "index_for_cue") else intro_state.held_cue_index)
                         graphics_item._subtitle_intro_state = replace(
-                            intro_state, held_slot=intro_state.held_cue_index - first,
+                            intro_state, held_slot=held_display_index - first,
                         )
                     anchor_line = sum(block_line_counts[:relative_index])
                     graphics_item._subtitle_anchor_line = anchor_line
@@ -910,7 +916,7 @@ class CanvasSnapshot:
                         cue_state.release_progress is not None
                         and cue_state.release_progress < 1.0
                     )
-                    if active_cue_index == cue_index or releasing:
+                    if active_cue_index == cue_state.cue_index or releasing:
                         source.subtitle_current_line = anchor_line
                         source.subtitle_current_line_count = block_line_counts[relative_index]
                         if releasing:
@@ -942,7 +948,7 @@ class CanvasSnapshot:
                     previous_line_count = 0
                     if cue_index and cue_index > 0 and (context > 0 or extra_leading):
                         previous_text = LyricsService.decode_line_breaks(
-                            track.lyrics[cue_index - 1].get("text", "")
+                            display_cues[cue_index - 1].get("text", "")
                         )
                         previous_line_count = max(
                             1, len([line for line in previous_text.splitlines() if line.strip()])
@@ -1307,11 +1313,12 @@ class CanvasSnapshot:
             for graphics_item, indices in original_subtitle_style_indices:
                 graphics_item._subtitle_line_style_indices = indices
                 graphics_item.update()
-            for graphics_item, raw, layout, intro_state, word_reveal in original_subtitle_motion:
+            for graphics_item, raw, layout, intro_state, word_reveal, gap_unblurred in original_subtitle_motion:
                 graphics_item._subtitle_transition_raw = raw
                 graphics_item._subtitle_cue_layout = layout
                 graphics_item._subtitle_intro_state = intro_state
                 graphics_item._subtitle_word_reveal = word_reveal
+                graphics_item._subtitle_gap_unblurred = gap_unblurred
                 graphics_item.update()
             for (
                 graphics_item, anchor_line, anchor_count, previous_line_count,

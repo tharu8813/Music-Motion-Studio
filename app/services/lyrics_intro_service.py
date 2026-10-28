@@ -57,6 +57,14 @@ def request_instrumental_analysis(track: PlaylistTrack, source: Source) -> Futur
     if not source.subtitle_intro_midtrack:
         return None
     windows = lyric_instrumental_windows(track, source)
+    if source.subtitle_karaoke_enabled:
+        # Real-time lyrics use only explicit TTML gaps. Never decode the music
+        # or run vocal separation to construct this display state.
+        if not windows:
+            return None
+        future = Future()
+        future.set_result((windows, ()))
+        return future
     if not windows or not track.file_path:
         return None
     try:

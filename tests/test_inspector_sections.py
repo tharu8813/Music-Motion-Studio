@@ -65,6 +65,7 @@ class LyricsSectionTests(unittest.TestCase):
         self.assertEqual(kinds.pop("subtitle_animation"), "combo")
         self.assertEqual(kinds.pop("subtitle_accent_enabled"), "check")
         self.assertEqual(kinds.pop("subtitle_karaoke_enabled"), "check")
+        self.assertEqual(kinds.pop("subtitle_karaoke_lines"), "line")
         self.assertEqual(kinds.pop("subtitle_accent_color"), "color")
         self.assertEqual(kinds.pop("subtitle_karaoke_pending_mode"), "combo")
         self.assertEqual(kinds.pop("subtitle_karaoke_pending_color"), "color")
@@ -76,10 +77,62 @@ class LyricsSectionTests(unittest.TestCase):
             "subtitle_previous_opacity": False, "subtitle_previous_blur": False,
             "subtitle_accent_color": False,
             "subtitle_accent_enabled": True,
+            "subtitle_karaoke_lines": False,
             "subtitle_karaoke_offset": False,
             "subtitle_karaoke_pending_mode": False, "subtitle_karaoke_pending_color": False,
             "subtitle_karaoke_pending_brightness": False,
         })
+
+    def test_highlight_lines_are_one_based_in_ui_and_preserve_legacy_masks(self) -> None:
+        from PySide6.QtTest import QTest
+        source = Source(SourceType.LYRICS, "Lyrics", subtitle_karaoke_lines=[0, 2])
+        editor = self.section.widgets["subtitle_karaoke_lines"]
+        updates = []
+        self.section.connect(lambda key, value: updates.append((key, value)))
+        self.section.fill(source, set_color=lambda *_args: None)
+        updates.clear()
+        self.assertEqual(editor.text(), "1, 3")
+        editor.editingFinished.emit()
+        self.assertEqual(updates, [])
+        editor.selectAll()
+        QTest.keyClicks(editor, "12, 2, 2")
+        editor.editingFinished.emit()
+        self.assertEqual(updates, [("subtitle_karaoke_lines", [1, 11])])
+        for invalid in ("0", "13", "1,", "one"):
+            editor.setText(invalid)
+            editor.textEdited.emit(invalid)
+            editor.editingFinished.emit()
+        self.assertEqual(len(updates), 1)
+        editor.clear()
+        editor.textEdited.emit("")
+        editor.editingFinished.emit()
+        self.assertEqual(updates[-1], ("subtitle_karaoke_lines", []))
+
+    def test_mixed_highlight_masks_only_change_after_editing(self) -> None:
+        from PySide6.QtTest import QTest
+        from app.inspector.source_inspector import SourceInspector
+        from app.services.source_store import SourceStore
+        from app.utils.i18n import Translator
+
+        store = SourceStore()
+        inspector = SourceInspector(store, Translator())
+        self.addCleanup(inspector.deleteLater)
+        self.addCleanup(inspector.close)
+        first = Source(SourceType.LYRICS, "First", subtitle_karaoke_enabled=True, subtitle_karaoke_lines=[0])
+        second = Source(SourceType.LYRICS, "Second", subtitle_karaoke_enabled=True, subtitle_karaoke_lines=[1])
+        store.replace([first, second])
+        store.select_many([first.id, second.id])
+        editor = inspector.lyrics.widgets["subtitle_karaoke_lines"]
+        self.assertEqual(editor.text(), "")
+        editor.editingFinished.emit()
+        self.assertEqual((first.subtitle_karaoke_lines, second.subtitle_karaoke_lines), ([0], [1]))
+        QTest.keyClicks(editor, "1, 3")
+        editor.editingFinished.emit()
+        self.assertEqual((first.subtitle_karaoke_lines, second.subtitle_karaoke_lines), ([0, 2], [0, 2]))
+        store.select(first.id)
+        restored = Source.from_dict(first.to_dict())
+        self.assertEqual(restored.subtitle_karaoke_lines, [0, 2])
+        self.assertEqual(editor.text(), "1, 3")
 
     def test_subtitle_transition_shortcut_and_duration_follow_selection(self) -> None:
         from unittest.mock import patch
@@ -139,6 +192,7 @@ class LyricsSectionTests(unittest.TestCase):
         store.add(Source(SourceType.TEXT, "Text"))
         self.assertFalse(inspector._field_visibility["subtitle_karaoke_enabled"])
         self.assertFalse(inspector._field_visibility["subtitle_karaoke_pending_mode"])
+        self.assertFalse(inspector._field_visibility["subtitle_karaoke_lines"])
         self.assertTrue(inspector.lyrics_transition_button.isHidden())
         self.assertTrue(inspector._sections[("animation", "sub_transition")].isHidden())
         store.select(lyrics.id)

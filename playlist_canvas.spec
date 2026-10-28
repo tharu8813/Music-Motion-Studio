@@ -6,7 +6,13 @@ from PyInstaller.utils.hooks import collect_all
 
 
 project_root = Path(SPECPATH)
-numpy_datas, numpy_binaries, numpy_hiddenimports = collect_all("numpy")
+# Dependency test suites can import compiler probes and start child processes;
+# they are not runtime dependencies of the installed editor.
+def runtime_submodule(name):
+    return "tests" not in name.split(".")
+
+
+numpy_datas, numpy_binaries, numpy_hiddenimports = collect_all("numpy", filter_submodules=runtime_submodule)
 # AutoMix's default analyzer (app/automix/analysis/basic.py) needs librosa
 # and the native/JIT pieces of its dependency chain: numba's LLVM JIT
 # (llvmlite), scipy's compiled extensions, scikit-learn, and soundfile's
@@ -49,7 +55,7 @@ automix_datas: list = []
 automix_binaries: list = []
 automix_hiddenimports: list = []
 for _package in AUTOMIX_PACKAGES:
-    _datas, _binaries, _hiddenimports = collect_all(_package)
+    _datas, _binaries, _hiddenimports = collect_all(_package, filter_submodules=runtime_submodule)
     automix_datas += _datas
     automix_binaries += _binaries
     automix_hiddenimports += _hiddenimports

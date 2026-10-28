@@ -26,8 +26,11 @@ class DistributionVerificationTests(unittest.TestCase):
                 target.touch()
             with patch("sys.argv", ["verify_distribution.py", str(distribution)]), redirect_stdout(StringIO()):
                 self.assertEqual(verify_distribution.main(), 0)
+                # A stale Python 3.12 DLL must not satisfy the 3.14 release gate.
+                (distribution / "_internal" / "python312.dll").touch()
                 for missing in ("app/automix/analysis/models/yamnet.onnx",
                                 "app/resources/help/ko/lyrics_transition.png",
+                                "python314.dll",
                                 "assets/icons/spin_up_disabled.svg"):
                     target = distribution / "_internal" / missing
                     target.unlink()

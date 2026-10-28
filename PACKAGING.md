@@ -6,14 +6,20 @@
 
 ## 1. 빌드 환경 준비
 
-프로젝트 루트에서 공식 배포 버전인 Python 3.12 가상 환경을 활성화한 뒤 빌드 의존성을 설치합니다.
+공식 개발·배포 기준은 **Python 3.14.10, Windows x64 일반 빌드(GIL 사용)**입니다. 버전은 `.python-version`에 고정하며 Windows CI도 이 파일을 읽습니다. Python 3.15는 ONNX Runtime의 Windows 패키지가 아직 없어 전체 AutoMix 기능을 제공하는 배포 기준에서 제외합니다.
+
+프로젝트 루트에서 Python 설치 관리자로 런타임을 설치한 뒤 가상 환경을 만듭니다. 다른 Python으로 만든 `.venv`가 있다면 먼저 이름을 바꿔 보관하고 새로 만드세요.
 
 ```powershell
+py install 3.14.10
+py -3.14 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements-lock.txt
 python -m pip install -r requirements-packaging.txt
 ```
+
+PowerShell에서 활성화가 차단되면 활성화 없이 `.\.venv\Scripts\python.exe -m pip install -r requirements-lock.txt`로 설치하고 `.\.venv\Scripts\python.exe main.py`로 실행할 수 있습니다. VS Code에서는 **Python: Select Interpreter**에서 `.venv\Scripts\python.exe`를 선택하세요.
 
 설치본에 들어가는 AutoMix 분석기:
 
@@ -42,7 +48,7 @@ dist\Playlist Canvas\Playlist Canvas.exe
 
 `dist\Playlist Canvas` 폴더 전체가 Inno Setup 설치 프로그램에 포함되어야 합니다. 실행 파일만 따로 복사하면 Qt 및 Python 런타임 파일이 없어 실행되지 않습니다.
 
-> **주의:** `build\playlist_canvas\Playlist Canvas.exe`는 PyInstaller가 조립 중에 만드는 중간 파일입니다. 이 파일은 `_internal\python312.dll`이 함께 배치되지 않으므로 실행하거나 배포하면 안 됩니다. 반드시 `dist\Playlist Canvas` 폴더 안의 EXE를 사용하세요.
+> **주의:** `build\playlist_canvas\Playlist Canvas.exe`는 PyInstaller가 조립 중에 만드는 중간 파일입니다. 이 파일은 `_internal\python314.dll`이 함께 배치되지 않으므로 실행하거나 배포하면 안 됩니다. 반드시 `dist\Playlist Canvas` 폴더 안의 EXE를 사용하세요.
 
 공식 배포 빌드는 `requirements-lock.txt`의 고정 버전을 사용합니다. 의존성을 갱신할 때는 로컬 테스트와 Windows CI가 모두 통과한 뒤 잠금 파일을 함께 갱신합니다.
 

@@ -1104,14 +1104,14 @@ class SettingsDialog(QDialog):
             2, "추가하지 않음" if korean else "Never attach",
         )
         self.lyrics_auto_attach_hint.setText(
-            "노래를 추가할 때 같은 폴더에 파일 이름이 같은 .lrc/.srt/.vtt 파일이 있으면 "
+            "노래를 추가할 때 같은 폴더에 파일 이름이 같은 .lrc/.srt/.vtt/.ttml 파일이 있으면 "
             "가사·자막으로 함께 연결합니다. '추가하지 않음'이 아니면, 이름이 비슷한 파일이 "
-            "있을 때는 설정과 관계없이 항상 추가 여부를 물어봅니다."
+            "있을 때는 설정과 관계없이 항상 추가 여부를 물어봅니다. 같은 곡의 가사 파일이 여러 개면 추가할 파일을 선택합니다."
             if korean else
-            "When you add a song, a .lrc/.srt/.vtt file with the same name in the "
+            "When you add a song, a .lrc/.srt/.vtt/.ttml file with the same name in the "
             "same folder is attached as lyrics. Unless set to Never, a similarly "
             "named file always prompts before it is attached, regardless of this "
-            "setting."
+            "setting. Multiple lyric files for the same song always open a file chooser."
         )
         self.ffmpeg_path_label.setText("FFmpeg 경로" if korean else "FFmpeg path")
         self.ffmpeg_version_label.setText("설치 버전" if korean else "Version to install")

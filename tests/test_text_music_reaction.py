@@ -328,7 +328,8 @@ class TextMusicReactionTests(unittest.TestCase):
         source = Source(SourceType.LYRICS, "Lyrics")
         store.add(source)
         group = inspector._sections[("special", "sub_karaoke")]
-        self.assertIs(inspector.lyrics_karaoke_button.parentWidget(), group._body)
+        self.assertFalse(hasattr(inspector, "lyrics_karaoke_button"))
+        self.assertTrue(group.isAncestorOf(inspector.lyrics.widgets["subtitle_karaoke_lines"]))
         self.assertTrue(inspector._field_visibility["subtitle_accent_enabled"])
         self.assertFalse(inspector._field_visibility["subtitle_karaoke_offset"])
         inspector.lyrics.widgets["subtitle_karaoke_enabled"].click()

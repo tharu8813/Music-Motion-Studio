@@ -8,11 +8,11 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal
 
 from app.models.project import ProjectContent, ProjectDocument
+from app.services.lyrics_service import LYRICS_EXTENSIONS
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".svg"}
 FONT_EXTENSIONS = {".ttf", ".otf", ".woff", ".woff2"}
-LYRICS_EXTENSIONS = {".lrc", ".srt", ".vtt"}
 CONTENT_AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".aac", ".m4a", ".ogg"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 

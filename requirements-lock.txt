@@ -1,11 +1,15 @@
-# Reproducible Windows release environment for Python 3.12.
+# Reproducible Windows release environment for Python 3.14.
 #
-# Pins verified against the Python 3.12.10 release environment for 1.2.0.8.
+# Target interpreter: CPython 3.14.10, Windows x64 (standard GIL build).
 # Includes Sonara, required by the release specification and Windows CI.
 altgraph==0.17.5
+certifi==2026.10.23
+cffi==2.1.1
+charset-normalizer==3.5.2
 cloudpickle==3.1.2
 decorator==5.3.1
 flatbuffers==25.12.19
+idna==3.20
 joblib==1.6.0
 lazy-loader==0.5
 librosa==1.0.0
@@ -21,12 +25,14 @@ pefile==2024.8.26
 platformdirs==4.11.11
 pooch==1.9.0
 protobuf==7.36.2
+pycparser==3.12
 pyinstaller==6.22.0
 pyinstaller-hooks-contrib==2026.6
 PySide6==6.11.1
 PySide6-Addons==6.11.1
 PySide6-Essentials==6.11.1
 pywin32-ctypes==0.2.3
+requests==2.34.2
 scikit-learn==1.9.1
 scipy==1.18.1
 setuptools==84.0.0
@@ -35,3 +41,5 @@ soundfile==0.14.0
 sonara==0.3.6
 soxr==1.1.0
 threadpoolctl==3.7.0
+typing-extensions==4.16.0
+urllib3==2.8.0

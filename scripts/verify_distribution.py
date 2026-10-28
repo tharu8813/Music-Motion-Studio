@@ -18,7 +18,7 @@ REQUIRED_FILES = (
     Path("assets/icons/spin_down_disabled.svg"),
     Path("assets/icons/spin_up_disabled.svg"),
     Path("LICENSE.txt"),
-    Path("python312.dll"),
+    Path("python314.dll"),
     Path("app/automix/analysis/models/beat_this_final0_int8.onnx"),
     Path("app/automix/analysis/models/umxhq_vocals_int8.onnx"),
     Path("app/automix/analysis/models/BEAT_THIS_LICENSE.txt"),

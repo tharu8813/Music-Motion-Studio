@@ -15,6 +15,7 @@ single-line/shared, not worth extracting.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Sequence
 
 from app.animation.curves import ease_in_out_cubic
 from app.animation.lyrics import lyric_progress
@@ -31,11 +32,24 @@ def lyric_instrumental_windows(track: PlaylistTrack, source: Source) -> tuple[tu
     """
     offset = track.lyrics_timing_offset_seconds + source.subtitle_timing_offset
     cues = [cue for cue in track.lyrics if str(cue.get("text", "")).strip()]
+    if source.subtitle_karaoke_enabled:
+        cues = [cue for cue in cues if cue.get("format") == "ttml"]
+        # Measure silence between the union of intervals; a later, shorter cue
+        # ending must not turn an older sustained lyric into an interlude.
+        windows = []
+        running_end = 0.0
+        for cue in cues:
+            start, end = float(cue["start"]), float(cue["end"])
+            lower, upper = max(0.0, running_end - offset), min(track.duration_seconds, start - offset)
+            if running_end and upper - lower >= source.subtitle_intro_gap:
+                windows.append((lower, upper))
+            running_end = max(running_end, end)
+        return tuple(windows)
     windows = []
     for previous, following in zip(cues, cues[1:]):
         start, end = float(previous["start"]), float(previous["end"])
         next_start = float(following["start"])
-        lower = end if end < next_start - 0.001 else start + min(2.0, end - start)
+        lower = end if source.subtitle_karaoke_enabled or end < next_start - 0.001 else start + min(2.0, end - start)
         lower, upper = max(0.0, lower - offset), min(track.duration_seconds, next_start - offset)
         if upper - lower >= source.subtitle_intro_gap:
             windows.append((lower, upper))
@@ -60,6 +74,8 @@ def resolve_lyrics_intro_state(track: PlaylistTrack, source: Source, elapsed: fl
     """First-cue wait or a measured instrumental interlude, on the audio clock."""
     if not (source.subtitle_intro_enabled or source.subtitle_intro_midtrack):
         return None
+    if source.subtitle_karaoke_enabled and not any(cue.get("format") == "ttml" for cue in track.lyrics):
+        return None  # Ordinary real-time lyrics display the first complete line immediately.
     first_cue = next((cue for cue in track.lyrics if str(cue.get("text", "")).strip()), None)
     if first_cue is None:
         return None  # Missing lyrics are not an intro.
@@ -79,6 +95,9 @@ def resolve_lyrics_intro_state(track: PlaylistTrack, source: Source, elapsed: fl
     held = None if before_first else LyricsService.display_cue_index(
         track.lyrics, window[0] + track.lyrics_timing_offset_seconds + source.subtitle_timing_offset,
     )
+    if source.subtitle_karaoke_enabled and held is not None:
+        held = LyricsService.last_ending_cue_indices(track.lyrics,
+            window[0] + track.lyrics_timing_offset_seconds + source.subtitle_timing_offset)[0]
     return LyricsIntroState(age, remaining, 1 - progress if exiting else progress,
                            before_first, raw, progress, exiting, held)
 
@@ -100,6 +119,10 @@ class LyricsCueState:
     # Highlight the previous cue still had when this cue started: 1.0 for
     # back-to-back cues, lower when a gap had already released it.
     previous_emphasis: float = 1.0
+    active_cue_indices: tuple[int, ...] = ()
+    latest_started_cue_index: int | None = None
+    gap_unblurred: bool = False
+    held_cue_indices: tuple[int, ...] = ()
 
 
 def resolve_lyrics_cue_state(
@@ -109,20 +132,38 @@ def resolve_lyrics_cue_state(
     subtitle_timing_offset: float,
     subtitle_animation: str,
     subtitle_animation_duration: float,
+    *, whole_lines: bool = False,
 ) -> LyricsCueState:
-    """Resolve the LYRICS source's cue/transition state at elapsed_seconds
-    into a playing track. Pulled out of CanvasSnapshot.capture_track's inline
-    lyrics branch verbatim; behavior is unchanged."""
+    """Resolve shared preview/export clocks, including overlapping TTML cues."""
     effective_offset = lyrics_timing_offset_seconds + subtitle_timing_offset
     lyric_elapsed = max(0.0, elapsed_seconds + effective_offset)
     active_cue_index = LyricsService.current_cue_index(track.lyrics, lyric_elapsed)
     cue_index = LyricsService.display_cue_index(track.lyrics, lyric_elapsed)
     lyric_cue = track.lyrics[cue_index] if cue_index is not None else None
+    latest_started = cue_index
+    active_indices: tuple[int, ...] = ()
+    held_indices: tuple[int, ...] = ()
+    realtime_ttml = whole_lines and lyric_cue is not None and lyric_cue.get("format") == "ttml"
+    if realtime_ttml:
+        active_indices = LyricsService.active_cue_indices(track.lyrics, lyric_elapsed)
+        if active_indices:
+            cue_index = active_cue_index = active_indices[0]
+            lyric_cue = track.lyrics[cue_index]
+        elif lyric_elapsed >= float(lyric_cue["end"]):
+            # Keep the last lyric that actually finished, rather than jumping
+            # back to a later-starting phrase that had already ended earlier.
+            held_indices = LyricsService.last_ending_cue_indices(track.lyrics, lyric_elapsed)
+            cue_index = held_indices[0]
+            lyric_cue = track.lyrics[cue_index]
+    continuous = whole_lines and lyric_cue is not None and lyric_cue.get("format") != "ttml"
+    if continuous:
+        active_cue_index = cue_index
     transitioning = (
         cue_index is not None
         and active_cue_index == cue_index
         and lyric_cue is not None
         and subtitle_animation != "none"
+        and len(active_indices) <= 1
     )
     duration = max(0.05, subtitle_animation_duration)
     transition_progress = 1.0
@@ -131,10 +172,12 @@ def resolve_lyrics_cue_state(
     previous_emphasis = 1.0
     if transitioning:
         cue_start_seconds = float(lyric_cue.get("start", lyric_elapsed)) - effective_offset
+        if continuous and cue_index == 0:
+            cue_start_seconds = -duration  # The first line is already fully visible at playback start.
         transition_progress = max(0.0, min(1.0, (
             (elapsed_seconds - cue_start_seconds) / duration
         )))
-        if cue_index > 0:
+        if cue_index > 0 and not continuous:
             previous = track.lyrics[cue_index - 1]
             previous_start = float(previous.get("start", 0.0))
             gap = float(lyric_cue.get("start", 0.0)) - float(previous.get("end", previous_start + 8.0))
@@ -155,7 +198,57 @@ def resolve_lyrics_cue_state(
         cue_start_seconds=cue_start_seconds,
         release_progress=release_progress,
         previous_emphasis=previous_emphasis,
+        active_cue_indices=active_indices,
+        latest_started_cue_index=latest_started,
+        gap_unblurred=bool(realtime_ttml and not active_indices and lyric_elapsed >= float(lyric_cue["end"])),
+        held_cue_indices=held_indices,
     )
+
+
+class _LyricDisplayGroups(Sequence):
+    """Prepare text only for the small context window actually being painted."""
+
+    def __init__(self, cues, groups):
+        self.cues, self.groups, self.prepared = cues, groups, {}
+        self.positions = {original: index for index, group in enumerate(groups) for original in group}
+
+    def __len__(self):
+        return len(self.groups)
+
+    def index_for_cue(self, index):
+        return self.positions[index]
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return tuple(self[position] for position in range(*index.indices(len(self))))
+        if index not in self.prepared:
+            indices = self.groups[index]
+            parts = [self.cues[position] for position in indices]
+            self.prepared[index] = {
+                "display_cue_indices": indices,
+                "text": "\n".join(LyricsService.decode_line_breaks(cue.get("text", "")).strip() for cue in parts),
+                "display_line_positions": tuple(position for cue in parts for position, _line in enumerate(
+                    line for line in LyricsService.decode_line_breaks(cue.get("text", "")).strip().splitlines() if line.strip())),
+            }
+        return self.prepared[index]
+
+
+def lyrics_display_groups(track: PlaylistTrack, state: LyricsCueState):
+    """Treat all current TTML cues as one centered block in the visual window.
+
+    Ended cues between two active intervals belong to history, never to the
+    current block. This does not rewrite or merge the track's timing data.
+    """
+    if not state.active_cue_indices and not state.gap_unblurred:
+        return track.lyrics, state.cue_index
+    displayed = state.active_cue_indices or state.held_cue_indices or (state.cue_index,)
+    if displayed == (state.latest_started_cue_index,):
+        return track.lyrics, state.cue_index  # Most frames have one ordinary active interval.
+    active = set(displayed)
+    last = state.latest_started_cue_index
+    previous = [(index,) for index in range(last + 1) if index not in active]
+    groups = previous + [displayed] + [(index,) for index in range(last + 1, len(track.lyrics))]
+    return _LyricDisplayGroups(track.lyrics, groups), len(previous)
 
 
 def resolve_lyrics_word_reveal(
@@ -166,12 +259,17 @@ def resolve_lyrics_word_reveal(
     if (not source.subtitle_karaoke_enabled or cue_state.cue_index is None
             or (intro_state is not None and not intro_state.exiting)):
         return ()
-    return LyricsService.word_reveal(
-        track.lyrics[cue_state.cue_index],
-        max(0.0, elapsed + track.lyrics_timing_offset_seconds
-            + source.subtitle_timing_offset + source.subtitle_karaoke_offset),
-        line_positions=tuple(source.subtitle_karaoke_lines),
-    )
+    cue = track.lyrics[cue_state.cue_index]
+    if cue.get("format") != "ttml":
+        # Legacy LRC words and previous audio-analysis results cannot enable
+        # word animation. Ordinary lyrics stay fully visible until the next cue.
+        return tuple(float(len(line)) for line in LyricsService.decode_line_breaks(
+            cue.get("text", "")).strip().splitlines() if line.strip())
+    clock = max(0.0, elapsed + track.lyrics_timing_offset_seconds
+                + source.subtitle_timing_offset + source.subtitle_karaoke_offset)
+    return tuple(value for index in (cue_state.active_cue_indices or cue_state.held_cue_indices or (cue_state.cue_index,))
+                 for value in LyricsService.word_reveal(track.lyrics[index], clock,
+                     line_positions=tuple(source.subtitle_karaoke_lines)))
 
 
 @dataclass(slots=True, frozen=True)

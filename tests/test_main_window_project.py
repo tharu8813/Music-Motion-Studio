@@ -1313,7 +1313,6 @@ class MainWindowProjectTests(MainWindowTestCase):
         dialog.selected_video_paths = []
         dialog.selected_volume_db = 0.0
         dialog.selected_eq_db = []
-        dialog.selected_karaoke_settings = None
 
         with patch("app.ui.main_window.TrackDetailsDialog", return_value=dialog):
             self.window._show_track_details(track.id)
@@ -1324,31 +1323,32 @@ class MainWindowProjectTests(MainWindowTestCase):
             ("After", "After artist", "After album"),
         )
 
-    def test_automatic_karaoke_shortcut_saves_lyrics_colors_and_enable_together(self):
-        from app.services.lyrics_alignment_service import AlignmentResult
+    def test_real_time_settings_apply_to_all_tracks_without_changing_track_data(self):
+        from copy import deepcopy
         source = Source(SourceType.LYRICS, "Lyrics")
         self.window.store.replace([source])
         self.window.store.select(source.id)
-        track = PlaylistTrack("track.wav", "Track", duration_seconds=5,
-                              lyrics=[{"start": 0, "end": 5, "text": "hello world"}])
-        self.window.playlist_service.replace([track])
-        aligned = [{"start": 1, "end": 3, "text": "hello world", "words": [
-            {"offset": 0, "text": "hello", "start": 1, "end": 2},
-            {"offset": 6, "text": "world", "start": 2, "end": 3}]}]
-        dialog = MagicMock()
-        dialog.exec.return_value = QDialog.DialogCode.Rejected
-        dialog.error = ""
-        dialog.result_data = AlignmentResult(aligned, 1, 1)
-        dialog.karaoke_settings.return_value = {"subtitle_karaoke_enabled": True, "subtitle_accent_color": "#22AAFF"}
-        with patch("app.dialogs.lyrics_alignment_dialog.LyricsAlignmentDialog", return_value=dialog):
-            self.window._configure_karaoke()
-            self.assertFalse(source.subtitle_karaoke_enabled)
-            self.assertNotIn("words", self.window.playlist_service.tracks[0].lyrics[0])
-            dialog.exec.return_value = QDialog.DialogCode.Accepted
-            self.window.inspector.lyrics_karaoke_button.click()
-        self.assertEqual(self.window.playlist_service.tracks[0].lyrics, aligned)
-        self.assertTrue(source.subtitle_karaoke_enabled)
-        self.assertEqual(source.subtitle_accent_color, "#22AAFF")
+        tracks = [PlaylistTrack("", title, duration_seconds=5,
+                                lyrics=[{"start": 0, "end": 5, "text": title}],
+                                lyrics_timing_offset_seconds=offset)
+                  for title, offset in (("First", 0.2), ("Second", -0.1))]
+        self.window.playlist_service.replace(tracks)
+        before = deepcopy([track.to_dict() for track in tracks])
+        self.window.inspector.lyrics.widgets["subtitle_karaoke_enabled"].click()
+        self.window.inspector._update("subtitle_accent_color", "#22AAFF")
+        editor = self.window.inspector.lyrics.widgets["subtitle_karaoke_lines"]
+        editor.setText("1, 3")
+        editor.textEdited.emit(editor.text())
+        editor.editingFinished.emit()
+        self.assertEqual([track.to_dict() for track in self.window.playlist_service.tracks], before)
+        with TemporaryDirectory() as directory:
+            path = ProjectService.save(Path(directory) / "global-lyrics.json", self.window._project_document())
+            restored = ProjectService.load(path)
+        saved = next(entry for entry in restored.sources if entry.id == source.id)
+        self.assertTrue(saved.subtitle_karaoke_enabled)
+        self.assertEqual(saved.subtitle_accent_color, "#22AAFF")
+        self.assertEqual(saved.subtitle_karaoke_lines, [0, 2])
+        self.assertEqual([track.to_dict() for track in restored.playlist], before)
 
     def test_lrc_generator_track_edit_mode_skips_audio_and_file_save_controls(self) -> None:
         with TemporaryDirectory() as directory:

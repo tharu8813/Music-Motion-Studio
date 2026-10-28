@@ -167,6 +167,7 @@ class SourceItem(QGraphicsObject):
         self._subtitle_transition_raw = 1.0
         self._subtitle_intro_state = None
         self._subtitle_word_reveal: tuple[float, ...] = ()
+        self._subtitle_gap_unblurred = False
         self._music_reaction_level = 0.0
         self._music_preview_current_line: int | None = None
         self._subtitle_cue_layout: tuple[tuple[int, int, int], ...] = ()

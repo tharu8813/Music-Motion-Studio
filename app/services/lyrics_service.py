@@ -1,4 +1,4 @@
-"""Timed LRC and SRT lyric parsing utilities."""
+"""Timed lyric parsing and display utilities."""
 
 from __future__ import annotations
 
@@ -8,14 +8,13 @@ from difflib import SequenceMatcher
 from functools import lru_cache
 import re
 from pathlib import Path
-from unicodedata import east_asian_width
 
 LYRICS_EXTENSIONS = (".lrc", ".srt", ".vtt", ".ttml")
 _SIMILAR_RATIO = 0.72
 
 
 class LyricsError(ValueError):
-    """Raised when a lyric file cannot be read as LRC or SRT."""
+    """Raised when a lyric file cannot be read."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,35 +85,10 @@ class LyricsService:
     _srt_time = re.compile(r"(?:(\d+):)?(\d{2}):(\d{2})[,.](\d{1,3})")
     _word_time = re.compile(r"<(\d+):(\d+(?:\.\d+)?)>")
 
-    @staticmethod
-    @lru_cache(maxsize=512)
-    def _automatic_words(text: str) -> tuple[tuple[int, int], ...]:
-        spans = []
-        for match in re.finditer(r"\S+", text):
-            # No-space CJK lyrics still advance one character at a time.
-            if all(east_asian_width(char) in {"W", "F"} for char in match[0]):
-                spans.extend((index, index + 1) for index in range(match.start(), match.end()))
-            else:
-                spans.append(match.span())
-        return tuple(spans)
-
     @classmethod
     @lru_cache(maxsize=512)
     def _reveal_spans(cls, text, start, end, words, line_positions):
-        """Cache timing preparation; fill missing text between existing anchors."""
-        def estimate(a, b, first, last):
-            indices = cls._automatic_words(text[a:b])
-            total = sum(right - left for left, right in indices)
-            consumed, spans = 0, []
-            # ponytail: character-weighted gaps; timed LRC supplies vocal accuracy.
-            for left, right in indices:
-                word_start = first + (last - first) * consumed / max(1, total)
-                consumed += right - left
-                word_end = first + (last - first) * consumed / max(1, total)
-                spans.append((a + left, a + right, word_start, word_end))
-            return spans
-
-        automatic = estimate(0, len(text), start, end) if not words and line_positions is None else []
+        """Cache only timings supplied by the lyric file; never estimate words."""
         result, offset = [], 0
         for segment in text.splitlines(keepends=True):
             line = segment.rstrip("\r\n")
@@ -123,15 +97,10 @@ class LyricsService:
                 anchors = [word for word in words if word[1] > offset and word[0] < limit]
                 selected = not line_positions or len(result) in line_positions
                 spans = []
-                if selected and automatic:
-                    spans = [word for word in automatic if word[1] > offset and word[0] < limit]
-                elif selected and (anchors or line_positions is not None):
-                    cursor, previous_end = offset, start
-                    for a, b, first, last in anchors:
-                        spans.extend(estimate(cursor, a, previous_end, first))
-                        spans.append((a, b, first, last))
-                        cursor, previous_end = b, last
-                    spans.extend(estimate(cursor, limit, previous_end, end))
+                if selected:
+                    spans = anchors
+                    if not words:
+                        spans = [(offset, limit, start, start)]
                 result.append(tuple((max(0, a - offset), min(len(line), b - offset), first, last)
                                     for a, b, first, last in spans))
             offset += len(segment)
@@ -140,7 +109,7 @@ class LyricsService:
     @classmethod
     def word_reveal(cls, cue: dict[str, object], elapsed: float, *,
                     line_positions: tuple[int, ...] | None = None) -> tuple[float, ...]:
-        """Revealed characters, with independent fallback for selected sung lines."""
+        """Revealed characters using explicit word times or whole-line display."""
         raw_text = cls.decode_line_breaks(cue.get("text", ""))
         text = raw_text.strip()
         leading = len(raw_text) - len(raw_text.lstrip())
@@ -301,6 +270,28 @@ class LyricsService:
             if start - precision <= elapsed < end - precision:
                 return index
         return None
+
+    @classmethod
+    def active_cue_indices(cls, cues: list[dict[str, object]], elapsed: float) -> tuple[int, ...]:
+        """All unexpired intervals, including an older cue behind a newer one.
+
+        Only the started prefix is inspected. Keeping the original cue order
+        also keeps independent word clocks and translation styles stable.
+        """
+        if not cues or elapsed + 0.0005 < float(cues[0].get("start", 0.0)):
+            return ()
+        last = cls.display_cue_index(cues, elapsed)
+        return tuple(index for index in range(last + 1)
+                     if elapsed < float(cues[index].get("end", float(cues[index].get("start", 0.0)) + 8.0)) - 0.0005)
+
+    @classmethod
+    def last_ending_cue_indices(cls, cues: list[dict[str, object]], elapsed: float) -> tuple[int, ...]:
+        """The last visible group in a gap, including cues that finished together."""
+        last = cls.display_cue_index(cues, elapsed)
+        if last is None:
+            return ()
+        end = max(float(cues[index]["end"]) for index in range(last + 1))
+        return tuple(index for index in range(last + 1) if float(cues[index]["end"]) == end)
 
     @classmethod
     def display_cue_index(cls, cues: list[dict[str, object]], elapsed: float) -> int | None:

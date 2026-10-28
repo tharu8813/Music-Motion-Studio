@@ -471,10 +471,10 @@ MAIN_GUIDE = (
     GuidePage(
         ("1단계 · 음악 추가", "Step 1 · Add music"),
         ("아래 <b>플레이리스트</b>에서 <b>+ 음악 추가</b>를 누르거나 음악 파일을 그대로 끌어다 놓으세요.<br><br>"
-         "같은 폴더에 이름이 같은 <b>.lrc / .srt / .vtt</b> 파일이 있으면 가사로 자동 연결됩니다. "
+         "같은 폴더에 이름이 같은 <b>.lrc / .srt / .vtt / .ttml</b> 파일이 있으면 가사로 자동 연결됩니다. "
          "곡 순서는 ↑ ↓ 버튼으로 바꿀 수 있습니다.",
          "In the <b>Playlist</b> below, select <b>+ Add music</b> or simply drop music files there.<br><br>"
-         "A <b>.lrc / .srt / .vtt</b> file with the same name in the same folder is attached as lyrics "
+         "A <b>.lrc / .srt / .vtt / .ttml</b> file with the same name in the same folder is attached as lyrics "
          "automatically. Reorder songs with the ↑ ↓ buttons."),
         _art_music,
     ),

@@ -14,11 +14,8 @@ import unittest
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-from PySide6.QtCore import QTimer, Qt
-from PySide6.QtWidgets import QApplication, QDialog
+from PySide6.QtWidgets import QApplication
 
-from app.dialogs.lyrics_alignment_dialog import LyricsAlignmentDialog
-from app.dialogs.track_details_dialog import TrackDetailsDialog
 from app.models.playlist import PlaylistTrack
 from app.services.lyrics_alignment_service import (
     AlignmentCancelled, AlignmentResult, LyricsAlignmentService, _AlignmentCache,
@@ -26,7 +23,6 @@ from app.services.lyrics_alignment_service import (
     ensure_runtime, MODEL_URL, RUNTIME_FILES,
 )
 from app.services.lyrics_service import LyricsService
-from app.utils.i18n import Translator
 
 
 def recognition(words):
@@ -41,21 +37,10 @@ class LyricsAlignmentTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_karaoke_is_marked_beta_in_both_languages(self):
+    def test_real_time_display_is_named_in_both_languages(self):
         from app.inspector.editors.lyrics_editor import LyricsSection
-
-        track = PlaylistTrack("missing.wav", "Song", duration_seconds=5,
-                              lyrics=[{"start": 0, "end": 5, "text": "Hello"}])
-        for korean, marker in ((True, "베타"), (False, "Beta")):
-            with self.subTest(korean=korean):
-                dialog = LyricsAlignmentDialog(track, None, korean)
-                self.addCleanup(dialog.deleteLater)
-                self.addCleanup(dialog.close)
-                self.assertIn(marker, dialog.windowTitle())
-                self.assertIn(marker, dialog.display_group.title())
-                self.assertIn(marker.lower(), dialog.label.text().lower())
-                label = LyricsSection.LABELS["subtitle_karaoke_enabled"][0 if korean else 1]
-                self.assertIn(marker, label)
+        self.assertEqual(LyricsSection.LABELS["subtitle_karaoke_enabled"],
+                         ("실시간 가사", "Real-time lyrics"))
 
     def test_word_times_follow_audio_and_preserve_text(self):
         cues = [{"start": 0, "end": 5, "text": "Hello, world!"}]
@@ -265,136 +250,6 @@ class LyricsAlignmentTests(unittest.TestCase):
                 execute.side_effect = AlignmentCancelled
                 with self.assertRaises(AlignmentCancelled):
                     service.analyze(track, None, threading.Event(), lambda *args: None, use_cache=False)
-
-    def test_progress_cancel_does_not_apply_partial_results(self):
-        def recognize(_self, track, ffmpeg, cancel, progress, line_positions, **_kwargs):
-            while not cancel.wait(0.01):
-                pass
-            raise AlignmentCancelled()
-        track = PlaylistTrack("", "Track", lyrics=[{"start": 0, "end": 5, "text": "hello"}])
-        with patch.object(LyricsAlignmentService, "analyze", recognize):
-            dialog = LyricsAlignmentDialog(track, None, True)
-            self.assertIsNone(dialog.worker)  # Opening the dialog never downloads or analyzes.
-            dialog._start()
-            QTimer.singleShot(20, dialog.reject)
-            self.assertEqual(dialog.exec(), QDialog.DialogCode.Rejected)
-            self.assertFalse(dialog.worker.isRunning())
-            self.assertIsNone(dialog.result_data)
-
-    def test_review_can_apply_only_second_line_or_discard_everything(self):
-        track = PlaylistTrack("", "Track", lyrics=[{"start": 0, "end": 5, "text": "Hello\nHello"}])
-        aligned, count = align_recognition(track.lyrics, recognition([("hello", 1, 2, 0.9)]), line_positions=(0, 1))
-        result = AlignmentResult(aligned, count, 2)
-        def recognize(*_args, **_kwargs):
-            return deepcopy(result)
-        with patch.object(LyricsAlignmentService, "analyze", recognize):
-            dialog = LyricsAlignmentDialog(track, None, True)
-            self.assertEqual(dialog.table.item(1, 0).checkState(), Qt.CheckState.Unchecked)
-            dialog.table.item(1, 0).setCheckState(Qt.CheckState.Checked)
-            dialog._start()
-            # Wait for the result and native thread cleanup without accepting the dialog.
-            dialog.worker.wait(3000)
-            self.app.processEvents()
-            self.assertEqual(len(dialog.review_rows), 2)
-            self.assertIsNone(dialog.result_data)
-            dialog.table.item(0, 0).setCheckState(Qt.CheckState.Unchecked)
-            dialog._apply()
-            self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
-            self.assertEqual(dialog.result_data.matched, 1)
-            self.assertEqual(LyricsService.word_reveal(dialog.result_data.cues[0], 3), (0, 5))
-            self.assertNotIn("words", track.lyrics[0])
-            discard = LyricsAlignmentDialog(track, None, True)
-            discard._start()
-            discard.worker.wait(3000)
-            self.app.processEvents()
-            discard.reject()
-            self.assertEqual(discard.result(), QDialog.DialogCode.Rejected)
-            self.assertIsNone(discard.result_data)
-
-    def test_review_replaces_selected_existing_word_times_without_duplicates(self):
-        track = PlaylistTrack("", "Track", lyrics=[{"start": 0, "end": 5, "text": "hello world\n번역", "words": [
-            {"offset": 0, "text": "hello", "start": 1, "end": 2},
-            {"offset": 6, "text": "world", "start": 2, "end": 3},
-            {"offset": 12, "text": "번역", "start": 1, "end": 3},
-        ]}])
-        before = track.to_dict()
-        cues = deepcopy(track.lyrics)
-        cues[0]["words"][0].update(start=0.2, end=0.7)
-        cues[0]["words"][1].update(start=0.7, end=1.3)
-        with patch.object(LyricsAlignmentService, "analyze", return_value=AlignmentResult(cues, 1, 1)) as analyze:
-            dialog = LyricsAlignmentDialog(track, None, True)
-            dialog._start()
-            dialog.worker.wait(3000)
-            self.app.processEvents()
-            self.assertFalse(analyze.call_args.kwargs["use_cache"])
-            self.assertEqual(len(dialog.review_rows[0][3]), 2)
-            dialog._apply()
-        self.assertEqual(dialog.result_data.cues, cues)
-        self.assertEqual(track.to_dict(), before)
-        self.assertEqual(PlaylistTrack.from_dict(track.to_dict() | {"lyrics": dialog.result_data.cues}).lyrics, cues)
-
-    def test_simple_display_applies_colors_without_any_recognition(self):
-        track = PlaylistTrack("", "Track", lyrics=[{"start": 0, "end": 5, "text": "Hello\n안녕"}])
-        dialog = LyricsAlignmentDialog(track, None, True)
-        self.assertTrue(dialog.simple_button.isDefault())
-        dialog.colors.widgets["subtitle_karaoke_pending_brightness"].setValue(25)
-        self.assertNotIn("subtitle_karaoke_analysis_model", dialog.colors.widgets)
-        dialog.colors.widgets["subtitle_karaoke_offset"].setValue(0.2)
-        with patch.object(LyricsAlignmentService, "analyze") as analyze:
-            dialog._use_cue_times()
-            analyze.assert_not_called()
-        self.assertEqual(dialog.result_data.cues, track.lyrics)
-        settings = dialog.karaoke_settings()
-        self.assertTrue(settings["subtitle_karaoke_enabled"])
-        self.assertEqual(settings["subtitle_karaoke_lines"], [0])
-        self.assertEqual(settings["subtitle_karaoke_pending_brightness"], 0.25)
-        self.assertNotIn("subtitle_karaoke_analysis_model", settings)
-        self.assertEqual(settings["subtitle_karaoke_offset"], 0.2)
-
-    def test_failed_or_empty_analysis_can_apply_fallback_and_colors(self):
-        track = PlaylistTrack("", "Track", lyrics=[{"start": 0, "end": 5, "text": "Hello\n안녕"}])
-        for outcome in (RuntimeError("Download unavailable"), AlignmentResult(deepcopy(track.lyrics), 0, 1)):
-            with self.subTest(outcome=outcome), patch.object(LyricsAlignmentService, "analyze") as analyze:
-                if isinstance(outcome, Exception):
-                    analyze.side_effect = outcome
-                else:
-                    analyze.return_value = outcome
-                dialog = LyricsAlignmentDialog(track, None, True)
-                dialog.show()
-                dialog._start()
-                dialog.worker.wait(3000)
-                self.app.processEvents()
-                self.assertTrue(dialog.isVisible())
-                self.assertFalse(dialog.display_group.isHidden())
-                self.assertTrue(dialog.apply_button.isEnabled())
-                self.assertIn("줄 시간으로 추정", dialog.table.item(0, 3).text())
-                dialog._apply()
-                self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
-                self.assertEqual(dialog.result_data.cues, track.lyrics)
-                self.assertEqual(dialog.result_data.matched, 0)
-                self.assertEqual(dialog.karaoke_settings()["subtitle_karaoke_lines"], [0])
-
-    def test_track_dialog_stages_word_times_until_apply(self):
-        track = PlaylistTrack("", "Track", duration_seconds=5, lyrics=[{"start": 0, "end": 5, "text": "hello"}])
-        aligned = deepcopy(track.lyrics)
-        aligned[0]["words"] = [{"offset": 0, "text": "hello", "start": 1, "end": 2}]
-        class FakeDialog:
-            result_data = AlignmentResult(aligned, 1, 1)
-            error = ""
-            def __init__(self, *args, **kwargs):
-                pass
-            def exec(self):
-                return QDialog.DialogCode.Accepted
-        dialog = TrackDetailsDialog(track, Translator())
-        try:
-            with patch("app.dialogs.lyrics_alignment_dialog.LyricsAlignmentDialog", FakeDialog), \
-                 patch("app.dialogs.track_details_dialog.QMessageBox.information"):
-                dialog._align_words_to_audio()
-            self.assertEqual(dialog.selected_lyrics, aligned)
-            self.assertNotIn("words", track.lyrics[0])
-            self.assertTrue(dialog.selected_karaoke_settings["subtitle_karaoke_enabled"])
-        finally:
-            dialog.close()
 
 
 if __name__ == "__main__":

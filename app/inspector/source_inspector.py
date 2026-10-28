@@ -117,7 +117,6 @@ class SourceInspector(QScrollArea):
     """Editable property panel with guarded, two-way SourceStore binding."""
 
     animation_preview_requested = Signal(str)
-    karaoke_requested = Signal()
 
     _ANIMATION_LABELS = {
         "none": ("없음", "None"), "fade": ("페이드", "Fade"),
@@ -332,8 +331,6 @@ class SourceInspector(QScrollArea):
         self.lyrics = LyricsSection(self._spin, self._color_button)
         self.lyrics_line_styles_button = QPushButton()
         self.lyrics_transition_button = QPushButton()
-        self.lyrics_karaoke_button = QPushButton()
-        self.lyrics_karaoke_button.clicked.connect(lambda _checked=False: self.karaoke_requested.emit())
         self.lyrics_animation_button = QPushButton()
         self.typography = TypographySection(self._spin)
         self.motion = MotionSection(self._spin)
@@ -387,7 +384,6 @@ class SourceInspector(QScrollArea):
             self._add_labeled_row, content_form,
             keys=tuple(key for key in self.lyrics.widgets if key not in LyricsSection.TRANSITION_KEYS),
         )
-        self._sections[("special", "sub_karaoke")].form.addRow(self.lyrics_karaoke_button)
         self._add_labeled_row(
             content_form, "subtitle_line_styles", self.lyrics_line_styles_button,
             section="sub_layout",
@@ -861,7 +857,6 @@ class SourceInspector(QScrollArea):
             music_title += " · 현재 자막만" if self.translator.is_korean else " · Current cue only"
         self._sections[("animation", "music_reaction")].set_title(music_title)
         self.lyrics_transition_button.setVisible(source_types == {SourceType.LYRICS})
-        self.lyrics_karaoke_button.setVisible(source_types == {SourceType.LYRICS})
         if source_types == {SourceType.LYRICS}:
             karaoke = sources[0].subtitle_karaoke_enabled
             korean = self.translator.is_korean
@@ -1783,8 +1778,6 @@ class SourceInspector(QScrollArea):
         self.track_list.retranslate(korean)
         self.now_playing.retranslate(korean)
         self.lyrics.retranslate(korean)
-        self.lyrics_karaoke_button.setText("가사 시간·적용할 줄 설정…" if korean else "Set lyric timing and lines…")
-        self.lyrics_karaoke_button.setToolTip("선택한 곡의 가사 맞춤·색상·노래방 표시를 한 번에 설정합니다." if korean else "Align the selected track's lyrics, choose colors and enable karaoke together.")
         self.lyrics_transition_button.setText(
             "자막 전환 설정…" if korean else "Subtitle transition settings…"
         )

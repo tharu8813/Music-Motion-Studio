@@ -82,7 +82,7 @@ class MissingMediaDialog(QDialog):
             "Video (*.mp4 *.mov *.mkv *.webm *.avi *.m4v)" if entry.is_video else
             "Audio (*.mp3 *.wav *.flac *.aac *.m4a *.ogg)" if entry.is_audio else
             "Fonts (*.ttf *.otf)" if entry.is_font else
-            "Lyrics (*.lrc *.srt *.vtt)" if entry.is_lyrics else
+            "Lyrics (*.lrc *.srt *.vtt *.ttml)" if entry.is_lyrics else
             "Supported content (*.*)" if entry.library_type else
             "Images (*.jpg *.jpeg *.png *.webp *.svg)"
         )
