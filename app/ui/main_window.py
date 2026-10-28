@@ -1383,7 +1383,7 @@ class MainWindow(QMainWindow):
             self.clear_selection_action: "clear_selection", self.reset_layout_action: "reset_layout",
             self.show_playlist_action: "track_list", self.show_timeline_action: "timeline",
             self.lrc_generator_action: "lyrics", self.automix_editor_action: "automix",
-            self.lyrics_search_action: "lyrics",
+            self.lyrics_search_action: "lyrics_search",
             self.mp3_metadata_action: "audio",
             self.language_menu.menuAction(): "language", self.help_action: "help",
             self.shortcuts_action: "shortcuts", self.check_updates_action: "check_updates",
@@ -5019,7 +5019,7 @@ class MainWindow(QMainWindow):
         self.export_action.setText(text("export"))
         self.preview_action.setText("미리보기" if self.translator.is_korean else "Preview")
         self.settings_action.setText("설정" if self.translator.is_korean else "Settings")
-        self.lyrics_search_action.setText("가사 찾아보기…" if korean else "Find lyrics…")
+        self.lyrics_search_action.setText("가사 검색 및 가져오기…" if korean else "Search & Import Lyrics…")
         self.lrc_generator_action.setText(
             "LRC 파일 생성기" if self.translator.is_korean
             else "LRC File Generator"
