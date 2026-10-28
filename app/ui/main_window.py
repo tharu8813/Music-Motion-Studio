@@ -5019,7 +5019,7 @@ class MainWindow(QMainWindow):
         self.export_action.setText(text("export"))
         self.preview_action.setText("미리보기" if self.translator.is_korean else "Preview")
         self.settings_action.setText("설정" if self.translator.is_korean else "Settings")
-        self.lyrics_search_action.setText("가사 검색 및 가져오기…" if korean else "Search & Import Lyrics…")
+        self.lyrics_search_action.setText("가사 검색 및 가져오기…" if korean else "Search && Import Lyrics…")
         self.lrc_generator_action.setText(
             "LRC 파일 생성기" if self.translator.is_korean
             else "LRC File Generator"
