@@ -127,8 +127,10 @@ class PreviewPresentationTests(unittest.TestCase):
         controller.controls_animation.setCurrentTime(controller.controls_animation.duration())
         visible_y = controller.controls.y()
         controller.hide_controls()
-        self.assertEqual(preview.preview_label.cursor().shape(), Qt.CursorShape.BlankCursor)
-        self.assertEqual(preview.performance_monitor.heading.cursor().shape(), Qt.CursorShape.BlankCursor)
+        self.assertEqual(QApplication.overrideCursor().shape(), Qt.CursorShape.BlankCursor)
+        # Native and QWidget cursor properties must never be left blank.
+        self.assertNotEqual(preview.preview_label.cursor().shape(), Qt.CursorShape.BlankCursor)
+        self.assertEqual(preview.performance_monitor.heading.cursor().shape(), Qt.CursorShape.SizeAllCursor)
         controller.controls_animation.setCurrentTime(80)
         self.assertGreater(controller.controls.y(), visible_y)
         controller.controls_animation.setCurrentTime(controller.controls_animation.duration())
@@ -154,7 +156,7 @@ class PreviewPresentationTests(unittest.TestCase):
         controller.idle_timer.start(20)
         QTest.qWait(70)
         self.assertFalse(controller._controls_shown)
-        self.assertEqual(preview.preview_label.cursor().shape(), Qt.CursorShape.BlankCursor)
+        self.assertEqual(QApplication.overrideCursor().shape(), Qt.CursorShape.BlankCursor)
 
     def test_dragging_and_open_context_menu_keep_controls_available(self):
         preview, controller = self.make_preview()
@@ -233,7 +235,7 @@ class PreviewPresentationTests(unittest.TestCase):
         self.app.processEvents()
         controller.hide_controls()
         controller.controls_animation.setCurrentTime(controller.controls_animation.duration())
-        self.assertEqual(preview.preview_label.cursor().shape(), Qt.CursorShape.BlankCursor)
+        self.assertEqual(QApplication.overrideCursor().shape(), Qt.CursorShape.BlankCursor)
         # Offscreen/native backends may update the desktop pointer without
         # delivering a QWidget MouseMove. The polling fallback must still recover.
         QTest.mouseMove(preview.preview_label, QPoint(631, 97))
@@ -263,9 +265,44 @@ class PreviewPresentationTests(unittest.TestCase):
         self.assertEqual(QApplication.overrideCursor().shape(), Qt.CursorShape.BlankCursor)
         QTest.mouseMove(preview.preview_label, QPoint(647, 113))
         QTest.qWait(140)
-        self.assertEqual(QApplication.overrideCursor().shape(), Qt.CursorShape.ArrowCursor)
+        self.assertEqual(QApplication.overrideCursor(), previous)
         controller.exit_fullscreen()
         self.assertEqual(QApplication.overrideCursor(), previous)
+
+    def test_enter_or_pointer_poll_restores_cursor_without_widget_mouse_move(self):
+        preview, controller = self.make_preview()
+        previous = QApplication.overrideCursor()
+        controller.enter_fullscreen()
+        controller.hide_controls()
+        self.assertEqual(QApplication.overrideCursor().shape(), Qt.CursorShape.BlankCursor)
+
+        # Native child windows may send only Enter/Hover events, not MouseMove.
+        self.app.sendEvent(preview.preview_label, QEvent(QEvent.Type.Enter))
+        self.assertEqual(QApplication.overrideCursor(), previous)
+        self.assertTrue(controller._controls_shown)
+
+        controller.hide_controls()
+        self.assertEqual(QApplication.overrideCursor().shape(), Qt.CursorShape.BlankCursor)
+        controller._last_pointer_position = QPoint(-10000, -10000)
+        controller._track_pointer()
+        self.assertEqual(QApplication.overrideCursor(), previous)
+        self.assertTrue(controller._controls_shown)
+        controller.exit_fullscreen()
+
+    def test_idle_cursor_override_is_balanced_over_repeated_fullscreen_sessions(self):
+        preview, controller = self.make_preview()
+        original = QApplication.overrideCursor()
+        for _ in range(3):
+            controller.enter_fullscreen()
+            self.app.processEvents()
+            controller.hide_controls()
+            self.assertEqual(QApplication.overrideCursor().shape(), Qt.CursorShape.BlankCursor)
+            controller.show_controls()
+            self.assertEqual(QApplication.overrideCursor(), original)
+            self.assertNotEqual(preview.preview_label.cursor().shape(), Qt.CursorShape.BlankCursor)
+            controller.hide_controls()
+            controller.exit_fullscreen()
+            self.assertEqual(QApplication.overrideCursor(), original)
 
     def test_gpu_surface_gestures_and_new_context_rehydrate_paused_preview(self):
         class Surface(QWidget):

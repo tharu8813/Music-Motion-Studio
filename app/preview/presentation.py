@@ -11,7 +11,11 @@ from PySide6.QtWidgets import (
 from shiboken6 import isValid
 
 
-_ACTIVITY_EVENTS = frozenset({QEvent.Type.MouseMove, QEvent.Type.MouseButtonPress, QEvent.Type.Wheel})
+_ACTIVITY_EVENTS = frozenset({
+    QEvent.Type.MouseMove, QEvent.Type.MouseButtonPress,
+    QEvent.Type.MouseButtonRelease, QEvent.Type.Wheel,
+    QEvent.Type.HoverMove, QEvent.Type.HoverEnter, QEvent.Type.Enter,
+})
 _PRESENTATION_EVENTS = _ACTIVITY_EVENTS | frozenset({
     QEvent.Type.MouseButtonDblClick, QEvent.Type.ContextMenu, QEvent.Type.Resize,
 })
@@ -38,7 +42,6 @@ class PreviewPresentationController(QObject):
         self._home = []
         self._menu = None
         self._monitor_position = None
-        self._cursor_snapshots = []
         self._surface_cursors = []
         self._last_pointer_position = None
         self._owns_cursor_override = False
@@ -205,7 +208,6 @@ class PreviewPresentationController(QObject):
         self.controls_animation.stop()
         self.controls_animation.deleteLater()
         self.controls_animation = None
-        self._restore_cursor()
         if self._owns_cursor_override:
             QApplication.restoreOverrideCursor()
             self._owns_cursor_override = False
@@ -286,42 +288,18 @@ class PreviewPresentationController(QObject):
         if self.controls is not None and not self._controls_shown:
             self.controls.hide()
 
-    def _restore_cursor(self) -> None:
-        for widget, explicit, cursor in self._cursor_snapshots:
-            if isValid(widget):
-                if explicit:
-                    widget.setCursor(cursor)
-                else:
-                    widget.unsetCursor()
-        self._cursor_snapshots = []
-
-    def _hide_cursor(self) -> None:
-        if self._cursor_snapshots:
-            return
-        host = self.preview.preview_stack_host
-        for widget in (self.window, host, *host.findChildren(QWidget)):
-            self._cursor_snapshots.append((
-                widget, widget.testAttribute(Qt.WidgetAttribute.WA_SetCursor), QCursor(widget.cursor()),
-            ))
-            widget.setCursor(Qt.CursorShape.BlankCursor)
-
     def show_controls(self) -> None:
         if not self.is_fullscreen:
             return
-        # Qt's application override also reaches native/OpenGL child windows,
-        # whose cached blank cursor can outlive QWidget.setCursor().
-        if not self._owns_cursor_override:
-            QApplication.setOverrideCursor(QCursor(Qt.CursorShape.ArrowCursor))
-            self._owns_cursor_override = True
-        else:
-            QApplication.changeOverrideCursor(QCursor(Qt.CursorShape.ArrowCursor))
-        self._restore_cursor()
+        # A single, balanced application override hides the pointer even over
+        # native/OpenGL child surfaces. Restore it on the first activity event,
+        # instead of leaving a global ArrowCursor override or hidden children.
+        if self._owns_cursor_override:
+            QApplication.restoreOverrideCursor()
+            self._owns_cursor_override = False
+        # Some Windows native surfaces cache their last cursor. Reassert the
+        # fullscreen window's normal cursor after releasing the blank override.
         self.window.setCursor(Qt.CursorShape.ArrowCursor)
-        host = self.preview.preview_stack_host
-        host.setCursor(Qt.CursorShape.ArrowCursor)
-        for surface in (self.preview.preview_label, self.preview.gpu_surface):
-            if surface is not None:
-                surface.setCursor(Qt.CursorShape.ArrowCursor)
         handle = self.window.windowHandle()
         if handle is not None:
             handle.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
@@ -350,12 +328,12 @@ class PreviewPresentationController(QObject):
                 or (modal is not None and modal is not self.preview and modal is not self.window)):
             self.idle_timer.start()
             return
-        self._hide_cursor()
-        if self._owns_cursor_override:
-            QApplication.changeOverrideCursor(QCursor(Qt.CursorShape.BlankCursor))
-        handle = self.window.windowHandle()
-        if handle is not None:
-            handle.setCursor(QCursor(Qt.CursorShape.BlankCursor))
+        # Do not set BlankCursor on every child widget or native window.
+        # Those independent cursor settings can remain hidden after motion,
+        # especially when the preview is backed by a QOpenGLWidget.
+        if not self._owns_cursor_override:
+            QApplication.setOverrideCursor(QCursor(Qt.CursorShape.BlankCursor))
+            self._owns_cursor_override = True
         if self._controls_shown:
             self._animate_controls(False)
 
