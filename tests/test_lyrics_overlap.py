@@ -85,6 +85,116 @@ class LyricsOverlapTests(unittest.TestCase):
         self.assertTrue(state.gap_unblurred)
         self.assertFalse(self.state(track, .5).gap_unblurred)
 
+    def test_gap_blur_restoration_uses_the_actual_last_finished_group(self):
+        _, _, track = self.scene()
+        entering = self.state(track, 12)
+        self.assertEqual(entering.blur_restore_cue_indices, (0,))
+        self.assertEqual(entering.blur_restore_progress, 0)
+        halfway = self.state(track, 12.25)
+        self.assertEqual(halfway.blur_restore_cue_indices, (0,))
+        self.assertAlmostEqual(halfway.blur_restore_progress, .5)
+        self.assertEqual(self.state(track, 12.5).blur_restore_cue_indices, ())
+        # Offset adjustments move both the gap and its restoration together.
+        shifted = self.state(track, 11.25, offset=1)
+        self.assertEqual(shifted.blur_restore_cue_indices, (0,))
+        self.assertAlmostEqual(shifted.blur_restore_progress, .5)
+
+    def test_final_lyric_is_not_treated_as_an_infinite_gap(self):
+        _, _, track = self.scene()
+        self.assertFalse(self.state(track, 16).gap_unblurred)
+        # An earlier-starting sustained phrase can be the final one to finish.
+        track.lyrics = [timed('Long', 1, 10), timed('Short', 3, 6)]
+        state = self.state(track, 10.25)
+        self.assertFalse(state.gap_unblurred)
+        self.assertAlmostEqual(state.release_progress, .5)
+        groups, anchor = lyrics_display_groups(track, state)
+        self.assertEqual(groups[anchor]['text'], 'Long')
+
+    def blur_scene(self, *, animation='crossfade'):
+        scene, item, track = self.scene()
+        item.source.subtitle_animation = animation
+        item.source.subtitle_animation_duration = .5
+        item.source.subtitle_glow_radius = 0
+        item.source.subtitle_glow_strength = 0
+        item.source.subtitle_context_lines = 1
+        item.source.subtitle_previous_distance_fade = 0
+        item.source.subtitle_role_styles = {'previous': {'blur': 8, 'opacity': .7}, 'next': {'blur': 0}}
+        track.lyrics = [timed('First', 1, 2), timed('Last', 4, 6)]
+        return scene, item, track
+
+    def observed_blur(self, scene, item, track, elapsed, text):
+        radii = []
+        original = item._lyric_blur_pixmap
+        def record(line, color, radius, *args):
+            if line == text:
+                radii.append(radius)
+            return original(line, color, radius, *args)
+        with patch.object(item, '_lyric_blur_pixmap', side_effect=record):
+            CanvasSnapshot.capture_track(scene, track, 1, 1, 0, elapsed_seconds=elapsed, transparent=True)
+        self.assertEqual(item._subtitle_blur_restore_lines, frozenset())
+        self.assertEqual(item._subtitle_blur_restore_progress, 1)
+        return max(radii, default=0)
+
+    def test_previous_lyric_blur_ramps_after_gap_instead_of_switching_on(self):
+        scene, item, track = self.blur_scene()
+        values = [self.observed_blur(scene, item, track, time, 'First') for time in (3.9, 4, 4.1, 4.25, 4.5)]
+        self.assertEqual(values[:2], [0, 0])
+        self.assertGreater(values[2], 0)
+        self.assertLess(values[2], values[3])
+        self.assertLess(values[3], values[4])
+        self.assertEqual(values[4], 8)
+        # Seeking back must not depend on which frame was drawn previously.
+        self.assertEqual(self.observed_blur(scene, item, track, 4.1, 'First'), values[2])
+
+    def test_last_lyric_blur_returns_on_its_end_and_without_motion(self):
+        scene, item, track = self.blur_scene()
+        values = [self.observed_blur(scene, item, track, time, 'Last') for time in (5.9, 6, 6.1, 6.25, 6.5, 7)]
+        self.assertEqual(values[:2], [0, 0])
+        self.assertTrue(0 < values[2] < values[3] < values[4])
+        self.assertEqual(values[-2:], [8, 8])
+        scene, item, track = self.blur_scene(animation='none')
+        self.assertEqual(self.observed_blur(scene, item, track, 3, 'First'), 0)
+        self.assertEqual(self.observed_blur(scene, item, track, 7, 'Last'), 8)
+
+    def test_submillisecond_cue_boundary_tolerance_does_not_flash_full_blur(self):
+        scene, item, track = self.blur_scene()
+        self.assertEqual(self.observed_blur(scene, item, track, 3.9998, 'First'), 0)
+        self.assertEqual(self.observed_blur(scene, item, track, 5.9998, 'Last'), 0)
+        self.assertEqual(self.observed_blur(scene, item, track, 6, 'Last'), 0)
+
+    def test_short_gaps_and_multiple_final_lines_preserve_smooth_blur(self):
+        scene, item, track = self.blur_scene()
+        track.lyrics[0]['end'] = 3.9
+        track.lyrics[0]['words'][0]['end'] = 3.9
+        self.assertEqual(self.observed_blur(scene, item, track, 4, 'First'), 0)
+        self.assertGreater(self.observed_blur(scene, item, track, 4.1, 'First'), 0)
+        track.lyrics.append(timed('Also last', 4, 6))
+        self.assertEqual(self.observed_blur(scene, item, track, 6.5, 'Last'), 8)
+        self.assertEqual(self.observed_blur(scene, item, track, 6.5, 'Also last'), 8)
+
+    def test_export_keeps_blur_only_frames_when_current_group_has_no_motion_or_word_changes(self):
+        scene, item, track = self.blur_scene()
+        track.lyrics.append(timed('Overlap', 4, 7))
+        for cue in track.lyrics:
+            cue.pop('words')
+        capturer = ExportCanvasCapturer(scene, [track], 18, set(), [(None, None)],
+                                      lambda *args: None, lambda: None, lambda *args: None)
+        samples = [ExportFrameSample(track, 1, 0, .1, time, time) for time in (4.1, 4.2, 4.3)]
+        self.assertTrue(all(not self.state(track, sample.elapsed_seconds).transitioning for sample in samples))
+        self.assertEqual(len(capturer.coalesce_samples(samples, 'base')), 3)
+
+    def test_blur_ramp_matches_export_and_frames_are_not_coalesced(self):
+        scene, item, track = self.blur_scene()
+        capturer = ExportCanvasCapturer(scene, [track], 18, set(), [(None, None)],
+                                      lambda *args: None, lambda: None, lambda *args: None)
+        capturer.stage_frame = lambda image, duration, key: RenderFrame(image, duration)
+        samples = [ExportFrameSample(track, 1, 0, .1, time, time) for time in (4, 4.1, 4.25, 6, 6.1, 6.25, 7, 4.1)]
+        for sample in samples:
+            preview = CanvasSnapshot.capture_track(scene, track, 1, 1, 0, elapsed_seconds=sample.elapsed_seconds,
+                playlist_duration_seconds=18, playlist_tracks=[track], timeline_seconds=sample.elapsed_seconds)
+            self.assertEqual(preview, capturer.capture(sample).image)
+        self.assertEqual(len(capturer.coalesce_samples(samples[:3], 'base')), 3)
+
     def test_two_phrases_finishing_together_are_both_retained_in_the_gap(self):
         _, _, track = self.scene()
         track.lyrics[1] = timed("Second", 3, 10)

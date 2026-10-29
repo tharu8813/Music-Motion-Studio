@@ -1858,6 +1858,11 @@ class ExportOrchestrator:
                 loop_motion_amount=source.loop_motion_amount,
                 mask_shape=source.mask_shape,
                 inner_radius=source.visualizer_inner_radius,
+                flip_horizontal=source.flip_horizontal,
+                flip_vertical=source.flip_vertical,
+                frame_width=source.frame_width * source.scale * render_scale,
+                frame_color=source.frame_color,
+                frame_inset=source.frame_inset * source.scale * render_scale,
             ))
         # FFmpeg overlays later inputs on top.  Preserve the Canvas stacking
         # order when two reactive sources overlap.
@@ -2031,6 +2036,11 @@ class ExportOrchestrator:
                         animation_in=source.animation_in,
                         animation_out=source.animation_out,
                         animation_windows=animation_windows,
+                        flip_horizontal=source.flip_horizontal,
+                        flip_vertical=source.flip_vertical,
+                        frame_width=source.frame_width * source.scale * render_scale,
+                        frame_color=source.frame_color,
+                        frame_inset=source.frame_inset * source.scale * render_scale,
                     ))
         return sorted(clips, key=lambda clip: (clip.z_index, clip.timeline_start))
 

@@ -8,7 +8,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QDialog,
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
@@ -16,7 +15,6 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QLayout,
     QLineEdit,
     QMessageBox,
     QPushButton,
@@ -27,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.dialogs.help_dialog import install_help_shortcut
+from app.dialogs.adaptive_dialog import AdaptiveDialog
 from app.services.app_settings_service import (
     AUDIO_BITRATES,
     ENCODING_PRESETS,
@@ -41,7 +40,7 @@ from app.utils.time_format import format_clock
 from app.services.export_formats import VIDEO_FORMATS, AUDIO_FORMATS, SUBTITLE_FORMATS
 
 
-class ExportSettingsDialog(QDialog):
+class ExportSettingsDialog(AdaptiveDialog):
     """Collect render quality and the final output file in one place."""
 
     QUALITY_PROFILES = {
@@ -129,8 +128,8 @@ class ExportSettingsDialog(QDialog):
         quality_actions = QHBoxLayout()
         quality_actions.addWidget(self.optimize_button)
         quality_actions.addStretch(1)
-        quality_actions.addWidget(self.advanced_check)
         quality_layout.addLayout(quality_actions)
+        quality_layout.addWidget(self.advanced_check)
 
         render_group = QGroupBox()
         render_form = QFormLayout(render_group)
@@ -168,11 +167,7 @@ class ExportSettingsDialog(QDialog):
         folder_row.addWidget(self.output_browse_button)
         output_layout.addRow(self.output_directory_label, folder_row)
         output_layout.addRow(self.output_filename_label)
-        layout = QVBoxLayout(self)
-        # Keep the dialog at least as tall as its content so showing the
-        # advanced section grows the window instead
-        # of compressing the group boxes above it.
-        layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+        layout, outer = self.build_scrollable_body()
         layout.addWidget(self.summary_label)
         layout.addWidget(output_group)
         main_columns = QHBoxLayout()
@@ -191,7 +186,7 @@ class ExportSettingsDialog(QDialog):
         footer.addWidget(self.save_default_check)
         footer.addStretch(1)
         footer.addWidget(self.button_box)
-        layout.addLayout(footer)
+        outer.addLayout(footer)
         self.main_columns = main_columns
         self.summary_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum,
@@ -213,12 +208,12 @@ class ExportSettingsDialog(QDialog):
             settings.video_codec,
         )
         self._populate_quality_modes(initial_profile)
-        self.advanced_group.setVisible(True)
-        self.advanced_check.setChecked(True)
+        self.advanced_group.setVisible(initial_profile == "custom")
+        self.advanced_check.setChecked(initial_profile == "custom")
         self.quality_mode_combo.currentIndexChanged.connect(
             self._quality_mode_changed
         )
-        self.advanced_check.toggled.connect(self.advanced_group.setVisible)
+        self.advanced_check.toggled.connect(self._advanced_visibility_changed)
         self.codec_combo.currentIndexChanged.connect(self._advanced_value_changed)
         self.crf_spin.valueChanged.connect(self._advanced_value_changed)
         self.preset_combo.currentIndexChanged.connect(self._advanced_value_changed)
@@ -253,7 +248,12 @@ class ExportSettingsDialog(QDialog):
         self.retranslate()
         self._export_type_changed()
         preferred_width = min(960, max(820, self.sizeHint().width()))
-        self.resize(preferred_width, self.sizeHint().height())
+        self.resize(preferred_width, self.body_scroll.widget().sizeHint().height() + 90)
+
+    def _advanced_visibility_changed(self, visible: bool) -> None:
+        self.advanced_group.setVisible(visible and not self.subtitle_only)
+        # Let the body scroll instead of forcing the action buttons offscreen.
+        self.body_scroll.widget().adjustSize()
 
     @classmethod
     def _matching_quality_profile(
@@ -532,7 +532,7 @@ class ExportSettingsDialog(QDialog):
         self._format_changed()
         if self.isVisible():
             self.layout().activate()
-            self.resize(self.width(), self.sizeHint().height())
+            self.fit_to_screen()
 
     def _format_changed(self, _index: int = -1) -> None:
         lossless = self.output_format in {"wav", "flac"}
@@ -654,6 +654,9 @@ class ExportSettingsDialog(QDialog):
         self.optimize_button.setText(
             "권장 설정으로 되돌리기" if korean else "Restore recommended settings"
         )
+        self.advanced_check.setText(
+            "고급 인코딩 설정 표시" if korean else "Show advanced encoding settings"
+        )
         self.optimize_button.setToolTip(
             "해상도와 FPS는 유지하고 하드웨어 자동 선택과 H.264 권장값을 적용합니다."
             if korean else
@@ -665,6 +668,11 @@ class ExportSettingsDialog(QDialog):
         self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText(
             "내보내기 시작" if korean else "Start export"
         )
+        start_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
+        if not start_button.property("primary"):
+            start_button.setProperty("primary", True)
+            start_button.style().unpolish(start_button)
+            start_button.style().polish(start_button)
         self.button_box.button(QDialogButtonBox.StandardButton.Cancel).setText(
             "취소" if korean else "Cancel"
         )
@@ -702,6 +710,18 @@ class ExportSettingsDialog(QDialog):
                 "Save lyrics on the mix timeline. Overlapping lyrics show the outgoing track above the incoming track."
             )
         self._format_changed()
+        for label, field in (
+            (self.export_type_label, self.export_type_combo),
+            (self.format_label, self.format_combo),
+            (self.filename_label, self.filename_edit),
+            (self.output_directory_label, self.output_path_edit),
+            (self.resolution_label, self.resolution_combo), (self.fps_label, self.fps_combo),
+            (self.quality_mode_label, self.quality_mode_combo),
+            (self.codec_label, self.codec_combo), (self.crf_label, self.crf_spin),
+            (self.preset_label, self.preset_combo), (self.audio_label, self.audio_bitrate_combo),
+        ):
+            label.setBuddy(field)
+            field.setAccessibleName(label.text())
 
     @staticmethod
     def _format_duration(seconds: float) -> str:

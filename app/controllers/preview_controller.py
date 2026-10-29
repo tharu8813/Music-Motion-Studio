@@ -401,6 +401,8 @@ class PreviewController:
             "inspector_visible": not window.inspector_stack.isHidden(),
             "inspector_page": window.inspector_stack.currentWidget(),
             "workspace_sizes": tuple(window.workspace_splitter.sizes()),
+            "top_panel_minimum_height": window.main_splitter.minimumHeight(),
+            "bottom_panel_minimum_height": window.bottom_workspace_stack.minimumHeight(),
             "main_splitter_sizes": tuple(window.main_splitter.sizes()),
             "sidebar_open_width": max(
                 180, window.left_workspace.width(), window._sidebar_open_width,
@@ -412,12 +414,30 @@ class PreviewController:
             action.setEnabled(False)
         window.toolbar.setEnabled(False)
         window._set_sidebar_visible(False, persist=False, sync_action=False)
+        controls_page = window._inline_preview_controls
+        if controls_page is not None:
+            controls_page.ensurePolished()
+            if controls_page.layout() is not None:
+                controls_page.layout().activate()
+            controls_minimum = max(controls_page.minimumHeight(), controls_page.minimumSizeHint().height())
+            margins = window.preview_tab_layout.contentsMargins()
+            controls_minimum += (
+                window.bottom_tabs.tabBar().sizeHint().height()
+                + margins.top() + margins.bottom()
+            )
+            window.bottom_workspace_stack.setMinimumHeight(max(120, controls_minimum))
+        # Playback controls must remain usable in a short window; the video
+        # stage can shrink further than the editor's property panels.
+        window.main_splitter.setMinimumHeight(120)
         sizes = window.workspace_splitter.sizes()
         if len(sizes) == 2:
-            total = max(600, sum(sizes))
-            controls_height = min(250, max(210, round(total * 0.27)))
+            total = sum(sizes)
+            controls_height = max(
+                window.bottom_workspace_stack.minimumHeight(),
+                min(250, max(210, round(total * 0.27))),
+            )
             window.workspace_splitter.setSizes([
-                max(280, total - controls_height), controls_height,
+                max(120, total - controls_height), controls_height,
             ])
         window.setAcceptDrops(False)
 
@@ -487,6 +507,12 @@ class PreviewController:
         else:
             window.inspector_stack.setCurrentWidget(window.inspector)
         window.inspector_stack.setVisible(bool(state["inspector_visible"]))
+        window.main_splitter.setMinimumHeight(
+            state.get("top_panel_minimum_height", window.main_splitter.minimumHeight())
+        )
+        window.bottom_workspace_stack.setMinimumHeight(
+            state.get("bottom_panel_minimum_height", window.bottom_workspace_stack.minimumHeight())
+        )
         workspace_sizes = list(state["workspace_sizes"])
         if len(workspace_sizes) == 2:
             window.workspace_splitter.setSizes(workspace_sizes)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from copy import deepcopy
 from tempfile import TemporaryDirectory
 
 import subprocess
@@ -33,6 +34,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSlider,
     QTabWidget,
+    QToolButton,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -49,6 +51,7 @@ from app.widgets.activity_progress import activity_for
 from app.widgets.audio_sync_warning import AudioSyncWarning
 from app.widgets.track_analysis_panel import TrackAnalysisPanel
 from app.dialogs.lrc_generator_dialog import LrcGeneratorDialog
+from app.dialogs.ttml_edit_dialog import TtmlRowsDialog, choose_ttml_edit_mode, line_cues
 from app.services.lyrics_service import LyricsError, LyricsService
 from app.services.preview_audio_settings import preview_volume, save_preview_volume
 from app.preview.album_art import extract_track_cover
@@ -128,7 +131,7 @@ class TrackDetailsDialog(QDialog):
         # in the project content library.
         self._content_lyrics = list(content_lyrics or [])
         self.selected_lyrics_path = track.lyrics_path
-        self.selected_lyrics = [cue.copy() for cue in track.lyrics]
+        self.selected_lyrics = deepcopy(track.lyrics)
         self.selected_timing_offset = float(track.lyrics_timing_offset_seconds)
         self.selected_title = track.title
         self.selected_artist = track.artist
@@ -265,15 +268,37 @@ class TrackDetailsDialog(QDialog):
         self.export_lrc_button = QPushButton()
         self.clear_button = QPushButton()
         path_row.addWidget(self.lyrics_path, 1)
-        path_row.addWidget(self.content_lyrics_button)
-        path_row.addWidget(self.load_button)
-        path_row.addWidget(self.clear_button)
+        for button in (self.content_lyrics_button, self.load_button, self.clear_button,
+                       self.search_lyrics_button, self.export_lrc_button):
+            button.setParent(self)
+            button.hide()
         lyrics_layout.addLayout(path_row)
         lyrics_action_row = QHBoxLayout()
-        lyrics_action_row.addWidget(self.search_lyrics_button)
-        lyrics_action_row.addStretch(1)
+        self.import_lyrics_button = QPushButton()
+        self.import_lyrics_menu = QMenu(self)
+        self.import_file_action = self.import_lyrics_menu.addAction("")
+        self.import_file_action.triggered.connect(self._load_lyrics)
+        self.import_search_action = self.import_lyrics_menu.addAction("")
+        self.import_search_action.triggered.connect(self._find_lyrics)
+        self.import_content_menu = self.import_lyrics_menu.addMenu("")
+        self.import_content_menu.menuAction().setVisible(bool(self._content_lyrics))
+        for name, path in self._content_lyrics:
+            action = self.import_content_menu.addAction(name)
+            action.setToolTip(path)
+            action.triggered.connect(lambda _checked=False, target=path: self._apply_lyrics_from_path(target))
+        self.import_lyrics_button.setMenu(self.import_lyrics_menu)
+        self.more_lyrics_button = QPushButton()
+        self.more_lyrics_menu = QMenu(self)
+        self.export_lyrics_action = self.more_lyrics_menu.addAction("")
+        self.export_lyrics_action.triggered.connect(self._export_current_lyrics_as_lrc)
+        self.more_lyrics_menu.addSeparator()
+        self.detach_lyrics_action = self.more_lyrics_menu.addAction("")
+        self.detach_lyrics_action.triggered.connect(self._clear_lyrics)
+        self.more_lyrics_button.setMenu(self.more_lyrics_menu)
+        lyrics_action_row.addWidget(self.import_lyrics_button)
         lyrics_action_row.addWidget(self.edit_lrc_button)
-        lyrics_action_row.addWidget(self.export_lrc_button)
+        lyrics_action_row.addWidget(self.more_lyrics_button)
+        lyrics_action_row.addStretch(1)
         lyrics_layout.addLayout(lyrics_action_row)
 
         timing_form = QFormLayout()
@@ -297,12 +322,26 @@ class TrackDetailsDialog(QDialog):
         timing_controls_layout.addWidget(self.later_button)
         timing_controls_layout.addWidget(self.reset_button)
         timing_form.addRow(self.timing_label, timing_controls)
-        lyrics_layout.addLayout(timing_form)
+        self.timing_toggle = QToolButton()
+        self.timing_toggle.setCheckable(True)
+        self.timing_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.timing_options = QWidget()
+        timing_options_layout = QVBoxLayout(self.timing_options)
+        timing_options_layout.setContentsMargins(0, 0, 0, 0)
+        timing_options_layout.addLayout(timing_form)
+        lyrics_layout.addWidget(self.timing_toggle)
+        lyrics_layout.addWidget(self.timing_options)
+        self.timing_toggle.toggled.connect(self.timing_options.setVisible)
+        self.timing_toggle.toggled.connect(lambda checked: self.timing_toggle.setArrowType(
+            Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow))
+        self.timing_toggle.setChecked(bool(self.selected_timing_offset))
+        self.timing_options.setVisible(bool(self.selected_timing_offset))
+        self.timing_toggle.setArrowType(Qt.ArrowType.DownArrow if self.selected_timing_offset else Qt.ArrowType.RightArrow)
 
         self.timing_help = QLabel()
         self.timing_help.setObjectName("mutedLabel")
         self.timing_help.setWordWrap(True)
-        lyrics_layout.addWidget(self.timing_help)
+        timing_options_layout.addWidget(self.timing_help)
 
         self.playback_group = QGroupBox()
         playback_layout = QVBoxLayout(self.playback_group)
@@ -1067,27 +1106,42 @@ class TrackDetailsDialog(QDialog):
         self._refresh_header()
 
     def _edit_in_lrc_generator(self) -> None:
-        """Round-trip this track's timed lyrics through the LRC generator."""
+        """Choose a safe editing workflow before constructing the editor."""
         self.media_player.pause()
-        dialog = LrcGeneratorDialog(
-            [],
-            self.translator,
-            self,
-            track_edit_mode=True,
-            initial_audio_path=self.track.file_path,
-            initial_cues=self.selected_lyrics,
-            initial_title=self.title_edit.text().strip(),
-            initial_artist=self.artist_edit.text().strip(),
-        )
+        cues = deepcopy(self.selected_lyrics)
+        if not cues and self.selected_lyrics_path:
+            try:
+                cues = LyricsService.load(self.selected_lyrics_path)
+            except LyricsError as error:
+                QMessageBox.warning(self, "가사/자막 편집기" if self.translator.is_korean else "Lyrics/Subtitle Editor", str(error))
+                return
+        mode = choose_ttml_edit_mode(cues, self.selected_lyrics_path, self.translator, self)
+        if mode == "cancel":
+            return
+        if mode == "delete":
+            dialog = TtmlRowsDialog(cues, self.translator, self, title=self.title_edit.text().strip(), staged=True)
+        else:
+            dialog = LrcGeneratorDialog(
+                [],
+                self.translator,
+                self,
+                track_edit_mode=True,
+                initial_audio_path=self.track.file_path,
+                initial_cues=line_cues(cues) if mode == "convert" else cues,
+                initial_title=self.title_edit.text().strip(),
+                initial_artist=self.artist_edit.text().strip(),
+            )
         if dialog.exec() != QDialog.DialogCode.Accepted:
+            dialog.deleteLater()
             return
         edited_cues = dialog.timed_cues()
-        if edited_cues:
-            self.selected_lyrics = [cue.copy() for cue in edited_cues]
-        if dialog.saved_paths:
-            self.selected_lyrics_path = str(dialog.saved_paths[-1].resolve())
+        self.selected_lyrics = deepcopy(edited_cues)
+        self.selected_lyrics_path = str(dialog.saved_paths[-1].resolve()) if dialog.saved_paths else ""
+        dialog.deleteLater()
         self._refresh_preview()
-        self._accept()
+        # Editor completion stages lyrics here. Only this form's Apply button
+        # commits the track and closes the form.
+        self.edit_lrc_button.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _export_current_lyrics_as_lrc(self) -> None:
         """Convert the attached/embedded cues to LRC with this track's offset applied."""
@@ -1226,11 +1280,20 @@ class TrackDetailsDialog(QDialog):
             )
             return
         position = self.media_player.position() if position_ms is None else position_ms
-        lyric_seconds = max(
-            0.0, position / 1000.0 + self.timing_offset_spin.value()
-        )
+        lyric_seconds = position / 1000.0 + self.timing_offset_spin.value()
         cue_index = LyricsService.display_cue_index(self.selected_lyrics, lyric_seconds)
         if cue_index is None:
+            return
+        if lyric_seconds + .0005 < float(self.selected_lyrics[cue_index].get("start", 0.0)):
+            starts_at = float(self.selected_lyrics[cue_index]["start"]) - self.timing_offset_spin.value()
+            timestamp = self._timestamp(starts_at)
+            self.previous_lyric.clear()
+            self.current_lyric.setText(
+                f"첫 가사 대기 · {timestamp}" if korean else f"Waiting for first lyric · {timestamp}"
+            )
+            self.next_lyric.setText(LyricsService.decode_line_breaks(
+                self.selected_lyrics[cue_index].get("text", "")
+            ).strip())
             return
         latest_started = cue_index
         active = ()
@@ -1276,6 +1339,8 @@ class TrackDetailsDialog(QDialog):
         self.clear_button.setEnabled(bool(self.selected_lyrics_path or self.selected_lyrics))
         self.edit_lrc_button.setEnabled(self._audio_available or bool(self.selected_lyrics))
         self.export_lrc_button.setEnabled(bool(self.selected_lyrics))
+        self.export_lyrics_action.setEnabled(bool(self.selected_lyrics))
+        self.detach_lyrics_action.setEnabled(bool(self.selected_lyrics_path or self.selected_lyrics))
         count = len(self.selected_lyrics)
         self.cue_summary.setText(
             f"{count}개 타임코드 · 보정 적용 미리보기"
@@ -1441,17 +1506,25 @@ class TrackDetailsDialog(QDialog):
             "Attach a lyrics/subtitle file already in Project Content to this track."
         )
         self.edit_lrc_button.setText(
-            "LRC 생성기로 편집…" if korean else "Edit in LRC Generator…"
+            "편집기 열기…" if korean else "Open editor…"
         )
         self.edit_lrc_button.setToolTip(
-            "현재 곡의 오디오와 등록된 가사·타이밍을 LRC 생성기에서 편집합니다."
+            "가사/자막 편집기를 엽니다. TTML은 LRC 변환 또는 줄 삭제 전용 모드를 먼저 선택합니다."
             if korean else
-            "Edit this track's audio, lyrics, and timing in the LRC generator."
+            "Open the Lyrics/Subtitle Editor. For TTML, choose LRC conversion or line deletion first."
         )
         self.export_lrc_button.setText(
             "LRC로 내보내기…" if korean else "Export as LRC…"
         )
         self.search_lyrics_button.setText("가사 검색 및 가져오기…" if korean else "Search && Import Lyrics…")
+        self.import_lyrics_button.setText("가져오기…" if korean else "Import…")
+        self.import_file_action.setText("파일에서 불러오기…" if korean else "Load from file…")
+        self.import_search_action.setText("온라인 가사 검색…" if korean else "Search lyrics online…")
+        self.import_content_menu.setTitle("프로젝트 콘텐츠에서" if korean else "From project content")
+        self.more_lyrics_button.setText("더보기" if korean else "More")
+        self.export_lyrics_action.setText("LRC로 내보내기…" if korean else "Export as LRC…")
+        self.detach_lyrics_action.setText("가사 연결 해제" if korean else "Detach lyrics")
+        self.timing_toggle.setText("타이밍 보정" if korean else "Timing adjustment")
         self.export_lrc_button.setToolTip(
             "현재 곡의 타이밍 보정을 적용하고 여러 줄 가사는 문자 \\n으로 저장합니다."
             if korean else

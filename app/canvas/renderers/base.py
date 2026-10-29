@@ -18,6 +18,7 @@ from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPainterPat
 
 from app.models.source import TEXT_SOURCE_TYPES, SourceType
 from app.utils.mask_shapes import mask_path
+from app.utils.source_decoration import mirror_content, paint_frame
 
 if TYPE_CHECKING:
     from app.canvas.source_item import SourceItem
@@ -60,6 +61,7 @@ def paint_background(item: "SourceItem", painter: QPainter) -> tuple[QRectF, QBr
     # item's animated QGraphicsItem.opacity() before paint(), and the entrance
     # / exit fades rely on that being carried through.
     painter.setOpacity(painter.opacity() * item.source.opacity)
+    mirror_content(painter, rect, item.source)
     # Colour / gradient backgrounds carry no bitmap, so brightness and
     # contrast are folded into the paint colour here instead.
     tint = (
@@ -94,10 +96,14 @@ def paint_background(item: "SourceItem", painter: QPainter) -> tuple[QRectF, QBr
         painter.setBrush(shadow_color)
         shadow_rect = rect.translated(item.source.shadow.offset_x, item.source.shadow.offset_y)
         spread = max(0.0, item.source.shadow.blur_radius * 0.18)
-        if item.source.mask_shape != "none":
+        shadow_shape = item.source.mask_shape
+        if (shadow_shape == "none" and item.source.source_type is SourceType.SHAPE
+                and item.source.shape_kind not in {"rectangle", "line"}):
+            shadow_shape = item.source.shape_kind
+        if shadow_shape != "none":
             # A masked source casts the shadow of its mask.
             painter.drawPath(mask_path(
-                shadow_rect.adjusted(-spread, -spread, spread, spread), item.source.mask_shape,
+                shadow_rect.adjusted(-spread, -spread, spread, spread), shadow_shape,
             ))
         else:
             painter.drawRoundedRect(
@@ -207,6 +213,7 @@ def paint_generic_fallback(item: "SourceItem", painter: QPainter, rect: QRectF) 
 
 def paint_selection_guide(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
     """Close the painter.save() from paint_background() and draw the selection overlay."""
+    paint_frame(painter, rect, item.source)
     painter.restore()
     if not item.isSelected():
         return

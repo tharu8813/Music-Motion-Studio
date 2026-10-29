@@ -228,7 +228,9 @@ class ExportCanvasCapturer:
                 "lyrics", id(sample.track), cue_state.cue_index, cue_state.active_cue_index,
                 cue_state.active_cue_indices, cue_state.held_cue_indices,
                 cue_state.latest_started_cue_index, cue_state.gap_unblurred,
+                cue_state.before_first,
                 transition, cue_state.release_progress,
+                cue_state.blur_restore_cue_indices, cue_state.blur_restore_progress,
                 intro_state,
                 resolve_lyrics_word_reveal(sample.track, source, sample.elapsed_seconds, cue_state, intro_state),
             )

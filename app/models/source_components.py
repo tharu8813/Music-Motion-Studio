@@ -132,6 +132,10 @@ class TimeComponent(TextComponent):
 
 @dataclass(frozen=True, slots=True)
 class LyricsComponent(TextComponent):
+    auto_shrink: bool = _legacy("subtitle_auto_shrink")
+    auto_wrap: bool = _legacy("subtitle_auto_wrap")
+    wrap_to_source: bool = _legacy("subtitle_wrap_to_source")
+    wrap_width: float = _legacy("subtitle_wrap_width")
     advanced_categories: list[str] = _legacy("subtitle_advanced_categories")
     advanced_settings: dict[str, object] = _legacy("subtitle_advanced_settings")
     fallback: str = _legacy("subtitle_fallback")

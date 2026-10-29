@@ -35,12 +35,18 @@ class LyricsSearchDialogTests(unittest.TestCase):
             QTest.qWait(5)
         self.assertIsNone(dialog.worker, "Lookup worker did not finish")
 
-    def test_liriqo_provider_variants_and_word_timing_labels(self):
+    def test_all_providers_and_legacy_word_timing_labels(self):
         from dataclasses import replace
         from app.services.lyrics_search_service import PROVIDERS
         dialog = self.dialog()
-        self.assertIn("LiriQo", dialog.credit.text())
-        self.assertEqual(dialog.provider_combo.count(), len(PROVIDERS) + 1)
+        self.assertNotIn("LiriQo", dialog.credit.text())
+        self.assertIn("KuGou", dialog.credit.text())
+        self.assertIn("AMLL", dialog.credit.text())
+        self.assertIn("LRCLIB", dialog.credit.text())
+        self.assertEqual(dialog.provider_combo.count(), 4)
+        self.assertGreaterEqual(dialog.provider_combo.findData("lrclib"), 0)
+        self.assertEqual(dialog.provider_combo.currentData(), "all")
+        self.assertTrue(dialog.provider_combo.isEnabled())
         results = [replace(lrc_result(), provider="qq_portato", timing="word"),
                    replace(lrc_result(), provider="apple_music_liriqo", timing="syllable")]
         dialog._show_results(LyricsSearchBatch(results))
@@ -63,12 +69,87 @@ class LyricsSearchDialogTests(unittest.TestCase):
         good = PlaylistTrack("", "Song", artist="Artist", album="Album", duration_seconds=125)
         unknown = PlaylistTrack("", "Other")
         dialog = self.dialog([unknown, good], initial_track_id=good.id)
-        self.assertEqual(dialog.playlist_combo.count(), 2)
+        self.assertEqual(dialog.playlist_combo.count(), 1)
         self.assertEqual(dialog.title_edit.text(), "Song")
         self.assertEqual(dialog.artist_edit.text(), "Artist")
         self.assertEqual(dialog.album_edit.text(), "Album")
-        self.assertEqual(dialog.duration_spin.value(), 125)
+        self.assertNotIn("duration", dialog.labels)
+        self.assertFalse(hasattr(dialog, "duration_spin"))
         self.assertEqual(dialog.target_combo.currentData(), good.id)
+
+    def test_user_editing_any_metadata_switches_to_manual_input(self):
+        track = PlaylistTrack("", "Song", artist="Artist", album="Album")
+        dialog = self.dialog([track], initial_track_id=track.id)
+        for edit in (dialog.title_edit, dialog.artist_edit, dialog.album_edit):
+            with self.subTest(field=edit):
+                dialog.playlist_radio.click()
+                self.assertTrue(dialog.playlist_radio.isChecked())
+                self.assertTrue(dialog.playlist_combo.isEnabled())
+                QTest.keyClicks(edit, " edited")
+                self.assertTrue(dialog.manual_radio.isChecked())
+                self.assertFalse(dialog.playlist_combo.isEnabled())
+                self.assertFalse(dialog.playlist_label.isEnabled())
+                self.assertIn("edited", edit.text())
+        dialog.playlist_radio.click()
+        self.assertEqual(dialog.title_edit.text(), "Song")
+        self.assertEqual(dialog.artist_edit.text(), "Artist")
+        self.assertEqual(dialog.album_edit.text(), "Album")
+
+    def test_manual_mode_preserves_fields_and_disables_playlist_after_search(self):
+        service = MagicMock(spec=LyricsSearchService)
+        service.search.return_value = LyricsSearchBatch([])
+        track = PlaylistTrack("", "Song", artist="Artist", duration_seconds=125)
+        dialog = self.dialog([track], initial_track_id=track.id, service=service)
+        dialog.manual_radio.click()
+        self.assertEqual(dialog.title_edit.text(), "Song")
+        dialog.search_button.click()
+        self.assertFalse(dialog.playlist_radio.isEnabled())
+        self.assertFalse(dialog.manual_radio.isEnabled())
+        self.wait_idle(dialog)
+        self.assertEqual(service.search.call_args.args[0].duration, 0)
+        self.assertTrue(dialog.manual_radio.isChecked())
+        self.assertFalse(dialog.playlist_combo.isEnabled())
+        self.assertTrue(dialog.playlist_radio.isEnabled())
+
+    def test_no_searchable_tracks_defaults_to_manual(self):
+        dialog = self.dialog([PlaylistTrack("", "Song")])
+        self.assertTrue(dialog.manual_radio.isChecked())
+        self.assertFalse(dialog.playlist_radio.isEnabled())
+        self.assertFalse(dialog.playlist_combo.isEnabled())
+        self.assertEqual(dialog.playlist_combo.count(), 0)
+
+    def test_results_emphasize_lyrics_type_in_both_languages(self):
+        dialog = self.dialog()
+        dialog._show_results(LyricsSearchBatch([lrc_result()]))
+        self.assertEqual(dialog.table.horizontalHeaderItem(5).text(), "가사 타입")
+        self.assertTrue(dialog.table.horizontalHeaderItem(5).font().bold())
+        self.assertTrue(dialog.table.item(0, 5).font().bold())
+        self.assertFalse(dialog.table.showGrid())
+        dialog.translator.set_language(Language.ENGLISH)
+        self.assertEqual(dialog.table.horizontalHeaderItem(5).text(), "Lyrics type")
+        self.assertTrue(dialog.table.item(0, 5).font().bold())
+
+    def test_search_needs_no_duration_input_and_only_uses_matching_playlist_metadata_for_ranking(self):
+        service = MagicMock(spec=LyricsSearchService)
+        service.search.return_value = LyricsSearchBatch([])
+        track = PlaylistTrack('', 'Song', artist='Artist', duration_seconds=125)
+        dialog = self.dialog([track], service=service, initial_track_id=track.id)
+        self.assertFalse(hasattr(dialog, 'duration_spin'))
+        dialog.search_button.click()
+        self.wait_idle(dialog)
+        self.assertEqual(service.search.call_args.args[0].duration, 125)
+        dialog.back_button.click()
+        dialog.title_edit.setText('Another song')
+        dialog.search_button.click()
+        self.wait_idle(dialog)
+        self.assertEqual(service.search.call_args.args[0].duration, 0)
+
+    def test_empty_results_identify_counts_for_each_successful_provider(self):
+        dialog = self.dialog()
+        dialog._show_results(LyricsSearchBatch([], provider_counts={'kugou': 0, 'amll': 0}))
+        self.assertIn('KuGou 0', dialog.status.text())
+        self.assertIn('AMLL TTML DB 0', dialog.status.text())
+        self.assertNotIn('해제', dialog.status.text())
 
     def test_search_does_not_fetch_until_user_selects_a_recording(self):
         service = MagicMock(spec=LyricsSearchService)
@@ -76,6 +157,8 @@ class LyricsSearchDialogTests(unittest.TestCase):
         service.search.return_value = LyricsSearchBatch([result])
         service.fetch.return_value = LyricsSearchService().fetch(result)
         dialog = self.dialog(service=service)
+        dialog.show()
+        QTest.qWait(5)
         dialog.title_edit.setText("Song")
         dialog.search_button.click()
         self.wait_idle(dialog)
@@ -89,6 +172,45 @@ class LyricsSearchDialogTests(unittest.TestCase):
         self.assertIn("First", dialog.preview.toPlainText())
         self.assertTrue(dialog.download_button.isEnabled())
 
+    def test_selected_provider_is_sent_and_verified_word_timing_is_shown(self):
+        from app.services.lyrics_search_service import LyricsSearchResult
+        from tests.test_lyrics_search_service import TTML
+        service = MagicMock(spec=LyricsSearchService)
+        result = LyricsSearchResult('kugou', '42', 'Song', 'Artist', payload={'ttml': TTML})
+        service.search.return_value = LyricsSearchBatch([result])
+        service.fetch.return_value = LyricsSearchService().fetch(result)
+        dialog = self.dialog(service=service)
+        dialog.title_edit.setText('Song')
+        dialog.provider_combo.setCurrentIndex(dialog.provider_combo.findData('kugou'))
+        dialog.search_button.click()
+        self.wait_idle(dialog)
+        self.assertEqual(service.search.call_args.args[0].provider, 'kugou')
+        self.assertTrue(dialog.provider_combo.isEnabled())
+        self.assertIn('선택 후 확인', dialog.table.item(0, 5).text())
+        dialog.table.selectRow(0)
+        self.wait_idle(dialog)
+        self.assertIn('단어', dialog.table.item(0, 5).text())
+        self.assertIn('KRC → TTML', dialog.preview_info.text())
+        dialog.next_button.click()
+        self.assertEqual(dialog.pages.currentIndex(), 2)
+
+    def test_fetch_failure_keeps_result_selection_retryable(self):
+        service = MagicMock(spec=LyricsSearchService)
+        service.fetch.side_effect = LyricsSearchError('download failed')
+        dialog = self.dialog(service=service)
+        dialog._show_results(LyricsSearchBatch([lrc_result()]))
+        dialog.table.selectRow(0)
+        self.wait_idle(dialog)
+        self.assertEqual(dialog.pages.currentIndex(), 1)
+        self.assertFalse(dialog.next_button.isEnabled())
+        self.assertTrue(dialog.table.isEnabled())
+        self.assertIn('download failed', dialog.status.text())
+        service.fetch.side_effect = None
+        service.fetch.return_value = LyricsSearchService().fetch(lrc_result())
+        dialog._select_result()
+        self.wait_idle(dialog)
+        self.assertTrue(dialog.next_button.isEnabled())
+
     def test_attach_requires_explicit_click_and_uses_chosen_target(self):
         first, second = PlaylistTrack("", "One"), PlaylistTrack("", "Two")
         attach = MagicMock(return_value=True)
@@ -98,7 +220,8 @@ class LyricsSearchDialogTests(unittest.TestCase):
         self.assertFalse(dialog.attach_button.isEnabled())  # A manual search must choose its destination.
         dialog.target_combo.setCurrentIndex(dialog.target_combo.findData(second.id))
         attach.assert_not_called()
-        dialog.attach_button.click()
+        with patch("app.dialogs.lyrics_search_dialog.QMessageBox.information"):
+            dialog.attach_button.click()
         attach.assert_called_once_with(document, second.id)
         self.assertEqual(dialog.attached_track_ids, [second.id])
 
@@ -192,8 +315,8 @@ class LyricsSearchDialogTests(unittest.TestCase):
         self.assertEqual(dialog.windowTitle(), "가사 검색 및 가져오기")
         dialog.translator.set_language(Language.ENGLISH)
         self.assertEqual(dialog.windowTitle(), "Search & Import Lyrics")
-        dialog.provider_combo.setCurrentIndex(dialog.provider_combo.findData("lrclib"))
-        self.assertEqual(dialog.provider_combo.currentData(), "lrclib")
+        dialog.provider_combo.setCurrentIndex(dialog.provider_combo.findData("amll"))
+        self.assertEqual(dialog.provider_combo.currentData(), "amll")
 
     def test_discovery_ui_filter_preview_and_copy(self):
         from dataclasses import replace
@@ -242,6 +365,70 @@ class LyricsSearchDialogTests(unittest.TestCase):
         self.assertEqual(dialog.result_count.text(), "0 / 0개")
         dialog.translator.set_language(Language.ENGLISH)
         self.assertEqual(dialog.result_count.text(), "0 / 0")
+
+    def test_wizard_requires_selection_and_review_before_applying(self):
+        track = PlaylistTrack("", "Song", artist="Artist")
+        attach = MagicMock(return_value=True)
+        dialog = self.dialog([track], initial_track_id=track.id, on_attach=attach)
+        dialog.show()
+        self.assertEqual(dialog.pages.currentIndex(), 0)
+        self.assertTrue(dialog.target_panel.isHidden())
+        self.assertTrue(dialog.back_button.isHidden())
+        dialog._show_results(LyricsSearchBatch([lrc_result()]))
+        self.assertEqual(dialog.pages.currentIndex(), 1)
+        self.assertFalse(dialog.next_button.isEnabled())
+        dialog._set_step(2)
+        self.assertEqual(dialog.pages.currentIndex(), 1)
+        dialog._documents[lrc_result().key] = LyricsSearchService().fetch(lrc_result())
+        dialog.table.selectRow(0)
+        self.assertTrue(dialog.next_button.isEnabled())
+        self.assertEqual(dialog.pages.currentIndex(), 1)
+        attach.assert_not_called()
+        dialog.next_button.click()
+        self.assertEqual(dialog.pages.currentIndex(), 2)
+        self.assertFalse(dialog.target_panel.isHidden())
+        self.assertIn("First", dialog.preview.toPlainText())
+        dialog.back_button.click()
+        self.assertEqual(dialog.pages.currentIndex(), 1)
+        self.assertIsNotNone(dialog.document)
+        dialog.next_button.click()
+        with patch("app.dialogs.lyrics_search_dialog.QMessageBox.information"):
+            dialog.attach_button.click()
+        attach.assert_called_once()
+
+    def test_wizard_search_advances_and_back_keeps_query_and_results(self):
+        service = MagicMock(spec=LyricsSearchService)
+        service.search.return_value = LyricsSearchBatch([lrc_result()])
+        dialog = self.dialog(service=service)
+        dialog.title_edit.setText("Song")
+        dialog.search_button.click()
+        self.wait_idle(dialog)
+        self.assertEqual(dialog.pages.currentIndex(), 1)
+        dialog.back_button.click()
+        self.assertEqual(dialog.pages.currentIndex(), 0)
+        self.assertEqual(dialog.title_edit.text(), "Song")
+        self.assertEqual(dialog.table.rowCount(), 1)
+        self.assertFalse(dialog.search_button.isHidden())
+
+    def test_search_failure_stays_on_details_and_retry_remains_available(self):
+        service = MagicMock(spec=LyricsSearchService)
+        service.search.side_effect = LyricsSearchError("HTTP 429")
+        dialog = self.dialog(service=service)
+        dialog.title_edit.setText("Song")
+        dialog.search_button.click()
+        self.wait_idle(dialog)
+        self.assertEqual(dialog.pages.currentIndex(), 0)
+        self.assertTrue(dialog.search_button.isEnabled())
+        self.assertTrue(dialog.target_panel.isHidden())
+
+    def test_untimed_result_can_be_reviewed_but_not_attached(self):
+        dialog = self.dialog([PlaylistTrack("", "Song")], on_attach=MagicMock())
+        dialog._show_results(LyricsSearchBatch([lrc_result()]))
+        dialog._show_document(FoundLyrics(lrc_result(), "txt", "Text"))
+        dialog.next_button.click()
+        self.assertEqual(dialog.pages.currentIndex(), 2)
+        self.assertTrue(dialog.download_button.isEnabled())
+        self.assertFalse(dialog.attach_button.isEnabled())
 
     def test_ttml_in_track_settings_only_stages_lyrics(self):
         track = PlaylistTrack("", "Song", lyrics_timing_offset_seconds=0.25)

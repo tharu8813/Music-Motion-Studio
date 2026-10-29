@@ -156,7 +156,7 @@ class KaraokeTests(unittest.TestCase):
                 self.assertEqual(item.source.to_dict(), original)
                 self.assertEqual(item._subtitle_word_reveal, ())
 
-    def test_ordinary_lyrics_render_whole_from_start_and_hold_until_next_cue(self):
+    def test_ordinary_lyrics_render_whole_at_first_start_and_hold_until_next_cue(self):
         scene, item, track = self.scene("First line")
         # Ordinary LRC/SRT data, including a legacy word result, cannot animate.
         track.lyrics = [
@@ -169,10 +169,11 @@ class KaraokeTests(unittest.TestCase):
         item.source.subtitle_intro_midtrack = True
         images = [CanvasSnapshot.capture_track(scene, track, 1, 1, 0,
             elapsed_seconds=time, transparent=True) for time in (0, 5.5, 9, 11.9, 12, 19)]
-        self.assertGreater(self.red_pixels(images[0]), 0)
-        self.assertTrue(all(image == images[0] for image in images[:4]))
+        self.assertEqual(self.red_pixels(images[0]), 0)
+        self.assertGreater(self.red_pixels(images[1]), 0)
+        self.assertTrue(all(image == images[1] for image in images[1:4]))
         self.assertEqual(images[4], images[5])
-        self.assertNotEqual(images[0], images[4])
+        self.assertNotEqual(images[1], images[4])
         capturer = ExportCanvasCapturer(scene, [track], 20, set(), [(None, None)],
                                       lambda *args: None, lambda: None, lambda *args: None)
         capturer.stage_frame = lambda image, duration, _key: RenderFrame(image, duration)

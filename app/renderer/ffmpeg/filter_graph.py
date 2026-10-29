@@ -258,6 +258,19 @@ def layered_filter_graph(visualizers: list["VisualizerOverlay"],
             # Add padding after color effects so its RGBA color remains exact.
             if padding:
                 filters.append(padding)
+            if clip.flip_horizontal:
+                filters.append("hflip")
+            if clip.flip_vertical:
+                filters.append("vflip")
+            limit = min(clip.width, clip.height) / 2.0
+            inset = max(0.0, min(clip.frame_inset, limit))
+            frame_width = max(0.0, min(clip.frame_width, limit - inset))
+            if frame_width > 0:
+                filters.append(
+                    f"drawbox=x={inset:.4f}:y={inset:.4f}:"
+                    f"w=iw-{2 * inset:.4f}:h=ih-{2 * inset:.4f}:"
+                    f"color={filter_color(clip.frame_color)}:t={frame_width:.4f}"
+                )
             radius = max(
                 0.0,
                 min(float(clip.border_radius), clip.width / 2.0, clip.height / 2.0),
@@ -274,6 +287,15 @@ def layered_filter_graph(visualizers: list["VisualizerOverlay"],
                     f"if(lte(pow({dx},2)+pow({dy},2),"
                     f"pow({radius:.4f},2)),lum(X,Y),0)"
                 )
+                if frame_width > 0:
+                    # Canvas paints the independent rectangular frame after
+                    # rounding the video content. Preserve those frame pixels.
+                    outer = (f"between(X,{inset:.4f},W-1-{inset:.4f})*"
+                             f"between(Y,{inset:.4f},H-1-{inset:.4f})")
+                    edge = inset + frame_width
+                    border = (f"(lt(X,{edge:.4f})+gte(X,W-{edge:.4f})+"
+                              f"lt(Y,{edge:.4f})+gte(Y,H-{edge:.4f}))")
+                    alpha_expression = f"if({outer}*{border},lum(X,Y),{alpha_expression})"
             filters.append("format=rgba")
             if (clip.opacity < 1.0 or radius >= 0.5
                     or clip.animation_in != "none" or clip.animation_out != "none"):

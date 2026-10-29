@@ -132,6 +132,32 @@ class UiResponsivenessTests(MainWindowTestCase):
         self.assertIsNotNone(children[0].poll())
         self.assertTrue(children[0].stdout.closed)
 
+    def test_history_restore_does_not_leave_playlist_painting_disabled(self):
+        self.window.show()
+        tracks = [PlaylistTrack(f"{i}.wav", f"Song {i}") for i in range(8)]
+        self.window.playlist_service.replace(tracks)
+        snapshot = self.window.project_controller.document().to_dict()
+        self.window.history_controller.restore_snapshot(snapshot)
+        self.application.processEvents()
+        listing = self.window.playlist_editor.list_widget
+        self.assertTrue(listing.updatesEnabled())
+        self.assertTrue(listing.viewport().updatesEnabled())
+        self.assertEqual(listing.count(), 8)
+        for index in range(8):
+            row = listing.itemWidget(listing.item(index))
+            self.assertIsNotNone(row)
+            self.assertTrue(row.updatesEnabled())
+            self.assertTrue(row.isVisibleTo(listing))
+
+    def test_refresh_preserves_explicitly_disabled_list_updates(self):
+        listing = self.window.playlist_editor.list_widget
+        listing.setUpdatesEnabled(False)
+        try:
+            self.window.playlist_editor.refresh()
+            self.assertFalse(listing.updatesEnabled())
+        finally:
+            listing.setUpdatesEnabled(True)
+
     def test_search_and_append_reuse_rows_and_keep_visible_selection(self):
         tracks = [PlaylistTrack(f"{i}.wav", f"Song {i}") for i in range(20)]
         self.window.playlist_service.replace(tracks)

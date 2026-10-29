@@ -243,6 +243,20 @@ def loop_pose(
             rotation=2.5 * amount * sin(2.0 * phase),
             scale=1.0 + 0.02 * amount * sin(phase),
         )
+    if motion == "orbit":
+        return AnimationPose(
+            dx=amount * max(6.0, width * 0.04) * sin(phase),
+            dy=amount * max(4.0, height * 0.04) * cos(phase),
+        )
+    if motion == "shake":
+        return AnimationPose(dx=amount * max(4.0, width * 0.015) * sin(3.0 * phase))
+    if motion == "nod":
+        return AnimationPose(
+            dy=amount * max(4.0, height * 0.04) * (0.5 - 0.5 * cos(phase)),
+            rotation=3.0 * amount * sin(phase),
+        )
+    if motion == "blink":
+        return AnimationPose(opacity=1.0 - min(1.0, amount * 0.5) * (0.5 - 0.5 * cos(phase)))
     return AnimationPose()
 
 

@@ -243,6 +243,11 @@ class LyricsAnimationDialog(QDialog):
         ))
         preview_header.addWidget(self.preview_count)
         preview_column.addLayout(preview_header)
+        self.effective_summary = QLabel()
+        self.effective_summary.setObjectName("infoCallout")
+        self.effective_summary.setWordWrap(True)
+        self.effective_summary.setAccessibleName(self._tr("영상 적용 설정 요약", "Effective video settings"))
+        preview_column.addWidget(self.effective_summary)
         self.preview = QLabel()
         self.preview.setObjectName("subtitleMotionPreview")
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -268,9 +273,9 @@ class LyricsAnimationDialog(QDialog):
         body.addLayout(preview_column, 1)
         root.addLayout(body, 1)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(self._tr("적용", "Apply"))
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(self._tr("설정 적용", "Apply settings"))
         buttons.button(QDialogButtonBox.StandardButton.Ok).setProperty("primary", True)
-        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(self._tr("취소", "Cancel"))
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(self._tr("변경 취소", "Discard changes"))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
@@ -416,6 +421,16 @@ class LyricsAnimationDialog(QDialog):
         for key, value in values.items():
             setattr(self._draft, key, value)
         effective = replace(self._basic, **self.settings()).resolved_lyrics()
+        label_index = 0 if self._korean else 1
+        effect_name = LYRIC_EFFECT_LABELS[effective.subtitle_animation][label_index]
+        direction = {"up": ("아래 → 위", "Bottom → top"), "down": ("위 → 아래", "Top → bottom"),
+                     "left": ("오른쪽 → 왼쪽", "Right → left"), "right": ("왼쪽 → 오른쪽", "Left → right")}[effective.subtitle_flow_direction][label_index]
+        previous = self._tr("자동", "Auto") if effective.subtitle_context_lines < 0 else str(effective.subtitle_context_lines)
+        upcoming = self._tr("자동", "Auto") if effective.subtitle_next_lines < 0 else str(effective.subtitle_next_lines)
+        self.effective_summary.setText(self._tr(
+            f"영상에 적용: {effect_name} · {direction} · 이전 {previous} / 다음 {upcoming}\n미리보기 줄 수는 확인용이며 영상의 줄 배치를 바꾸지 않습니다.",
+            f"Video: {effect_name} · {direction} · Previous {previous} / next {upcoming}\nPreview cue count does not change the video's layout."
+        ))
         for key in self.SETTINGS:
             setattr(self._preview_source, key, deepcopy(getattr(effective, key)))
         for key, panel in self.category_panels.items():

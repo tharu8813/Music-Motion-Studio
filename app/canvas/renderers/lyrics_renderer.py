@@ -1,10 +1,11 @@
 """Cue motion and typography shared by Canvas preview and video export."""
 
 from math import pi, sin
+import re
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFontMetricsF, QPainter, QPen, QTextLayout, QTextOption
+from PySide6.QtGui import QColor, QPainter, QPen, QTextLayout, QTextOption
 
 from app.animation.lyrics import context_style_at_distance, cue_effect_pose, role_style, stagger_progress
 from app.animation.curves import music_reactive_pose
@@ -57,6 +58,76 @@ def pending_color(source) -> QColor:
                           color.blueF() * brightness, color.alphaF())
 
 
+def lyric_wrap_width(source) -> float:
+    if not source.subtitle_wrap_to_source:
+        return source.subtitle_wrap_width
+    if source.subtitle_flow_direction in {"left", "right"}:
+        # Include the current cue as well as the previous/upcoming cues.
+        slots = ((source.subtitle_context_lines if source.subtitle_context_lines >= 0 else 1)
+                 + (source.subtitle_next_lines if source.subtitle_next_lines >= 0 else 1) + 1)
+        return max(16.0, source.width / slots - source.subtitle_line_spacing)
+    return max(16.0, source.width - 24)
+
+
+def lyric_wrapped_rows(item, text: str, style_index: int = 0) -> tuple[tuple[str, int], ...]:
+    """Return whole-word rows and their character offsets in the original line.
+
+    Measure at the largest cue role so a transition cannot change line breaks.
+    Offsets keep TTML highlighting attached to the original text and timings.
+    """
+    source = item.source
+    if not source.subtitle_auto_wrap:
+        return ((text, 0),)
+    width = lyric_wrap_width(source)
+    overrides = source.subtitle_line_styles[style_index] if style_index < len(source.subtitle_line_styles) else {}
+    styles = [_line_style(source, role, overrides) for role in ("previous", "current", "next")]
+    fonts = [item._lyric_font(max(8, round(float(style["size"]))), int(style["font_weight"]),
+                              bool(style["italic"])) for style in styles]
+    key = (text, width, tuple(font.key() for font in fonts))
+    cache = item._lyric_wrap_cache
+    if key in cache:
+        return cache[key]
+    words = list(re.finditer(r"\S+", text))
+    rows = []
+    if words:
+        start, end = words[0].start(), words[0].end()
+        for word in words[1:]:
+            candidate = text[start:word.end()]
+            if max(item._lyric_text_advance(font, candidate) for font in fonts) + 2 > width:
+                rows.append((text[start:end], start))
+                start = word.start()
+            end = word.end()
+        rows.append((text[start:end], start))
+    result = tuple(rows) or ((text, 0),)
+    if len(cache) >= 256:
+        cache.pop(next(iter(cache)))
+    cache[key] = result
+    return result
+
+
+def _wrapped_row_layout(original_layout, origins, height, line_spacing):
+    """Only continuations of the same source line omit the lyric row gap.
+
+    Positions use normal lyric-row units, including fractional units for
+    compact continuations. Cue centers and motion then share the same geometry.
+    """
+    continuation_step = max(1.0, height - max(0.0, line_spacing)) / height
+    positions = [0.0]
+    for index in range(1, len(origins)):
+        positions.append(positions[-1] + (
+            continuation_step if origins[index] == origins[index - 1] else 1.0))
+    starts, ends = {}, {}
+    for origin, position in zip(origins, positions):
+        slot = original_layout[origin][0]
+        starts.setdefault(slot, position)
+        ends[slot] = position + 1.0
+    layout = tuple((original_layout[origin][0], position - starts[original_layout[origin][0]],
+                    ends[original_layout[origin][0]] - starts[original_layout[origin][0]])
+                   for origin, position in zip(origins, positions))
+    centers = {slot: (starts[slot] + end) / 2 for slot, end in ends.items()}
+    return layout, centers, positions[-1] + 1.0
+
+
 def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
     source = item.source
     painter.save()
@@ -86,22 +157,66 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
                 + (source.subtitle_next_lines if source.subtitle_next_lines >= 0 else 1) + 1)
     step = rect.width() / slots if horizontal else height
     width = max(16.0, step - source.subtitle_line_spacing) if horizontal else max(16.0, rect.width() - 24)
+    # Expand display rows without changing the cue data or its original indices.
+    origins = list(range(len(lines)))
+    offsets = [0] * len(lines)
+    original_layout = layout
+    original_style_indices = item._subtitle_line_style_indices
+    block_extent = float(len(lines))
+    if source.subtitle_auto_wrap and lines:
+        expanded, origins, offsets, boundaries = [], [], [], [0]
+        for index, line in enumerate(lines):
+            style_index = original_style_indices[index] if index < len(original_style_indices) else index
+            for part, offset in lyric_wrapped_rows(item, line, style_index):
+                expanded.append(part)
+                origins.append(index)
+                offsets.append(offset)
+            boundaries.append(len(expanded))
+        wrapped_layout, centers, block_extent = _wrapped_row_layout(
+            original_layout, origins, height, source.subtitle_line_spacing)
+        if has_current:
+            count = boundaries[min(len(lines), current + count)] - boundaries[current]
+            current = boundaries[current]
+        if anchored:
+            anchor_count = boundaries[min(len(lines), anchor + anchor_count)] - boundaries[anchor]
+            anchor = boundaries[anchor]
+        boundary = current if has_current else (anchor if anchored else -1)
+        lines, layout = expanded, tuple(wrapped_layout)
+    else:
+        boundaries = list(range(len(lines) + 1))
     axis = rect.width() if horizontal else rect.height()
-    guard = step / 2 if horizontal else height * anchor_count / 2
+    anchor_extent = layout[anchor][2] if anchored else (
+        layout[current][2] if source.subtitle_auto_wrap and has_current else anchor_count)
+    guard = step / 2 if horizontal else height * anchor_extent / 2
     anchor_position = max(guard, min(axis - guard, axis * source.subtitle_anchor))
     alignment = _ALIGNMENTS.get(source.text_alignment, Qt.AlignmentFlag.AlignHCenter)
-    flags = alignment | Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextWordWrap
+    flags = alignment | Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextSingleLine
     pixel_ratio = device_pixel_ratio(painter)
     base_opacity = painter.opacity()
     previous_count = item._subtitle_previous_line_count if transitioning else 0
     leaving = item._subtitle_leaving_line_count if transitioning else 0
-    entering = len(lines) - item._subtitle_entering_line_count if transitioning else len(lines)
+    visible_end = len(original_layout) - item._subtitle_prefetch_line_count
+    prepared_end = visible_end + item._subtitle_prefetch_entry_line_count
+    entering = visible_end - item._subtitle_entering_line_count if transitioning else visible_end
+    if source.subtitle_auto_wrap:
+        old_boundary = origins[boundary] if boundary >= 0 else -1
+        if previous_count and old_boundary >= 0:
+            previous_count = boundaries[old_boundary] - boundaries[max(0, old_boundary - previous_count)]
+        leaving = boundaries[min(leaving, len(boundaries) - 1)]
+        entering = boundaries[max(0, entering)]
+        visible_end = boundaries[visible_end]
+        prepared_end = boundaries[prepared_end]
+    if visible_end < len(lines):
+        last_slot = layout[visible_end - 1][0]
+        block_extent = centers[last_slot] + layout[visible_end - 1][2] / 2
     intro = item._subtitle_intro_state
+    previous_extent = layout[boundary - 1][2] if previous_count and boundary > 0 else previous_count
+    current_extent = layout[current][2] if has_current else count
     untimed = not item._subtitle_cue_layout and not has_current and intro is None
     intro_y = rect.center().y() if horizontal else rect.top() + anchor_position
     held_slot = intro.held_slot if intro is not None else anchor_slot
     held_rows = [index for index, (slot, _inner, _total) in enumerate(layout) if slot == held_slot]
-    held_end = max(held_rows) + 1 if held_rows else 0
+    held_end = centers[held_slot] + layout[held_rows[0]][2] / 2 if held_rows else 0
     if intro is not None:
         # The indicator is a temporary cue: enter/leave on the same clock and
         # direction as the surrounding lyrics. Its inner dot cycle is independent.
@@ -111,10 +226,10 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
             previous=intro.exiting, incoming_visible=False, transitioning=intro.raw_progress < 1,
         )
         distance = step if horizontal else height
-        next_distance = (count + 1) / 2 if not horizontal and has_current and anchor_slot > held_slot else 1.0
+        next_distance = (current_extent + 1) / 2 if not horizontal and has_current and anchor_slot > held_slot else 1.0
         departure = -distance * next_distance * intro.progress if intro.exiting else (
             0.0 if intro.before_first else distance * (1 - intro.progress)
-            * (1 if horizontal else (len(held_rows) + 1) / 2)
+            * (1 if horizontal else ((layout[held_rows[0]][2] if held_rows else 0) + 1) / 2)
         )
         painter.translate(sign * (departure + travel) if horizontal else 0,
                           sign * (departure + travel) if not horizontal else 0)
@@ -131,7 +246,8 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         p = stagger_progress(source, item._subtitle_transition_raw, slot, anchor_slot + 1, last_slot) if (
             transitioning and effect == "cascade" and slot > anchor_slot
         ) else t
-        line_index = item._subtitle_line_style_indices[index] if index < len(item._subtitle_line_style_indices) else index
+        original_index = origins[index]
+        line_index = original_style_indices[original_index] if original_index < len(original_style_indices) else original_index
         overrides = source.subtitle_line_styles[line_index] if line_index < len(source.subtitle_line_styles) else {}
         karaoke_line = not source.subtitle_karaoke_lines or line_index in source.subtitle_karaoke_lines
         if untimed:
@@ -155,8 +271,9 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
             distance = slot - anchor_slot + (1.0 - p if previous_count else 0.0)
             upcoming = context_style_at_distance(upcoming, active, distance, span, source.subtitle_next_distance_fade)
         is_current = has_current and current <= index < current + count
+        original_inner = original_layout[original_index][1]
         karaoke_current = (is_current and source.subtitle_karaoke_enabled and karaoke_line
-                           and inner < len(item._subtitle_word_reveal))
+                           and original_inner < len(item._subtitle_word_reveal))
         karaoke_alpha = float(active["opacity"]) * item._subtitle_emphasis if karaoke_current else 0.0
         was_current = 0 <= boundary - previous_count <= index < boundary
         if is_current:
@@ -166,7 +283,10 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
             start, end = previous, active
             blend = item._subtitle_previous_emphasis * (1.0 - p)
         else:
-            start = end = previous if index < boundary else upcoming
+            # A retained anchor has finished singing. It is history, even
+            # though its row remains centered until a successor appears.
+            held = anchored and not has_current and not item._subtitle_before_first and slot == anchor_slot
+            start = end = previous if index < boundary or held else upcoming
             blend = 0.0
         color = _mix(QColor(str(start["color"])), QColor(str(end["color"])), blend)
         size = float(start["size"]) + (float(end["size"]) - float(start["size"])) * blend
@@ -204,12 +324,12 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
                 italic = bool(waiting["italic"])
         if item._subtitle_gap_unblurred and slot == anchor_slot:
             blur = 0.0  # Keep the held lyric readable until the next cue begins.
+        if original_index in item._subtitle_blur_restore_lines:
+            blur *= item._subtitle_blur_restore_progress
         if is_current and transitioning and not item._subtitle_incoming_visible:
             alpha *= p
         if index < leaving:
             alpha *= 1.0 - p
-        elif index >= entering:
-            alpha *= p
         offset, extra_scale, glow, reveal, opacity = cue_effect_pose(
             source, p, blend, current=is_current, previous=was_current,
             incoming_visible=item._subtitle_incoming_visible, transitioning=transitioning,
@@ -224,8 +344,10 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
             continue
 
         scroll = source.subtitle_scroll_offset
+        if source.subtitle_auto_wrap and transitioning and not horizontal:
+            scroll = (previous_extent + anchor_extent) / 2 * height * (1 - t) if previous_count else 0.0
         if transitioning and effect == "cascade":
-            scroll = (previous_count + anchor_count) / 2 * height * (1.0 - p) if previous_count else 0.0
+            scroll = (previous_extent + anchor_extent) / 2 * height * (1.0 - p) if previous_count else 0.0
         if horizontal:
             scroll = (step * (1.0 - p) if previous_count else 0.0) if transitioning else 0.0
         if intro is not None and intro.exiting:
@@ -237,13 +359,13 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
             x = rect.left() + anchor_position + sign * ((slot - anchor_slot) * step + scroll + layout_offset)
             row = QRectF(x - width / 2, rect.center().y() + (inner - total / 2) * height, width, height)
         elif anchored:
-            distance = (centers[slot] - (anchor + anchor_count / 2)) * height
+            distance = (centers[slot] - centers[anchor_slot]) * height
             row = QRectF(rect.left() + 12, rect.top() + anchor_position + sign * (
                 distance + scroll + layout_offset
             ) + (inner - total / 2) * height, width, height)
         else:
             row = QRectF(rect.left() + 12, rect.top() + anchor_position + sign * (
-                centers[slot] - len(lines) / 2
+                centers[slot] - block_extent / 2
             ) * height + (inner - total / 2) * height + sign * layout_offset, width, height)
         if intro is not None:
             if horizontal:
@@ -261,12 +383,11 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         # A stable glyph size lets the role scale interpolate without rebuilding
         # the same blur raster for every intermediate font size.
         font_size = max(float(previous["size"]), float(active["size"]), float(upcoming["size"]))
-        font = item.text_font(max(8, round(font_size)), weight)
-        font.setItalic(italic)
+        font = item._lyric_font(max(8, round(font_size)), weight, italic)
         painter.setFont(font)
-        advance = QFontMetricsF(font).horizontalAdvance(line) + 2
-        fit = min(1.0, width / max(1.0, advance * size / font_size))
-        fit = max(0.1 if horizontal else _MIN_FIT, fit)
+        advance = item._lyric_text_advance(font, line) + 2
+        fit = min(1.0, width / max(1.0, advance * size / font_size)) if source.subtitle_auto_shrink else 1.0
+        fit = max(0.01 if source.subtitle_auto_wrap else (0.1 if horizontal else _MIN_FIT), fit)
         glyph_width = max(width, advance)
         row.setWidth(glyph_width)
         if alignment == Qt.AlignmentFlag.AlignRight:
@@ -278,6 +399,31 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
             pivot_x = x if horizontal else rect.center().x()
             row.moveLeft(pivot_x - glyph_width / 2)
         painter.save()
+        if index >= entering:
+            # New upcoming cues travel through the clipped edge at their normal
+            # opacity, rather than materializing in the empty tail area. Every
+            # physical line in a cue shares the same translation.
+            padding = max(0.0, float(role_style(source, "next")["blur"])) * 3 + 2
+            # Prefetched rows wait beyond the edge using the same entry origin
+            # as a newly displayed cue, without adding any scroll distance.
+            prefetch = index >= visible_end
+            entry_index = visible_end if prefetch else entering
+            # Advance only cues that will be visible in the following window;
+            # other staged cues remain outside, ready for later boundaries.
+            entry_progress = (item._subtitle_prefetch_progress if prefetch and index < prepared_end
+                              else 0.0 if prefetch else p)
+            entry_slot, _entry_inner, entry_total = layout[entry_index]
+            if horizontal:
+                entry_x = x + sign * (entry_slot - slot) * step
+                distance = (rect.right() - (entry_x - width / 2) + padding if sign > 0 else
+                            entry_x + width / 2 - rect.left() + padding)
+                painter.translate(sign * max(0.0, distance) * (1 - entry_progress), 0)
+            else:
+                entry_center = (row.center().y() - (inner - (total - 1) / 2) * height
+                                + sign * (centers[entry_slot] - centers[slot]) * height)
+                distance = (rect.bottom() - (entry_center - entry_total * height / 2) + padding
+                            if sign > 0 else entry_center + entry_total * height / 2 - rect.top() + padding)
+                painter.translate(0, sign * max(0.0, distance) * (1 - entry_progress))
         if is_current and source.uses_bass_reaction:
             pose = music_reactive_pose(source.music_reactive_effect, item._music_reaction_level,
                                        source.music_reactive_strength, float(active["size"]))
@@ -309,7 +455,8 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         # Sung words follow the audio clock even while their row fades or unblurs.
         if karaoke_alpha > _VISIBLE:
             painter.setOpacity(base_opacity * karaoke_alpha)
-            paint_word_reveal(item, painter, row, flags, line, item._subtitle_word_reveal[inner])
+            paint_word_reveal(item, painter, row, flags, line,
+                              max(0.0, item._subtitle_word_reveal[original_inner] - offsets[index]))
         painter.restore()
     painter.restore()
 

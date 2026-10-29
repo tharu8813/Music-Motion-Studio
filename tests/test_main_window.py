@@ -138,7 +138,7 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
             self.assertIn(self.window.preview_action, self.window.view_menu.actions())
             self.assertIn(self.window.settings_action, self.window.tools_menu.actions())
             self.assertIn(self.window.lrc_generator_action, self.window.tools_menu.actions())
-            self.assertEqual(self.window.lrc_generator_action.text(), "LRC 파일 생성기")
+            self.assertEqual(self.window.lrc_generator_action.text(), "가사/자막 편집기")
             self.assertIn(self.window.automix_editor_action, self.window.tools_menu.actions())
             self.assertEqual(self.window.automix_editor_action.text(), "AutoMix 편집기")
             from dataclasses import replace
@@ -177,7 +177,7 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
             self.assertEqual(self.window.exit_action.text(), "Exit")
             self.assertEqual(self.window.recent_projects_menu.title(), "Recent projects")
             self.assertEqual(
-                self.window.lrc_generator_action.text(), "LRC File Generator"
+                self.window.lrc_generator_action.text(), "Lyrics/Subtitle Editor"
             )
             self.assertEqual(
                 self.window.clear_selection_action.text(), "Clear selection"
@@ -2347,7 +2347,7 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
             self.assertEqual(dialog.tab_bar.count(), 6)
             self.assertEqual(
                 [dialog.tab_bar.tabText(index) for index in range(6)],
-                ["캔버스", "미리보기", "가사 편집기", "AutoMix 편집기", "곡 정보/설정", "기타"],
+                ["캔버스", "미리보기", "가사/자막 편집기", "AutoMix 편집기", "곡 정보/설정", "기타"],
             )
             self.assertEqual(dialog.current_tab_id, "automix_editor")
             self.assertIn("automix_timeline", dialog.visible_topic_ids())

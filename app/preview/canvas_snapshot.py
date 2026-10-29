@@ -17,6 +17,7 @@ from PySide6.QtGui import QColor, QImage, QPainter, QPixmap, QTransform
 from app.canvas.live_canvas import CanvasScene
 from app.animation.lyrics import lyric_progress
 from app.canvas.source_item import SourceItem
+from app.canvas.renderers.lyrics_renderer import lyric_wrapped_rows
 from app.animation.curves import (
     AnimationPose, animation_pose, ease_in_out_cubic, loop_pose, motion_padding, music_reactive_pose,
 )
@@ -64,10 +65,15 @@ _MAX_CAPTURE_SCALE = 64.0
 _FILTERED_TRACK_PIXMAP_CACHE: dict[tuple, QPixmap] = {}
 
 
-def _lyric_cue_line_count(cue: dict[str, object]) -> int:
+def _lyric_cue_line_count(cue: dict[str, object], graphics_item: SourceItem | None = None) -> int:
     """Count the physical display rows occupied by one lyric cue."""
     text = LyricsService.decode_line_breaks(cue.get("text", ""))
-    return max(1, len([line for line in text.splitlines() if line.strip()]))
+    lines = [line for line in text.splitlines() if line.strip()]
+    if graphics_item is not None and graphics_item.source.subtitle_auto_wrap:
+        positions = cue.get("display_line_positions", tuple(range(len(lines))))
+        return max(1, sum(len(lyric_wrapped_rows(graphics_item, line, positions[index]))
+                          for index, line in enumerate(lines)))
+    return max(1, len(lines))
 
 
 def _effective_lyric_context(
@@ -87,14 +93,14 @@ def _effective_lyric_context(
     previous = min(cue_index, max(0, previous_setting))
     following_available = max(0, len(cues) - cue_index - 1)
     following = min(following_available, max(0, next_setting))
-    used_rows = _lyric_cue_line_count(cues[cue_index])
+    used_rows = _lyric_cue_line_count(cues[cue_index], graphics_item)
     used_rows += int(graphics_item._subtitle_intro_state is not None)
     used_rows += sum(
-        _lyric_cue_line_count(cues[index])
+        _lyric_cue_line_count(cues[index], graphics_item)
         for index in range(cue_index - previous, cue_index)
     )
     used_rows += sum(
-        _lyric_cue_line_count(cues[index])
+        _lyric_cue_line_count(cues[index], graphics_item)
         for index in range(cue_index + 1, cue_index + following + 1)
     )
     remaining = max(0, graphics_item.lyric_line_capacity() - used_rows)
@@ -116,7 +122,7 @@ def _effective_lyric_context(
                     blocked.add(side)
                     continue
                 candidate = cue_index + following + 1
-            row_cost = _lyric_cue_line_count(cues[candidate])
+            row_cost = _lyric_cue_line_count(cues[candidate], graphics_item)
             if row_cost > remaining:
                 blocked.add(side)
                 continue
@@ -813,6 +819,12 @@ class CanvasSnapshot:
                     graphics_item._subtitle_intro_state,
                     graphics_item._subtitle_word_reveal,
                     graphics_item._subtitle_gap_unblurred,
+                    graphics_item._subtitle_before_first,
+                    graphics_item._subtitle_blur_restore_lines,
+                    graphics_item._subtitle_blur_restore_progress,
+                    graphics_item._subtitle_prefetch_line_count,
+                    graphics_item._subtitle_prefetch_progress,
+                    graphics_item._subtitle_prefetch_entry_line_count,
                 ))
                 graphics_item._subtitle_intro_state = resolve_lyrics_intro_state(
                     track, source, elapsed_seconds,
@@ -836,6 +848,9 @@ class CanvasSnapshot:
                 graphics_item._subtitle_previous_line_count = 0
                 graphics_item._subtitle_leaving_line_count = 0
                 graphics_item._subtitle_entering_line_count = 0
+                graphics_item._subtitle_prefetch_line_count = 0
+                graphics_item._subtitle_prefetch_progress = 0.0
+                graphics_item._subtitle_prefetch_entry_line_count = 0
                 graphics_item._subtitle_emphasis = 1.0
                 graphics_item._subtitle_previous_emphasis = 1.0
                 graphics_item._subtitle_incoming_visible = True
@@ -849,6 +864,9 @@ class CanvasSnapshot:
                 display_cues, cue_index = lyrics_display_groups(track, cue_state)
                 lyric_cue = display_cues[cue_index] if cue_index is not None else None
                 graphics_item._subtitle_gap_unblurred = cue_state.gap_unblurred
+                graphics_item._subtitle_before_first = cue_state.before_first
+                graphics_item._subtitle_blur_restore_lines = frozenset()
+                graphics_item._subtitle_blur_restore_progress = lyric_progress(source, cue_state.blur_restore_progress)
                 graphics_item._subtitle_word_reveal = resolve_lyrics_word_reveal(
                     track, source, elapsed_seconds, cue_state, graphics_item._subtitle_intro_state,
                 )
@@ -878,7 +896,10 @@ class CanvasSnapshot:
                 )
                 if cue_index is not None:
                     first = max(0, cue_index - context - extra_leading)
-                    last = min(len(display_cues), cue_index + next_context + 1)
+                    visible_last = min(len(display_cues), cue_index + next_context + 1)
+                    # Prepare two future cue blocks before either becomes a
+                    # displayed upcoming cue. They do not consume context slots.
+                    last = min(len(display_cues), visible_last + 2)
                     blocks = [
                         LyricsService.decode_line_breaks(cue.get("text", "")).strip()
                         for cue in display_cues[first:last]
@@ -887,6 +908,39 @@ class CanvasSnapshot:
                         max(1, len([line for line in block.splitlines() if line.strip()]))
                         for block in blocks
                     ]
+                    graphics_item._subtitle_prefetch_line_count = sum(block_line_counts[visible_last - first:])
+                    # Bring the nearest staged cue in before the next clock
+                    # boundary, on every cue, rather than restarting its entry
+                    # after the current lyric changes. Derive from audio time
+                    # so seeking and export follow the same path as playback.
+                    if (last > visible_last and cue_index + 1 < len(display_cues)
+                            and source.subtitle_animation != "none" and not cue_state.before_first):
+                        def cue_start(index):
+                            cue = display_cues[index]
+                            originals = cue.get("display_cue_indices")
+                            return min(float(track.lyrics[position]["start"]) for position in originals) if originals else float(cue["start"])
+                        start, following_start = cue_start(cue_index), cue_start(cue_index + 1)
+                        _, following_context = _effective_lyric_context(graphics_item, display_cues, cue_index + 1)
+                        following_last = min(len(display_cues), cue_index + following_context + 2)
+                        prepared_last = min(last, following_last)
+                        graphics_item._subtitle_prefetch_entry_line_count = sum(
+                            block_line_counts[visible_last - first:prepared_last - first])
+                        duration = min(source.subtitle_animation_duration, max(.05, (following_start - start) / 2))
+                        clock = elapsed_seconds + track.lyrics_timing_offset_seconds + source.subtitle_timing_offset
+                        graphics_item._subtitle_prefetch_progress = lyric_progress(
+                            source, max(0.0, min(1.0, (clock - following_start + duration) / duration)))
+                    restored_rows = set()
+                    if cue_state.blur_restore_cue_indices:
+                        row_offset = 0
+                        for display_index in range(first, last):
+                            original_indices = display_cues[display_index].get("display_cue_indices", (display_index,))
+                            for original_index in original_indices:
+                                rows = max(1, len([line for line in LyricsService.decode_line_breaks(
+                                    track.lyrics[original_index].get("text", "")).strip().splitlines() if line.strip()]))
+                                if original_index in cue_state.blur_restore_cue_indices:
+                                    restored_rows.update(range(row_offset, row_offset + rows))
+                                row_offset += rows
+                    graphics_item._subtitle_blur_restore_lines = frozenset(restored_rows)
                     graphics_item._subtitle_line_style_indices = tuple(
                         line_index
                         for cue, line_count in zip(display_cues[first:last], block_line_counts)
@@ -957,15 +1011,28 @@ class CanvasSnapshot:
                     graphics_item._subtitle_previous_emphasis = cue_state.previous_emphasis
                     if cue_index is not None:
                         # Cue 0 is shown (dimmed) before it starts; later cues
-                        # only if they were already visible as upcoming lines.
+                        # depend on the previous window, not on how many cues
+                        # remain after the one that just became current.
+                        previous_next = 0
+                        if cue_index > 0:
+                            _, previous_next = _effective_lyric_context(
+                                graphics_item, display_cues, cue_index - 1,
+                            )
                         graphics_item._subtitle_incoming_visible = (
-                            cue_index == 0 or next_context > 0
+                            cue_index == 0 or previous_next > 0
                         )
-                        # The upcoming cue that scrolls in at the bottom was not
-                        # on screen before this transition: fade it in.
-                        if (cue_index > 0 and next_context > 0
-                                and last == cue_index + next_context + 1):
-                            graphics_item._subtitle_entering_line_count = block_line_counts[-1]
+                        # Automatic context shrinks near the end. A tail cue
+                        # already in the previous window must not enter again.
+                        if cue_index > 0 and next_context > 0:
+                            previous_last = min(len(display_cues), cue_index + previous_next)
+                            # Up to two staged cues completed their entrances
+                            # before this boundary. Keep their ordinary scroll
+                            # instead of replaying an entrance from below.
+                            entering_first = max(cue_index + 1, previous_last + 2)
+                            if entering_first < visible_last:
+                                graphics_item._subtitle_entering_line_count = sum(
+                                    block_line_counts[entering_first - first:visible_last - first]
+                                )
                     line_height = graphics_item._lyric_line_height()
                     source.subtitle_scroll_offset = (
                         (previous_line_count + graphics_item._subtitle_anchor_line_count) / 2
@@ -1313,12 +1380,20 @@ class CanvasSnapshot:
             for graphics_item, indices in original_subtitle_style_indices:
                 graphics_item._subtitle_line_style_indices = indices
                 graphics_item.update()
-            for graphics_item, raw, layout, intro_state, word_reveal, gap_unblurred in original_subtitle_motion:
+            for (graphics_item, raw, layout, intro_state, word_reveal, gap_unblurred, before_first,
+                 blur_restore_lines, blur_restore_progress, prefetch_line_count, prefetch_progress,
+                 prefetch_entry_line_count) in original_subtitle_motion:
                 graphics_item._subtitle_transition_raw = raw
                 graphics_item._subtitle_cue_layout = layout
                 graphics_item._subtitle_intro_state = intro_state
                 graphics_item._subtitle_word_reveal = word_reveal
                 graphics_item._subtitle_gap_unblurred = gap_unblurred
+                graphics_item._subtitle_before_first = before_first
+                graphics_item._subtitle_blur_restore_lines = blur_restore_lines
+                graphics_item._subtitle_blur_restore_progress = blur_restore_progress
+                graphics_item._subtitle_prefetch_line_count = prefetch_line_count
+                graphics_item._subtitle_prefetch_progress = prefetch_progress
+                graphics_item._subtitle_prefetch_entry_line_count = prefetch_entry_line_count
                 graphics_item.update()
             for (
                 graphics_item, anchor_line, anchor_count, previous_line_count,

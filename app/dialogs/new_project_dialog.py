@@ -13,7 +13,6 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QComboBox,
-    QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -30,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.dialogs.help_dialog import install_help_shortcut
+from app.dialogs.adaptive_dialog import AdaptiveDialog
 from app.models.project import (
     DEFAULT_CROSSFADE_SECONDS, MAX_CROSSFADE_SECONDS, MIN_CROSSFADE_SECONDS, ProjectSettings,
 )
@@ -57,7 +57,7 @@ PreviewSources = Callable[[PresetDefinition, float, float], list[Source]]
 """(preset, canvas width, canvas height) -> the preset's sources adapted to that canvas."""
 
 
-class NewProjectDialog(QDialog):
+class NewProjectDialog(AdaptiveDialog):
     """Choose how a new project starts; every choice stays editable in Project Settings."""
 
     def __init__(
@@ -75,7 +75,7 @@ class NewProjectDialog(QDialog):
         # Music files and playlists dragged from Explorer join the starting songs.
         self.setAcceptDrops(True)
 
-        root = QVBoxLayout(self)
+        root, outer = self.build_scrollable_body()
         root.setContentsMargins(22, 20, 22, 18)
         root.setSpacing(12)
         self.description = QLabel()
@@ -217,7 +217,7 @@ class NewProjectDialog(QDialog):
         create_button = self.buttons.button(QDialogButtonBox.StandardButton.Ok)
         if create_button is not None:
             create_button.setProperty("primary", True)
-        root.addWidget(self.buttons)
+        outer.addWidget(self.buttons)
         remove_shortcut = QShortcut(QKeySequence(QKeySequence.StandardKey.Delete), self.music_list)
         remove_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
         remove_shortcut.activated.connect(self._remove_music)
@@ -234,6 +234,7 @@ class NewProjectDialog(QDialog):
         translator.language_changed.connect(self.retranslate)
         self.retranslate()
         self._preset_changed(0)
+        self.resize(860, self.body_scroll.widget().sizeHint().height() + 90)
 
     # -- results ------------------------------------------------------------------
 
@@ -512,4 +513,14 @@ class NewProjectDialog(QDialog):
         cancel_button = self.buttons.button(QDialogButtonBox.StandardButton.Cancel)
         if cancel_button is not None:
             cancel_button.setText("취소" if korean else "Cancel")
+        for label, field in (
+            (self.title_label, self.title_edit), (self.author_label, self.author_edit),
+            (self.preset_label, self.preset_combo), (self.width_label, self.width_spin),
+            (self.height_label, self.height_spin),
+            (self.design_preset_label, self.design_preset_combo),
+            (self.transition_label, self.transition_combo),
+            (self.crossfade_label, self.crossfade_spin), (self.storage_label, self.storage_combo),
+        ):
+            label.setBuddy(field)
+            field.setAccessibleName(label.text())
         self._update_summary()

@@ -74,14 +74,15 @@ def resolve_lyrics_intro_state(track: PlaylistTrack, source: Source, elapsed: fl
     """First-cue wait or a measured instrumental interlude, on the audio clock."""
     if not (source.subtitle_intro_enabled or source.subtitle_intro_midtrack):
         return None
-    if source.subtitle_karaoke_enabled and not any(cue.get("format") == "ttml" for cue in track.lyrics):
-        return None  # Ordinary real-time lyrics display the first complete line immediately.
     first_cue = next((cue for cue in track.lyrics if str(cue.get("text", "")).strip()), None)
     if first_cue is None:
         return None  # Missing lyrics are not an intro.
     first = float(first_cue["start"]) - track.lyrics_timing_offset_seconds - source.subtitle_timing_offset
     duration = source.subtitle_animation_duration if source.subtitle_animation != "none" else 0.0
     before_first = source.subtitle_intro_enabled and first > 0 and 0.0 <= elapsed < first + duration
+    if (not before_first and source.subtitle_karaoke_enabled
+            and not any(cue.get("format") == "ttml" for cue in track.lyrics)):
+        return None  # Ordinary lyrics retain their existing midtrack behavior.
     window = (0.0, first) if before_first else None
     if window is None and source.subtitle_intro_midtrack:
         window = next(((a, b) for a, b in instrumental_spans
@@ -123,6 +124,11 @@ class LyricsCueState:
     latest_started_cue_index: int | None = None
     gap_unblurred: bool = False
     held_cue_indices: tuple[int, ...] = ()
+    # The last completed group was sharp throughout a real gap. Restore its
+    # blur independently of the already-released opacity/color emphasis.
+    blur_restore_cue_indices: tuple[int, ...] = ()
+    blur_restore_progress: float = 1.0
+    before_first: bool = False
 
 
 def resolve_lyrics_cue_state(
@@ -136,10 +142,11 @@ def resolve_lyrics_cue_state(
 ) -> LyricsCueState:
     """Resolve shared preview/export clocks, including overlapping TTML cues."""
     effective_offset = lyrics_timing_offset_seconds + subtitle_timing_offset
-    lyric_elapsed = max(0.0, elapsed_seconds + effective_offset)
+    lyric_elapsed = elapsed_seconds + effective_offset
     active_cue_index = LyricsService.current_cue_index(track.lyrics, lyric_elapsed)
     cue_index = LyricsService.display_cue_index(track.lyrics, lyric_elapsed)
     lyric_cue = track.lyrics[cue_index] if cue_index is not None else None
+    before_first = lyric_cue is not None and lyric_elapsed + .0005 < float(lyric_cue.get("start", 0.0))
     latest_started = cue_index
     active_indices: tuple[int, ...] = ()
     held_indices: tuple[int, ...] = ()
@@ -149,14 +156,14 @@ def resolve_lyrics_cue_state(
         if active_indices:
             cue_index = active_cue_index = active_indices[0]
             lyric_cue = track.lyrics[cue_index]
-        elif lyric_elapsed >= float(lyric_cue["end"]):
+        elif lyric_elapsed + .0005 >= float(lyric_cue["end"]):
             # Keep the last lyric that actually finished, rather than jumping
             # back to a later-starting phrase that had already ended earlier.
             held_indices = LyricsService.last_ending_cue_indices(track.lyrics, lyric_elapsed)
             cue_index = held_indices[0]
             lyric_cue = track.lyrics[cue_index]
     continuous = whole_lines and lyric_cue is not None and lyric_cue.get("format") != "ttml"
-    if continuous:
+    if continuous and not before_first:
         active_cue_index = cue_index
     transitioning = (
         cue_index is not None
@@ -172,8 +179,8 @@ def resolve_lyrics_cue_state(
     previous_emphasis = 1.0
     if transitioning:
         cue_start_seconds = float(lyric_cue.get("start", lyric_elapsed)) - effective_offset
-        if continuous and cue_index == 0:
-            cue_start_seconds = -duration  # The first line is already fully visible at playback start.
+        if continuous and cue_index == 0 and cue_start_seconds <= 0:
+            cue_start_seconds = -duration  # Cues already started at track entry remain fully visible.
         transition_progress = max(0.0, min(1.0, (
             (elapsed_seconds - cue_start_seconds) / duration
         )))
@@ -188,8 +195,20 @@ def resolve_lyrics_cue_state(
     ):
         cue_start = float(lyric_cue.get("start", 0.0))
         cue_end = float(lyric_cue.get("end", cue_start + 8.0))
-        if lyric_elapsed >= cue_end:
-            release_progress = min(1.0, (lyric_elapsed - cue_end) / duration)
+        if lyric_elapsed + .0005 >= cue_end:
+            release_progress = max(0.0, min(1.0, (lyric_elapsed - cue_end) / duration))
+    blur_restore_indices = ()
+    blur_restore_progress = 1.0
+    if realtime_ttml and active_indices and subtitle_animation != "none":
+        first_active = active_indices[0]
+        entry = float(track.lyrics[first_active]["start"])
+        age = lyric_elapsed - entry
+        if first_active > 0 and -.0005 <= age < duration:
+            previous_end = max(float(cue["end"]) for cue in track.lyrics[:first_active])
+            if previous_end < entry:
+                blur_restore_indices = tuple(index for index in range(first_active)
+                    if float(track.lyrics[index]["end"]) == previous_end)
+                blur_restore_progress = max(0.0, age / duration)
     return LyricsCueState(
         cue_index=cue_index,
         active_cue_index=active_cue_index,
@@ -200,8 +219,13 @@ def resolve_lyrics_cue_state(
         previous_emphasis=previous_emphasis,
         active_cue_indices=active_indices,
         latest_started_cue_index=latest_started,
-        gap_unblurred=bool(realtime_ttml and not active_indices and lyric_elapsed >= float(lyric_cue["end"])),
+        gap_unblurred=bool(realtime_ttml and not active_indices
+                          and latest_started < len(track.lyrics) - 1
+                          and lyric_elapsed + .0005 >= float(lyric_cue["end"])),
         held_cue_indices=held_indices,
+        blur_restore_cue_indices=blur_restore_indices,
+        blur_restore_progress=blur_restore_progress,
+        before_first=before_first,
     )
 
 
@@ -239,7 +263,7 @@ def lyrics_display_groups(track: PlaylistTrack, state: LyricsCueState):
     Ended cues between two active intervals belong to history, never to the
     current block. This does not rewrite or merge the track's timing data.
     """
-    if not state.active_cue_indices and not state.gap_unblurred:
+    if not state.active_cue_indices and not state.held_cue_indices:
         return track.lyrics, state.cue_index
     displayed = state.active_cue_indices or state.held_cue_indices or (state.cue_index,)
     if displayed == (state.latest_started_cue_index,):
@@ -256,7 +280,7 @@ def resolve_lyrics_word_reveal(
     cue_state: LyricsCueState, intro_state: LyricsIntroState | None,
 ) -> tuple[float, ...]:
     """Use the same word clock and interlude suppression in preview and export."""
-    if (not source.subtitle_karaoke_enabled or cue_state.cue_index is None
+    if (not source.subtitle_karaoke_enabled or cue_state.cue_index is None or cue_state.before_first
             or (intro_state is not None and not intro_state.exiting)):
         return ()
     cue = track.lyrics[cue_state.cue_index]

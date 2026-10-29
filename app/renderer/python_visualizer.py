@@ -23,6 +23,7 @@ from app.animation.curves import (
 )
 from app.utils.level_meter_painter import paint_level_meter
 from app.utils.mask_shapes import mask_path
+from app.utils.source_decoration import mirror_content, paint_frame
 from app.utils.particle_painter import paint_particles
 from app.utils.radial_visualizer import paint_radial_bars
 from app.utils.subprocess_utils import hidden_process_kwargs
@@ -965,6 +966,7 @@ class PythonVisualizerRenderer:
         painter = QPainter(image)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = QRectF(0, 0, width, height)
+        mirror_content(painter, rect, overlay)
         color = QColor(str(getattr(overlay, "color", "#FFFFFF")))
         color.setAlphaF(max(0.0, min(1.0, float(getattr(overlay, "opacity", 1.0)))))
         style = str(getattr(overlay, "style", "bars"))
@@ -1102,5 +1104,9 @@ class PythonVisualizerRenderer:
                     draw_width = bar_width * 0.62 if style == "capsule" else bar_width
                     radius = draw_width / 2
                     painter.drawRoundedRect(QRectF(x + (bar_width - draw_width) / 2, rect.center().y() - bar_height / 2, draw_width, bar_height), radius, radius)
+        painter.save()
+        painter.setOpacity(max(0.0, min(1.0, float(getattr(overlay, "opacity", 1.0)))))
+        paint_frame(painter, rect, overlay)
+        painter.restore()
         painter.end()
         return image

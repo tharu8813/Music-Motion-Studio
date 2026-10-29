@@ -73,8 +73,8 @@ _TABS = (
       "The main editor: sources, layers, properties, playlist and timeline")),
     ("preview", ("미리보기", "Preview"),
      ("음악과 함께 전체 영상을 재생해 확인하는 화면", "Play the whole video with its music")),
-    ("lyrics_editor", ("가사 편집기", "Lyrics editor"),
-     ("LRC 파일 생성기: 가사 입력과 타이밍 기록", "The LRC File Generator: type lyrics and record their timing")),
+    ("lyrics_editor", ("가사/자막 편집기", "Lyrics/Subtitle Editor"),
+     ("가사/자막 편집기: 가사 입력과 타이밍 기록", "The Lyrics/Subtitle Editor: type lyrics and record their timing")),
     ("automix_editor", ("AutoMix 편집기", "AutoMix editor"),
      ("곡 사이 전환을 두 곡 타임라인에서 다듬는 창", "Fine-tune transitions on a two-track timeline")),
     ("track", ("곡 정보/설정", "Track info/settings"),
@@ -429,6 +429,7 @@ _CANVAS = (
        """<p>속성 패널의 <b>애니메이션</b> 탭에서 요소가 곡마다 나타나고 사라지는 효과를 정합니다.</p>
 <ul>
 <li><b>시작 효과 / 종료 효과</b>: 없음, 페이드, 왼쪽·오른쪽·위쪽·아래쪽 슬라이드, 줌, 줌 아웃, 팝, 통통 튀기, 떠오르기, 떨어지기, 회전, 스핀, 흔들며 등장, 뒤집기</li>
+<li><b>반복 모션</b>: 둥실 떠다니기·숨쉬기·맥박·흔들림·회전·떠돌기·출렁임·타원 궤도·좌우 떨림·끄덕이기·깜빡임. 반복 주기와 강도를 조절합니다. 영상 요소에서는 반복 모션을 지원하지 않습니다.</li>
 <li><b>시작 / 종료 시간</b>: 각 효과가 재생되는 길이(초)</li>
 <li>크로스페이드나 AutoMix에서는 두 곡이 겹치는 구간의 가운데에서 화면이 다음 곡으로 넘어갑니다. 관련 옵션으로 종료 효과가 겹침 구간에 맞춰 재생되도록 할 수 있습니다.</li>
 </ul>
@@ -438,6 +439,7 @@ _CANVAS = (
        """<p>The inspector's <b>Animation</b> tab sets how a source appears and leaves with each track.</p>
 <ul>
 <li><b>Entrance / exit effect</b>: none, fade, slide left/right/up/down, zoom, zoom out, pop, bounce, float up, drop, rotate, spin, wobble in, flip</li>
+<li><b>Loop motion</b>: Float, Breathe, Pulse, Sway, Spin, Drift, Wobble, Orbit, Shake, Nod or Blink. Adjust the period and amount. Video sources do not support loop motion.</li>
 <li><b>Entrance / exit duration</b>: how long each effect plays (seconds)</li>
 <li>With crossfade or AutoMix the screen switches to the next track in the middle of the overlap; an option lets the exit effect line up with that overlap.</li>
 </ul>
@@ -819,7 +821,7 @@ _PREVIEW = (
 <tr><td>곡 목록의 곡 클릭</td><td>그 곡의 처음으로 이동</td></tr>
 </table>
 <ul>
-<li>볼륨은 곡 정보/설정의 미리듣기, 가사 편집기와 같은 값을 공유합니다.</li>
+<li>볼륨은 곡 정보/설정의 미리듣기, 가사/자막 편집기와 같은 값을 공유합니다.</li>
 <li>재생 중에도 곡 목록 패널을 접으면 화면이 넓어집니다.</li>
 </ul>""",
        """<table cellspacing='4'>
@@ -832,7 +834,7 @@ _PREVIEW = (
 <tr><td>Click a track in the track list</td><td>Jump to its start</td></tr>
 </table>
 <ul>
-<li>The volume is shared with listening in Track information/settings and the lyrics editor.</li>
+<li>The volume is shared with listening in Track information/settings and the lyrics/subtitle editor.</li>
 <li>Fold the track list panel for a larger picture, even while playing.</li>
 </ul>""",
        ("full_preview", "shortcuts"),
@@ -922,32 +924,32 @@ _PREVIEW = (
 
 
 # ---------------------------------------------------------------------------------------------
-# Lyrics editor: the LRC File Generator
+# Lyrics/Subtitle Editor: the Lyrics/Subtitle Editor
 # ---------------------------------------------------------------------------------------------
 
 _LYRICS = (
-    _e("lyrics_editor", "lrc_generator", ("가사 편집기 개요", "Lyrics editor overview"),
+    _e("lyrics_editor", "lrc_generator", ("가사/자막 편집기 개요", "Lyrics/Subtitle Editor overview"),
        ("가사,LRC", "lyrics,LRC"),
-       """<p><b>가사 편집기</b>(LRC 파일 생성기)는 노래를 들으면서 가사 줄마다 시간을 기록해 <b>동기화 가사(LRC)</b>를 만드는 창입니다.</p>
+       """<p><b>가사/자막 편집기</b>는 노래를 들으면서 가사 줄마다 시간을 기록해 <b>동기화 가사(LRC)</b>를 만드는 창입니다.</p>
 <h2>여는 방법</h2>
 <ul>
-<li><b>도구 → LRC 파일 생성기</b>: 새 LRC 파일을 만듭니다. 4단계: 오디오 선택 → 가사 입력 → 타이밍 기록 → 확인 및 저장</li>
-<li><b>곡 정보/설정 → 가사 설정 → LRC 생성기로 편집</b>: 그 곡의 오디오와 현재 가사·타이밍을 불러와 고칩니다. 3단계: 가사 입력 → 타이밍 기록 → 확인 및 적용. <b>완료</b>를 누르면 곡에 바로 적용됩니다.</li>
+<li><b>도구 → 가사/자막 편집기</b>: 새 LRC 파일을 만듭니다. 4단계: 오디오 선택 → 가사 입력 → 타이밍 기록 → 확인 및 저장</li>
+<li><b>곡 정보/설정 → 가사 설정 → 편집기 열기</b>: 그 곡의 오디오와 현재 가사·타이밍을 불러와 고칩니다. 3단계: 가사 입력 → 타이밍 기록 → 확인 및 적용. <b>완료</b>를 누르면 곡에 바로 적용됩니다.</li>
 </ul>
 [[img:lyrics_timing]]
 <p>창 위쪽에 현재 단계와 설명, 단계 점(○●)이 보이고, 아래쪽 <b>&lt; 이전</b> / <b>다음 &gt;</b>로 단계를 오갑니다. 타이밍 기록 단계의 번호는 <a href='topic:lrc_timing'>타이밍 기록</a>에서 설명합니다.</p>
 <div class='note'>가사 입력과 타이밍은 오디오별 복구 초안으로 자동 저장됩니다. <a href='topic:lrc_recovery'>자동 저장과 복구</a>를 참고하세요.</div>""",
-       """<p>The <b>lyrics editor</b> (LRC File Generator) makes <b>synchronized lyrics (LRC)</b> by recording a time for each line while you listen.</p>
+       """<p>The <b>lyrics/subtitle editor</b> (Lyrics/Subtitle Editor) makes <b>synchronized lyrics (LRC)</b> by recording a time for each line while you listen.</p>
 <h2>Opening it</h2>
 <ul>
-<li><b>Tools → LRC File Generator</b>: make a new LRC file in four steps: choose audio → enter lyrics → record timing → review and save</li>
-<li><b>Track information/settings → Lyrics settings → Edit in LRC Generator</b>: load that track's audio and current lyrics and timing to fix them, in three steps: enter lyrics → record timing → review and apply. <b>Done</b> applies the result to the track.</li>
+<li><b>Tools → Lyrics/Subtitle Editor</b>: make a new LRC file in four steps: choose audio → enter lyrics → record timing → review and save</li>
+<li><b>Track information/settings → Lyrics settings → Open editor</b>: load that track's audio and current lyrics and timing to fix them, in three steps: enter lyrics → record timing → review and apply. <b>Done</b> applies the result to the track.</li>
 </ul>
 [[img:lyrics_timing]]
 <p>The top shows the current step, its description and step dots (○●); <b>&lt; Back</b> / <b>Next &gt;</b> at the bottom move between steps. The numbers on the timing step are explained under <a href='topic:lrc_timing'>Recording timing</a>.</p>
 <div class='note'>Lyrics and timing are autosaved as a recovery draft per audio file. See <a href='topic:lrc_recovery'>Autosave and recovery</a>.</div>""",
        ("lrc_audio", "lrc_input", "lrc_timing", "lrc_review"),
-       ("LRC 파일 생성기 가사 만들기 싱크 동기화 단계", "LRC file generator make lyrics sync synchronize steps")),
+       ("가사/자막 편집기 가사 만들기 싱크 동기화 단계", "LRC file generator make lyrics sync synchronize steps")),
 
     _e("lyrics_editor", "lrc_audio", ("1단계 · 오디오 선택", "Step 1 · Choose the audio"),
        ("가사,LRC", "lyrics,LRC"),
@@ -1061,7 +1063,7 @@ _LYRICS = (
        ("lrc_generator",),
        ("자동 저장 복구 초안 비정상 종료 변경 유지 무시", "autosave recovery draft crash keep discard changes")),
 
-    _e("lyrics_editor", "lrc_shortcuts", ("가사 편집기 단축키", "Lyrics editor shortcuts"),
+    _e("lyrics_editor", "lrc_shortcuts", ("가사/자막 편집기 단축키", "Lyrics/Subtitle Editor shortcuts"),
        ("가사,단축키", "lyrics,shortcuts"),
        """<table cellspacing='4'>
 <tr><th>키</th><th>동작</th></tr>
@@ -1095,7 +1097,7 @@ _LYRICS = (
        """<p>곡에 가사를 연결하고 캔버스에 <b>가사 / 자막</b> 요소를 추가하면, 재생 위치에 맞춰 가사가 표시됩니다.</p>
 <h2>표시 규칙</h2>
 <p>현재 가사와 이전·다음 가사 묶음이 재생 시간에 맞춰 이동합니다. 첫 가사 전에는 <a href='topic:lyrics_intro'>인트로 임시 줄</a>을 표시할 수 있습니다. 중간의 긴 무보컬 구간에도 임시 줄을 넣을 수 있으며, 끝나면 가사 전환과 함께 사라집니다.</p>
-<h2>가사 요소의 속성 설정</h2>
+<p>글꼴 자동 감소와 단어 단위 줄바꿈은 <a href="topic:lyrics_wrapping">글꼴 크기와 자동 줄바꿈</a>을 참고하세요. 다음 가사는 매 큐 전환 직전부터 바깥에서 들어오고 전환 후 같은 위치에서 이어집니다. 전환 효과를 없음으로 설정하면 즉시 바뀝니다.</p><h2>가사 요소의 속성 설정</h2>
 <ul>
 <li><b>속성 → 애니메이션</b>: 글로우·라이즈·페이드·슬라이드·줌·순차 이동·바운스 등의 기본 전환과 <a href='topic:lyrics_transition'>자막 전환 설정</a>. 이동 방향·줄 배치·이전/현재/다음 스타일·인트로는 카테고리별 고급 모드로 조절합니다.</li>
 <li><b>문맥 줄</b>: 이전·다음 묶음 수, 줄 간격, 이전 가사의 불투명도·블러. 거리별 흐림은 고급 줄 스타일에서 이전·다음 각각 설정합니다.</li>
@@ -1105,7 +1107,7 @@ _LYRICS = (
 <li><b>타이밍 보정</b>: 모든 곡에 공통으로 적용되며, 곡별 보정과 더해집니다.</li>
 </ul>
 <h2>곡별 타이밍</h2>
-<p>한 곡만 어긋나면 <a href='topic:track_lyrics'>곡 정보/설정 → 가사 설정</a>의 <b>곡별 타이밍 보정</b>을 씁니다. 양수는 가사를 더 빠르게, 음수는 더 늦게 표시합니다. 크게 틀리면 <a href='topic:lrc_generator'>가사 편집기</a>로 다시 기록하세요.</p>""",
+<p>한 곡만 어긋나면 <a href='topic:track_lyrics'>곡 정보/설정 → 가사 설정</a>의 <b>곡별 타이밍 보정</b>을 씁니다. 양수는 가사를 더 빠르게, 음수는 더 늦게 표시합니다. 크게 틀리면 <a href='topic:lrc_generator'>가사/자막 편집기</a>로 다시 기록하세요.</p>""",
        """<p>Attach lyrics to a track and add a <b>Lyrics / subtitles</b> source to the canvas: lyrics then follow the playback position.</p>
 <h2>How lines appear</h2>
 <p>Current, previous and upcoming cues move with playback time. A <a href='topic:lyrics_intro'>temporary intro row</a> can appear before the first lyric and during long vocal-free gaps, then disappear with the lyric transition.</p>
@@ -1119,7 +1121,7 @@ _LYRICS = (
 <li><b>Timing offset</b>: applies to every track and adds to each track's own offset.</li>
 </ul>
 <h2>Per-track timing</h2>
-<p>If just one track is off, use <b>Per-track timing offset</b> in <a href='topic:track_lyrics'>Track information/settings → Lyrics settings</a>: positive shows lyrics earlier, negative later. If it is badly off, re-record it in the <a href='topic:lrc_generator'>lyrics editor</a>.</p>""",
+<p>If just one track is off, use <b>Per-track timing offset</b> in <a href='topic:track_lyrics'>Track information/settings → Lyrics settings</a>: positive shows lyrics earlier, negative later. If it is badly off, re-record it in the <a href='topic:lrc_generator'>lyrics/subtitle editor</a>.</p>""",
        ("lyrics_files", "track_lyrics", "lrc_generator"),
        ("가사 요소 자막 표시 하이라이트 강조 인트로 줄별 스타일 음악 반응 문맥 줄 보정",
         "lyrics source subtitles highlight intro per-line styles music reaction context lines offset")),
@@ -1128,11 +1130,11 @@ _LYRICS = (
        ("가사,플레이리스트", "lyrics,playlist"),
        """<ul>
 <li>지원 형식: <b>LRC</b>, <b>SRT</b>, <b>WebVTT(.vtt)</b>, <b>TTML</b></li>
-<li><b>온라인 검색</b>: <b>도구 → 가사 검색 및 가져오기</b> 또는 곡 설정의 <b>가사 검색 및 가져오기</b>를 엽니다. 제목은 필수이고 아티스트·앨범·길이·제공자는 선택 사항입니다. 앨범은 검색 결과를 좁히는 데 사용하며 국가 선택은 지원하지 않습니다. 플레이리스트에서 제목과 아티스트가 있는 곡을 고르면 입력값과 연결할 곡이 채워집니다. LiriQo는 한 음원의 여러 제공자별 가사를 반환하며 결과를 캐시합니다. 오류나 결과 없음에 대한 자동 재요청은 하지 않습니다.</li>
+<li><b>온라인 검색</b>: <b>도구 → 가사 검색 및 가져오기</b> 또는 <b>곡 정보/설정 → 가사 설정 → 가져오기… → 온라인 가사 검색…</b>에서 엽니다. KuGou·AMLL TTML DB·LRCLIB를 검색합니다. 제목은 필수이며 아티스트·앨범은 선택입니다. 앨범은 일치하는 결과의 우선순위를 높입니다. <b>플레이리스트에서 찾기</b>를 선택하면 <b>음악 선택</b>에서 곡 정보를 불러옵니다. 제목·아티스트·앨범을 수정하면 <b>직접 입력</b>으로 자동 전환하며 음악 선택이 비활성화됩니다. 제공자와 시간 정보가 있는 가사만 검색할지 선택할 수 있습니다. 길이를 직접 입력하는 항목은 없습니다. 자세한 사용법은 <a href="topic:lyrics_online_search">온라인 가사 검색</a>을 참고하세요.</li>
 <li>검색 결과를 선택해 내용을 확인하고 <b>가사 텍스트 복사</b>로 시간 정보를 제외한 글자만 복사하거나 <b>파일로 저장</b>으로 원본 TTML/LRC 파일을 저장할 수 있습니다. <b>곡에 적용</b>으로 선택한 곡에 연결하며 기존 가사가 있으면 비교 후 교체합니다. 시간 정보 없는 가사는 TXT로 저장하거나 텍스트를 복사할 수 있습니다. 결과 내 검색은 Ctrl+Shift+F로 이용할 수 있습니다.</li>
 <li><b>실시간 가사 설정</b>: 캔버스의 <b>가사/자막 요소 → 속성 → 실시간 가사</b>에서 사용 여부, 강조할 줄, 색상과 단어 강조 보정을 설정합니다. 해당 요소에 표시되는 모든 곡에 공통으로 적용되며, 곡별 파일 연결과 타이밍 보정은 <b>곡 정보/설정 → 가사 설정</b>에서 관리합니다.</li>
-<li><b>실시간 가사</b>: LRC·SRT·VTT는 곡 시작부터 첫 줄 전체를 표시하고 다음 가사 시간에 전환합니다. TTML은 파일의 줄·단어·음절 시간을 사용합니다. 음악을 분석하거나 단어 시간을 추정하지 않습니다.</li>
-<li>TTML 가사는 종료 시간까지 현재 상태를 유지합니다. 동시에 진행되는 가사는 한 묶음으로 중앙에 표시합니다. 가사 사이 공백에서는 마지막에 끝난 줄을 유지하고 해당 줄의 블러만 해제합니다.</li>
+<li><b>실시간 가사</b>: LRC·SRT·VTT는 각 가사 시작 시간에 줄 전체를 활성화하고 다음 가사 시간에 전환합니다. 첫 가사 시작 전에는 다음 가사 스타일로 대기하며, 대기 표시를 켜면 인트로 임시 줄이 표시됩니다. TTML은 파일의 줄·단어·음절 시간을 사용합니다. 음악을 분석하거나 단어 시간을 추정하지 않습니다.</li>
+<li>TTML 가사는 종료 시간까지 현재 상태를 유지합니다. 동시에 진행되는 가사는 한 묶음으로 중앙에 표시합니다. 가사 사이 공백에서는 마지막에 끝난 줄의 블러만 해제하고, 다음 가사가 시작하면 전환 시간에 맞춰 블러를 복원합니다. 전체 가사가 끝난 뒤에는 마지막 줄에도 이전 가사 블러를 적용합니다.</li>
 <li>같은 곡의 가사 파일이 여러 개면 자동 연결 설정이 '항상 함께 추가'여도 파일 선택창이 나타납니다. 취소하면 가사를 연결하지 않습니다.</li>
 <li><b>자동 연결</b>: 음악을 추가할 때 같은 폴더에 이름이 같은 가사 파일이 있으면 함께 연결합니다. <b>도구 → 설정 → 콘텐츠 → 가사·자막 파일 자동 연결</b>에서 항상 함께 추가(권장) · 물어보기 · 추가하지 않음을 고릅니다. 이름이 비슷한 파일은 설정과 관계없이 물어봅니다.</li>
 <li><b>끌어 놓기</b>: 가사 파일을 플레이리스트의 곡 위나 프로젝트 콘텐츠에서 곡 위로 끌어 놓습니다.</li>
@@ -1141,11 +1143,11 @@ _LYRICS = (
 <div class='note'>여러 줄 가사는 LRC로 내보낼 때 문자 <code>\\n</code>으로 저장됩니다.</div>""",
        """<ul>
 <li>Supported: <b>LRC</b>, <b>SRT</b>, <b>WebVTT (.vtt)</b> and <b>TTML</b></li>
-<li><b>Online lookup</b>: open <b>Tools → Search &amp; Import Lyrics</b> or <b>Search &amp; Import Lyrics</b> in track settings. Title is required; artist, album, duration and provider are optional. Album filters returned results, and country selection is not supported. Choosing a playlist song with title and artist fills the query and target. LiriQo returns provider-specific lyric versions for one resolved recording and caches the response. Failed requests do not automatically retry.</li>
+<li><b>Online lookup</b>: open <b>Tools → Search &amp; Import Lyrics</b> or <b>Track information/settings → Lyrics settings → Import… → Search lyrics online…</b>. Search KuGou, AMLL TTML DB and LRCLIB. Title is required; artist and album are optional. Album improves result ranking. <b>Find from playlist</b> fills details from <b>Choose music</b>. Editing title, artist or album switches to <b>Enter manually</b> and disables music selection. Choose a provider and whether to include only timed lyrics. There is no duration input. See <a href="topic:lyrics_online_search">Online lyric search</a>.</li>
 <li>Choose a result to preview, use <b>Copy lyrics text</b> for words without timestamps, or <b>Save file</b> for the original TTML/LRC file. <b>Attach to track</b> connects it to the chosen song, comparing existing lyrics before replacement. Untimed lyrics can be copied or saved as TXT. Ctrl+Shift+F filters the existing results.</li>
 <li><b>Real-time lyric settings</b>: select the canvas <b>Lyrics/Subtitles element → Properties → Real-time lyrics</b> to set enabled state, highlighted lines, colors and word highlight offset. These settings apply to every track displayed by that element. Manage individual lyric attachments and timing offsets in <b>Track information/settings → Lyrics settings</b>.</li>
-<li><b>Real-time lyrics</b>: LRC, SRT and VTT show the complete first line from track start and switch at the next cue. TTML uses the file's line, word and syllable timings. No audio analysis or word timing estimation is used.</li>
-<li>TTML lyrics stay current until their end times. Overlapping lyrics form one centered group. In gaps, the last line to finish remains visible with its blur disabled.</li>
+<li><b>Real-time lyrics</b>: LRC, SRT and VTT activate each complete line at its start time and switch at the next cue. Before the first cue, lyrics use the upcoming style; enabling the wait indicator displays a temporary intro row. TTML uses the file's line, word and syllable timings. No audio analysis or word timing estimation is used.</li>
+<li>TTML lyrics stay current until their end times. Overlapping lyrics form one centered group. In gaps, only the last completed group's blur is disabled; it returns over the transition duration when the next cue starts. After all lyrics end, the final group also uses the previous-lyric blur.</li>
 <li>Multiple lyric files for one song always open a file chooser, even when automatic attachment is set to Always. Cancel leaves lyrics unattached.</li>
 <li><b>Automatic</b>: when you add music, a lyric file with the same name in the same folder is attached. Choose always (recommended), ask, or never in <b>Tools → Settings → Content → Attach lyric and subtitle files</b>. Similarly named files are always asked about.</li>
 <li><b>Drag and drop</b>: drop a lyric file on a track in the playlist, or from Project Content onto a track.</li>
@@ -1577,26 +1579,26 @@ _TRACK = (
        """[[img:track_lyrics]]
 <h2>가사 / 자막</h2>
 <ul>
-<li><b>파일 불러오기…</b>: LRC·SRT·VTT 파일을 이 곡에 연결</li>
-<li><b>프로젝트 콘텐츠…</b>: 프로젝트 콘텐츠에 있는 가사 파일 중에서 고르기</li>
-<li><b>LRC 생성기로 편집…</b>: 이 곡의 오디오와 가사·타이밍을 <a href='topic:lrc_generator'>가사 편집기</a>에서 고치기</li>
+<li><b>가져오기…</b>: 파일(LRC·SRT·VTT·TTML), 프로젝트 콘텐츠, 온라인 검색 중에서 선택</li>
+<li><b>더보기</b>: LRC 내보내기 또는 가사 연결 해제</li>
+<li><b>편집기 열기…</b>: 이 곡의 오디오와 가사·타이밍을 <a href='topic:lrc_generator'>가사/자막 편집기</a>에서 고치기</li>
 <li><b>LRC로 내보내기…</b>: 곡별 보정을 적용한 현재 가사를 LRC 파일로 저장</li>
 <li><b>연결 해제</b>: 이 곡에서 가사를 뗍니다.</li>
 </ul>
-<h2>곡별 타이밍 보정</h2>
+<p>TTML 편집 전에는 LRC 변환 또는 줄 삭제 전용 모드를 선택합니다. 줄 삭제 모드는 남은 줄의 시간·단어 정보를 보존하며 원본 파일을 변경하지 않습니다.</p><h2>곡별 타이밍 보정</h2><p><b>타이밍 보정</b>을 펼쳐 조절합니다.</p>
 <p><b>−0.10</b> / <b>+0.10</b> 버튼이나 직접 입력으로 이 곡의 가사를 앞당기거나 늦춥니다. 양수는 가사를 더 빠르게, 음수는 더 늦게 표시하며, 가사 요소의 공통 보정값과 더해집니다. 아래 목록에 보정이 적용된 타임코드가 미리 보입니다.</p>
 <h2>노래와 가사 미리보기</h2>
 <p>재생·정지와 위치 슬라이더로 실제 노래를 들으며 이전·현재·다음 가사가 맞게 나오는지 확인합니다. 볼륨은 미리보기와 공유됩니다.</p>""",
        """[[img:track_lyrics]]
 <h2>Lyrics / subtitles</h2>
 <ul>
-<li><b>Load file…</b>: attach an LRC, SRT or VTT file to this track</li>
-<li><b>From project content…</b>: pick one of the lyric files in project content</li>
-<li><b>Edit in LRC Generator…</b>: fix this track's lyrics and timing in the <a href='topic:lrc_generator'>lyrics editor</a> with its audio</li>
+<li><b>Import…</b>: choose a file (LRC/SRT/VTT/TTML), project content or online search</li>
+<li><b>More</b>: export as LRC or detach lyrics</li>
+<li><b>Open editor…</b>: fix this track's lyrics and timing in the <a href='topic:lrc_generator'>lyrics/subtitle editor</a> with its audio</li>
 <li><b>Export as LRC…</b>: save the current lyrics, with this track's offset applied, as an LRC file</li>
 <li><b>Detach</b>: remove the lyrics from this track</li>
 </ul>
-<h2>Per-track timing offset</h2>
+<p>Before editing TTML, choose LRC conversion or deletion-only mode. Deletion preserves all remaining cue and word timings without changing the original file.</p><h2>Per-track timing offset</h2><p>Expand <b>Timing adjustment</b> to use these controls.</p>
 <p>Use <b>−0.10</b> / <b>+0.10</b> or type a value to move this track's lyrics. Positive shows them earlier, negative later, and it adds to the lyrics source's common offset. The list below previews the adjusted timecodes.</p>
 <h2>Song and lyrics preview</h2>
 <p>Play, stop and seek the real song and watch the previous, current and next lyric line up. The volume is shared with Preview.</p>""",
@@ -1930,7 +1932,7 @@ Transitions shorten the video by the overlaps.</li>
 <ul>
 <li><a href='topic:canvas_shortcuts'>메인 창(캔버스·플레이리스트)</a> — <b>도움말 → 단축키 안내</b>에도 표로 있습니다.</li>
 <li><a href='topic:preview_controls'>미리보기</a> — <code>Space</code>, <code>←</code>/<code>→</code>, <code>Shift+←</code>/<code>→</code>, <code>↑</code>/<code>↓</code></li>
-<li><a href='topic:lrc_shortcuts'>가사 편집기</a> — <code>Space</code> 기록, <code>Ctrl+Space</code> 재생, <code>Shift+F1</code> 단축키 창</li>
+<li><a href='topic:lrc_shortcuts'>가사/자막 편집기</a> — <code>Space</code> 기록, <code>Ctrl+Space</code> 재생, <code>Shift+F1</code> 단축키 창</li>
 <li><a href='topic:automix_shortcuts'>AutoMix 편집기</a> — <code>Space</code>, <code>L</code>, <code>B</code>, <code>S</code>, <code>Shift+F1</code> 단축키 창</li>
 </ul>
 <p>텍스트나 숫자 입력칸에 커서가 있으면 일반 입력이 우선합니다.</p>""",
@@ -1938,7 +1940,7 @@ Transitions shorten the video by the overlaps.</li>
 <ul>
 <li><a href='topic:canvas_shortcuts'>Main window (canvas, playlist)</a> — also as a table in <b>Help → Keyboard shortcuts</b></li>
 <li><a href='topic:preview_controls'>Preview</a> — <code>Space</code>, <code>←</code>/<code>→</code>, <code>Shift+←</code>/<code>→</code>, <code>↑</code>/<code>↓</code></li>
-<li><a href='topic:lrc_shortcuts'>Lyrics editor</a> — <code>Space</code> records, <code>Ctrl+Space</code> plays, <code>Shift+F1</code> shortcut window</li>
+<li><a href='topic:lrc_shortcuts'>Lyrics/Subtitle Editor</a> — <code>Space</code> records, <code>Ctrl+Space</code> plays, <code>Shift+F1</code> shortcut window</li>
 <li><a href='topic:automix_shortcuts'>AutoMix editor</a> — <code>Space</code>, <code>L</code>, <code>B</code>, <code>S</code>, <code>Shift+F1</code> shortcut window</li>
 </ul>
 <p>While a text or number field has the cursor, typing wins.</p>""",
@@ -1976,4 +1978,12 @@ Transitions shorten the video by the overlaps.</li>
         "error problem log diagnostics about does not start crash missing media fail disk space")),
 )
 
-_ENTRIES: tuple[_Entry, ...] = _CANVAS + _PREVIEW + _LYRICS + _AUTOMIX + _TRACK + _OTHER
+
+_RECENT_FEATURES = (
+    _e('canvas', 'lyrics_wrapping', ('가사 글꼴 크기와 자동 줄바꿈', 'Lyric font fitting and word wrap'), ('가사,줄바꿈,글꼴', 'lyrics,wrapping,font'), '<p>가사 / 자막 요소의 <b>속성 → 자막/가사 → 줄 배치</b>에서 설정합니다.</p><ul><li><b>글꼴 크기 자동 감소</b>: 요소보다 긴 줄의 크기를 줄입니다.</li><li><b>자동 줄바꿈</b>: 단어 사이에서 줄을 나누며 한 단어를 글자별로 쪼개지 않습니다. 자동 감소와 함께 사용할 수 있습니다.</li><li><b>줄바꿈 기준</b>: 요소 너비 또는 직접 지정을 선택합니다. 가로 이동에서는 각 가사의 표시 영역 너비를 사용합니다.</li><li><b>줄바꿈 너비</b>: 직접 지정 시 배율 적용 전 px로 입력합니다.</li></ul><p>길어서 자동으로 나뉜 행은 윗줄에 붙여 표시합니다. 원래 가사에 있던 줄바꿈은 기존 가사 줄 간격과 줄별 스타일을 유지합니다. 긴 단어가 잘리면 자동 감소를 켜거나 너비를 늘리세요. 줄바꿈은 원본 가사 시간과 단어 강조를 바꾸지 않습니다.</p>[[img:lyrics_wrapping]]', '<p>Select a Lyrics / subtitles source and open <b>Inspector → Lyrics/subtitles → Line layout</b>.</p><ul><li><b>Automatically reduce font size</b>: shrink lines wider than the element.</li><li><b>Automatic word wrap</b>: wrap between words without splitting a word. Both options can be enabled independently.</li><li><b>Wrap width basis</b>: element width or custom width. Horizontal flow uses the width of each cue slot.</li><li><b>Wrap width</b>: custom width in pixels before element scaling.</li></ul><p>Automatic continuation rows stay close together. Original lyric line breaks keep their normal lyric spacing and per-line styles. Enable shrinking or increase width if an unbroken word is clipped. Wrapping preserves original timing and word highlighting.</p><p>Upcoming lyrics start entering from outside before each cue changes, then continue from the same position. The None transition switches immediately.</p>[[img:lyrics_wrapping]]', ('lyrics', 'lyrics_line_styles')),
+    _e('lyrics_editor', 'lyrics_online_search', ('온라인 가사 검색과 선택 적용', 'Online lyric search and selective attachment'), ('검색,가사,플레이리스트', 'search,lyrics,playlist'), '<p><b>도구 → 가사 검색 및 가져오기</b> 또는 <b>곡 정보/설정 → 가사 설정 → 가져오기… → 온라인 가사 검색…</b>에서 곡 정보 → 검색 결과 → 가사 확인 순서로 진행합니다.</p>[[img:lyrics_search]]<p>플레이리스트에서 찾기와 직접 입력을 선택합니다. 음악 선택으로 정보를 채운 뒤 내용을 수정하면 직접 입력으로 전환됩니다. 제목은 필수이고 아티스트·앨범은 선택입니다. KuGou·AMLL TTML DB·LRCLIB 중 선택하거나 모두 검색합니다.</p><p>검색 결과에서 곡·아티스트·앨범·길이·제공자·<b>가사 타입</b>을 비교합니다. 선택 후 실제 동기화 정보를 확인합니다. <b>Ctrl+Shift+F</b>는 현재 결과를 필터링합니다. 결과를 선택하고 다음에서 내용을 확인하세요.</p><p>가사 표의 체크박스로 적용할 행을 고릅니다. 전체 선택·전체 해제와 선택 개수를 확인할 수 있습니다. 선택한 행만 곡에 적용하며 텍스트 복사에도 선택이 반영됩니다. 모두 해제하면 적용할 수 없습니다. <b>파일로 저장</b>은 선택한 행이 아니라 제공된 원본을 저장합니다. 시간 정보 없는 가사는 복사·TXT 저장만 가능합니다.</p><p>기존 가사가 있으면 비교 창에서 변경된 행과 단어 시간 포함 여부를 확인한 뒤 교체합니다. 원본 가사 파일은 변경하지 않습니다. 곡 설정에서 열었다면 마지막에 곡 설정의 <b>적용</b>을 눌러 확정하세요.</p>', '<p>Open <b>Tools → Search &amp; Import Lyrics</b>, then follow Song details → Search results → Review lyrics.</p>[[img:lyrics_search]]<p>Choose Find from playlist or Enter manually. Editing filled title, artist or album automatically switches to manual entry and disables music selection. Title is required. Search KuGou, AMLL TTML DB, LRCLIB or all providers.</p><p>Compare song, artist, album, length, provider and <b>Lyrics type</b>. Select a result to verify its timing, then continue to review. <b>Ctrl+Shift+F</b> filters existing results.</p><p>Check lyric rows to attach; Select all, Clear selection and a selection count are available. Attachment and text copying use checked rows. Attachment requires at least one row. <b>Save file</b> preserves the complete original, regardless of row selection. Untimed lyrics support copying and TXT saving only.</p><p>Compare existing and new lyrics before replacement, including changed rows and word timings. Original files are unchanged. When opened from track settings, press <b>Apply</b> there to confirm.</p>', ('lyrics_files', 'track_lyrics')),
+    _e('canvas', 'source_decoration', ('요소 뒤집기와 프레임', 'Source flipping and frames'), ('요소,뒤집기,프레임', 'sources,flip,frame'), '<p>요소 속성에서 좌우·상하 뒤집기와 프레임 너비·색상·안쪽 여백을 조절할 수 있습니다. 프레임 디자인을 선택해 빠르게 꾸미거나 값을 직접 조절하세요. 프레임을 지워도 다른 외형 설정은 유지됩니다. 배율과 투명도는 프레임에도 적용됩니다.</p>', '<p>Source properties offer horizontal/vertical flipping and frame width, color and inset. Choose a frame design or adjust values directly. Clearing the frame preserves other appearance settings. Source scaling and opacity also apply to frames.</p>', ('properties',)),
+    _e('other', 'status_warnings', ('상태 표시줄 경고 확인', 'Status bar warnings'), ('경고,가사,파일', 'warnings,lyrics,files'), '<p>상태 표시줄 왼쪽의 경고에 마우스를 올리면 상세 내용을 확인할 수 있습니다. 팝업을 고정해 내용을 읽고 문제를 해결하세요. 가사를 연결했지만 표시할 요소가 없거나, 단어 시간 가사가 있는데 실시간 가사 표시가 꺼진 경우 안내합니다. 원본 음악 파일 누락과 모든 곡 제외 상태도 확인합니다. 경고는 설정을 자동으로 변경하지 않으며 문제가 해결되면 사라집니다.</p>', '<p>Hover the warning at the left of the status bar to read details; pin the popup if needed. Warnings cover attached lyrics without a visible lyric source, word-timed lyrics with real-time display disabled, missing audio files and all tracks being excluded. Warnings do not change settings and disappear when resolved.</p>', ('lyrics', 'playlist')),
+)
+
+_ENTRIES: tuple[_Entry, ...] = _CANVAS + _PREVIEW + _LYRICS + _AUTOMIX + _TRACK + _OTHER + _RECENT_FEATURES

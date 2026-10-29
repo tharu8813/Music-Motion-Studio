@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication
 from app.canvas.source_item import SourceItem
 from app.canvas.live_canvas import CanvasScene
 from app.inspector.source_inspector import SourceInspector
-from app.models.source import Shadow, Source, SourceType
+from app.models.source import SHAPE_KINDS, Shadow, Source, SourceType
 from app.services.source_store import SourceStore
 from app.utils.i18n import Translator
 
@@ -25,12 +25,13 @@ class ShapeRenderingTests(unittest.TestCase):
         # MinimalViewportUpdate clears the item's old/new bounding regions.
         # Compare that partial repaint with a fresh frame to detect trails.
         background = QColor("#202733")
-        for kind in ("rectangle", "circle", "line"):
+        for kind in (*SHAPE_KINDS, "line"):
             for selected in (False, True):
-                for rotation, scale in ((0, 1), (25, 1.3)):
+                for rotation, scale, flipped in ((0, 1, False), (25, 1.3, False), (25, 1.3, True)):
                     with self.subTest(kind=kind, selected=selected, rotation=rotation):
                         source = Source(
                             SourceType.SHAPE, "Moving shape", shape_kind=kind,
+                            flip_horizontal=flipped, flip_vertical=flipped,
                             width=90, height=60, fill_color="#F08040", opacity=0.7,
                             outline_width=80, outline_color="#10D090",
                             shadow=Shadow(enabled=True, offset_x=70, offset_y=-45,
@@ -70,7 +71,7 @@ class ShapeRenderingTests(unittest.TestCase):
                         self.assertEqual(image, expected, "Partial repaint left shape trails or clipped effects")
                         item.deleteLater()
 
-    def test_shape_choices_exclude_line_and_loading_legacy_line_keeps_its_kind(self) -> None:
+    def test_shape_choices_include_new_shapes_and_preserve_hidden_legacy_line(self) -> None:
         store = SourceStore()
         source = Source.from_dict(Source(SourceType.SHAPE, "Legacy", shape_kind="line").to_dict())
         store.add(source)
@@ -78,7 +79,7 @@ class ShapeRenderingTests(unittest.TestCase):
         try:
             inspector.set_source(source)
             combo = inspector.shape_kind_combo
-            self.assertEqual([combo.itemData(i) for i in range(combo.count())], ["rectangle", "circle"])
+            self.assertEqual([combo.itemData(i) for i in range(combo.count())], list(SHAPE_KINDS))
             self.assertEqual(combo.currentIndex(), -1)
             self.assertEqual(source.shape_kind, "line")
             combo.setCurrentIndex(combo.findData("circle"))

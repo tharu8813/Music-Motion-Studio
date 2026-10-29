@@ -16,7 +16,9 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QLineEdit,
+    QMenu,
     QPushButton,
     QScrollArea,
     QSlider,
@@ -54,7 +56,7 @@ from app.inspector.editors.lyrics_editor import LyricsSection
 from app.inspector.editors.now_playing_editor import NowPlayingSection
 from app.inspector.editors.particle_overlay_editor import ParticleSection
 from app.inspector.editors.track_list_editor import TrackListSection
-from app.models.source import TEXT_SOURCE_TYPES, Source, SourceType
+from app.models.source import SHAPE_KINDS, TEXT_SOURCE_TYPES, Source, SourceType
 from app.models.source_registry import source_registry
 from app.dialogs.color_editor_dialog import ColorEditorDialog
 from app.dialogs.lyrics_line_style_dialog import LyricsLineStyleDialog
@@ -117,6 +119,7 @@ class SourceInspector(QScrollArea):
     """Editable property panel with guarded, two-way SourceStore binding."""
 
     animation_preview_requested = Signal(str)
+    lyrics_search_requested = Signal()
 
     _ANIMATION_LABELS = {
         "none": ("없음", "None"), "fade": ("페이드", "Fade"),
@@ -160,15 +163,18 @@ class SourceInspector(QScrollArea):
         self._linked_sliders: dict[QWidget, QSlider] = {}
         self._field_visibility: dict[str, bool] = {}
         self.setMinimumWidth(290)
-        self.setWidgetResizable(True)
+        # Only category bodies scroll. Height-for-width on the outer form
+        # otherwise expands the entire panel and moves its navigation away.
+        self.setWidgetResizable(False)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setObjectName("sourceInspector")
         self._content = QWidget()
         self._content.setObjectName("inspectorContent")
         self._content.setMinimumWidth(0)
         self._content.setSizePolicy(
-            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred,
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored,
         )
         self.setWidget(self._content)
         self.empty_state = QLabel(self.viewport())
@@ -178,6 +184,7 @@ class SourceInspector(QScrollArea):
         self.empty_state.setContentsMargins(28, 28, 28, 28)
         self.empty_state.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         layout = QVBoxLayout(self._content)
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(12)
         self.title = QLabel("Inspector")
@@ -193,6 +200,11 @@ class SourceInspector(QScrollArea):
         self.lyrics_mode_note.hide()
         self._lyrics_locked_fields = set()
         layout.addWidget(self.lyrics_mode_note)
+
+        self.category_selector = QComboBox()
+        self.category_selector.setObjectName("inspectorCategorySelector")
+        self.category_selector.hide()
+        layout.addWidget(self.category_selector)
 
         self.property_tabs = QTabWidget()
         self.property_tabs.setObjectName("inspectorPropertyTabs")
@@ -243,15 +255,24 @@ class SourceInspector(QScrollArea):
         self._field_categories: dict[str, str] = {}
         self._field_sections: dict[str, tuple[str, str]] = {}
         self._sections: dict[tuple[str, str], _CollapsibleGroup] = {}
-        self._tab_indices = {
-            category: self.property_tabs.addTab(page, "")
-            for category, page in self._category_pages.items()
-        }
+        self._tab_indices = {}
+        self._category_scrolls = {}
+        for category, page in self._category_pages.items():
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            page.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+            scroll.setWidget(page)
+            self._category_scrolls[category] = scroll
+            self._tab_indices[category] = self.property_tabs.addTab(scroll, "")
         saved_tab = QSettings().value("inspector/property_tab", 0, type=int)
         self.property_tabs.setCurrentIndex(
             max(0, min(self.property_tabs.count() - 1, int(saved_tab)))
         )
         self.property_tabs.currentChanged.connect(self._remember_property_tab)
+        self.property_tabs.currentChanged.connect(self._update_property_navigation)
+        self.category_selector.currentIndexChanged.connect(self._choose_property_category)
 
         self.name_edit = QLineEdit()
         self.text_edit = TokenLineEdit(translator)
@@ -281,8 +302,8 @@ class SourceInspector(QScrollArea):
         self._add_labeled_row(content_form, "video_settings", self.video_settings_button)
 
         self.shape_kind_combo = QComboBox()
-        for label, value in (("Rectangle", "rectangle"), ("Circle", "circle")):
-            self.shape_kind_combo.addItem(label, value)
+        for value in SHAPE_KINDS:
+            self.shape_kind_combo.addItem(value, value)
         self.progress_style_combo = QComboBox()
         for label, value in (
             ("Rounded", "rounded"), ("Spotify", "spotify"), ("Apple Music", "apple"),
@@ -379,6 +400,13 @@ class SourceInspector(QScrollArea):
         self._add_labeled_row(content_form, "album_frame", self.album_frame_combo)
         self.track_list.add_rows(self._add_labeled_row, content_form)
         self.now_playing.add_rows(self._add_labeled_row, content_form)
+        self.lyrics_output_note = QLabel()
+        self.lyrics_output_note.setObjectName("mutedLabel")
+        self.lyrics_output_note.setWordWrap(True)
+        self.lyrics_search_button = QPushButton()
+        self.lyrics_search_button.clicked.connect(self.lyrics_search_requested)
+        content_form.addRow(self.lyrics_output_note)
+        content_form.addRow(self.lyrics_search_button)
         content_form.addRow(self.lyrics_transition_button)
         self.lyrics.add_rows(
             self._add_labeled_row, content_form,
@@ -492,6 +520,11 @@ class SourceInspector(QScrollArea):
             self._add_labeled_row(shape_form, key, widget)
         self.typography.add_rows(self._add_labeled_row, shape_form, ("text_shadow_glyph",))
         self.motion.add_rows(self._add_labeled_row, shape_form, ("mask_shape",))
+        self.motion.add_rows(self._add_labeled_row, shape_form, MotionSection.APPEARANCE_KEYS)
+        self.decoration_presets_button = QPushButton()
+        self._decoration_menu = QMenu(self.decoration_presets_button)
+        self.decoration_presets_button.setMenu(self._decoration_menu)
+        shape_form.addRow(self.decoration_presets_button)
         for key, widget in (
             ("border_radius", self.radius_spin), ("outline", self.outline_spin),
             ("fill_color", self.fill_color_button),
@@ -535,7 +568,7 @@ class SourceInspector(QScrollArea):
             self.image_fit_combo, self.progress_value_spin,
             self.progress_mode_combo, self.progress_knob_combo,
             *self.typography.widgets.values(), self.gradient_angle_spin,
-            *self.motion.widgets.values(), self.visualizer_center_cover_button,
+            *self.motion.widgets.values(), self.decoration_presets_button, self.visualizer_center_cover_button,
             self.background_mode_combo, self.background_ambient_check,
             self.background_ambient_blur_spin, self.background_ambient_motion_spin,
             self.background_bass_reactive_check, self.background_bass_strength_spin,
@@ -647,10 +680,11 @@ class SourceInspector(QScrollArea):
         """Return localized, user-facing guidance for one Inspector property."""
         korean = self.translator.is_korean
         common = {
+            **MotionSection.HELP,
             "name": ("레이어와 캔버스에서 이 요소를 구분하는 이름입니다. 영상에는 직접 표시되지 않습니다.", "Identifies this source in Layers and on the Canvas. It is not rendered into the video."),
             "text": ("표시할 문구입니다. %title%, %artist%, %album% 같은 토큰은 재생 중인 곡 정보로 자동 교체됩니다.", "Text to display. Tokens such as %title%, %artist%, and %album% are replaced with current-track data."),
             "file": ("이 요소에 사용할 이미지 파일입니다. 프로젝트를 다른 PC로 옮길 때는 포함 저장을 권장합니다.", "Image used by this source. Embedded project storage is recommended when moving the project to another PC."),
-            "shape": ("캔버스에 그릴 사각형 또는 원을 선택합니다.", "Chooses whether this source is drawn as a rectangle or circle."),
+            "shape": ("사각형·원·삼각형·별·하트·다각형 등 도형을 선택합니다.", "Choose a rectangle, circle, triangle, star, heart or polygon."),
             "progress_style": ("진행 바의 모서리와 채움 형태를 미리 정의된 디자인으로 변경합니다.", "Changes the progress bar's corners and fill treatment using a preset design."),
             "text_alignment": ("요소 영역 안에서 텍스트를 왼쪽, 가운데 또는 오른쪽으로 정렬합니다.", "Aligns text left, center, or right inside the source box."),
             "text_overflow": ("영역보다 긴 문장을 줄바꿈할지, 말줄임표로 줄일지, 영역 밖을 자를지 정합니다.", "Chooses whether long text wraps, ends with an ellipsis, or is clipped to the source box."),
@@ -782,6 +816,8 @@ class SourceInspector(QScrollArea):
             label.setToolTipDuration(15_000)
             widget.setToolTip(tooltip)
             widget.setToolTipDuration(15_000)
+            label.setBuddy(widget)
+            widget.setAccessibleName(label.text())
             widget.setAccessibleDescription(description)
             host = self._field_hosts[key]
             host.setToolTip(tooltip)
@@ -869,6 +905,13 @@ class SourceInspector(QScrollArea):
             self._tab_indices["special"],
             self._source_type_display_name(special_type),
         )
+        label = self._form_labels["text"]
+        label.setText(
+            ("가사 없을 때 문구" if self.translator.is_korean else "Text without lyrics")
+            if special_type is SourceType.LYRICS else
+            ("텍스트" if self.translator.is_korean else "Text")
+        )
+        self.text_edit.setAccessibleName(label.text())
         for category, page in self._category_pages.items():
             fields = [
                 key for key, owner in self._field_categories.items()
@@ -889,6 +932,33 @@ class SourceInspector(QScrollArea):
                 if self.property_tabs.isTabVisible(index):
                     self.property_tabs.setCurrentIndex(index)
                     break
+        self._update_property_navigation()
+
+    def _choose_property_category(self, index: int) -> None:
+        tab = self.category_selector.itemData(index)
+        if tab is not None:
+            self.property_tabs.setCurrentIndex(tab)
+
+    def _update_property_navigation(self, _index: int = -1) -> None:
+        """Keep every category discoverable when a narrow panel cannot fit tabs."""
+        if not hasattr(self, "category_selector"):
+            return
+        bar = self.property_tabs.tabBar()
+        visible = [i for i in range(self.property_tabs.count()) if self.property_tabs.isTabVisible(i)]
+        required = sum(max(bar.tabRect(i).width(), bar.fontMetrics().horizontalAdvance(
+            self.property_tabs.tabText(i)) + 28) for i in visible)
+        compact = required > max(0, self.property_tabs.width() - 8)
+        blocked = self.category_selector.blockSignals(True)
+        self.category_selector.clear()
+        for i in visible:
+            self.category_selector.addItem(self.property_tabs.tabText(i), i)
+        self.category_selector.setCurrentIndex(
+            self.category_selector.findData(self.property_tabs.currentIndex())
+        )
+        self.category_selector.blockSignals(blocked)
+        self.category_selector.setVisible(compact and bool(visible))
+        bar.setVisible(not compact and bool(visible))
+        self._content.resize(self.viewport().size())
 
     def _update_source_specific_fields(self, source: Source | None) -> None:
         """Dispatch type-specific editing through the registered legacy adapter."""
@@ -1018,7 +1088,7 @@ class SourceInspector(QScrollArea):
             self._set_field_visible(key, source_type in {SourceType.TEXT, SourceType.LYRICS})
         for key in (
             "shadow", "shadow_color", "shadow_opacity", "shadow_blur",
-            "shadow_x", "shadow_y", *MotionSection.LOOP_KEYS,
+            "shadow_x", "shadow_y", *MotionSection.LOOP_KEYS, *MotionSection.APPEARANCE_KEYS,
         ):
             self._set_field_visible(key, source is not None)
         self._set_field_visible("mask_shape", source is not None and shows_mask(source))
@@ -1192,7 +1262,8 @@ class SourceInspector(QScrollArea):
             apply_mixed_checkbox=self._apply_mixed_checkbox,
         )
         self.now_playing.connect(self._update)
-        self.motion.connect(self._update, apply_mixed_checkbox=self._apply_mixed_checkbox)
+        self.motion.connect(self._update, choose_color=self._choose_color,
+                            apply_mixed_checkbox=self._apply_mixed_checkbox)
         self.motion.widgets["loop_motion"].currentIndexChanged.connect(
             self._update_animation_preview_button
         )
@@ -1353,10 +1424,32 @@ class SourceInspector(QScrollArea):
         self._applying_batch = True
         try:
             for source_id in source_ids:
-                self.store.update(source_id, **changes)
+                source_changes = changes
+                source = self.store.get(source_id)
+                if (
+                    source is not None and source.source_type is SourceType.LYRICS
+                    and "text" in changes and changes["text"] != source.text
+                ):
+                    # An explicit edit changes both legacy fallback locations.
+                    # This also lets an empty value actually hide the message.
+                    source_changes = {**changes, "subtitle_fallback": changes["text"]}
+                self.store.update(source_id, **source_changes)
         finally:
             self._applying_batch = False
         self._refresh_current_selection()
+
+    def _apply_decoration_preset(self, preset: str) -> None:
+        """Apply shared decoration only, preserving content and motion settings."""
+        styles = {
+            "clean": (2.0, "#FFFFFF", 0.0),
+            "double_space": (2.0, "#FFFFFF", 12.0),
+            "cyan": (4.0, "#22D3EE", 4.0),
+            "pastel": (6.0, "#FDA4AF", 8.0),
+            "bold": (12.0, "#FDE047", 0.0),
+            "none": (0.0, "#FFFFFF", 0.0),
+        }
+        width, color, inset = styles[preset]
+        self._apply_updates({"frame_width": width, "frame_color": color, "frame_inset": inset})
 
     def _apply_mixed_checkbox(self, field: str, checked: bool) -> None:
         if field in self._mixed_fields:
@@ -1647,8 +1740,12 @@ class SourceInspector(QScrollArea):
     def resizeEvent(self, event) -> None:  # type: ignore[no-untyped-def]
         super().resizeEvent(event)
         self.empty_state.setGeometry(self.viewport().rect())
+        self._update_property_navigation()
 
     def retranslate(self) -> None:
+        self.category_selector.setAccessibleName(
+            "속성 범주" if self.translator.is_korean else "Property category"
+        )
         self.shape_kind_combo.setPlaceholderText(
             "도형 종류 선택" if self.translator.is_korean else "Choose a shape"
         )
@@ -1772,6 +1869,28 @@ class SourceInspector(QScrollArea):
                     index, self._ANIMATION_LABELS[combo.itemData(index)][0 if korean else 1],
                 )
         self.motion.retranslate(korean)
+        self.decoration_presets_button.setText("프레임 디자인 적용…" if korean else "Apply frame design…")
+        self.decoration_presets_button.setToolTip(
+            "선택한 모든 요소의 프레임 디자인을 함께 바꿉니다. 각 속성에서 세부 조절할 수 있습니다."
+            if korean else "Apply a frame design to every selected source, then adjust each property."
+        )
+        self._decoration_menu.clear()
+        for key, ko, en in (
+            ("clean", "클린 라인", "Clean line"), ("double_space", "여백 프레임", "Inset frame"),
+            ("cyan", "시안 포인트", "Cyan accent"), ("pastel", "파스텔", "Pastel"),
+            ("bold", "볼드 포스터", "Bold poster"), ("none", "프레임 지우기", "Clear frame"),
+        ):
+            action = self._decoration_menu.addAction(ko if korean else en)
+            action.triggered.connect(lambda _checked=False, key=key: self._apply_decoration_preset(key))
+        shape_labels = {
+            "rectangle": ("사각형", "Rectangle"), "circle": ("원", "Circle"),
+            "line": ("선", "Line"), "triangle": ("삼각형", "Triangle"),
+            "diamond": ("다이아몬드", "Diamond"), "hexagon": ("육각형", "Hexagon"),
+            "star": ("별", "Star"), "heart": ("하트", "Heart"),
+            "arch": ("아치", "Arch"), "pill": ("알약", "Pill"),
+        }
+        for index in range(self.shape_kind_combo.count()):
+            self.shape_kind_combo.setItemText(index, shape_labels[self.shape_kind_combo.itemData(index)][0 if korean else 1])
         self.visualizer_center_cover_button.setText(
             "가운데에 앨범 커버 배치" if korean else "Place album cover in the centre"
         )
@@ -1857,6 +1976,29 @@ class SourceInspector(QScrollArea):
                 "Edit shared properties together. Mixed values are shown blank."
             )
             self.text_edit.setPlaceholderText("")
+
+    def refresh_lyrics_status(self) -> None:
+        """Explain missing input separately from the text rendered in the video."""
+        lyrics_selected = any(source.source_type is SourceType.LYRICS for source in self._selected_sources())
+        self.lyrics_output_note.setVisible(lyrics_selected)
+        self.lyrics_search_button.setVisible(lyrics_selected)
+        tracks = self._tracks_provider() if self._tracks_provider else []
+        self.lyrics_search_button.setEnabled(bool(tracks))
+        korean = self.translator.is_korean
+        missing = sum(not track.lyrics for track in tracks)
+        status = (
+            (f"가사 미등록 {missing}곡 / 전체 {len(tracks)}곡. " if tracks else "먼저 플레이리스트에 음악을 추가하세요. ")
+            if korean else
+            (f"{missing} of {len(tracks)} tracks have no lyrics. " if tracks else "Add music to the Playlist first. ")
+        )
+        self.lyrics_output_note.setText(status + (
+            "텍스트 탭의 ‘가사 없을 때 문구’는 최종 영상에도 표시됩니다. 비우면 표시하지 않습니다."
+            if korean else
+            "Text without lyrics, in the Text category, appears in the exported video too. Leave it empty to hide it."
+        ))
+        self.lyrics_search_button.setText(
+            "가사 검색 및 연결…" if korean else "Find and attach lyrics…"
+        )
 
     def set_source(self, source: Source | None) -> None:
         """Compatibility entry point for a single Inspector selection."""
@@ -1973,6 +2115,7 @@ class SourceInspector(QScrollArea):
         self._apply_lyrics_mode()
 
     def _apply_lyrics_mode(self) -> None:
+        self.refresh_lyrics_status()
         sources = self._selected_sources()
         lyrics = [source for source in sources if source.source_type is SourceType.LYRICS]
         active = {key for source in lyrics
@@ -2193,7 +2336,7 @@ class SourceInspector(QScrollArea):
                 (f"{line_style_count} configured…" if line_style_count else "Configure…")
             )
             self.typography.fill(source)
-            self.motion.fill(source)
+            self.motion.fill(source, set_color=self._set_color_button)
             self.progress_knob_combo.setCurrentIndex(
                 max(0, self.progress_knob_combo.findData(source.progress_knob))
             )
