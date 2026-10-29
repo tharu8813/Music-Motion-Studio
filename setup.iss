@@ -1,11 +1,11 @@
 ; ============================================================================
-; Music Motion Studio 1.4.0.1 Windows 설치 프로그램
+; Music Motion Studio 1.4.0.0 Windows 설치 프로그램
 ; ChatGPT Codex와 Claude Code를 활용해 제작한 Music Motion Studio의 Inno Setup 스크립트입니다.
 ; ============================================================================
 
 #define MyAppName "Music Motion Studio"
-#define MyAppVersion "1.4.0.1"
-#define MyAppFileVersion "1.4.0.1"
+#define MyAppVersion "1.4.0.0"
+#define MyAppFileVersion "1.4.0.0"
 #define MyAppPublisher "Ji Beak min(tharu8813)"
 #define MyAppCopyright "© 2026 Ji Beak min(tharu8813). All rights reserved."
 #define MyAppDescription "음악, 가사와 비주얼 요소를 편집해 플레이리스트 영상을 만드는 Windows 데스크톱 편집기"
