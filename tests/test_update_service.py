@@ -35,7 +35,7 @@ class UpdateServiceTests(unittest.TestCase):
                 "name": "Music Motion Studio-1.2.0-setup.exe",
                 "browser_download_url": (
                     "https://github.com/tharu8813/Music-Motion-Studio/releases/download/"
-                    "v1.2.0/Playlist.Canvas-1.2.0-setup.exe"
+                    "v1.2.0/Music.Motion.Studio-1.2.0-setup.exe"
                 ),
                 "state": "uploaded",
                 "size": len(data),
