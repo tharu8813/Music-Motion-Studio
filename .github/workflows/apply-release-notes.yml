@@ -1,0 +1,43 @@
+name: Update published release descriptions
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Preview changes first (check), or update the GitHub Releases (apply)"
+        required: true
+        type: choice
+        options:
+          - check
+          - apply
+        default: check
+
+permissions:
+  contents: write
+
+concurrency:
+  group: playlist-canvas-release-notes
+  cancel-in-progress: false
+
+jobs:
+  update-releases:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out approved release notes
+        uses: actions/checkout@v4
+
+      - name: Validate and optionally update release descriptions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          python3 tools/sync_release_notes.py --mode "$MODE"
+
+      - name: Keep a backup of the previous release descriptions
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes-before-update-${{ github.run_id }}
+          path: release-note-backups/original-release-notes.json
+          if-no-files-found: warn
+          retention-days: 90
