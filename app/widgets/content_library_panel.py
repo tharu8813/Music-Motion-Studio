@@ -158,7 +158,7 @@ class ContentLibraryPanel(QWidget):
     """Import project content and reuse it without browsing repeatedly."""
 
     add_requested = Signal(str, str)
-    VIEW_MODES = ("list", "compact")
+    VIEW_MODES = ("list", "grid", "compact")
 
     def __init__(
         self, service: ProjectContentService, translator: Translator,
