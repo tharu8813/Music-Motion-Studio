@@ -345,14 +345,18 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
                     self.assertGreater(up_rect.height(), 0)
                     self.assertGreater(down_rect.height(), 0)
                     self.assertLessEqual(up_rect.bottom(), down_rect.top())
-                    self.assertFalse(
-                        up_rect.intersects(edit_rect),
-                        f"up={up_rect}, edit={edit_rect}",
-                    )
-                    self.assertFalse(
-                        down_rect.intersects(edit_rect),
-                        f"down={down_rect}, edit={edit_rect}",
-                    )
+                    # QRect includes both boundary pixels. A styled step
+                    # button can share its 1px border with the edit field;
+                    # this is not an overlapping interactive hit area.
+                    for step_rect in (up_rect, down_rect):
+                        self.assertLessEqual(
+                            step_rect.intersected(edit_rect).width(), 1,
+                            f"step={step_rect}, edit={edit_rect}",
+                        )
+                        self.assertGreater(
+                            step_rect.center().x(), edit_rect.right(),
+                            f"step={step_rect}, edit={edit_rect}",
+                        )
 
                     before = spin.value()
                     QTest.mouseClick(
