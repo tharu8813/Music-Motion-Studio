@@ -1,3 +1,5 @@
+> 이전 이름은 **Playlist Canvas(플레이리스트 캔버스)** 입니다. 기존 `.pvsproj`·JSON 프로젝트를 그대로 열 수 있으며, 이전 앱의 설정·최근 프로젝트 목록·복구 파일은 첫 실행 때 이어받습니다. 설치한 FFmpeg·프리셋·언어팩은 기존 저장 위치를 계속 사용합니다. 최신 릴리즈와 업데이트는 새 GitHub 저장소에서 제공하며, 기존 Playlist Canvas 저장소는 구버전 배포용으로 유지합니다.
+
 <div align="center">
   <img src="docs/images/music-motion-studio-icon.png" width="112" alt="Music Motion Studio 아이콘">
   <h1>Music Motion Studio</h1>
@@ -15,8 +17,6 @@
 </div>
 
 **Music Motion Studio는 PC에 있는 음악, 이미지, 영상과 가사를 조합해 플레이리스트 영상을 만드는 무료 Windows 프로그램입니다.** MP4·MOV·MKV 영상, 오디오만 저장하기, LRC·SRT 자막 내보내기를 지원합니다. 디자인 프리셋을 골라 시작하고, 화면에서 요소를 끌어 배치한 뒤 음악과 함께 미리보며 완성할 수 있습니다. 코딩 지식이나 별도의 Python 설치는 필요하지 않습니다.
-
-이전 이름은 **Playlist Canvas(플레이리스트 캔버스)**입니다. 기존 `.pvsproj`·JSON 프로젝트를 그대로 열 수 있으며, 이전 앱의 설정·최근 프로젝트 목록·복구 파일은 첫 실행 때 이어받습니다. 설치한 FFmpeg·프리셋·언어팩은 기존 저장 위치를 계속 사용합니다. 최신 릴리즈와 업데이트는 새 GitHub 저장소에서 제공하며, 기존 Playlist Canvas 저장소는 구버전 배포용으로 유지합니다. 라이선스 원문은 변경하지 않습니다.
 
 **이 프로젝트는 ChatGPT Codex와 Claude Code를 활용하는 바이브코딩(Vibe Coding) 프로젝트입니다.** 사람이 아이디어와 제작 방향을 정하고, AI와 대화하며 프로그램을 구현합니다.
 
