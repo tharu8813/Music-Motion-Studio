@@ -154,7 +154,8 @@ QComboBox QAbstractItemView {
 }
 QSpinBox, QDoubleSpinBox {
     background: @field; color: @text; border: 1px solid @border; border-radius: 3px;
-    padding: 0px 28px 0px 5px; min-height: 30px; max-height: 30px;
+    /* Keep the text/edit hit area clear of the 25px-wide step controls. */
+    padding: 0px 32px 0px 5px; min-height: 30px; max-height: 30px;
     selection-background-color: @accent; selection-color: @window;
 }
 QSpinBox:focus, QDoubleSpinBox:focus { border: 1px solid @accent; }
