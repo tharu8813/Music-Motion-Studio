@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog
 from app.dialogs.lyrics_search_dialog import LyricsSearchDialog
 from app.dialogs.lyrics_compare_dialog import LyricsCompareDialog
+from app.ui.design_system import COLORS
 from app.models.playlist import PlaylistTrack
 from app.models.source import SourceType
 from app.services.lyrics_search_service import FoundLyrics
@@ -85,4 +86,7 @@ class LyricsSelectionWarningTests(MainWindowTestCase):
         self.addCleanup(dialog.deleteLater)
         self.assertEqual([t.rowCount() for t in dialog.previews], [1, 1])
         self.assertEqual(dialog.previews[1].item(0, 2).text(), "After")
-        self.assertEqual(dialog.previews[1].item(0, 2).background().color().name(), "#40392b")
+        self.assertEqual(
+            dialog.previews[1].item(0, 2).background().color().name(),
+            COLORS["warning_surface"].lower(),
+        )
