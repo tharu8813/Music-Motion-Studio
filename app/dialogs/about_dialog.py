@@ -28,7 +28,7 @@ from app.dialogs.help_dialog import install_help_shortcut
 from app.utils.i18n import Translator
 
 
-REPOSITORY_URL = "https://github.com/tharu8813/Playlist-Canvas"
+REPOSITORY_URL = "https://github.com/tharu8813/Music-Motion-Studio"
 
 
 class AboutDialog(QDialog):
@@ -100,7 +100,7 @@ class AboutDialog(QDialog):
         self.log_value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         details_form.addRow(self.log_title, self.log_value)
         self.repository_link = QLabel(
-            f'<a href="{REPOSITORY_URL}">github.com/tharu8813/Playlist-Canvas</a>'
+            f'<a href="{REPOSITORY_URL}">github.com/tharu8813/Music-Motion-Studio</a>'
         )
         self.repository_link.setOpenExternalLinks(True)
         self.repository_link.setTextInteractionFlags(

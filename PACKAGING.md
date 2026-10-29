@@ -1,6 +1,6 @@
 # Music Motion Studio Windows 패키징 가이드
 
-Playlist Canvas에서 제품 이름을 변경했습니다. `setup.iss`의 기존 AppId GUID와 `.pvsproj`의 `PlaylistCanvas.Project` 연결 식별자는 유지합니다. 업그레이드는 이전 설치 경로를 재사용하고 실행 파일·시작 메뉴·기존 바탕 화면 바로가기를 새 이름으로 교체합니다. 내부 데이터 폴더 `%LOCALAPPDATA%\PlaylistCanvas`는 FFmpeg·프리셋·언어팩을 계속 찾을 수 있도록 유지합니다. Qt 설정과 복구 파일은 새 이름으로 첫 실행할 때 이전됩니다. GitHub 저장소와 `LICENSE.txt`의 원문은 변경하지 않습니다.
+Playlist Canvas에서 제품 이름을 변경했습니다. `setup.iss`의 기존 AppId GUID와 `.pvsproj`의 `PlaylistCanvas.Project` 연결 식별자는 유지합니다. 업그레이드는 이전 설치 경로를 재사용하고 실행 파일·시작 메뉴·기존 바탕 화면 바로가기를 새 이름으로 교체합니다. 내부 데이터 폴더 `%LOCALAPPDATA%\PlaylistCanvas`는 FFmpeg·프리셋·언어팩을 계속 찾을 수 있도록 유지합니다. Qt 설정과 복구 파일은 새 이름으로 첫 실행할 때 이전됩니다. 최신 앱의 자동 업데이트와 릴리즈 배포는 `tharu8813/Music-Motion-Studio` 저장소에서 처리하고, `tharu8813/Playlist-Canvas`는 구버전 사용자용 릴리즈 배포 저장소로 별도 유지합니다. `LICENSE.txt` 원문은 변경하지 않습니다.
 
 아이콘 원본은 `app/resources/app_icon.svg`와 `project_file_icon.svg`입니다. `python tools/generate_app_icon.py`로 PNG와 16~256px의 10개 크기가 포함된 ICO를 함께 재생성합니다.
 
@@ -81,7 +81,7 @@ output-setup\Music Motion Studio-1.4.0.0-setup.exe
 앱의 자동 업데이트가 Setup 자산을 찾고 검증할 수 있도록 릴리즈를 정식 공개 상태로 만들고 다음 조건을 지킵니다.
 
 - 태그는 `1.4.0.0`처럼 네 자리 버전 형식을 사용합니다. (`v` 접두사도 허용됩니다.)
-- 새 Setup 자산 이름에는 `Music Motion Studio`와 `setup`이 포함되어야 하며 확장자는 `.exe`여야 합니다. 새 앱의 업데이트 확인은 이전 `Playlist Canvas` 이름도 인식합니다. 단, 이미 배포된 이전 앱은 새 이름을 인식하지 못하므로 이름 변경 첫 릴리즈에서는 동일한 Setup을 `Playlist Canvas-<버전>-setup.exe` 이름으로도 첨부하거나 사용자가 새 설치 파일을 직접 실행하도록 안내해야 합니다.
+- 새 Setup 자산 이름에는 `Music Motion Studio`와 `setup`이 포함되어야 하며 확장자는 `.exe`여야 합니다. 최신 앱은 `tharu8813/Music-Motion-Studio`의 릴리즈만 조회하고, 다운로드 URL도 해당 저장소인지 검증합니다. 기존 `Playlist-Canvas` 앱의 업데이트 경로는 이 패키징 변경으로 수정되지 않으며, 구버전 릴리즈 운영은 별도로 관리합니다.
 - Setup 파일은 반드시 이 저장소의 GitHub Release 자산으로 직접 첨부합니다. 외부 다운로드 URL은 앱이 거부합니다.
 - 초안 또는 사전 릴리즈는 자동 업데이트 대상에서 제외됩니다.
 - 릴리즈 본문은 프로그램의 업데이트 알림창에 그대로 표시되므로 사용자용 변경 내용을 작성합니다.

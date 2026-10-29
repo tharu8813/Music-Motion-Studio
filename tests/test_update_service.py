@@ -10,6 +10,8 @@ from unittest.mock import patch
 
 from app.services.update_service import (
     GitHubUpdateService,
+    LATEST_RELEASE_API,
+    REPOSITORY_URL,
     ReleaseInfo,
     UpdateError,
     is_newer_version,
@@ -23,16 +25,16 @@ class UpdateServiceTests(unittest.TestCase):
     def _payload(self, data: bytes = b"signed setup bytes") -> dict[str, object]:
         return {
             "tag_name": "v1.2.0",
-            "name": "Playlist Canvas 1.2.0",
+            "name": "Music Motion Studio 1.2.0",
             "body": "## Changes\n\n- Faster export",
             "published_at": "2026-08-12T00:00:00Z",
-            "html_url": "https://github.com/tharu8813/Playlist-Canvas/releases/tag/v1.2.0",
+            "html_url": "https://github.com/tharu8813/Music-Motion-Studio/releases/tag/v1.2.0",
             "draft": False,
             "prerelease": False,
             "assets": [{
-                "name": "Playlist Canvas-1.2.0-setup.exe",
+                "name": "Music Motion Studio-1.2.0-setup.exe",
                 "browser_download_url": (
-                    "https://github.com/tharu8813/Playlist-Canvas/releases/download/"
+                    "https://github.com/tharu8813/Music-Motion-Studio/releases/download/"
                     "v1.2.0/Playlist.Canvas-1.2.0-setup.exe"
                 ),
                 "state": "uploaded",
@@ -40,6 +42,45 @@ class UpdateServiceTests(unittest.TestCase):
                 "digest": f"sha256:{sha256(data).hexdigest()}",
             }],
         }
+
+    def test_new_app_discovers_releases_only_from_current_repository(self) -> None:
+        import json
+
+        self.assertEqual(REPOSITORY_URL, "https://github.com/tharu8813/Music-Motion-Studio")
+        self.assertEqual(
+            LATEST_RELEASE_API,
+            "https://api.github.com/repos/tharu8813/Music-Motion-Studio/releases/latest",
+        )
+        with patch(
+            "app.services.update_service.urlopen",
+            return_value=BytesIO(json.dumps(self._payload()).encode("utf-8")),
+        ) as opener:
+            release = GitHubUpdateService().fetch_latest_release()
+        self.assertEqual(release.version, "1.2.0")
+        self.assertTrue(release.can_install)
+        self.assertEqual(opener.call_args.args[0].full_url, LATEST_RELEASE_API)
+
+    def test_legacy_repository_redirect_result_is_rejected(self) -> None:
+        legacy = "https://github.com/tharu8813/Playlist-Canvas/releases/"
+        payload = self._payload()
+        payload["html_url"] = legacy + "tag/v1.2.0"
+        with self.assertRaises(UpdateError):
+            GitHubUpdateService.release_from_payload(payload)
+
+        payload = self._payload()
+        payload["assets"][0]["browser_download_url"] = (
+            legacy + "download/v1.2.0/Music.Motion.Studio-1.2.0-setup.exe"
+        )
+        with self.assertRaises(UpdateError):
+            GitHubUpdateService.release_from_payload(payload)
+
+    def test_similar_repository_name_is_not_trusted(self) -> None:
+        payload = self._payload()
+        payload["html_url"] = (
+            "https://github.com/tharu8813/Music-Motion-Studio-fake/releases/tag/v1.2.0"
+        )
+        with self.assertRaises(UpdateError):
+            GitHubUpdateService.release_from_payload(payload)
 
     def test_stable_versions_are_compared_numerically(self) -> None:
         self.assertEqual(normalized_version("v1.10.2"), (1, 10, 2, 0))
@@ -78,7 +119,7 @@ class UpdateServiceTests(unittest.TestCase):
                     GitHubUpdateService.release_from_payload(payload)
 
     def test_setup_download_requires_exact_size_and_sha256(self) -> None:
-        data = b"verified Playlist Canvas Setup"
+        data = b"verified Music Motion Studio Setup"
         release = GitHubUpdateService.release_from_payload(self._payload(data))
         updates: list[tuple[float, str]] = []
         with TemporaryDirectory(prefix="playlist-canvas-update-test-") as raw_directory:

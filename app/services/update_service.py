@@ -20,13 +20,13 @@ from app import __version__
 from app.services.maintenance_service import installation_root
 
 
-REPOSITORY_URL = "https://github.com/tharu8813/Playlist-Canvas"
-LATEST_RELEASE_API = "https://api.github.com/repos/tharu8813/Playlist-Canvas/releases/latest"
+REPOSITORY_URL = "https://github.com/tharu8813/Music-Motion-Studio"
+LATEST_RELEASE_API = "https://api.github.com/repos/tharu8813/Music-Motion-Studio/releases/latest"
 _VERSION_PATTERN = re.compile(
     r"^[vV]?(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?(?:[-+].*)?$"
 )
 _SETUP_PATTERN = re.compile(
-    r"^(?:music[\s._-]*motion[\s._-]*studio|playlist[\s._-]*canvas).*setup.*\.exe$",
+    r"^music[\s._-]*motion[\s._-]*studio.*setup.*\.exe$",
     re.IGNORECASE,
 )
 _MAX_RELEASE_RESPONSE = 2 * 1024 * 1024
@@ -109,7 +109,7 @@ class GitHubUpdateService:
             LATEST_RELEASE_API,
             headers={
                 "Accept": "application/vnd.github+json",
-                "User-Agent": f"PlaylistCanvas/{__version__}",
+                "User-Agent": f"MusicMotionStudio/{__version__}",
                 "X-GitHub-Api-Version": "2022-11-28",
             },
         )
@@ -201,7 +201,7 @@ class GitHubUpdateService:
         partial = destination.with_suffix(destination.suffix + ".download")
         request = Request(
             release.asset_url,
-            headers={"User-Agent": f"PlaylistCanvas/{__version__}"},
+            headers={"User-Agent": f"MusicMotionStudio/{__version__}"},
         )
         digest = hashlib.sha256()
         downloaded = 0
@@ -247,13 +247,13 @@ class GitHubUpdateService:
     @staticmethod
     def _validate_release_page(url: str) -> None:
         parsed = urlsplit(url)
-        expected = "/tharu8813/Playlist-Canvas/releases/"
-        if parsed.scheme != "https" or parsed.netloc.lower() != "github.com" or expected not in parsed.path:
+        expected = "/tharu8813/Music-Motion-Studio/releases/tag/"
+        if parsed.scheme != "https" or parsed.netloc.lower() != "github.com" or not parsed.path.startswith(expected):
             raise UpdateError("GitHub returned an unexpected release page URL.")
 
     @staticmethod
     def _validate_asset_url(url: str) -> None:
         parsed = urlsplit(url)
-        prefix = "/tharu8813/Playlist-Canvas/releases/download/"
+        prefix = "/tharu8813/Music-Motion-Studio/releases/download/"
         if parsed.scheme != "https" or parsed.netloc.lower() != "github.com" or not parsed.path.startswith(prefix):
             raise UpdateError("GitHub returned an unexpected Setup download URL.")

@@ -18,6 +18,7 @@ class ReleaseContractTests(unittest.TestCase):
         # an override accidentally includes the repository and virtualenv.
         self.assertNotIn("#ifndef SourcePath", installer)
         self.assertIn('#define AppSourcePath "dist\\Music Motion Studio"', installer)
+        self.assertIn('#define MyAppURL "https://github.com/tharu8813/Music-Motion-Studio"', installer)
         self.assertIn('Source: "{#AppSourcePath}\\*";', installer)
 
     def test_pyinstaller_does_not_bundle_development_ffmpeg(self) -> None:
