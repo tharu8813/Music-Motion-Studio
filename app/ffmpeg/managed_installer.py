@@ -67,7 +67,7 @@ class ManagedFFmpegInstaller:
 
     release_api_url = "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest"
     releases_url = "https://github.com/BtbN/FFmpeg-Builds/releases"
-    # Compatibility baseline selected for Playlist Canvas 1.0.x. Change this
+    # Compatibility baseline selected for the original 1.0.x releases. Change this
     # deliberately with an app patch after the render suite passes against a
     # newer stable branch.
     recommended_series = "9.0"

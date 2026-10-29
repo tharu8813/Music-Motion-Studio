@@ -9,7 +9,7 @@
     "minimum_app_version": "1.0.1"
   },
   "strings": {
-    "app_title": "Playlist Canvas — 新しいプロジェクト",
+    "app_title": "Music Motion Studio — 新しいプロジェクト",
     "new": "新規作成",
     "open": "開く",
     "save": "保存",
@@ -42,7 +42,7 @@
     "Close": "閉じる",
     "Browse": "参照",
     "Check for updates": "アップデートを確認",
-    "About Playlist Canvas": "Playlist Canvasについて",
+    "About Music Motion Studio": "Music Motion Studioについて",
     "External language packs": "外部言語パック",
     "Import": "インポート",
     "Remove": "削除",

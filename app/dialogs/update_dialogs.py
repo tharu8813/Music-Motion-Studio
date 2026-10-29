@@ -43,7 +43,7 @@ class UpdateAvailableDialog(QDialog):
         super().__init__(parent)
         self.release = release
         self.up_to_date = up_to_date
-        self.setWindowTitle("Playlist Canvas 업데이트" if korean else "Playlist Canvas update")
+        self.setWindowTitle("Music Motion Studio 업데이트" if korean else "Music Motion Studio update")
         self.setMinimumSize(620, 460)
         self.resize(680, 520)
 
@@ -51,12 +51,12 @@ class UpdateAvailableDialog(QDialog):
             title = QLabel(
                 f"이미 최신 버전({current_version})을 사용하고 있습니다."
                 if korean else
-                f"Playlist Canvas {current_version} is already up to date."
+                f"Music Motion Studio {current_version} is already up to date."
             )
         else:
             title = QLabel(
                 f"새 버전 {release.version}을 사용할 수 있습니다."
-                if korean else f"Playlist Canvas {release.version} is available."
+                if korean else f"Music Motion Studio {release.version} is available."
             )
         title.setObjectName("panelTitle")
         title.setWordWrap(True)
@@ -119,9 +119,9 @@ class UpdateAvailableDialog(QDialog):
         layout.addWidget(self.notes, 1)
         if not release.can_install and not up_to_date:
             warning = QLabel(
-                "이 릴리즈에는 SHA-256으로 검증 가능한 Playlist Canvas Setup 파일이 없습니다."
+                "이 릴리즈에는 SHA-256으로 검증 가능한 Music Motion Studio Setup 파일이 없습니다."
                 if korean else
-                "This release has no SHA-256-verifiable Playlist Canvas Setup asset."
+                "This release has no SHA-256-verifiable Music Motion Studio Setup asset."
             )
             warning.setObjectName("warningLabel")
             warning.setWordWrap(True)
@@ -145,8 +145,8 @@ class UpdateDownloadDialog(QDialog):
         self.setMinimumSize(540, 230)
 
         self.title = QLabel(
-            f"Playlist Canvas {release.version} Setup 다운로드 중"
-            if korean else f"Downloading Playlist Canvas {release.version} Setup"
+            f"Music Motion Studio {release.version} Setup 다운로드 중"
+            if korean else f"Downloading Music Motion Studio {release.version} Setup"
         )
         self.title.setObjectName("panelTitle")
         self.progress_bar = QProgressBar()

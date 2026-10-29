@@ -328,10 +328,7 @@ class LrcGeneratorDialog(QDialog):
         self.add_line_button.setIcon(standard_icon(QStyle.StandardPixmap.SP_FileDialogNewFolder))
         self.edit_line_button.setIcon(standard_icon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
         self.delete_line_button.setIcon(standard_icon(QStyle.StandardPixmap.SP_TrashIcon))
-        self.delete_line_button.setStyleSheet(
-            "QToolButton { color: #DC2626; border-color: rgba(220, 38, 38, 0.55); }"
-            "QToolButton:hover { background: rgba(220, 38, 38, 0.16); border-color: #DC2626; }"
-        )
+        self.delete_line_button.setProperty("danger", True)
 
         calibration_row = QHBoxLayout()
         self.calibration_label = QLabel()

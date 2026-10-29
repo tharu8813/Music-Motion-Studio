@@ -32,8 +32,8 @@ class LaunchSplash(QSplashScreen):
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setAccessibleName("시작 준비 진행률" if self.korean else "Startup progress")
         self.progress_bar.setStyleSheet(
-            "QProgressBar { background: #303638; border: 0; border-radius: 4px; }"
-            "QProgressBar::chunk { background: #79C7B4; border-radius: 4px; }"
+            "QProgressBar { background: #25282A; border: 0; border-radius: 4px; }"
+            "QProgressBar::chunk { background: #B4CDC3; border-radius: 4px; }"
         )
 
     @staticmethod
@@ -41,26 +41,26 @@ class LaunchSplash(QSplashScreen):
         ratio = QApplication.primaryScreen().devicePixelRatio() if QApplication.primaryScreen() else 1.0
         pixmap = QPixmap(round(_WIDTH * ratio), round(_HEIGHT * ratio))
         pixmap.setDevicePixelRatio(ratio)
-        pixmap.fill(QColor("#191B1D"))
+        pixmap.fill(QColor("#161819"))
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QColor("#393E40"))
+        painter.setPen(QColor("#3C4246"))
         painter.drawRect(QRectF(0.5, 0.5, _WIDTH - 1, _HEIGHT - 1))
-        painter.fillRect(QRectF(1, 1, _WIDTH - 2, 3), QColor("#79C7B4"))
+        painter.fillRect(QRectF(1, 1, _WIDTH - 2, 3), QColor("#B4CDC3"))
         if icon is not None and not icon.isNull():
             painter.drawPixmap(36, 48, icon.pixmap(68, 68))
         title = QFont("Segoe UI", 23, QFont.Weight.DemiBold)
         painter.setFont(title)
-        painter.setPen(QColor("#E6E8E7"))
+        painter.setPen(QColor("#ECEEED"))
         painter.drawText(QRectF(124, 48, _WIDTH - 160, 42), Qt.AlignmentFlag.AlignVCenter, product_name)
         caption = QFont("Segoe UI", 10)
         painter.setFont(caption)
-        painter.setPen(QColor("#A3AAA9"))
+        painter.setPen(QColor("#ADB3B5"))
         painter.drawText(QRectF(124, 92, _WIDTH - 160, 24), Qt.AlignmentFlag.AlignVCenter,
                          "음악과 화면을 하나의 흐름으로" if korean else "Music and visuals, in one flow")
-        painter.setPen(QColor("#393E40"))
+        painter.setPen(QColor("#3C4246"))
         painter.drawLine(36, 152, _WIDTH - 36, 152)
-        painter.setPen(QColor("#A3AAA9"))
+        painter.setPen(QColor("#ADB3B5"))
         painter.drawText(QRectF(36, 254, _WIDTH - 72, 24), Qt.AlignmentFlag.AlignVCenter,
                          "편집 환경을 준비하고 있습니다" if korean else "Getting your editing tools ready")
         painter.drawText(QRectF(36, 254, _WIDTH - 72, 24),
@@ -71,16 +71,16 @@ class LaunchSplash(QSplashScreen):
     def set_status(self, korean: str, english: str, progress: int) -> None:
         """Show the current real startup step (repaints immediately)."""
         self.progress_bar.setValue(max(0, min(100, progress)))
-        self.showMessage(korean if self.korean else english, Qt.AlignmentFlag.AlignLeft, QColor("#E6E8E7"))
+        self.showMessage(korean if self.korean else english, Qt.AlignmentFlag.AlignLeft, QColor("#ECEEED"))
         QApplication.processEvents()
 
     def drawContents(self, painter: QPainter) -> None:  # noqa: N802 - Qt override
         """Readable status and percentage above the native progress bar."""
         painter.setFont(QFont("Segoe UI", 11, QFont.Weight.DemiBold))
-        painter.setPen(QColor("#E6E8E7"))
+        painter.setPen(QColor("#ECEEED"))
         painter.drawText(QRectF(36, 186, _WIDTH - 132, 28), Qt.AlignmentFlag.AlignVCenter, self.message())
         painter.setFont(QFont("Segoe UI", 12, QFont.Weight.DemiBold))
-        painter.setPen(QColor("#79C7B4"))
+        painter.setPen(QColor("#B4CDC3"))
         painter.drawText(QRectF(_WIDTH - 96, 186, 60, 28),
                          Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
                          f"{self.progress_bar.value()}%")

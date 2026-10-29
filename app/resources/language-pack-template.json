@@ -134,7 +134,7 @@
     " is already up to date.": "",
     " is available.": "",
     " is missing or invalid.": "",
-    " is not recommended for this Playlist Canvas patch.": "",
+    " is not recommended for this Music Motion Studio patch.": "",
     " language pack?": "",
     " latest compatible build": "",
     " layers · ": "",
@@ -738,15 +738,15 @@
     "<h1>{topic_title}</h1>{topic_body}": "",
     "<h1>검색 결과 없음</h1><p>다른 검색어를 입력해 보세요.</p>": "",
     "<h2>Application does not start</h2><p>Do not separate the EXE from its distribution. Keep the complete folder, including <code>_internal</code>.</p><h2>Missing media</h2><p>Relocate moved files when prompted. Use an embedded <code>.pvsproj</code> when transferring projects.</p><h2>Export errors</h2><p>Check FFmpeg and the encoder. If a GPU encoder fails, try CPU H.264 (<code>libx264</code>).</p><h2>Support</h2><p>Use <b>Help → About</b> to copy diagnostics and open the log folder.</p>": "",
-    "<h2>Slow preview</h2><ul><li>Lower Full Preview quality/FPS.</li><li>Reduce simultaneous visualizers, waveforms, and particles.</li><li>Lower particle density and analysis complexity.</li></ul><h2>Long export</h2><ul><li>Prefer Full HD 30 FPS over 4K or 60 FPS when those are unnecessary.</li><li>Frequent lyric animations and short changes require more prepared frames.</li><li>A supported GPU encoder can shorten final encoding but does not eliminate visual-frame preparation.</li></ul><p>Independent Z timelines avoid recapturing unrelated layers. When static and changing sources share a broad Z region, Playlist Canvas safely separates consecutive static/dynamic sublayers, prepares static runs once, and preserves same-Z and final composition order.</p><p>Adjacent timeline segments with the same resolved element-state key reuse one capture and extend its duration. Changes to rendered time text, lyric highlighting, progress, visibility, or animation remain separate.</p><p>Transparent layers are rendered and losslessly streamed at a fixed safe crop covering rotation, shadow, blur, and all animation travel, then composited at their original coordinates. Near-full regions fall back to full-frame streaming. Visualizer FFT windows are analyzed in exact-output batches, and FFmpeg encoder discovery is reused within an export.</p><div class='note'>Use the progress stage and percentage to identify whether preparation, visualization, or encoding is taking the time.</div>": "",
+    "<h2>Slow preview</h2><ul><li>Lower Full Preview quality/FPS.</li><li>Reduce simultaneous visualizers, waveforms, and particles.</li><li>Lower particle density and analysis complexity.</li></ul><h2>Long export</h2><ul><li>Prefer Full HD 30 FPS over 4K or 60 FPS when those are unnecessary.</li><li>Frequent lyric animations and short changes require more prepared frames.</li><li>A supported GPU encoder can shorten final encoding but does not eliminate visual-frame preparation.</li></ul><p>Independent Z timelines avoid recapturing unrelated layers. When static and changing sources share a broad Z region, Music Motion Studio safely separates consecutive static/dynamic sublayers, prepares static runs once, and preserves same-Z and final composition order.</p><p>Adjacent timeline segments with the same resolved element-state key reuse one capture and extend its duration. Changes to rendered time text, lyric highlighting, progress, visibility, or animation remain separate.</p><p>Transparent layers are rendered and losslessly streamed at a fixed safe crop covering rotation, shadow, blur, and all animation travel, then composited at their original coordinates. Near-full regions fall back to full-frame streaming. Visualizer FFT windows are analyzed in exact-output batches, and FFmpeg encoder discovery is reused within an export.</p><div class='note'>Use the progress stage and percentage to identify whether preparation, visualization, or encoding is taking the time.</div>": "",
     "<h2>곡 추가</h2><p>플레이리스트 패널에서 오디오 파일을 추가하고 곡 순서를 정합니다. 곡 상세 정보에서 제목, 아티스트, 앨범, 시작 시간과 가사를 편집할 수 있습니다.</p>\n                <h2>가사 사용</h2><ul><li>곡에 LRC, SRT 또는 VTT 가사 파일을 연결합니다.</li><li>캔버스에 <b>가사</b> 요소를 추가합니다.</li><li>플레이리스트에서 곡을 선택하고 <b>곡 정보/설정</b>의 가사 설정 탭에서 해당 곡만의 타이밍을 조절합니다.</li><li>가사 요소 속성의 타이밍 보정은 모든 곡에 공통으로 적용되며 곡별 보정과 합산됩니다.</li></ul>\n                <div class='note'>파일 경로가 바뀌면 프로젝트를 열 때 누락 미디어 창에서 새 위치를 지정할 수 있습니다.</div>": "",
-    "<h2>권장 형식</h2><p><code>.pvsproj</code>는 프로젝트 정보와 포함된 미디어를 하나의 파일로 묶는 휴대용 형식입니다. 레거시 <code>.project.json</code>도 열 수 있지만 프로젝트 메뉴에서 패키지로 업그레이드하는 것을 권장합니다.</p>\n                <p>설치 버전에서는 Windows 파일 탐색기의 <code>.pvsproj</code> 파일을 더블클릭하면 Playlist Canvas가 실행되고 해당 프로젝트를 바로 엽니다.</p>\n                <h2>저장되지 않은 변경 사항</h2><ul><li><code>Ctrl+S</code>로 저장합니다.</li><li>종료 시 <b>저장</b>, <b>저장 안 함</b>, <b>취소</b>를 선택할 수 있습니다.</li><li><b>취소</b>를 누르거나 저장창을 취소하면 편집기가 종료되지 않습니다.</li></ul>\n                <h2>자동 복구</h2><p>작업 중 복구 사본이 주기적으로 기록됩니다. 비정상 종료 뒤 시작 화면에서 복구 가능한 작업이 감지되면 복원 여부를 선택할 수 있습니다.</p>": "",
+    "<h2>권장 형식</h2><p><code>.pvsproj</code>는 프로젝트 정보와 포함된 미디어를 하나의 파일로 묶는 휴대용 형식입니다. 레거시 <code>.project.json</code>도 열 수 있지만 프로젝트 메뉴에서 패키지로 업그레이드하는 것을 권장합니다.</p>\n                <p>설치 버전에서는 Windows 파일 탐색기의 <code>.pvsproj</code> 파일을 더블클릭하면 Music Motion Studio가 실행되고 해당 프로젝트를 바로 엽니다.</p>\n                <h2>저장되지 않은 변경 사항</h2><ul><li><code>Ctrl+S</code>로 저장합니다.</li><li>종료 시 <b>저장</b>, <b>저장 안 함</b>, <b>취소</b>를 선택할 수 있습니다.</li><li><b>취소</b>를 누르거나 저장창을 취소하면 편집기가 종료되지 않습니다.</li></ul>\n                <h2>자동 복구</h2><p>작업 중 복구 사본이 주기적으로 기록됩니다. 비정상 종료 뒤 시작 화면에서 복구 가능한 작업이 감지되면 복원 여부를 선택할 수 있습니다.</p>": "",
     "<h2>미리보기</h2><p>내보내기 전에 미리보기에서 동적 텍스트, 가사, 진행 바, 오디오 반응형 요소와 곡 전환을 확인합니다.</p>\n                <h2>MP4 내보내기</h2><ol><li>상단 <b>내보내기</b>를 누릅니다.</li><li>인코딩을 잘 모르면 <b>권장 · 대부분의 영상</b>을 선택합니다.</li><li>해상도, FPS와 표시되는 예상 작업량을 확인한 뒤 내보내기를 시작합니다.</li></ol>\n                <p><b>빠른 내보내기</b>, <b>고화질 보관용</b>, <b>작은 파일</b>은 용도에 맞춰 CRF와 인코딩 속도, 오디오 품질을 자동 설정합니다. 코덱과 세부 값을 직접 바꾸려는 경우에만 <b>고급 설정 직접 조정</b>을 펼치세요.</p><div class='note'>4K 또는 60 FPS는 품질 모드와 별개로 화면 준비와 인코딩 시간을 크게 늘릴 수 있습니다.</div>": "",
     "<h2>미리보기가 느릴 때</h2><ul><li>영상 전체 미리보기의 품질/FPS를 낮춥니다.</li><li>동시에 보이는 비주얼라이저, 파형, 파티클 수를 줄입니다.</li><li>파티클 밀도와 오디오 분석 밴드 수를 낮춥니다.</li></ul>\n                 <h2>내보내기가 오래 걸릴 때</h2><ul><li>필요하지 않다면 4K 또는 60 FPS 대신 Full HD 30 FPS를 사용합니다.</li>\n                 <li>가사 애니메이션과 매우 짧은 변화가 많으면 준비할 프레임 수가 증가합니다.</li><li>지원되는 GPU 인코더는 최종 인코딩을 줄일 수 있지만 화면 프레임 준비 시간까지 모두 줄이지는 않습니다.</li></ul>\n                 <p><b>설정 → 내보내기 → 작업 모드</b>에서 안정, 자동, 최대 속도를 선택할 수 있습니다. 자동은 PC와 해상도에 맞춰 조절하며, 안정은 저사양·4K 환경의 메모리 사용을 줄이고, 최대 속도는 더 많은 CPU 작업을 사용합니다.</p>\n                 <p>Qt 장면 접근은 안정성을 위해 순서대로 수행됩니다. 다만 전체 영상에서 변하지 않는 이미지·도형·일반 텍스트 Z 구간은 안전 여부를 자동 판정해 한 번만 캡처하며, 그 결과의 변환·인코딩과 곡별 오디오 정규화는 백그라운드에서 병렬로 진행됩니다.</p>\n                 <p>각 Z 레이어는 해당 레이어의 가사·시간·애니메이션 변경 시점만 사용하는 독립 타임라인으로 준비됩니다. 한 레이어의 잦은 변화 때문에 관계없는 배경이나 다른 레이어가 반복 캡처되지 않습니다.</p>\n                 <p>하나의 Z 구간에 정적 요소와 동적 요소가 섞여 있으면 연속된 정적·동적 하위 레이어로 안전하게 나눕니다. 정적 하위 레이어는 한 번만 준비하고, 같은 Z값의 요소와 최종 합성 순서는 그대로 유지합니다.</p>\n                 <p>연속된 타임라인 구간에서 요소의 실제 표시 상태가 같으면 상태 키로 이를 확인해 같은 화면을 다시 캡처하지 않고 기존 프레임의 표시 시간만 연장합니다. 시간 문자열, 가사 하이라이트, 진행률과 애니메이션 상태가 달라지는 경계는 합치지 않습니다.</p>\n                 <p>투명 레이어는 회전, 크기, 그림자와 애니메이션 전체 이동 여백을 포함한 고정 영역만 장면에서 다시 그리고 작은 무손실 중간 스트림으로 전달합니다. 최종 합성에서 원래 좌표에 배치하며, 영역이 화면 대부분이면 자동으로 기존 전체 크기 방식을 사용합니다.</p>\n                 <p>오디오 비주얼라이저의 FFT 분석은 여러 프레임을 묶어 처리하되 기존 주파수 밴드 계산을 그대로 사용합니다. 내보내기 중 같은 FFmpeg 실행 파일의 인코더 목록도 한 번만 조회합니다.</p>\n                 <div class='note'>진행 창의 단계명과 백분율로 시간이 화면 준비, 비주얼라이저, 인코딩 중 어디에서 사용되는지 먼저 확인하세요.</div>": "",
     "<h2>선택과 변형</h2><ul><li>요소를 클릭해 선택하고 드래그해 이동합니다.</li><li>테두리 핸들로 크기를 조절하고 위쪽 원형 핸들로 회전합니다.</li><li><code>Alt</code>를 누른 채 크기를 조절하면 현재 비율을 유지하고, <code>Alt+Shift</code>를 누르면 1:1 비율로 전환해 조절합니다. 앨범 커버는 항상 1:1을 유지합니다.</li><li><code>Ctrl</code> 클릭 또는 드래그 선택으로 여러 요소를 선택합니다.</li><li><code>Delete</code>로 삭제하고 <code>Ctrl+D</code>로 복제합니다.</li></ul>\n                <h2>정밀 편집</h2><ul><li><code>Alt+방향키</code>: 1px 이동</li><li><code>Alt+Shift+방향키</code>: 10px 이동</li><li><code>Ctrl+]</code> / <code>Ctrl+[</code>: 맨 앞으로 / 맨 뒤로</li><li><code>Ctrl+G</code> / <code>Ctrl+Shift+G</code>: 그룹 / 그룹 해제</li></ul>\n                <p>캔버스 요소를 우클릭하면 클립보드, 레이어 순서, 캔버스 중앙 정렬, 여러 요소의 가장자리 정렬, 그룹, 표시와 잠금 명령을 사용할 수 있습니다. 빈 캔버스를 우클릭하면 붙여넣기, 모두 선택, 캔버스에 맞추기가 표시됩니다.</p>\n                <p>레이어 패널에서는 표시 여부와 잠금을 바꾸고, 여러 요소를 선택해 한 단계 또는 맨 앞·뒤로 이동할 수 있습니다. 레이어를 드래그하면 실제 캔버스 쌓임 순서가 바뀌며 다른 그룹에 놓으면 그룹 소속도 함께 변경됩니다. 이름은 더블클릭하거나 <code>F2</code>로 수정합니다. 실행 취소와 다시 실행 후에도 복원된 요소의 선택 상태가 유지됩니다.</p>": "",
-    "<h2>진행 단계</h2><ol><li><b>화면 프레임 준비</b>: 애니메이션, 가사, 곡 정보와 정적 레이어를 캡처합니다.</li>\n                 <li><b>오디오 준비</b>: 곡의 형식과 음량을 정리하고 순서대로 결합합니다.</li><li><b>비주얼라이저 준비</b>: 필요한 경우 Python 시각 효과 프레임을 생성합니다.</li>\n                 <li><b>영상 인코딩</b>: FFmpeg가 화면과 오디오를 최종 MP4로 합칩니다.</li></ol>\n                 <p>서로 독립적인 곡의 오디오 준비와 정적 레이어 인코딩은 PC 성능과 작업 수에 맞춰 제한적으로 병렬 처리됩니다. 진행 상세 정보에서 현재 병렬 작업 수를 확인할 수 있습니다.</p>\n                 <p>내보내기 중에는 프로젝트 상태가 바뀌지 않도록 메인 편집 화면이 잠깁니다. <b>최소화</b>를 누르면 작업은 계속 진행되며, 작업 표시줄에서 Playlist Canvas를 복원하면 진행 창도 다시 표시됩니다. 진행 창의 <b>취소</b>를 누르고 확인하면 임시 프레임과 실행 중인 작업을 안전하게 정리한 뒤 편집 화면으로 돌아갑니다.</p><p><b>저장 공간 사용량</b> 카드에서는 화면·프레임, 오디오, 음악 반응 효과, 생성 중인 결과 영상의 실제 크기와 작업 파일 합계를 확인할 수 있습니다. 아래 막대는 출력 드라이브의 전체 용량과 남은 공간을 보여 줍니다. 설정 창의 예상 용량은 장면 복잡도와 압축 결과에 따라 실제 값과 달라질 수 있습니다.</p>\n                 <h2>단계 알림과 완료 후 작업</h2><p><b>도구 → 설정 → 내보내기</b>에서 Windows 단계 알림을 켜고 화면·오디오·효과·영상 생성·완료·오류 알림을 각각 선택할 수 있습니다. 알림은 항상 표시하거나 Playlist Canvas가 포커스 중이 아닐 때만 표시하도록 설정할 수 있습니다.</p><p>완료 창에서는 영상을 바로 재생하고, 저장 폴더를 열고, 파일 경로를 복사하거나 같은 프로젝트를 다시 내보낼 수 있습니다.</p>": "",
+    "<h2>진행 단계</h2><ol><li><b>화면 프레임 준비</b>: 애니메이션, 가사, 곡 정보와 정적 레이어를 캡처합니다.</li>\n                 <li><b>오디오 준비</b>: 곡의 형식과 음량을 정리하고 순서대로 결합합니다.</li><li><b>비주얼라이저 준비</b>: 필요한 경우 Python 시각 효과 프레임을 생성합니다.</li>\n                 <li><b>영상 인코딩</b>: FFmpeg가 화면과 오디오를 최종 MP4로 합칩니다.</li></ol>\n                 <p>서로 독립적인 곡의 오디오 준비와 정적 레이어 인코딩은 PC 성능과 작업 수에 맞춰 제한적으로 병렬 처리됩니다. 진행 상세 정보에서 현재 병렬 작업 수를 확인할 수 있습니다.</p>\n                 <p>내보내기 중에는 프로젝트 상태가 바뀌지 않도록 메인 편집 화면이 잠깁니다. <b>최소화</b>를 누르면 작업은 계속 진행되며, 작업 표시줄에서 Music Motion Studio를 복원하면 진행 창도 다시 표시됩니다. 진행 창의 <b>취소</b>를 누르고 확인하면 임시 프레임과 실행 중인 작업을 안전하게 정리한 뒤 편집 화면으로 돌아갑니다.</p><p><b>저장 공간 사용량</b> 카드에서는 화면·프레임, 오디오, 음악 반응 효과, 생성 중인 결과 영상의 실제 크기와 작업 파일 합계를 확인할 수 있습니다. 아래 막대는 출력 드라이브의 전체 용량과 남은 공간을 보여 줍니다. 설정 창의 예상 용량은 장면 복잡도와 압축 결과에 따라 실제 값과 달라질 수 있습니다.</p>\n                 <h2>단계 알림과 완료 후 작업</h2><p><b>도구 → 설정 → 내보내기</b>에서 Windows 단계 알림을 켜고 화면·오디오·효과·영상 생성·완료·오류 알림을 각각 선택할 수 있습니다. 알림은 항상 표시하거나 Music Motion Studio가 포커스 중이 아닐 때만 표시하도록 설정할 수 있습니다.</p><p>완료 창에서는 영상을 바로 재생하고, 저장 폴더를 열고, 파일 경로를 복사하거나 같은 프로젝트를 다시 내보낼 수 있습니다.</p>": "",
     "<h2>표시 규칙</h2><p>가사가 있는 곡은 첫 번째 줄을 곡 시작부터 보여줍니다. 단, 현재 타임코드에 들어가기 전에는 강조하지 않습니다. 가사 사이 공백에는 직전 줄을 유지하고 활성 구간에서만 현재 줄 강조와 전환 애니메이션이 적용됩니다.</p>\n                <h2>가사 전환</h2><ul><li><b>소프트 포커스</b>: 부드러운 초점·페이드와 완만한 상승·확대</li><li><b>스무스 슬라이드</b>: 짧고 선명한 이동과 강조</li><li><b>블러 리빌</b>: 흐릿한 글자가 또렷해지는 시네마틱 전환</li></ul>\n                <h2>곡 정보/설정</h2><ul><li>플레이리스트에서 곡을 선택하고 <b>곡 정보/설정</b>을 엽니다.</li><li><b>곡 정보</b> 탭에서 제목·아티스트·앨범과 프로젝트 전용 앨범 커버를 편집합니다.</li><li><b>가사 설정</b> 탭에서 가사 파일·타이밍·미리보기를 관리합니다.</li>\n                <li>LRC, SRT, VTT 파일을 연결하거나 해제합니다.</li><li>실제 노래를 재생하면서 현재·이전·다음 가사를 확인합니다.</li>\n                <li>곡별 타이밍 보정의 양수 값은 가사를 빠르게, 음수 값은 늦게 표시합니다.</li></ul>\n                <div class='note'>가사 설정 탭의 미리보기 볼륨은 영상 전체 미리보기와 공유됩니다.</div>": "",
-    "<h2>프로그램이 실행되지 않을 때</h2><p>배포 폴더에서 EXE만 분리하지 마세요. <code>Playlist Canvas</code> 폴더와 내부 <code>_internal</code> 폴더를 함께 유지해야 합니다.</p>\n                <h2>미디어를 찾을 수 없을 때</h2><p>프로젝트 열기 중 표시되는 누락 미디어 창에서 이동된 파일의 새 경로를 지정합니다. 다른 컴퓨터로 옮길 프로젝트는 미디어를 포함한 <code>.pvsproj</code> 형식을 권장합니다.</p>\n                <h2>내보내기 오류</h2><p>설정의 FFmpeg 상태와 선택한 인코더를 확인하세요. GPU 인코더가 실패하면 CPU H.264(<code>libx264</code>)로 다시 시도합니다.</p>\n                <h2>지원 정보</h2><p><b>도움말 → 프로그램 정보</b>에서 진단 정보를 복사하거나 로그 폴더를 열 수 있습니다. 오류 문의 시 진단 정보와 가장 최근 로그를 함께 제공하세요.</p>": "",
+    "<h2>프로그램이 실행되지 않을 때</h2><p>배포 폴더에서 EXE만 분리하지 마세요. <code>Music Motion Studio</code> 폴더와 내부 <code>_internal</code> 폴더를 함께 유지해야 합니다.</p>\n                <h2>미디어를 찾을 수 없을 때</h2><p>프로젝트 열기 중 표시되는 누락 미디어 창에서 이동된 파일의 새 경로를 지정합니다. 다른 컴퓨터로 옮길 프로젝트는 미디어를 포함한 <code>.pvsproj</code> 형식을 권장합니다.</p>\n                <h2>내보내기 오류</h2><p>설정의 FFmpeg 상태와 선택한 인코더를 확인하세요. GPU 인코더가 실패하면 CPU H.264(<code>libx264</code>)로 다시 시도합니다.</p>\n                <h2>지원 정보</h2><p><b>도움말 → 프로그램 정보</b>에서 진단 정보를 복사하거나 로그 폴더를 열 수 있습니다. 오류 문의 시 진단 정보와 가장 최근 로그를 함께 제공하세요.</p>": "",
     "<hr>": "",
     "<h{level}>{value}</h{level_2}>": "",
     "<i2": "",
@@ -757,7 +757,7 @@
     "<li>": "",
     "<li>{box} {value}</li>": "",
     "<li>{value}</li>": "",
-    "<ol><li><b>Visual frame preparation</b>: captures animation, lyrics, metadata, and static layers.</li><li><b>Audio preparation</b>: normalizes and combines tracks.</li><li><b>Visualizer preparation</b>: renders Python visual layers when needed.</li><li><b>Video encoding</b>: FFmpeg combines picture and audio into MP4.</li></ol><p>The main editor is locked during export to keep project state stable. Choose <b>Minimize</b> to keep exporting in the background; restoring Playlist Canvas from the taskbar brings the progress window back. Choose Cancel and confirm to stop safely, remove temporary work, and return to editing.</p><h2>Stage notifications and next actions</h2><p>Under <b>Tools → Settings → Export</b>, enable Windows notifications and choose each phase independently: visuals, audio, effects, video creation, completion, and errors. Notifications can always appear or only while Playlist Canvas is not focused.</p><p>After a successful export, the completion window can play the video, open its folder, copy its path, or start another export.</p>": "",
+    "<ol><li><b>Visual frame preparation</b>: captures animation, lyrics, metadata, and static layers.</li><li><b>Audio preparation</b>: normalizes and combines tracks.</li><li><b>Visualizer preparation</b>: renders Python visual layers when needed.</li><li><b>Video encoding</b>: FFmpeg combines picture and audio into MP4.</li></ol><p>The main editor is locked during export to keep project state stable. Choose <b>Minimize</b> to keep exporting in the background; restoring Music Motion Studio from the taskbar brings the progress window back. Choose Cancel and confirm to stop safely, remove temporary work, and return to editing.</p><h2>Stage notifications and next actions</h2><p>Under <b>Tools → Settings → Export</b>, enable Windows notifications and choose each phase independently: visuals, audio, effects, video creation, completion, and errors. Notifications can always appear or only while Music Motion Studio is not focused.</p><p>After a successful export, the completion window can play the video, open its folder, copy its path, or start another export.</p>": "",
     "<p style=\"color:": "",
     "<p style=\"color:{color};margin:0 0 2px 0;\"><b>{label}</b></p>": "",
     "<p>": "",
@@ -767,20 +767,20 @@
     "<p><b>도구 → 설정</b>에서 애플리케이션 전체 기본값을 관리합니다.</p>\n                <ul><li><b>일반</b>: 라이트/다크/자동 테마, 한국어/영어, 부드러운 스크롤</li><li><b>내보내기</b>: 기본 출력 폴더, 해상도, FPS, 인코더, 품질</li><li><b>FFmpeg</b>: 실행 파일 경로, 상태 확인, 자동 설치</li></ul>\n                <p>부드러운 스크롤은 끄거나 80~420ms 범위에서 조절할 수 있습니다. 값이 높을수록 더 천천히 부드럽게 이동하며, <code>Ctrl+휠</code> 캔버스 확대/축소에는 영향을 주지 않습니다.</p>": "",
     "<p><b>요소</b> 탭 또는 <b>추가</b> 메뉴에서 캔버스 구성 요소를 넣습니다. 요소 버튼을 클릭하면 기본 위치에 추가되고, 버튼을 캔버스로 드래그하면 놓은 위치에 추가됩니다. 버튼에 마우스를 올리면 해당 요소의 용도와 주요 설정을 확인할 수 있습니다.</p>\n                <div class='note'>이미지의 로고·워터마크, 텍스트의 시간 표시는 부모 요소의 토글을 열어 선택하는 속성 템플릿입니다. 추가 후에는 부모 요소와 같은 속성 및 렌더링 방식을 사용합니다.</div>\n                <h2>자주 쓰는 요소</h2><ul><li><b>배경·이미지·로고·워터마크</b>: 이미지 기반 장면 구성</li>\n                <li><b>텍스트·시간</b>: 고정 문구 또는 곡 정보/재생 시간 토큰</li><li><b>앨범 커버·현재 곡·트랙 목록</b>: 재생 곡에 맞춰 자동 갱신</li>\n                <li><b>진행 바·가사</b>: 곡 진행률과 타임코드 가사 표시</li><li><b>비주얼라이저·파형·레벨 미터·파티클</b>: 음악 반응형 표현</li></ul>\n                <p>추가된 요소는 레이어 패널에서 이름, 표시 여부, 잠금과 앞뒤 순서를 관리합니다. 캔버스 요소를 우클릭하면 잘라내기·복제·삭제뿐 아니라 레이어 순서, 다중 정렬, 그룹, 표시와 잠금 명령을 사용할 수 있습니다.</p>": "",
     "<p><b>프로젝트 콘텐츠</b> 탭은 현재 프로젝트에서 사용하는 이미지와 오디오 같은 미디어를 모아 확인하고 다시 사용하는 공간입니다.</p>\n                <ul><li><b>전체·이미지·오디오·가사/자막·폰트</b> 필터로 필요한 형식만 빠르게 찾을 수 있습니다.</li><li>상단의 <b>목록·격자·간단</b> 보기 버튼으로 상세 정보, 큰 이미지 썸네일, 조밀한 목록 사이를 전환할 수 있습니다. 선택한 보기는 다음 실행에도 유지됩니다.</li><li>오디오와 영상을 미리보기하면 재생·일시정지·정지, 5초 이동, 재생 위치 탐색, 볼륨과 음소거를 사용할 수 있습니다. 볼륨은 다른 미리보기 화면과 공유됩니다.</li><li>콘텐츠를 캔버스 요소나 플레이리스트로 추가할 수 있습니다.</li><li>항목을 우클릭하면 프로젝트에 추가, 목록에서 제거, 파일 정보 확인 메뉴가 표시됩니다. 빈 영역을 우클릭하면 새 콘텐츠를 가져올 수 있습니다.</li><li>같은 파일을 반복해서 찾지 않고 프로젝트 안에서 재사용할 수 있습니다.</li>\n                <li>원본 파일을 이동하거나 삭제하면 프로젝트를 열 때 누락 미디어로 표시될 수 있습니다.</li></ul>\n                <p>다른 컴퓨터로 프로젝트를 옮길 때는 미디어가 포함되는 <code>.pvsproj</code> 패키지 저장을 권장합니다.</p>": "",
-    "<p><code>.pvsproj</code> is the recommended portable package format. Legacy <code>.project.json</code> files can be opened and upgraded from the Project menu.</p><p>With the installed version, double-click a <code>.pvsproj</code> in Windows File Explorer to launch Playlist Canvas and open that project directly.</p><h2>Unsaved work</h2><ul><li>Press <code>Ctrl+S</code> to save.</li><li>On exit, choose Save, Discard, or Cancel.</li><li>Cancel or cancelling Save As keeps the editor open.</li></ul><h2>Recovery</h2><p>Recovery snapshots are written periodically and can be offered after an abnormal shutdown.</p>": "",
+    "<p><code>.pvsproj</code> is the recommended portable package format. Legacy <code>.project.json</code> files can be opened and upgraded from the Project menu.</p><p>With the installed version, double-click a <code>.pvsproj</code> in Windows File Explorer to launch Music Motion Studio and open that project directly.</p><h2>Unsaved work</h2><ul><li>Press <code>Ctrl+S</code> to save.</li><li>On exit, choose Save, Discard, or Cancel.</li><li>Cancel or cancelling Save As keeps the editor open.</li></ul><h2>Recovery</h2><p>Recovery snapshots are written periodically and can be offered after an abnormal shutdown.</p>": "",
     "<p>Add Canvas objects from the <b>Sources</b> tab or <b>Insert</b> menu. Click a source to add it at the default position, or drag its button onto the Canvas to place it where it is dropped. Hover a source button for its purpose and main settings.</p><div class='note'>Logo and Watermark are property templates under the Image parent; Time is a property template under Text. Expand the parent's toggle to select them. Once added, each uses its parent's properties and rendering path.</div><ul><li><b>Background, Image, Logo, Watermark</b>: image-based composition</li><li><b>Text and Time</b>: fixed text or dynamic track/time tokens</li><li><b>Cover, Now Playing, Track List</b>: follow the active track</li><li><b>Progress and Lyrics</b>: playback progress and timed text</li><li><b>Visualizer, Waveform, Level Meter, Particles</b>: audio-reactive graphics</li></ul><p>Manage visibility, locking, names, and stacking in Layers.</p>": "",
     "<p>Add audio in the Playlist panel and arrange track order.</p><h2>Lyrics</h2><ol><li>Attach an LRC, SRT, or VTT file.</li><li>Add a Lyrics source to the Canvas.</li><li>Select one playlist track and open <b>Track/Lyrics Settings</b> to adjust only that track's timing.</li><li>The Lyrics source timing offset is global and is added to each track's individual offset.</li></ol><p>Use the missing-media dialog to relocate files whose paths have changed.</p>": "",
-    "<p>After startup, Playlist Canvas checks the official GitHub repository for the latest stable release. A newer release shows its full notes and current/latest versions.</p><ol><li>Choose <b>Download and update</b>.</li><li>Wait for Setup download and SHA-256 verification.</li><li>Resolve unsaved work, close the application, and run Setup.</li></ol><p>Dismissing an automatic prompt suppresses that release only. Use <b>Help → Check for updates</b> at any time to check a skipped release manually.</p>": "",
+    "<p>After startup, Music Motion Studio checks the official GitHub repository for the latest stable release. A newer release shows its full notes and current/latest versions.</p><ol><li>Choose <b>Download and update</b>.</li><li>Wait for Setup download and SHA-256 verification.</li><li>Resolve unsaved work, close the application, and run Setup.</li></ol><p>Dismissing an automatic prompt suppresses that release only. Use <b>Help → Check for updates</b> at any time to check a skipped release manually.</p>": "",
     "<p>At startup the <b>Start a project</b> window lets you create a project, open a file or pick a recent project. Dropping a project file on it opens it too.</p>\n[[img:new_project]]\n<h2>The New project window</h2>\n<ul>\n<li><b>Project information</b>: name and author (the description lives in Project settings)</li>\n<li><b>Aspect ratio and canvas</b>: 16:9, 9:16, 1:1, 4:3, 3:4, 8:19, 21:9 or a custom size</li>\n<li><b>Starting design</b>: the default project or a <a href='topic:presets'>design preset</a>, with a preview</li>\n<li><b>Transitions</b>: none (cut) · crossfade · <a href='topic:automix'>AutoMix</a></li>\n<li><b>Content storage</b>: include in the project (opens on any PC) or reference the originals (smaller file)</li>\n<li><b>Starting music (optional)</b>: pick music files or an M3U8 playlist, or drop them on the window</li>\n</ul>\n<p>Everything chosen here can be changed later in <a href='topic:project_settings'>Project settings</a>.</p>\n<h2>Basic workflow</h2>\n<ol>\n<li><b>Add music</b> — <b>+ Add music</b> in the Playlist, or drop files. A .lrc/.srt/.vtt/.ttml with the same name is attached as lyrics.</li>\n<li><b>Design the screen</b> — add a background, text, album art, lyrics, a progress bar or visualizers from <b>Sources</b> and fine-tune them in the inspector.</li>\n<li><b>Check</b> — play it with the music in <b>Preview</b> (<code>Ctrl+Alt+3</code>).</li>\n<li><b>Export</b> — choose video, audio, or subtitles under <b>Export</b> (<code>Ctrl+E</code>). Video/audio and mix timing need <a href='topic:ffmpeg'>FFmpeg</a>.</li>\n</ol>\n<div class='note'>A short tour of the workspace appears on first launch. <b>Tools → Settings → Maintenance → Reset program</b> shows it again.</div>": "",
     "<p>Audio-reactive sources analyze the actual playlist sound.</p><ul><li><b>Visualizer</b>: frequency bars or lines</li><li><b>Waveform</b>: waveform and playback progress</li><li><b>Level Meter</b>: mono/stereo level and peak</li><li><b>Particles</b>: music-reactive particle motion</li></ul><p>Tune sensitivity, attack/release, smoothing, and noise gate. More layers, higher FPS, and dense particles increase preview and export work.</p>": "",
     "<p>Click a source to select it, drag to move it, use border handles to resize, and use the round top handle to rotate.</p><ul><li>Hold <code>Alt</code> while resizing to preserve the current aspect ratio.</li><li>Hold <code>Alt+Shift</code> to switch to and maintain a 1:1 ratio. Album Cover sources always remain 1:1.</li><li><code>Ctrl</code>-click or marquee: select multiple</li><li><code>Alt+Arrow</code>: nudge 1 px</li><li><code>Ctrl+D</code>: duplicate</li><li><code>Ctrl+]</code> / <code>Ctrl+[</code>: front / back</li><li><code>Ctrl+G</code> / <code>Ctrl+Shift+G</code>: group / ungroup</li></ul><p>Right-click a Canvas source for clipboard commands, layer ordering, Canvas centering, multi-source edge alignment, grouping, visibility, and locking. Right-click empty Canvas space to paste, select all, or fit the Canvas.</p><p>In Layers, drag rows to change the real Canvas stacking order or drop them into another group. Multi-selected rows move as one block. Use the four arrow buttons for front, forward, backward, and back, and double-click or press <code>F2</code> to rename a source or group.</p><p>Selection stays on a restored source after undo or redo.</p>": "",
-    "<p>FFmpeg is required for MP4 export and is not bundled by default.</p><ol><li>Open <b>Tools → Settings → FFmpeg</b>.</li><li>Choose <b>Download and install FFmpeg</b>.</li><li>Wait for download and SHA-256 verification.</li></ol><p>You may instead select an existing <code>ffmpeg.exe</code> and click Check. If downloading fails, review connectivity, firewall rules, and the application log.</p><h2>Automatic video encoder</h2><p><b>Automatic (Recommended)</b> tests H.264 NVENC with the real output settings when an NVIDIA GPU is detected, and otherwise uses CPU H.264. If the NVENC check fails, Playlist Canvas explains the problem and asks whether to continue on the CPU before lengthy frame preparation begins. Resolution and FPS are preserved, although CPU encoding may take longer.</p>": "",
+    "<p>FFmpeg is required for MP4 export and is not bundled by default.</p><ol><li>Open <b>Tools → Settings → FFmpeg</b>.</li><li>Choose <b>Download and install FFmpeg</b>.</li><li>Wait for download and SHA-256 verification.</li></ol><p>You may instead select an existing <code>ffmpeg.exe</code> and click Check. If downloading fails, review connectivity, firewall rules, and the application log.</p><h2>Automatic video encoder</h2><p><b>Automatic (Recommended)</b> tests H.264 NVENC with the real output settings when an NVIDIA GPU is detected, and otherwise uses CPU H.264. If the NVENC check fails, Music Motion Studio explains the problem and asks whether to continue on the CPU before lengthy frame preparation begins. Resolution and FPS are preserved, although CPU encoding may take longer.</p>": "",
     "<p>Full Preview plays the complete playlist with real audio and Canvas visuals.</p><ul><li>Use play/pause and previous/next track controls.</li><li>Click or drag the timeline to seek.</li><li>Volume is shared with Track/Lyrics Preview.</li><li>Lower preview quality for smoother inspection of complex reactive scenes.</li></ul><p>Preview quality does not change final export quality. A sustained actual FPS below the target indicates that composition or display is heavier than the current machine can present in real time.</p>": "",
     "<p>MP4 내보내기에는 FFmpeg가 필요합니다. FFmpeg는 프로그램에 기본 포함되지 않습니다.</p>\n                <h2>자동 설치</h2><ol><li><b>도구 → 설정 → FFmpeg</b>를 엽니다.</li><li><b>FFmpeg 자동 다운로드 및 설치</b>를 누릅니다.</li><li>다운로드와 SHA-256 검증이 끝날 때까지 진행 창을 확인합니다.</li></ol>\n                <p>이미 설치된 FFmpeg가 있다면 <code>ffmpeg.exe</code> 경로를 직접 선택하고 <b>확인</b>을 누를 수 있습니다. 다운로드 버튼이 동작하지 않으면 인터넷 연결, 방화벽, 로그 폴더의 오류 내용을 확인하세요.</p>\n                <h2>비디오 인코더 자동 선택</h2><p><b>자동 선택(권장)</b>은 NVIDIA GPU가 감지되면 H.264 NVENC를 먼저 실제 출력 설정으로 검사하고, NVIDIA GPU가 없으면 CPU H.264를 사용합니다. NVENC 검사에 실패하면 긴 프레임 준비를 시작하기 전에 원인과 함께 CPU로 계속할지 묻습니다. CPU로 바꿔도 해상도와 FPS는 유지되지만 인코딩 시간이 길어질 수 있습니다.</p>": "",
     "<p>Manage community JSON translations under <b>Tools → Settings → General → External language packs</b>.</p><ul><li><b>Import</b> validates and installs a UTF-8 JSON pack.</li><li><b>Remove</b> deletes the selected external pack.</li><li><b>Open folder</b> allows direct file management.</li><li><b>Reload</b> reads folder changes.</li></ul><p>Missing strings fall back to English. Malformed, oversized, incompatible, or placeholder-invalid packs are ignored.</p>": "",
     "<p>No release notes were provided.</p>": "",
     "<p>Open <b>Tools → LRC File Generator</b> to create synchronized lyrics from project content or a local audio file.</p><ol><li>Enter one lyric per line and choose <b>Prepare lyric lines</b>.</li><li>Play the audio and press <code>Space</code> or <b>Record current line</b> whenever each line begins.</li><li>Use <b>Live test</b> to verify the recorded lyrics against playback.</li><li>Correct timing with selected-line recording, ±0.1 second nudges, input latency offset, Undo, and Redo.</li><li>Choose <b>Save LRC</b> to create a standard UTF-8 LRC file and optionally add it directly to Project Content.</li></ol><div class='note'>Space continues to type a normal space while the lyric editor has focus.</div>": "",
-    "<p>Playlist Canvas combines a music playlist with visual sources to produce a video.</p><h2>Basic workflow</h2><ol><li>Create a project and choose its aspect ratio, or open a <code>.pvsproj</code> file.</li><li>Add audio to the playlist and arrange its order.</li><li>Place backgrounds, text, cover art, progress bars, and visualizers on the Canvas.</li><li>Check Preview, then export an MP4.</li></ol><p>You can later change the ratio and canvas size under <b>Project → Project Settings</b>, either adapting existing sources or keeping their geometry.</p><div class='note'>Export sizes are generated from the active project ratio, so portrait and custom ratios remain intact without forced landscape padding.</div>": "",
+    "<p>Music Motion Studio combines a music playlist with visual sources to produce a video.</p><h2>Basic workflow</h2><ol><li>Create a project and choose its aspect ratio, or open a <code>.pvsproj</code> file.</li><li>Add audio to the playlist and arrange its order.</li><li>Place backgrounds, text, cover art, progress bars, and visualizers on the Canvas.</li><li>Check Preview, then export an MP4.</li></ol><p>You can later change the ratio and canvas size under <b>Project → Project Settings</b>, either adapting existing sources or keeping their geometry.</p><div class='note'>Export sizes are generated from the active project ratio, so portrait and custom ratios remain intact without forced landscape padding.</div>": "",
     "<p>Select a source to show its settings in the Inspector.</p><ul><li><b>Source-name tab</b>: settings unique to the selected source type</li><li><b>Layout</b>: name, position, size, rotation, and scale</li><li><b>Text</b>: content, alignment, font, text color, and glyph outline</li><li><b>Appearance</b>: source opacity and shadow</li><li><b>Fill</b>: background color, corners, outline, and gradient</li><li><b>Filters</b>: blur, brightness, and contrast for image-backed sources</li><li><b>Animation</b>: track entrance/exit effects and Canvas preview</li><li><b>Other</b>: layer, visibility, and locking</li></ul><p>Enable <b>Use current track personal color</b> to drive the source's primary color from the dominant color of the playing track's artwork. Brightness, saturation, hue shift, and strength can refine or blend it with the configured color. Tracks without artwork keep the configured color.</p><p>With multiple sources selected, the Inspector shows only properties supported by every selection. Different values appear blank, while check boxes use a mixed state; entering a value applies it to every selected source.</p><p>Text supports dynamic tokens including <code>%title%</code>, <code>%artist%</code>, and <code>%track_current_time%</code>.</p>": "",
     "<p>The <b>Playlist</b> tab at the bottom holds the songs of the video and their order.</p>\n[[img:canvas_playlist]]\n<h2>Adding songs</h2>\n<ul>\n<li>Choose <b>+ Add music</b>, or drop music files or an M3U8/M3U playlist on the list. Supported: MP3, WAV, FLAC, AAC, M4A, OGG.</li>\n<li>A <code>.lrc</code>/<code>.srt</code>/<code>.vtt</code>/<code>.ttml</code> with the same name in the same folder is attached as lyrics (change this in <a href='topic:settings'>Settings → Content</a>); for similarly named files you are asked.</li>\n<li>Adding an M3U8 first shows its tracks with art, title, artist and album to confirm. Missing files and web streams are skipped. The <b>File</b> menu imports and exports M3U8. <b>Export timeline</b> saves mixed track start times and track details as a description and CSV.</li>\n</ul>\n<h2>Working with the list</h2>\n<ul>\n<li><b>Search</b> finds titles, artists and albums.</li>\n<li><b>↑ ↓</b> reorder; <b>Reorder</b> opens a larger window with covers, details and listening, where you drag to sort (double-click to listen; changes are confirmed before saving).</li>\n<li><b>Duplicate</b>, <b>Delete</b> (<code>Delete</code>, restore with <code>Ctrl+Z</code>), and <b>include/exclude from export</b> with <code>Space</code> or the context menu</li>\n<li><b>Track information/settings</b> (<code>Enter</code> or double-click): <a href='topic:track_details'>per-track info, analysis, lyrics, videos and sound</a></li>\n<li>Drop a lyrics file on a track to attach it to that track.</li>\n</ul>\n<p>Each row shows its lyric offset, analyzed BPM and length. In an AutoMix project, <b>⟷ Auto transition</b> / <b>✎ Manual</b> chips appear between tracks; click one to open the <a href='topic:automix_editor'>AutoMix editor</a>.</p>": "",
     "<p>The <b>Project Content</b> tab collects media used by the current project so it can be reviewed and reused.</p><ul><li>Filter by All, Images, Audio, Lyrics/subtitles, or Fonts.</li><li>Use the <b>List, Grid, and Compact</b> buttons to switch between details, large image thumbnails, and a dense list. The selected view is remembered for the next run.</li><li>Audio and video previews provide play/pause, stop, five-second skip, timeline seeking, volume, and mute controls. Volume is shared with the other preview players.</li><li>Add content to the Canvas or Playlist.</li><li>Right-click an item to add it, remove it from the list, or inspect its file information. Right-click empty space to import content.</li><li>Reuse a file without browsing for it repeatedly.</li><li>Moved or deleted originals may appear as missing media when reopening.</li></ul><p>Use the embedded <code>.pvsproj</code> package when moving work to another computer.</p>": "",
@@ -848,7 +848,7 @@
     "AURORA MIX · %track% / %track_total%": "",
     "AUX": "",
     "Aa": "",
-    "About Playlist Canvas": "",
+    "About Music Motion Studio": "",
     "Accent block": "",
     "Accent ▌": "",
     "Accept": "",
@@ -1334,7 +1334,7 @@
     "Could not open project: {error}": "",
     "Could not open recovery snapshot: ": "",
     "Could not open recovery snapshot: {error}": "",
-    "Could not open the Playlist Canvas license file.": "",
+    "Could not open the Music Motion Studio license file.": "",
     "Could not open the language pack folder.": "",
     "Could not open the log folder.": "",
     "Could not play this media.": "",
@@ -1480,7 +1480,7 @@
     "Delete lyric ": "",
     "Delete lyric (Delete)": "",
     "Delete lyric {value} and its recorded timing?": "",
-    "Delete only FFmpeg installed by Playlist Canvas. External FFmpeg files are never removed.": "",
+    "Delete only FFmpeg installed by Music Motion Studio. External FFmpeg files are never removed.": "",
     "Delete preset": "",
     "Delete selected sources": "",
     "Delete the currently app-managed FFmpeg. Video export will be unavailable until it is installed again. Continue?": "",
@@ -1528,8 +1528,8 @@
     "Downloaded {value:.1f} MB": "",
     "Downloaded {value:.1f} MB of {value_2:.1f} MB": "",
     "Downloading FFmpeg": "",
-    "Downloading Playlist Canvas ": "",
-    "Downloading Playlist Canvas {release_version} Setup": "",
+    "Downloading Music Motion Studio ": "",
+    "Downloading Music Motion Studio {release_version} Setup": "",
     "Downloading and installing FFmpeg ": "",
     "Downloading and installing FFmpeg {release_series}": "",
     "Downloading and verifying FFmpeg. Follow progress in the install window.": "",
@@ -1711,7 +1711,7 @@
     "FFmpeg installation error": "",
     "FFmpeg installation was cancelled.": "",
     "FFmpeg installed": "",
-    "FFmpeg is an open-source media engine that reads, combines, and compresses video and audio into the final video file. You can edit a Playlist Canvas project without FFmpeg, but video export requires it. If you are unsure, install the recommended version; it is safely kept in the application-only folder.": "",
+    "FFmpeg is an open-source media engine that reads, combines, and compresses video and audio into the final video file. You can edit a Music Motion Studio project without FFmpeg, but video export requires it. If you are unsure, install the recommended version; it is safely kept in the application-only folder.": "",
     "FFmpeg is not configured": "",
     "FFmpeg is ready.\n": "",
     "FFmpeg needs attention": "",
@@ -1722,10 +1722,10 @@
     "FFmpeg was installed and verified": "",
     "FFmpeg {installation_version} installed and verified": "",
     "FFmpeg {installation_version} 설치 및 검증 완료": "",
-    "FFmpeg {release_series} is not recommended for this Playlist Canvas patch.": "",
+    "FFmpeg {release_series} is not recommended for this Music Motion Studio patch.": "",
     "FFmpeg {release_series} 다운로드 및 설치": "",
     "FFmpeg {release_series} 재설치": "",
-    "FFmpeg {release_series}은(는) 이 Playlist Canvas 패치의 권장 버전이 아닙니다.": "",
+    "FFmpeg {release_series}은(는) 이 Music Motion Studio 패치의 권장 버전이 아닙니다.": "",
     "FFmpeg {self_recommended_series} latest compatible build": "",
     "FFmpeg {series} · {build}": "",
     "FFmpeg 경로": "",
@@ -1761,7 +1761,7 @@
     "FFmpeg: {ffmpeg}": "",
     "FFmpeg가 설정되지 않음": "",
     "FFmpeg를 다운로드하고 검증하는 중입니다. 진행 창에서 상태를 확인하세요.": "",
-    "FFmpeg은 영상과 음성을 읽고, 결합하고, 압축하여 최종 동영상 파일로 만드는 오픈 소스 미디어 처리 엔진입니다. Playlist Canvas에서는 프로젝트 편집은 FFmpeg 없이도 가능하지만 동영상 내보내기에는 필요합니다. 잘 모르겠다면 권장 버전을 선택해 설치하면 되며, 프로그램 전용 폴더에 안전하게 설치됩니다.": "",
+    "FFmpeg은 영상과 음성을 읽고, 결합하고, 압축하여 최종 동영상 파일로 만드는 오픈 소스 미디어 처리 엔진입니다. Music Motion Studio에서는 프로젝트 편집은 FFmpeg 없이도 가능하지만 동영상 내보내기에는 필요합니다. 잘 모르겠다면 권장 버전을 선택해 설치하면 되며, 프로그램 전용 폴더에 안전하게 설치됩니다.": "",
     "FFmpeg을 확인했습니다.\n": "",
     "FFmpeg이란?": "",
     "FFprobe could not determine audio duration: %s": "",
@@ -2362,31 +2362,31 @@
     "Playing the original video instead: ": "",
     "Playing the original video instead: {original_path}\n{message}": "",
     "Playlist": "",
-    "Playlist Canvas": "",
-    "Playlist Canvas ": "",
-    "Playlist Canvas Help": "",
-    "Playlist Canvas Project (*.pvsproj *.project.json *.json)": "",
-    "Playlist Canvas Project (*.pvsproj)": "",
-    "Playlist Canvas Project (*.pvsproj);;Legacy JSON Project (*.project.json *.json)": "",
-    "Playlist Canvas diagnostics": "",
-    "Playlist Canvas language pack (*.json);;JSON files (*.json)": "",
-    "Playlist Canvas preset (*": "",
-    "Playlist Canvas preset (*{PRESET_SUFFIX})": "",
-    "Playlist Canvas preset (*{PRESET_SUFFIX});;JSON (*.json)": "",
-    "Playlist Canvas update": "",
-    "Playlist Canvas uses a noncommercial, share-alike source-available license. Commercial modification or distribution of the app is prohibited, while commercial use of output is permitted. Crediting Playlist Canvas and its original repository in public online uploads is optional. FFmpeg is not bundled; managed installs use the SHA-256-verified BtbN FFmpeg GPL build.": "",
-    "Playlist Canvas {__version__}\nProject: {resolved_path}\nStage: {stage}\nException: {value___name__}: {error}\nRoot cause: {value___name___2}: {cause}\nWorkspace restored: {value}\n\nTRACEBACK\n{traceback_text}{rollback_text}": "",
-    "Playlist Canvas {current_version} is already up to date.": "",
-    "Playlist Canvas {release_version} Setup 다운로드 중": "",
-    "Playlist Canvas {release_version} is available.": "",
-    "Playlist Canvas — Untitled Project": "",
-    "Playlist Canvas — 새 프로젝트": "",
-    "Playlist Canvas 권장 버전": "",
-    "Playlist Canvas 도움말": "",
-    "Playlist Canvas 라이선스 파일을 열 수 없습니다.": "",
-    "Playlist Canvas 업데이트": "",
-    "Playlist Canvas가 설치한 FFmpeg만 삭제합니다. 직접 지정한 외부 FFmpeg는 삭제하지 않습니다.": "",
-    "Playlist Canvas는 비상업적 동일조건 소스 공개 라이선스로 배포됩니다. 프로그램과 수정본의 상업적 수정·배포는 금지되며, 제작물의 상업적 이용은 허용됩니다. 온라인 제작물에 Playlist Canvas와 원본 저장소를 표시하는 것은 선택 사항입니다. FFmpeg는 앱에 포함되지 않으며, 자동 설치본은 BtbN FFmpeg GPL 배포본을 SHA-256으로 검증합니다.": "",
+    "Music Motion Studio": "",
+    "Music Motion Studio ": "",
+    "Music Motion Studio Help": "",
+    "Music Motion Studio Project (*.pvsproj *.project.json *.json)": "",
+    "Music Motion Studio Project (*.pvsproj)": "",
+    "Music Motion Studio Project (*.pvsproj);;Legacy JSON Project (*.project.json *.json)": "",
+    "Music Motion Studio diagnostics": "",
+    "Music Motion Studio language pack (*.json);;JSON files (*.json)": "",
+    "Music Motion Studio preset (*": "",
+    "Music Motion Studio preset (*{PRESET_SUFFIX})": "",
+    "Music Motion Studio preset (*{PRESET_SUFFIX});;JSON (*.json)": "",
+    "Music Motion Studio update": "",
+    "Music Motion Studio uses a noncommercial, share-alike source-available license. Commercial modification or distribution of the app is prohibited, while commercial use of output is permitted. Crediting Music Motion Studio and its original repository in public online uploads is optional. FFmpeg is not bundled; managed installs use the SHA-256-verified BtbN FFmpeg GPL build.": "",
+    "Music Motion Studio {__version__}\nProject: {resolved_path}\nStage: {stage}\nException: {value___name__}: {error}\nRoot cause: {value___name___2}: {cause}\nWorkspace restored: {value}\n\nTRACEBACK\n{traceback_text}{rollback_text}": "",
+    "Music Motion Studio {current_version} is already up to date.": "",
+    "Music Motion Studio {release_version} Setup 다운로드 중": "",
+    "Music Motion Studio {release_version} is available.": "",
+    "Music Motion Studio — Untitled Project": "",
+    "Music Motion Studio — 새 프로젝트": "",
+    "Music Motion Studio 권장 버전": "",
+    "Music Motion Studio 도움말": "",
+    "Music Motion Studio 라이선스 파일을 열 수 없습니다.": "",
+    "Music Motion Studio 업데이트": "",
+    "Music Motion Studio가 설치한 FFmpeg만 삭제합니다. 직접 지정한 외부 FFmpeg는 삭제하지 않습니다.": "",
+    "Music Motion Studio는 비상업적 동일조건 소스 공개 라이선스로 배포됩니다. 프로그램과 수정본의 상업적 수정·배포는 금지되며, 제작물의 상업적 이용은 허용됩니다. 온라인 제작물에 Music Motion Studio와 원본 저장소를 표시하는 것은 선택 사항입니다. FFmpeg는 앱에 포함되지 않으며, 자동 설치본은 BtbN FFmpeg GPL 배포본을 SHA-256으로 검증합니다.": "",
     "Playlist Preview": "",
     "Playlist Video Studio": "",
     "Playlist and lyrics": "",
@@ -2556,7 +2556,7 @@
     "Real-time lyrics · Colors and timing": "",
     "Recent projects": "",
     "Recommended default. A good balance of quality, export time, and file size. An available NVIDIA GPU is used automatically.": "",
-    "Recommended for Playlist Canvas": "",
+    "Recommended for Music Motion Studio": "",
     "Recommended starting point: Full HD, 30 FPS, H.264, CRF 18, preset medium. Lower CRF increases quality and file size.": "",
     "Recommended · Most videos": "",
     "Record current line  [Space]": "",
@@ -2604,7 +2604,7 @@
     "Replace existing file": "",
     "Replace the existing file '": "",
     "Replace the existing file '{output_name}'?": "",
-    "Replace the managed install with the FFmpeg version recommended for this Playlist Canvas release.": "",
+    "Replace the managed install with the FFmpeg version recommended for this Music Motion Studio release.": "",
     "Reposition and scale existing sources for the new ratio (Recommended)": "",
     "Repository: ": "",
     "Repository: {REPOSITORY_URL}": "",
@@ -2790,7 +2790,7 @@
     "Shows album names in the track list.": "",
     "Shows artist names in the track list.": "",
     "Shows divider lines between list rows.": "",
-    "Shows one Windows notification when each selected stage starts. Notifications may not appear if Playlist Canvas is blocked in system notification settings.": "",
+    "Shows one Windows notification when each selected stage starts. Notifications may not appear if Music Motion Studio is blocked in system notification settings.": "",
     "Shows the playlist position before each track.": "",
     "Shuffles the video order for every cycle.": "",
     "Simple quality settings": "",
@@ -2810,7 +2810,7 @@
     "Softens the image. High values can increase preview and rendering cost.": "",
     "Softness and spread of shadow edges. Larger values make a wider, softer shadow.": "",
     "Solid": "",
-    "Some audio files have no title, artist, or album tag. Review or edit the information that Playlist Canvas should use before adding them.": "",
+    "Some audio files have no title, artist, or album tag. Review or edit the information that Music Motion Studio should use before adding them.": "",
     "Song information": "",
     "Song title": "",
     "Source": "",
@@ -2927,7 +2927,7 @@
     "The GPU texture preview backend could not start.": "",
     "The GitHub release response was unexpectedly large.": "",
     "The GitHub release service could not be reached.": "",
-    "The Playlist Canvas Setup download failed.": "",
+    "The Music Motion Studio Setup download failed.": "",
     "The Setup SHA-256 verification failed.": "",
     "The Setup asset has an invalid size.": "",
     "The Setup asset size is missing or outside the allowed range.": "",
@@ -3022,18 +3022,18 @@
     "This audio already has lyrics applied.\nWould you like to start over or load the applied lyrics?": "",
     "This is a legacy JSON project. Upgrade it to .pvsproj from the Project menu.": "",
     "This is a source-specific property. Changes appear immediately on the Canvas and in Preview.": "",
-    "This is not a Playlist Canvas preset file.": "",
+    "This is not a Music Motion Studio preset file.": "",
     "This media cannot be played.": "",
-    "This pack requires Playlist Canvas ": "",
-    "This pack requires Playlist Canvas {minimum} or later.": "",
+    "This pack requires Music Motion Studio ": "",
+    "This pack requires Music Motion Studio {minimum} or later.": "",
     "This project has unsaved changes. Save before closing?": "",
     "This project is saved.": "",
     "This project uses the legacy JSON format. Upgrade it to a .pvsproj package that can contain content and a thumbnail? The original JSON will be kept.": "",
     "This project version is not supported.": "",
-    "This project was saved with a different version of Playlist Canvas.\n\nProject version: ": "",
-    "This project was saved with a different version of Playlist Canvas.\n\nProject version: {document_app_version}\nCurrent app version: {__version__}\n\nSome features or visual results may differ. The project will continue opening.": "",
-    "This release has no SHA-256-verifiable Playlist Canvas Setup asset.": "",
-    "This release has no SHA-256-verified Playlist Canvas Setup asset.": "",
+    "This project was saved with a different version of Music Motion Studio.\n\nProject version: ": "",
+    "This project was saved with a different version of Music Motion Studio.\n\nProject version: {document_app_version}\nCurrent app version: {__version__}\n\nSome features or visual results may differ. The project will continue opening.": "",
+    "This release has no SHA-256-verifiable Music Motion Studio Setup asset.": "",
+    "This release has no SHA-256-verified Music Motion Studio Setup asset.": "",
     "This track already has lyrics. Compare both versions before choosing which one to use.": "",
     "This track has no artwork, so the base color above is used.": "",
     "Time": "",
@@ -3173,7 +3173,7 @@
     "Update download failed": "",
     "Update download failed: %s": "",
     "Update error": "",
-    "Updating Playlist Canvas": "",
+    "Updating Music Motion Studio": "",
     "Upgrade complete": "",
     "Upgrade legacy project…": "",
     "Use a custom image": "",
@@ -4836,7 +4836,7 @@
     "선택한 FFmpeg 실행 파일을 찾을 수 없습니다. 경로를 지우거나 올바른 파일을 선택해 주세요.": "",
     "선택한 {value}번 가사와 기록된 타이밍을 삭제할까요?": "",
     "선택한 가사 형식의 확장자를 사용하세요. / Keep the original lyric file extension.": "",
-    "선택한 단계가 시작될 때 Windows 알림을 한 번 표시합니다. 운영체제의 알림 설정에서 Playlist Canvas 알림이 차단되어 있으면 표시되지 않을 수 있습니다.": "",
+    "선택한 단계가 시작될 때 Windows 알림을 한 번 표시합니다. 운영체제의 알림 설정에서 Music Motion Studio 알림이 차단되어 있으면 표시되지 않을 수 있습니다.": "",
     "선택한 빌드: {release_build}": "",
     "시간이 없는 {missing}개 줄을 제외하고 저장할까요?": "",
     "시간이 없는 가사 {missing}개는 결과에서 제외됩니다. 계속할까요?": "",
@@ -4870,17 +4870,17 @@
     "원본 영상으로 재생합니다: {original_path}\n{message}": "",
     "유형: {media_type} · 크기: {value}\n경로: {self_path}": "",
     "유형: {value}": "",
-    "은(는) 이 Playlist Canvas 패치의 권장 버전이 아닙니다.": "",
+    "은(는) 이 Music Motion Studio 패치의 권장 버전이 아닙니다.": "",
     "음악 재생목록을 시각적인 영상으로 구성하고 MP4로 내보내는 데스크톱 스튜디오입니다.\nChatGPT Codex와 Claude Code를 활용해 제작했습니다.": "",
     "음악에 맞춰 반응, 오디오 시각화, 믹스 미리보기와 영상 내보내기에는 FFmpeg가 필요합니다. 실시간 가사 표시는 사용할 수 있습니다.\n\n설정 → FFmpeg에서 설치하거나 기존 실행 파일을 지정해 주세요.": "",
     "음악을 재생하면서 각 가사에 맞춰 Space 키를 누르세요.": "",
     "이 결과에는 제공되는 가사가 없습니다. 다른 곡이나 제공자를 선택하세요. / No lyrics are available for this recording; select another result or provider.": "",
-    "이 릴리즈에는 SHA-256으로 검증 가능한 Playlist Canvas Setup 파일이 없습니다.": "",
+    "이 릴리즈에는 SHA-256으로 검증 가능한 Music Motion Studio Setup 파일이 없습니다.": "",
     "이 오디오의 저장되지 않은 가사 작업이 있습니다.\n저장 시각: {saved_time}\n\n가사와 타이밍을 복구할까요?": "",
     "이 요소에 사용할 이미지 파일입니다. 프로젝트를 다른 PC로 옮길 때는 포함 저장을 권장합니다.": "",
     "이 요소에 표시되는 모든 곡에 공통으로 적용합니다. 일반 가사는 처음부터 줄 전체를 표시하고 다음 가사 시간에 전환합니다. TTML만 파일에 기록된 단어·음절 시간으로 강조합니다. 음악 분석이나 시간 추정은 하지 않습니다.": "",
-    "이 프로젝트는 다른 버전의 Playlist Canvas에서 저장되었습니다.\n\n프로젝트 저장 버전: ": "",
-    "이 프로젝트는 다른 버전의 Playlist Canvas에서 저장되었습니다.\n\n프로젝트 저장 버전: {document_app_version}\n현재 프로그램 버전: {__version__}\n\n일부 기능이나 표시 결과가 달라질 수 있습니다. 프로젝트를 계속 엽니다.": "",
+    "이 프로젝트는 다른 버전의 Music Motion Studio에서 저장되었습니다.\n\n프로젝트 저장 버전: ": "",
+    "이 프로젝트는 다른 버전의 Music Motion Studio에서 저장되었습니다.\n\n프로젝트 저장 버전: {document_app_version}\n현재 프로그램 버전: {__version__}\n\n일부 기능이나 표시 결과가 달라질 수 있습니다. 프로젝트를 계속 엽니다.": "",
     "이 프로젝트는 레거시 JSON 형식입니다. 원본 JSON은 유지하면서 콘텐츠와 썸네일을 포함할 수 있는 .pvsproj 형식으로 업그레이드할까요?": "",
     "이 프로젝트는 레거시 JSON입니다. 프로젝트 메뉴에서 .pvsproj로 업그레이드할 수 있습니다.": "",
     "이름: {path_stem}": "",
@@ -4958,7 +4958,7 @@
     "현재 가사를 LRC로 내보내기": "",
     "현재 곡의 오디오와 등록된 가사·타이밍을 LRC 생성기에서 편집합니다.": "",
     "현재 곡의 타이밍 보정을 적용하고 여러 줄 가사는 문자 \\n으로 저장합니다.": "",
-    "현재 관리 설치본을 이 Playlist Canvas 버전의 권장 FFmpeg로 교체합니다.": "",
+    "현재 관리 설치본을 이 Music Motion Studio 버전의 권장 FFmpeg로 교체합니다.": "",
     "현재 관리 중인 FFmpeg ": "",
     "현재 관리 중인 FFmpeg {value}을(를) 다시 다운로드하고 검증한 뒤 교체할까요?": "",
     "현재 기록을 LRC 파일로 저장": "",
@@ -5251,7 +5251,7 @@
     " is missing or invalid.": [
       "app/services/language_pack_service.py"
     ],
-    " is not recommended for this Playlist Canvas patch.": [
+    " is not recommended for this Music Motion Studio patch.": [
       "app/ui/main_window.py"
     ],
     " language pack?": [
@@ -7296,13 +7296,13 @@
     "<h2>Application does not start</h2><p>Do not separate the EXE from its distribution. Keep the complete folder, including <code>_internal</code>.</p><h2>Missing media</h2><p>Relocate moved files when prompted. Use an embedded <code>.pvsproj</code> when transferring projects.</p><h2>Export errors</h2><p>Check FFmpeg and the encoder. If a GPU encoder fails, try CPU H.264 (<code>libx264</code>).</p><h2>Support</h2><p>Use <b>Help → About</b> to copy diagnostics and open the log folder.</p>": [
       "app/dialogs/help_dialog.py"
     ],
-    "<h2>Slow preview</h2><ul><li>Lower Full Preview quality/FPS.</li><li>Reduce simultaneous visualizers, waveforms, and particles.</li><li>Lower particle density and analysis complexity.</li></ul><h2>Long export</h2><ul><li>Prefer Full HD 30 FPS over 4K or 60 FPS when those are unnecessary.</li><li>Frequent lyric animations and short changes require more prepared frames.</li><li>A supported GPU encoder can shorten final encoding but does not eliminate visual-frame preparation.</li></ul><p>Independent Z timelines avoid recapturing unrelated layers. When static and changing sources share a broad Z region, Playlist Canvas safely separates consecutive static/dynamic sublayers, prepares static runs once, and preserves same-Z and final composition order.</p><p>Adjacent timeline segments with the same resolved element-state key reuse one capture and extend its duration. Changes to rendered time text, lyric highlighting, progress, visibility, or animation remain separate.</p><p>Transparent layers are rendered and losslessly streamed at a fixed safe crop covering rotation, shadow, blur, and all animation travel, then composited at their original coordinates. Near-full regions fall back to full-frame streaming. Visualizer FFT windows are analyzed in exact-output batches, and FFmpeg encoder discovery is reused within an export.</p><div class='note'>Use the progress stage and percentage to identify whether preparation, visualization, or encoding is taking the time.</div>": [
+    "<h2>Slow preview</h2><ul><li>Lower Full Preview quality/FPS.</li><li>Reduce simultaneous visualizers, waveforms, and particles.</li><li>Lower particle density and analysis complexity.</li></ul><h2>Long export</h2><ul><li>Prefer Full HD 30 FPS over 4K or 60 FPS when those are unnecessary.</li><li>Frequent lyric animations and short changes require more prepared frames.</li><li>A supported GPU encoder can shorten final encoding but does not eliminate visual-frame preparation.</li></ul><p>Independent Z timelines avoid recapturing unrelated layers. When static and changing sources share a broad Z region, Music Motion Studio safely separates consecutive static/dynamic sublayers, prepares static runs once, and preserves same-Z and final composition order.</p><p>Adjacent timeline segments with the same resolved element-state key reuse one capture and extend its duration. Changes to rendered time text, lyric highlighting, progress, visibility, or animation remain separate.</p><p>Transparent layers are rendered and losslessly streamed at a fixed safe crop covering rotation, shadow, blur, and all animation travel, then composited at their original coordinates. Near-full regions fall back to full-frame streaming. Visualizer FFT windows are analyzed in exact-output batches, and FFmpeg encoder discovery is reused within an export.</p><div class='note'>Use the progress stage and percentage to identify whether preparation, visualization, or encoding is taking the time.</div>": [
       "app/dialogs/help_dialog.py"
     ],
     "<h2>곡 추가</h2><p>플레이리스트 패널에서 오디오 파일을 추가하고 곡 순서를 정합니다. 곡 상세 정보에서 제목, 아티스트, 앨범, 시작 시간과 가사를 편집할 수 있습니다.</p>\n                <h2>가사 사용</h2><ul><li>곡에 LRC, SRT 또는 VTT 가사 파일을 연결합니다.</li><li>캔버스에 <b>가사</b> 요소를 추가합니다.</li><li>플레이리스트에서 곡을 선택하고 <b>곡 정보/설정</b>의 가사 설정 탭에서 해당 곡만의 타이밍을 조절합니다.</li><li>가사 요소 속성의 타이밍 보정은 모든 곡에 공통으로 적용되며 곡별 보정과 합산됩니다.</li></ul>\n                <div class='note'>파일 경로가 바뀌면 프로젝트를 열 때 누락 미디어 창에서 새 위치를 지정할 수 있습니다.</div>": [
       "app/dialogs/help_dialog.py"
     ],
-    "<h2>권장 형식</h2><p><code>.pvsproj</code>는 프로젝트 정보와 포함된 미디어를 하나의 파일로 묶는 휴대용 형식입니다. 레거시 <code>.project.json</code>도 열 수 있지만 프로젝트 메뉴에서 패키지로 업그레이드하는 것을 권장합니다.</p>\n                <p>설치 버전에서는 Windows 파일 탐색기의 <code>.pvsproj</code> 파일을 더블클릭하면 Playlist Canvas가 실행되고 해당 프로젝트를 바로 엽니다.</p>\n                <h2>저장되지 않은 변경 사항</h2><ul><li><code>Ctrl+S</code>로 저장합니다.</li><li>종료 시 <b>저장</b>, <b>저장 안 함</b>, <b>취소</b>를 선택할 수 있습니다.</li><li><b>취소</b>를 누르거나 저장창을 취소하면 편집기가 종료되지 않습니다.</li></ul>\n                <h2>자동 복구</h2><p>작업 중 복구 사본이 주기적으로 기록됩니다. 비정상 종료 뒤 시작 화면에서 복구 가능한 작업이 감지되면 복원 여부를 선택할 수 있습니다.</p>": [
+    "<h2>권장 형식</h2><p><code>.pvsproj</code>는 프로젝트 정보와 포함된 미디어를 하나의 파일로 묶는 휴대용 형식입니다. 레거시 <code>.project.json</code>도 열 수 있지만 프로젝트 메뉴에서 패키지로 업그레이드하는 것을 권장합니다.</p>\n                <p>설치 버전에서는 Windows 파일 탐색기의 <code>.pvsproj</code> 파일을 더블클릭하면 Music Motion Studio가 실행되고 해당 프로젝트를 바로 엽니다.</p>\n                <h2>저장되지 않은 변경 사항</h2><ul><li><code>Ctrl+S</code>로 저장합니다.</li><li>종료 시 <b>저장</b>, <b>저장 안 함</b>, <b>취소</b>를 선택할 수 있습니다.</li><li><b>취소</b>를 누르거나 저장창을 취소하면 편집기가 종료되지 않습니다.</li></ul>\n                <h2>자동 복구</h2><p>작업 중 복구 사본이 주기적으로 기록됩니다. 비정상 종료 뒤 시작 화면에서 복구 가능한 작업이 감지되면 복원 여부를 선택할 수 있습니다.</p>": [
       "app/dialogs/help_dialog.py"
     ],
     "<h2>미리보기</h2><p>내보내기 전에 미리보기에서 동적 텍스트, 가사, 진행 바, 오디오 반응형 요소와 곡 전환을 확인합니다.</p>\n                <h2>MP4 내보내기</h2><ol><li>상단 <b>내보내기</b>를 누릅니다.</li><li>인코딩을 잘 모르면 <b>권장 · 대부분의 영상</b>을 선택합니다.</li><li>해상도, FPS와 표시되는 예상 작업량을 확인한 뒤 내보내기를 시작합니다.</li></ol>\n                <p><b>빠른 내보내기</b>, <b>고화질 보관용</b>, <b>작은 파일</b>은 용도에 맞춰 CRF와 인코딩 속도, 오디오 품질을 자동 설정합니다. 코덱과 세부 값을 직접 바꾸려는 경우에만 <b>고급 설정 직접 조정</b>을 펼치세요.</p><div class='note'>4K 또는 60 FPS는 품질 모드와 별개로 화면 준비와 인코딩 시간을 크게 늘릴 수 있습니다.</div>": [
@@ -7314,13 +7314,13 @@
     "<h2>선택과 변형</h2><ul><li>요소를 클릭해 선택하고 드래그해 이동합니다.</li><li>테두리 핸들로 크기를 조절하고 위쪽 원형 핸들로 회전합니다.</li><li><code>Alt</code>를 누른 채 크기를 조절하면 현재 비율을 유지하고, <code>Alt+Shift</code>를 누르면 1:1 비율로 전환해 조절합니다. 앨범 커버는 항상 1:1을 유지합니다.</li><li><code>Ctrl</code> 클릭 또는 드래그 선택으로 여러 요소를 선택합니다.</li><li><code>Delete</code>로 삭제하고 <code>Ctrl+D</code>로 복제합니다.</li></ul>\n                <h2>정밀 편집</h2><ul><li><code>Alt+방향키</code>: 1px 이동</li><li><code>Alt+Shift+방향키</code>: 10px 이동</li><li><code>Ctrl+]</code> / <code>Ctrl+[</code>: 맨 앞으로 / 맨 뒤로</li><li><code>Ctrl+G</code> / <code>Ctrl+Shift+G</code>: 그룹 / 그룹 해제</li></ul>\n                <p>캔버스 요소를 우클릭하면 클립보드, 레이어 순서, 캔버스 중앙 정렬, 여러 요소의 가장자리 정렬, 그룹, 표시와 잠금 명령을 사용할 수 있습니다. 빈 캔버스를 우클릭하면 붙여넣기, 모두 선택, 캔버스에 맞추기가 표시됩니다.</p>\n                <p>레이어 패널에서는 표시 여부와 잠금을 바꾸고, 여러 요소를 선택해 한 단계 또는 맨 앞·뒤로 이동할 수 있습니다. 레이어를 드래그하면 실제 캔버스 쌓임 순서가 바뀌며 다른 그룹에 놓으면 그룹 소속도 함께 변경됩니다. 이름은 더블클릭하거나 <code>F2</code>로 수정합니다. 실행 취소와 다시 실행 후에도 복원된 요소의 선택 상태가 유지됩니다.</p>": [
       "app/dialogs/help_dialog.py"
     ],
-    "<h2>진행 단계</h2><ol><li><b>화면 프레임 준비</b>: 애니메이션, 가사, 곡 정보와 정적 레이어를 캡처합니다.</li>\n                 <li><b>오디오 준비</b>: 곡의 형식과 음량을 정리하고 순서대로 결합합니다.</li><li><b>비주얼라이저 준비</b>: 필요한 경우 Python 시각 효과 프레임을 생성합니다.</li>\n                 <li><b>영상 인코딩</b>: FFmpeg가 화면과 오디오를 최종 MP4로 합칩니다.</li></ol>\n                 <p>서로 독립적인 곡의 오디오 준비와 정적 레이어 인코딩은 PC 성능과 작업 수에 맞춰 제한적으로 병렬 처리됩니다. 진행 상세 정보에서 현재 병렬 작업 수를 확인할 수 있습니다.</p>\n                 <p>내보내기 중에는 프로젝트 상태가 바뀌지 않도록 메인 편집 화면이 잠깁니다. <b>최소화</b>를 누르면 작업은 계속 진행되며, 작업 표시줄에서 Playlist Canvas를 복원하면 진행 창도 다시 표시됩니다. 진행 창의 <b>취소</b>를 누르고 확인하면 임시 프레임과 실행 중인 작업을 안전하게 정리한 뒤 편집 화면으로 돌아갑니다.</p><p><b>저장 공간 사용량</b> 카드에서는 화면·프레임, 오디오, 음악 반응 효과, 생성 중인 결과 영상의 실제 크기와 작업 파일 합계를 확인할 수 있습니다. 아래 막대는 출력 드라이브의 전체 용량과 남은 공간을 보여 줍니다. 설정 창의 예상 용량은 장면 복잡도와 압축 결과에 따라 실제 값과 달라질 수 있습니다.</p>\n                 <h2>단계 알림과 완료 후 작업</h2><p><b>도구 → 설정 → 내보내기</b>에서 Windows 단계 알림을 켜고 화면·오디오·효과·영상 생성·완료·오류 알림을 각각 선택할 수 있습니다. 알림은 항상 표시하거나 Playlist Canvas가 포커스 중이 아닐 때만 표시하도록 설정할 수 있습니다.</p><p>완료 창에서는 영상을 바로 재생하고, 저장 폴더를 열고, 파일 경로를 복사하거나 같은 프로젝트를 다시 내보낼 수 있습니다.</p>": [
+    "<h2>진행 단계</h2><ol><li><b>화면 프레임 준비</b>: 애니메이션, 가사, 곡 정보와 정적 레이어를 캡처합니다.</li>\n                 <li><b>오디오 준비</b>: 곡의 형식과 음량을 정리하고 순서대로 결합합니다.</li><li><b>비주얼라이저 준비</b>: 필요한 경우 Python 시각 효과 프레임을 생성합니다.</li>\n                 <li><b>영상 인코딩</b>: FFmpeg가 화면과 오디오를 최종 MP4로 합칩니다.</li></ol>\n                 <p>서로 독립적인 곡의 오디오 준비와 정적 레이어 인코딩은 PC 성능과 작업 수에 맞춰 제한적으로 병렬 처리됩니다. 진행 상세 정보에서 현재 병렬 작업 수를 확인할 수 있습니다.</p>\n                 <p>내보내기 중에는 프로젝트 상태가 바뀌지 않도록 메인 편집 화면이 잠깁니다. <b>최소화</b>를 누르면 작업은 계속 진행되며, 작업 표시줄에서 Music Motion Studio를 복원하면 진행 창도 다시 표시됩니다. 진행 창의 <b>취소</b>를 누르고 확인하면 임시 프레임과 실행 중인 작업을 안전하게 정리한 뒤 편집 화면으로 돌아갑니다.</p><p><b>저장 공간 사용량</b> 카드에서는 화면·프레임, 오디오, 음악 반응 효과, 생성 중인 결과 영상의 실제 크기와 작업 파일 합계를 확인할 수 있습니다. 아래 막대는 출력 드라이브의 전체 용량과 남은 공간을 보여 줍니다. 설정 창의 예상 용량은 장면 복잡도와 압축 결과에 따라 실제 값과 달라질 수 있습니다.</p>\n                 <h2>단계 알림과 완료 후 작업</h2><p><b>도구 → 설정 → 내보내기</b>에서 Windows 단계 알림을 켜고 화면·오디오·효과·영상 생성·완료·오류 알림을 각각 선택할 수 있습니다. 알림은 항상 표시하거나 Music Motion Studio가 포커스 중이 아닐 때만 표시하도록 설정할 수 있습니다.</p><p>완료 창에서는 영상을 바로 재생하고, 저장 폴더를 열고, 파일 경로를 복사하거나 같은 프로젝트를 다시 내보낼 수 있습니다.</p>": [
       "app/dialogs/help_dialog.py"
     ],
     "<h2>표시 규칙</h2><p>가사가 있는 곡은 첫 번째 줄을 곡 시작부터 보여줍니다. 단, 현재 타임코드에 들어가기 전에는 강조하지 않습니다. 가사 사이 공백에는 직전 줄을 유지하고 활성 구간에서만 현재 줄 강조와 전환 애니메이션이 적용됩니다.</p>\n                <h2>가사 전환</h2><ul><li><b>소프트 포커스</b>: 부드러운 초점·페이드와 완만한 상승·확대</li><li><b>스무스 슬라이드</b>: 짧고 선명한 이동과 강조</li><li><b>블러 리빌</b>: 흐릿한 글자가 또렷해지는 시네마틱 전환</li></ul>\n                <h2>곡 정보/설정</h2><ul><li>플레이리스트에서 곡을 선택하고 <b>곡 정보/설정</b>을 엽니다.</li><li><b>곡 정보</b> 탭에서 제목·아티스트·앨범과 프로젝트 전용 앨범 커버를 편집합니다.</li><li><b>가사 설정</b> 탭에서 가사 파일·타이밍·미리보기를 관리합니다.</li>\n                <li>LRC, SRT, VTT 파일을 연결하거나 해제합니다.</li><li>실제 노래를 재생하면서 현재·이전·다음 가사를 확인합니다.</li>\n                <li>곡별 타이밍 보정의 양수 값은 가사를 빠르게, 음수 값은 늦게 표시합니다.</li></ul>\n                <div class='note'>가사 설정 탭의 미리보기 볼륨은 영상 전체 미리보기와 공유됩니다.</div>": [
       "app/dialogs/help_dialog.py"
     ],
-    "<h2>프로그램이 실행되지 않을 때</h2><p>배포 폴더에서 EXE만 분리하지 마세요. <code>Playlist Canvas</code> 폴더와 내부 <code>_internal</code> 폴더를 함께 유지해야 합니다.</p>\n                <h2>미디어를 찾을 수 없을 때</h2><p>프로젝트 열기 중 표시되는 누락 미디어 창에서 이동된 파일의 새 경로를 지정합니다. 다른 컴퓨터로 옮길 프로젝트는 미디어를 포함한 <code>.pvsproj</code> 형식을 권장합니다.</p>\n                <h2>내보내기 오류</h2><p>설정의 FFmpeg 상태와 선택한 인코더를 확인하세요. GPU 인코더가 실패하면 CPU H.264(<code>libx264</code>)로 다시 시도합니다.</p>\n                <h2>지원 정보</h2><p><b>도움말 → 프로그램 정보</b>에서 진단 정보를 복사하거나 로그 폴더를 열 수 있습니다. 오류 문의 시 진단 정보와 가장 최근 로그를 함께 제공하세요.</p>": [
+    "<h2>프로그램이 실행되지 않을 때</h2><p>배포 폴더에서 EXE만 분리하지 마세요. <code>Music Motion Studio</code> 폴더와 내부 <code>_internal</code> 폴더를 함께 유지해야 합니다.</p>\n                <h2>미디어를 찾을 수 없을 때</h2><p>프로젝트 열기 중 표시되는 누락 미디어 창에서 이동된 파일의 새 경로를 지정합니다. 다른 컴퓨터로 옮길 프로젝트는 미디어를 포함한 <code>.pvsproj</code> 형식을 권장합니다.</p>\n                <h2>내보내기 오류</h2><p>설정의 FFmpeg 상태와 선택한 인코더를 확인하세요. GPU 인코더가 실패하면 CPU H.264(<code>libx264</code>)로 다시 시도합니다.</p>\n                <h2>지원 정보</h2><p><b>도움말 → 프로그램 정보</b>에서 진단 정보를 복사하거나 로그 폴더를 열 수 있습니다. 오류 문의 시 진단 정보와 가장 최근 로그를 함께 제공하세요.</p>": [
       "app/dialogs/help_dialog.py"
     ],
     "<hr>": [
@@ -7353,7 +7353,7 @@
     "<li>{value}</li>": [
       "app/utils/release_notes_html.py"
     ],
-    "<ol><li><b>Visual frame preparation</b>: captures animation, lyrics, metadata, and static layers.</li><li><b>Audio preparation</b>: normalizes and combines tracks.</li><li><b>Visualizer preparation</b>: renders Python visual layers when needed.</li><li><b>Video encoding</b>: FFmpeg combines picture and audio into MP4.</li></ol><p>The main editor is locked during export to keep project state stable. Choose <b>Minimize</b> to keep exporting in the background; restoring Playlist Canvas from the taskbar brings the progress window back. Choose Cancel and confirm to stop safely, remove temporary work, and return to editing.</p><h2>Stage notifications and next actions</h2><p>Under <b>Tools → Settings → Export</b>, enable Windows notifications and choose each phase independently: visuals, audio, effects, video creation, completion, and errors. Notifications can always appear or only while Playlist Canvas is not focused.</p><p>After a successful export, the completion window can play the video, open its folder, copy its path, or start another export.</p>": [
+    "<ol><li><b>Visual frame preparation</b>: captures animation, lyrics, metadata, and static layers.</li><li><b>Audio preparation</b>: normalizes and combines tracks.</li><li><b>Visualizer preparation</b>: renders Python visual layers when needed.</li><li><b>Video encoding</b>: FFmpeg combines picture and audio into MP4.</li></ol><p>The main editor is locked during export to keep project state stable. Choose <b>Minimize</b> to keep exporting in the background; restoring Music Motion Studio from the taskbar brings the progress window back. Choose Cancel and confirm to stop safely, remove temporary work, and return to editing.</p><h2>Stage notifications and next actions</h2><p>Under <b>Tools → Settings → Export</b>, enable Windows notifications and choose each phase independently: visuals, audio, effects, video creation, completion, and errors. Notifications can always appear or only while Music Motion Studio is not focused.</p><p>After a successful export, the completion window can play the video, open its folder, copy its path, or start another export.</p>": [
       "app/dialogs/help_dialog.py"
     ],
     "<p style=\"color:": [
@@ -7383,7 +7383,7 @@
     "<p><b>프로젝트 콘텐츠</b> 탭은 현재 프로젝트에서 사용하는 이미지와 오디오 같은 미디어를 모아 확인하고 다시 사용하는 공간입니다.</p>\n                <ul><li><b>전체·이미지·오디오·가사/자막·폰트</b> 필터로 필요한 형식만 빠르게 찾을 수 있습니다.</li><li>상단의 <b>목록·격자·간단</b> 보기 버튼으로 상세 정보, 큰 이미지 썸네일, 조밀한 목록 사이를 전환할 수 있습니다. 선택한 보기는 다음 실행에도 유지됩니다.</li><li>오디오와 영상을 미리보기하면 재생·일시정지·정지, 5초 이동, 재생 위치 탐색, 볼륨과 음소거를 사용할 수 있습니다. 볼륨은 다른 미리보기 화면과 공유됩니다.</li><li>콘텐츠를 캔버스 요소나 플레이리스트로 추가할 수 있습니다.</li><li>항목을 우클릭하면 프로젝트에 추가, 목록에서 제거, 파일 정보 확인 메뉴가 표시됩니다. 빈 영역을 우클릭하면 새 콘텐츠를 가져올 수 있습니다.</li><li>같은 파일을 반복해서 찾지 않고 프로젝트 안에서 재사용할 수 있습니다.</li>\n                <li>원본 파일을 이동하거나 삭제하면 프로젝트를 열 때 누락 미디어로 표시될 수 있습니다.</li></ul>\n                <p>다른 컴퓨터로 프로젝트를 옮길 때는 미디어가 포함되는 <code>.pvsproj</code> 패키지 저장을 권장합니다.</p>": [
       "app/dialogs/help_dialog.py"
     ],
-    "<p><code>.pvsproj</code> is the recommended portable package format. Legacy <code>.project.json</code> files can be opened and upgraded from the Project menu.</p><p>With the installed version, double-click a <code>.pvsproj</code> in Windows File Explorer to launch Playlist Canvas and open that project directly.</p><h2>Unsaved work</h2><ul><li>Press <code>Ctrl+S</code> to save.</li><li>On exit, choose Save, Discard, or Cancel.</li><li>Cancel or cancelling Save As keeps the editor open.</li></ul><h2>Recovery</h2><p>Recovery snapshots are written periodically and can be offered after an abnormal shutdown.</p>": [
+    "<p><code>.pvsproj</code> is the recommended portable package format. Legacy <code>.project.json</code> files can be opened and upgraded from the Project menu.</p><p>With the installed version, double-click a <code>.pvsproj</code> in Windows File Explorer to launch Music Motion Studio and open that project directly.</p><h2>Unsaved work</h2><ul><li>Press <code>Ctrl+S</code> to save.</li><li>On exit, choose Save, Discard, or Cancel.</li><li>Cancel or cancelling Save As keeps the editor open.</li></ul><h2>Recovery</h2><p>Recovery snapshots are written periodically and can be offered after an abnormal shutdown.</p>": [
       "app/dialogs/help_dialog.py"
     ],
     "<p>Add Canvas objects from the <b>Sources</b> tab or <b>Insert</b> menu. Click a source to add it at the default position, or drag its button onto the Canvas to place it where it is dropped. Hover a source button for its purpose and main settings.</p><div class='note'>Logo and Watermark are property templates under the Image parent; Time is a property template under Text. Expand the parent's toggle to select them. Once added, each uses its parent's properties and rendering path.</div><ul><li><b>Background, Image, Logo, Watermark</b>: image-based composition</li><li><b>Text and Time</b>: fixed text or dynamic track/time tokens</li><li><b>Cover, Now Playing, Track List</b>: follow the active track</li><li><b>Progress and Lyrics</b>: playback progress and timed text</li><li><b>Visualizer, Waveform, Level Meter, Particles</b>: audio-reactive graphics</li></ul><p>Manage visibility, locking, names, and stacking in Layers.</p>": [
@@ -7392,7 +7392,7 @@
     "<p>Add audio in the Playlist panel and arrange track order.</p><h2>Lyrics</h2><ol><li>Attach an LRC, SRT, or VTT file.</li><li>Add a Lyrics source to the Canvas.</li><li>Select one playlist track and open <b>Track/Lyrics Settings</b> to adjust only that track's timing.</li><li>The Lyrics source timing offset is global and is added to each track's individual offset.</li></ol><p>Use the missing-media dialog to relocate files whose paths have changed.</p>": [
       "app/dialogs/help_dialog.py"
     ],
-    "<p>After startup, Playlist Canvas checks the official GitHub repository for the latest stable release. A newer release shows its full notes and current/latest versions.</p><ol><li>Choose <b>Download and update</b>.</li><li>Wait for Setup download and SHA-256 verification.</li><li>Resolve unsaved work, close the application, and run Setup.</li></ol><p>Dismissing an automatic prompt suppresses that release only. Use <b>Help → Check for updates</b> at any time to check a skipped release manually.</p>": [
+    "<p>After startup, Music Motion Studio checks the official GitHub repository for the latest stable release. A newer release shows its full notes and current/latest versions.</p><ol><li>Choose <b>Download and update</b>.</li><li>Wait for Setup download and SHA-256 verification.</li><li>Resolve unsaved work, close the application, and run Setup.</li></ol><p>Dismissing an automatic prompt suppresses that release only. Use <b>Help → Check for updates</b> at any time to check a skipped release manually.</p>": [
       "app/dialogs/help_dialog.py"
     ],
     "<p>At startup the <b>Start a project</b> window lets you create a project, open a file or pick a recent project. Dropping a project file on it opens it too.</p>\n[[img:new_project]]\n<h2>The New project window</h2>\n<ul>\n<li><b>Project information</b>: name and author (the description lives in Project settings)</li>\n<li><b>Aspect ratio and canvas</b>: 16:9, 9:16, 1:1, 4:3, 3:4, 8:19, 21:9 or a custom size</li>\n<li><b>Starting design</b>: the default project or a <a href='topic:presets'>design preset</a>, with a preview</li>\n<li><b>Transitions</b>: none (cut) · crossfade · <a href='topic:automix'>AutoMix</a></li>\n<li><b>Content storage</b>: include in the project (opens on any PC) or reference the originals (smaller file)</li>\n<li><b>Starting music (optional)</b>: pick music files or an M3U8 playlist, or drop them on the window</li>\n</ul>\n<p>Everything chosen here can be changed later in <a href='topic:project_settings'>Project settings</a>.</p>\n<h2>Basic workflow</h2>\n<ol>\n<li><b>Add music</b> — <b>+ Add music</b> in the Playlist, or drop files. A .lrc/.srt/.vtt/.ttml with the same name is attached as lyrics.</li>\n<li><b>Design the screen</b> — add a background, text, album art, lyrics, a progress bar or visualizers from <b>Sources</b> and fine-tune them in the inspector.</li>\n<li><b>Check</b> — play it with the music in <b>Preview</b> (<code>Ctrl+Alt+3</code>).</li>\n<li><b>Export</b> — choose video, audio, or subtitles under <b>Export</b> (<code>Ctrl+E</code>). Video/audio and mix timing need <a href='topic:ffmpeg'>FFmpeg</a>.</li>\n</ol>\n<div class='note'>A short tour of the workspace appears on first launch. <b>Tools → Settings → Maintenance → Reset program</b> shows it again.</div>": [
@@ -7404,7 +7404,7 @@
     "<p>Click a source to select it, drag to move it, use border handles to resize, and use the round top handle to rotate.</p><ul><li>Hold <code>Alt</code> while resizing to preserve the current aspect ratio.</li><li>Hold <code>Alt+Shift</code> to switch to and maintain a 1:1 ratio. Album Cover sources always remain 1:1.</li><li><code>Ctrl</code>-click or marquee: select multiple</li><li><code>Alt+Arrow</code>: nudge 1 px</li><li><code>Ctrl+D</code>: duplicate</li><li><code>Ctrl+]</code> / <code>Ctrl+[</code>: front / back</li><li><code>Ctrl+G</code> / <code>Ctrl+Shift+G</code>: group / ungroup</li></ul><p>Right-click a Canvas source for clipboard commands, layer ordering, Canvas centering, multi-source edge alignment, grouping, visibility, and locking. Right-click empty Canvas space to paste, select all, or fit the Canvas.</p><p>In Layers, drag rows to change the real Canvas stacking order or drop them into another group. Multi-selected rows move as one block. Use the four arrow buttons for front, forward, backward, and back, and double-click or press <code>F2</code> to rename a source or group.</p><p>Selection stays on a restored source after undo or redo.</p>": [
       "app/dialogs/help_dialog.py"
     ],
-    "<p>FFmpeg is required for MP4 export and is not bundled by default.</p><ol><li>Open <b>Tools → Settings → FFmpeg</b>.</li><li>Choose <b>Download and install FFmpeg</b>.</li><li>Wait for download and SHA-256 verification.</li></ol><p>You may instead select an existing <code>ffmpeg.exe</code> and click Check. If downloading fails, review connectivity, firewall rules, and the application log.</p><h2>Automatic video encoder</h2><p><b>Automatic (Recommended)</b> tests H.264 NVENC with the real output settings when an NVIDIA GPU is detected, and otherwise uses CPU H.264. If the NVENC check fails, Playlist Canvas explains the problem and asks whether to continue on the CPU before lengthy frame preparation begins. Resolution and FPS are preserved, although CPU encoding may take longer.</p>": [
+    "<p>FFmpeg is required for MP4 export and is not bundled by default.</p><ol><li>Open <b>Tools → Settings → FFmpeg</b>.</li><li>Choose <b>Download and install FFmpeg</b>.</li><li>Wait for download and SHA-256 verification.</li></ol><p>You may instead select an existing <code>ffmpeg.exe</code> and click Check. If downloading fails, review connectivity, firewall rules, and the application log.</p><h2>Automatic video encoder</h2><p><b>Automatic (Recommended)</b> tests H.264 NVENC with the real output settings when an NVIDIA GPU is detected, and otherwise uses CPU H.264. If the NVENC check fails, Music Motion Studio explains the problem and asks whether to continue on the CPU before lengthy frame preparation begins. Resolution and FPS are preserved, although CPU encoding may take longer.</p>": [
       "app/dialogs/help_dialog.py"
     ],
     "<p>Full Preview plays the complete playlist with real audio and Canvas visuals.</p><ul><li>Use play/pause and previous/next track controls.</li><li>Click or drag the timeline to seek.</li><li>Volume is shared with Track/Lyrics Preview.</li><li>Lower preview quality for smoother inspection of complex reactive scenes.</li></ul><p>Preview quality does not change final export quality. A sustained actual FPS below the target indicates that composition or display is heavier than the current machine can present in real time.</p>": [
@@ -7422,7 +7422,7 @@
     "<p>Open <b>Tools → LRC File Generator</b> to create synchronized lyrics from project content or a local audio file.</p><ol><li>Enter one lyric per line and choose <b>Prepare lyric lines</b>.</li><li>Play the audio and press <code>Space</code> or <b>Record current line</b> whenever each line begins.</li><li>Use <b>Live test</b> to verify the recorded lyrics against playback.</li><li>Correct timing with selected-line recording, ±0.1 second nudges, input latency offset, Undo, and Redo.</li><li>Choose <b>Save LRC</b> to create a standard UTF-8 LRC file and optionally add it directly to Project Content.</li></ol><div class='note'>Space continues to type a normal space while the lyric editor has focus.</div>": [
       "app/dialogs/help_dialog.py"
     ],
-    "<p>Playlist Canvas combines a music playlist with visual sources to produce a video.</p><h2>Basic workflow</h2><ol><li>Create a project and choose its aspect ratio, or open a <code>.pvsproj</code> file.</li><li>Add audio to the playlist and arrange its order.</li><li>Place backgrounds, text, cover art, progress bars, and visualizers on the Canvas.</li><li>Check Preview, then export an MP4.</li></ol><p>You can later change the ratio and canvas size under <b>Project → Project Settings</b>, either adapting existing sources or keeping their geometry.</p><div class='note'>Export sizes are generated from the active project ratio, so portrait and custom ratios remain intact without forced landscape padding.</div>": [
+    "<p>Music Motion Studio combines a music playlist with visual sources to produce a video.</p><h2>Basic workflow</h2><ol><li>Create a project and choose its aspect ratio, or open a <code>.pvsproj</code> file.</li><li>Add audio to the playlist and arrange its order.</li><li>Place backgrounds, text, cover art, progress bars, and visualizers on the Canvas.</li><li>Check Preview, then export an MP4.</li></ol><p>You can later change the ratio and canvas size under <b>Project → Project Settings</b>, either adapting existing sources or keeping their geometry.</p><div class='note'>Export sizes are generated from the active project ratio, so portrait and custom ratios remain intact without forced landscape padding.</div>": [
       "app/dialogs/help_dialog.py"
     ],
     "<p>Select a source to show its settings in the Inspector.</p><ul><li><b>Source-name tab</b>: settings unique to the selected source type</li><li><b>Layout</b>: name, position, size, rotation, and scale</li><li><b>Text</b>: content, alignment, font, text color, and glyph outline</li><li><b>Appearance</b>: source opacity and shadow</li><li><b>Fill</b>: background color, corners, outline, and gradient</li><li><b>Filters</b>: blur, brightness, and contrast for image-backed sources</li><li><b>Animation</b>: track entrance/exit effects and Canvas preview</li><li><b>Other</b>: layer, visibility, and locking</li></ul><p>Enable <b>Use current track personal color</b> to drive the source's primary color from the dominant color of the playing track's artwork. Brightness, saturation, hue shift, and strength can refine or blend it with the configured color. Tracks without artwork keep the configured color.</p><p>With multiple sources selected, the Inspector shows only properties supported by every selection. Different values appear blank, while check boxes use a mixed state; entering a value applies it to every selected source.</p><p>Text supports dynamic tokens including <code>%title%</code>, <code>%artist%</code>, and <code>%track_current_time%</code>.</p>": [
@@ -7627,7 +7627,7 @@
     "Aa": [
       "app/widgets/content_library_panel.py"
     ],
-    "About Playlist Canvas": [
+    "About Music Motion Studio": [
       "app/dialogs/about_dialog.py",
       "app/ui/main_window.py"
     ],
@@ -9223,7 +9223,7 @@
     "Could not open recovery snapshot: {error}": [
       "app/services/autosave_service.py"
     ],
-    "Could not open the Playlist Canvas license file.": [
+    "Could not open the Music Motion Studio license file.": [
       "app/dialogs/about_dialog.py"
     ],
     "Could not open the language pack folder.": [
@@ -9703,7 +9703,7 @@
     "Delete lyric {value} and its recorded timing?": [
       "app/dialogs/lrc_generator_dialog.py"
     ],
-    "Delete only FFmpeg installed by Playlist Canvas. External FFmpeg files are never removed.": [
+    "Delete only FFmpeg installed by Music Motion Studio. External FFmpeg files are never removed.": [
       "app/dialogs/settings_dialog.py"
     ],
     "Delete preset": [
@@ -9857,10 +9857,10 @@
       "app/dialogs/ffmpeg_install_progress_dialog.py",
       "app/ffmpeg/managed_installer.py"
     ],
-    "Downloading Playlist Canvas ": [
+    "Downloading Music Motion Studio ": [
       "app/dialogs/update_dialogs.py"
     ],
-    "Downloading Playlist Canvas {release_version} Setup": [
+    "Downloading Music Motion Studio {release_version} Setup": [
       "app/dialogs/update_dialogs.py"
     ],
     "Downloading and installing FFmpeg ": [
@@ -10450,7 +10450,7 @@
     "FFmpeg installed": [
       "app/ui/main_window.py"
     ],
-    "FFmpeg is an open-source media engine that reads, combines, and compresses video and audio into the final video file. You can edit a Playlist Canvas project without FFmpeg, but video export requires it. If you are unsure, install the recommended version; it is safely kept in the application-only folder.": [
+    "FFmpeg is an open-source media engine that reads, combines, and compresses video and audio into the final video file. You can edit a Music Motion Studio project without FFmpeg, but video export requires it. If you are unsure, install the recommended version; it is safely kept in the application-only folder.": [
       "app/dialogs/settings_dialog.py"
     ],
     "FFmpeg is not configured": [
@@ -10486,7 +10486,7 @@
     "FFmpeg {installation_version} 설치 및 검증 완료": [
       "app/ui/main_window.py"
     ],
-    "FFmpeg {release_series} is not recommended for this Playlist Canvas patch.": [
+    "FFmpeg {release_series} is not recommended for this Music Motion Studio patch.": [
       "app/ui/main_window.py"
     ],
     "FFmpeg {release_series} 다운로드 및 설치": [
@@ -10495,7 +10495,7 @@
     "FFmpeg {release_series} 재설치": [
       "app/ui/main_window.py"
     ],
-    "FFmpeg {release_series}은(는) 이 Playlist Canvas 패치의 권장 버전이 아닙니다.": [
+    "FFmpeg {release_series}은(는) 이 Music Motion Studio 패치의 권장 버전이 아닙니다.": [
       "app/ui/main_window.py"
     ],
     "FFmpeg {self_recommended_series} latest compatible build": [
@@ -10604,7 +10604,7 @@
     "FFmpeg를 다운로드하고 검증하는 중입니다. 진행 창에서 상태를 확인하세요.": [
       "app/dialogs/settings_dialog.py"
     ],
-    "FFmpeg은 영상과 음성을 읽고, 결합하고, 압축하여 최종 동영상 파일로 만드는 오픈 소스 미디어 처리 엔진입니다. Playlist Canvas에서는 프로젝트 편집은 FFmpeg 없이도 가능하지만 동영상 내보내기에는 필요합니다. 잘 모르겠다면 권장 버전을 선택해 설치하면 되며, 프로그램 전용 폴더에 안전하게 설치됩니다.": [
+    "FFmpeg은 영상과 음성을 읽고, 결합하고, 압축하여 최종 동영상 파일로 만드는 오픈 소스 미디어 처리 엔진입니다. Music Motion Studio에서는 프로젝트 편집은 FFmpeg 없이도 가능하지만 동영상 내보내기에는 필요합니다. 잘 모르겠다면 권장 버전을 선택해 설치하면 되며, 프로그램 전용 폴더에 안전하게 설치됩니다.": [
       "app/dialogs/settings_dialog.py"
     ],
     "FFmpeg을 확인했습니다.\n": [
@@ -12544,7 +12544,7 @@
       "app/ui/main_window.py",
       "app/utils/i18n.py"
     ],
-    "Playlist Canvas": [
+    "Music Motion Studio": [
       "app/__init__.py",
       "app/controllers/export_controller.py",
       "app/dialogs/about_dialog.py",
@@ -12554,78 +12554,78 @@
       "app/services/app_settings_service.py",
       "app/services/lyrics_service.py"
     ],
-    "Playlist Canvas ": [
+    "Music Motion Studio ": [
       "app/controllers/project_controller.py",
       "app/dialogs/update_dialogs.py"
     ],
-    "Playlist Canvas Help": [
+    "Music Motion Studio Help": [
       "app/dialogs/help_dialog.py"
     ],
-    "Playlist Canvas Project (*.pvsproj *.project.json *.json)": [
+    "Music Motion Studio Project (*.pvsproj *.project.json *.json)": [
       "app/controllers/project_controller.py",
       "app/dialogs/startup_dialog.py"
     ],
-    "Playlist Canvas Project (*.pvsproj)": [
+    "Music Motion Studio Project (*.pvsproj)": [
       "app/controllers/project_controller.py"
     ],
-    "Playlist Canvas Project (*.pvsproj);;Legacy JSON Project (*.project.json *.json)": [
+    "Music Motion Studio Project (*.pvsproj);;Legacy JSON Project (*.project.json *.json)": [
       "app/controllers/project_controller.py"
     ],
-    "Playlist Canvas diagnostics": [
+    "Music Motion Studio diagnostics": [
       "app/dialogs/about_dialog.py"
     ],
-    "Playlist Canvas language pack (*.json);;JSON files (*.json)": [
+    "Music Motion Studio language pack (*.json);;JSON files (*.json)": [
       "app/dialogs/settings_dialog.py"
     ],
-    "Playlist Canvas preset (*": [
+    "Music Motion Studio preset (*": [
       "app/dialogs/preset_dialog.py"
     ],
-    "Playlist Canvas preset (*{PRESET_SUFFIX})": [
+    "Music Motion Studio preset (*{PRESET_SUFFIX})": [
       "app/dialogs/preset_dialog.py"
     ],
-    "Playlist Canvas preset (*{PRESET_SUFFIX});;JSON (*.json)": [
+    "Music Motion Studio preset (*{PRESET_SUFFIX});;JSON (*.json)": [
       "app/dialogs/preset_dialog.py"
     ],
-    "Playlist Canvas update": [
+    "Music Motion Studio update": [
       "app/dialogs/update_dialogs.py"
     ],
-    "Playlist Canvas uses a noncommercial, share-alike source-available license. Commercial modification or distribution of the app is prohibited, while commercial use of output is permitted. Crediting Playlist Canvas and its original repository in public online uploads is optional. FFmpeg is not bundled; managed installs use the SHA-256-verified BtbN FFmpeg GPL build.": [
+    "Music Motion Studio uses a noncommercial, share-alike source-available license. Commercial modification or distribution of the app is prohibited, while commercial use of output is permitted. Crediting Music Motion Studio and its original repository in public online uploads is optional. FFmpeg is not bundled; managed installs use the SHA-256-verified BtbN FFmpeg GPL build.": [
       "app/dialogs/about_dialog.py"
     ],
-    "Playlist Canvas {__version__}\nProject: {resolved_path}\nStage: {stage}\nException: {value___name__}: {error}\nRoot cause: {value___name___2}: {cause}\nWorkspace restored: {value}\n\nTRACEBACK\n{traceback_text}{rollback_text}": [
+    "Music Motion Studio {__version__}\nProject: {resolved_path}\nStage: {stage}\nException: {value___name__}: {error}\nRoot cause: {value___name___2}: {cause}\nWorkspace restored: {value}\n\nTRACEBACK\n{traceback_text}{rollback_text}": [
       "app/controllers/project_controller.py"
     ],
-    "Playlist Canvas {current_version} is already up to date.": [
+    "Music Motion Studio {current_version} is already up to date.": [
       "app/dialogs/update_dialogs.py"
     ],
-    "Playlist Canvas {release_version} Setup 다운로드 중": [
+    "Music Motion Studio {release_version} Setup 다운로드 중": [
       "app/dialogs/update_dialogs.py"
     ],
-    "Playlist Canvas {release_version} is available.": [
+    "Music Motion Studio {release_version} is available.": [
       "app/dialogs/update_dialogs.py"
     ],
-    "Playlist Canvas — Untitled Project": [
+    "Music Motion Studio — Untitled Project": [
       "app/utils/i18n.py"
     ],
-    "Playlist Canvas — 새 프로젝트": [
+    "Music Motion Studio — 새 프로젝트": [
       "app/utils/i18n.py"
     ],
-    "Playlist Canvas 권장 버전": [
+    "Music Motion Studio 권장 버전": [
       "app/dialogs/settings_dialog.py"
     ],
-    "Playlist Canvas 도움말": [
+    "Music Motion Studio 도움말": [
       "app/dialogs/help_dialog.py"
     ],
-    "Playlist Canvas 라이선스 파일을 열 수 없습니다.": [
+    "Music Motion Studio 라이선스 파일을 열 수 없습니다.": [
       "app/dialogs/about_dialog.py"
     ],
-    "Playlist Canvas 업데이트": [
+    "Music Motion Studio 업데이트": [
       "app/dialogs/update_dialogs.py"
     ],
-    "Playlist Canvas가 설치한 FFmpeg만 삭제합니다. 직접 지정한 외부 FFmpeg는 삭제하지 않습니다.": [
+    "Music Motion Studio가 설치한 FFmpeg만 삭제합니다. 직접 지정한 외부 FFmpeg는 삭제하지 않습니다.": [
       "app/dialogs/settings_dialog.py"
     ],
-    "Playlist Canvas는 비상업적 동일조건 소스 공개 라이선스로 배포됩니다. 프로그램과 수정본의 상업적 수정·배포는 금지되며, 제작물의 상업적 이용은 허용됩니다. 온라인 제작물에 Playlist Canvas와 원본 저장소를 표시하는 것은 선택 사항입니다. FFmpeg는 앱에 포함되지 않으며, 자동 설치본은 BtbN FFmpeg GPL 배포본을 SHA-256으로 검증합니다.": [
+    "Music Motion Studio는 비상업적 동일조건 소스 공개 라이선스로 배포됩니다. 프로그램과 수정본의 상업적 수정·배포는 금지되며, 제작물의 상업적 이용은 허용됩니다. 온라인 제작물에 Music Motion Studio와 원본 저장소를 표시하는 것은 선택 사항입니다. FFmpeg는 앱에 포함되지 않으며, 자동 설치본은 BtbN FFmpeg GPL 배포본을 SHA-256으로 검증합니다.": [
       "app/dialogs/about_dialog.py"
     ],
     "Playlist Preview": [
@@ -13172,7 +13172,7 @@
     "Recommended default. A good balance of quality, export time, and file size. An available NVIDIA GPU is used automatically.": [
       "app/dialogs/export_settings_dialog.py"
     ],
-    "Recommended for Playlist Canvas": [
+    "Recommended for Music Motion Studio": [
       "app/dialogs/settings_dialog.py"
     ],
     "Recommended starting point: Full HD, 30 FPS, H.264, CRF 18, preset medium. Lower CRF increases quality and file size.": [
@@ -13328,7 +13328,7 @@
     "Replace the existing file '{output_name}'?": [
       "app/dialogs/export_settings_dialog.py"
     ],
-    "Replace the managed install with the FFmpeg version recommended for this Playlist Canvas release.": [
+    "Replace the managed install with the FFmpeg version recommended for this Music Motion Studio release.": [
       "app/dialogs/settings_dialog.py"
     ],
     "Reposition and scale existing sources for the new ratio (Recommended)": [
@@ -13909,7 +13909,7 @@
     "Shows divider lines between list rows.": [
       "app/inspector/editors/track_list_editor.py"
     ],
-    "Shows one Windows notification when each selected stage starts. Notifications may not appear if Playlist Canvas is blocked in system notification settings.": [
+    "Shows one Windows notification when each selected stage starts. Notifications may not appear if Music Motion Studio is blocked in system notification settings.": [
       "app/dialogs/settings_dialog.py"
     ],
     "Shows the playlist position before each track.": [
@@ -13971,7 +13971,7 @@
     "Solid": [
       "app/inspector/editors/audio_level_meter_editor.py"
     ],
-    "Some audio files have no title, artist, or album tag. Review or edit the information that Playlist Canvas should use before adding them.": [
+    "Some audio files have no title, artist, or album tag. Review or edit the information that Music Motion Studio should use before adding them.": [
       "app/dialogs/audio_metadata_dialog.py"
     ],
     "Song information": [
@@ -14335,7 +14335,7 @@
     "The GitHub release service could not be reached.": [
       "app/services/update_service.py"
     ],
-    "The Playlist Canvas Setup download failed.": [
+    "The Music Motion Studio Setup download failed.": [
       "app/services/update_service.py"
     ],
     "The Setup SHA-256 verification failed.": [
@@ -14620,16 +14620,16 @@
     "This is a source-specific property. Changes appear immediately on the Canvas and in Preview.": [
       "app/inspector/source_inspector.py"
     ],
-    "This is not a Playlist Canvas preset file.": [
+    "This is not a Music Motion Studio preset file.": [
       "app/presets/user_preset_service.py"
     ],
     "This media cannot be played.": [
       "app/dialogs/content_preview_dialog.py"
     ],
-    "This pack requires Playlist Canvas ": [
+    "This pack requires Music Motion Studio ": [
       "app/services/language_pack_service.py"
     ],
-    "This pack requires Playlist Canvas {minimum} or later.": [
+    "This pack requires Music Motion Studio {minimum} or later.": [
       "app/services/language_pack_service.py"
     ],
     "This project has unsaved changes. Save before closing?": [
@@ -14644,16 +14644,16 @@
     "This project version is not supported.": [
       "app/models/project.py"
     ],
-    "This project was saved with a different version of Playlist Canvas.\n\nProject version: ": [
+    "This project was saved with a different version of Music Motion Studio.\n\nProject version: ": [
       "app/controllers/project_controller.py"
     ],
-    "This project was saved with a different version of Playlist Canvas.\n\nProject version: {document_app_version}\nCurrent app version: {__version__}\n\nSome features or visual results may differ. The project will continue opening.": [
+    "This project was saved with a different version of Music Motion Studio.\n\nProject version: {document_app_version}\nCurrent app version: {__version__}\n\nSome features or visual results may differ. The project will continue opening.": [
       "app/controllers/project_controller.py"
     ],
-    "This release has no SHA-256-verifiable Playlist Canvas Setup asset.": [
+    "This release has no SHA-256-verifiable Music Motion Studio Setup asset.": [
       "app/dialogs/update_dialogs.py"
     ],
-    "This release has no SHA-256-verified Playlist Canvas Setup asset.": [
+    "This release has no SHA-256-verified Music Motion Studio Setup asset.": [
       "app/services/update_service.py"
     ],
     "This track already has lyrics. Compare both versions before choosing which one to use.": [
@@ -15112,7 +15112,7 @@
     "Update error": [
       "app/ui/main_window.py"
     ],
-    "Updating Playlist Canvas": [
+    "Updating Music Motion Studio": [
       "app/dialogs/help_dialog.py"
     ],
     "Upgrade complete": [
@@ -21733,7 +21733,7 @@
     "선택한 가사 형식의 확장자를 사용하세요. / Keep the original lyric file extension.": [
       "app/services/lyrics_search_service.py"
     ],
-    "선택한 단계가 시작될 때 Windows 알림을 한 번 표시합니다. 운영체제의 알림 설정에서 Playlist Canvas 알림이 차단되어 있으면 표시되지 않을 수 있습니다.": [
+    "선택한 단계가 시작될 때 Windows 알림을 한 번 표시합니다. 운영체제의 알림 설정에서 Music Motion Studio 알림이 차단되어 있으면 표시되지 않을 수 있습니다.": [
       "app/dialogs/settings_dialog.py"
     ],
     "선택한 빌드: {release_build}": [
@@ -21837,7 +21837,7 @@
     "유형: {value}": [
       "app/widgets/content_library_panel.py"
     ],
-    "은(는) 이 Playlist Canvas 패치의 권장 버전이 아닙니다.": [
+    "은(는) 이 Music Motion Studio 패치의 권장 버전이 아닙니다.": [
       "app/ui/main_window.py"
     ],
     "음악 재생목록을 시각적인 영상으로 구성하고 MP4로 내보내는 데스크톱 스튜디오입니다.\nChatGPT Codex와 Claude Code를 활용해 제작했습니다.": [
@@ -21852,7 +21852,7 @@
     "이 결과에는 제공되는 가사가 없습니다. 다른 곡이나 제공자를 선택하세요. / No lyrics are available for this recording; select another result or provider.": [
       "app/services/lyrics_search_service.py"
     ],
-    "이 릴리즈에는 SHA-256으로 검증 가능한 Playlist Canvas Setup 파일이 없습니다.": [
+    "이 릴리즈에는 SHA-256으로 검증 가능한 Music Motion Studio Setup 파일이 없습니다.": [
       "app/dialogs/update_dialogs.py"
     ],
     "이 오디오의 저장되지 않은 가사 작업이 있습니다.\n저장 시각: {saved_time}\n\n가사와 타이밍을 복구할까요?": [
@@ -21864,10 +21864,10 @@
     "이 요소에 표시되는 모든 곡에 공통으로 적용합니다. 일반 가사는 처음부터 줄 전체를 표시하고 다음 가사 시간에 전환합니다. TTML만 파일에 기록된 단어·음절 시간으로 강조합니다. 음악 분석이나 시간 추정은 하지 않습니다.": [
       "app/inspector/editors/lyrics_editor.py"
     ],
-    "이 프로젝트는 다른 버전의 Playlist Canvas에서 저장되었습니다.\n\n프로젝트 저장 버전: ": [
+    "이 프로젝트는 다른 버전의 Music Motion Studio에서 저장되었습니다.\n\n프로젝트 저장 버전: ": [
       "app/controllers/project_controller.py"
     ],
-    "이 프로젝트는 다른 버전의 Playlist Canvas에서 저장되었습니다.\n\n프로젝트 저장 버전: {document_app_version}\n현재 프로그램 버전: {__version__}\n\n일부 기능이나 표시 결과가 달라질 수 있습니다. 프로젝트를 계속 엽니다.": [
+    "이 프로젝트는 다른 버전의 Music Motion Studio에서 저장되었습니다.\n\n프로젝트 저장 버전: {document_app_version}\n현재 프로그램 버전: {__version__}\n\n일부 기능이나 표시 결과가 달라질 수 있습니다. 프로젝트를 계속 엽니다.": [
       "app/controllers/project_controller.py"
     ],
     "이 프로젝트는 레거시 JSON 형식입니다. 원본 JSON은 유지하면서 콘텐츠와 썸네일을 포함할 수 있는 .pvsproj 형식으로 업그레이드할까요?": [
@@ -22102,7 +22102,7 @@
     "현재 곡의 타이밍 보정을 적용하고 여러 줄 가사는 문자 \\n으로 저장합니다.": [
       "app/dialogs/track_details_dialog.py"
     ],
-    "현재 관리 설치본을 이 Playlist Canvas 버전의 권장 FFmpeg로 교체합니다.": [
+    "현재 관리 설치본을 이 Music Motion Studio 버전의 권장 FFmpeg로 교체합니다.": [
       "app/dialogs/settings_dialog.py"
     ],
     "현재 관리 중인 FFmpeg ": [

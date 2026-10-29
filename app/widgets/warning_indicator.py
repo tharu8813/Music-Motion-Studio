@@ -29,7 +29,7 @@ class WarningIndicator(ActivityProgressWidget):
         self.progress_bar.hide()
         self.setMinimumWidth(0)
         self.setFixedWidth(42)
-        self.label.setStyleSheet("color: #E6B86A; font-size: 18px;")
+        self.label.setObjectName("warningStatusLabel")
 
     def set_warnings(self, entries):
         self._activities = {key: ActivityState(key, title, detail=detail) for key, title, detail in entries}

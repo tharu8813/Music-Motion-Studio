@@ -273,7 +273,7 @@ class Session:
         window.playlist_service.add_tracks(tracks)
         window.project_settings = replace(
             window.project_settings, transition_mode="automix" if analyze else "none",
-            title="Late Night Drive", author="Playlist Canvas",
+            title="Late Night Drive", author="Music Motion Studio",
         )
         preset = next(p for p in PresetService().all() if p.identifier == "aurora")
         window._apply_preset(preset)
@@ -360,8 +360,6 @@ def capture_preview(session: Session) -> None:
     image = grab(window)
     callouts = [
         (1, rect_in(window, preview.preview_stage), "tl"),
-        (2, rect_in(window, preview.tracks_toggle).united(rect_in(window, preview.performance_toggle))
-         .adjusted(-40, -4, 4, 4), "ml"),
         (3, rect_in(window, window.inspector_stack), "tr"),
         (4, rect_in(window, preview.now_playing_card), "tc"),
         (5, rect_in(window, preview.timeline_card), "tc"),
@@ -666,8 +664,8 @@ def main() -> int:
         parser.error("FFmpeg was not found on PATH; pass --ffmpeg")
     app = QApplication(sys.argv[:1])
     # Separate settings: the capture never touches the real user settings.
-    app.setApplicationName("Playlist Canvas Help Capture")
-    app.setOrganizationName("Playlist Canvas Help Capture")
+    app.setApplicationName("Music Motion Studio Help Capture")
+    app.setOrganizationName("Music Motion Studio Help Capture")
     from app.ui.design_system import apply_studio_style
 
     apply_studio_style(app)

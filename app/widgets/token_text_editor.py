@@ -1,4 +1,4 @@
-"""IDE-style editors for Playlist Canvas dynamic text tokens."""
+"""IDE-style editors for Music Motion Studio dynamic text tokens."""
 
 from __future__ import annotations
 

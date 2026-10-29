@@ -1,13 +1,13 @@
 """Cue motion and typography shared by Canvas preview and video export."""
 
-from math import pi, sin
+from math import cos, pi, sin
 import re
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QTextLayout, QTextOption
 
-from app.animation.lyrics import context_style_at_distance, cue_effect_pose, role_style, stagger_progress
+from app.animation.lyrics import context_style_at_distance, cue_effect_pose, intro_exit_pose, role_style, stagger_progress
 from app.animation.curves import music_reactive_pose
 from app.canvas.renderers.base import device_pixel_ratio, paint_background, paint_selection_guide
 
@@ -128,6 +128,20 @@ def _wrapped_row_layout(original_layout, origins, height, line_spacing):
     return layout, centers, positions[-1] + 1.0
 
 
+def lyric_cue_extent(item, cue) -> float:
+    """Measure a cue in the same row units used by the scrolling strip."""
+    from app.services.lyrics_service import LyricsService
+
+    lines = [line for line in LyricsService.decode_line_breaks(cue.get("text", "")).splitlines() if line.strip()]
+    if not item.source.subtitle_auto_wrap:
+        return float(max(1, len(lines)))
+    height = item._lyric_line_height()
+    continuation = max(1.0, height - max(0.0, item.source.subtitle_line_spacing)) / height
+    positions = cue.get("display_line_positions", tuple(range(len(lines))))
+    return max(1.0, sum(1 + (len(lyric_wrapped_rows(item, line, positions[index])) - 1) * continuation
+                        for index, line in enumerate(lines)))
+
+
 def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
     source = item.source
     painter.save()
@@ -152,6 +166,9 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
     centers = {slot: index - inner + total / 2 for index, (slot, inner, total) in enumerate(layout)}
     last_slot = layout[-1][0] if layout else 0
     horizontal = source.subtitle_flow_direction in {"left", "right"}
+    strip_window = item._subtitle_strip_window
+    if strip_window is not None:
+        last_slot = strip_window[3] - 1
     sign = -1.0 if source.subtitle_flow_direction in {"down", "right"} else 1.0
     slots = max(1, (source.subtitle_context_lines if source.subtitle_context_lines >= 0 else 1)
                 + (source.subtitle_next_lines if source.subtitle_next_lines >= 0 else 1) + 1)
@@ -187,8 +204,11 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
     axis = rect.width() if horizontal else rect.height()
     anchor_extent = layout[anchor][2] if anchored else (
         layout[current][2] if source.subtitle_auto_wrap and has_current else anchor_count)
-    guard = step / 2 if horizontal else height * anchor_extent / 2
-    anchor_position = max(guard, min(axis - guard, axis * source.subtitle_anchor))
+    def anchor_at(extent):
+        guard = min(axis / 2, step / 2 if horizontal else height * extent / 2)
+        return max(guard, min(axis - guard, axis * source.subtitle_anchor))
+
+    anchor_position = anchor_at(anchor_extent)
     alignment = _ALIGNMENTS.get(source.text_alignment, Qt.AlignmentFlag.AlignHCenter)
     flags = alignment | Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextSingleLine
     pixel_ratio = device_pixel_ratio(painter)
@@ -211,12 +231,42 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         block_extent = centers[last_slot] + layout[visible_end - 1][2] / 2
     intro = item._subtitle_intro_state
     previous_extent = layout[boundary - 1][2] if previous_count and boundary > 0 else previous_count
+    if strip_window is not None and previous_count:
+        # A tall wrapped cue can push the anchor away from an edge. That
+        # adjustment belongs to the shared scroll, including its first frame.
+        anchor_position = anchor_at(previous_extent) * (1 - t) + anchor_position * t
+    strip_scroll = (previous_extent + anchor_extent) / 2 * (1 - t) if previous_count else 0.0
     current_extent = layout[current][2] if has_current else count
     untimed = not item._subtitle_cue_layout and not has_current and intro is None
     intro_y = rect.center().y() if horizontal else rect.top() + anchor_position
     held_slot = intro.held_slot if intro is not None else anchor_slot
     held_rows = [index for index, (slot, _inner, _total) in enumerate(layout) if slot == held_slot]
     held_end = centers[held_slot] + layout[held_rows[0]][2] / 2 if held_rows else 0
+    if strip_window is not None and intro is None:
+        old_first, old_last, new_first, new_last = strip_window
+        extents = {slot: total for slot, _inner, total in layout}
+
+        def window_edges(first, last, current_slot, position):
+            first_y = (rect.top() + position + sign * (centers[first] - centers[current_slot]) * height
+                       - sign * extents[first] * height / 2)
+            last_y = (rect.top() + position + sign * (centers[last - 1] - centers[current_slot]) * height
+                      + sign * extents[last - 1] * height / 2)
+            return (first_y, last_y) if sign > 0 else (last_y, first_y)
+
+        old_slot = anchor_slot - 1 if previous_count else anchor_slot
+        old_edges = window_edges(old_first, old_last, old_slot,
+                                 anchor_at(previous_extent if previous_count else anchor_extent))
+        new_edges = window_edges(new_first, new_last, anchor_slot, anchor_at(anchor_extent))
+        top, bottom = (a * (1 - t) + b * t for a, b in zip(old_edges, new_edges))
+        top_setting, bottom_setting = (source.subtitle_context_lines, source.subtitle_next_lines)
+        if sign < 0:
+            top_setting, bottom_setting = bottom_setting, top_setting
+        # Explicit context counts define a smaller viewport. Cues pass under
+        # its edges in strip coordinates instead of fading into an empty slot.
+        top = max(rect.top(), top) if top_setting >= 0 else rect.top()
+        bottom = min(rect.bottom(), bottom) if bottom_setting >= 0 else rect.bottom()
+        painter.setClipRect(QRectF(rect.left(), top, rect.width(), max(0.0, bottom - top)),
+                            Qt.ClipOperation.IntersectClip)
     if intro is not None:
         # The indicator is a temporary cue: enter/leave on the same clock and
         # direction as the surrounding lyrics. Its inner dot cycle is independent.
@@ -225,6 +275,10 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
             source, intro.progress, intro.opacity, current=not intro.exiting,
             previous=intro.exiting, incoming_visible=False, transitioning=intro.raw_progress < 1,
         )
+        if intro.exiting:
+            # The marker has its own monotone exit; do not replay the lyric's
+            # pulse, bounce or zoom underneath it.
+            travel, scale, opacity = 0.0, 1.0, 1.0
         distance = step if horizontal else height
         next_distance = (current_extent + 1) / 2 if not horizontal and has_current and anchor_slot > held_slot else 1.0
         departure = -distance * next_distance * intro.progress if intro.exiting else (
@@ -265,10 +319,16 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         if slot < anchor_slot:
             span = source.subtitle_context_lines if source.subtitle_context_lines >= 0 else anchor_slot - bool(leaving)
             distance = anchor_slot - slot - (1.0 - t if previous_count else 0.0)
+            if strip_window is not None and source.subtitle_context_lines < 0:
+                span = (anchor_position if sign > 0 else axis - anchor_position) / height
+                distance = centers[anchor_slot] - centers[slot] - strip_scroll
             previous = context_style_at_distance(previous, active, distance, span, source.subtitle_previous_distance_fade)
         if slot > anchor_slot or (slot == anchor_slot and previous_count):
             span = source.subtitle_next_lines if source.subtitle_next_lines >= 0 else last_slot - anchor_slot
             distance = slot - anchor_slot + (1.0 - p if previous_count else 0.0)
+            if strip_window is not None and source.subtitle_next_lines < 0:
+                span = (axis - anchor_position if sign > 0 else anchor_position) / height
+                distance = centers[slot] - centers[anchor_slot] + strip_scroll
             upcoming = context_style_at_distance(upcoming, active, distance, span, source.subtitle_next_distance_fade)
         is_current = has_current and current <= index < current + count
         original_inner = original_layout[original_index][1]
@@ -294,6 +354,17 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         blur = float(start["blur"]) + (float(end["blur"]) - float(start["blur"])) * blend
         weight = round(float(start["font_weight"]) + (float(end["font_weight"]) - float(start["font_weight"])) * blend)
         italic = bool((end if blend >= 0.5 else start)["italic"])
+        # Gap readability is the underlying lyric state. Blend the temporary
+        # row's previous/next styling AFTER it, so a held cue does not stay
+        # sharp while the marker occupies the current position.
+        if item._subtitle_gap_unblurred and slot == anchor_slot:
+            blur = 0.0
+        if (original_index in item._subtitle_blur_restore_lines
+                and (intro is None or not intro.exiting)):
+            # During an interlude the held cue has already acquired its
+            # previous-role blur. Replaying the gap restoration would dip
+            # that blur again halfway through the marker's exit.
+            blur *= item._subtitle_blur_restore_progress
         waiting_amount = 0.0
         if intro is not None:
             role = "next" if intro.before_first or slot > held_slot else "previous"
@@ -322,10 +393,6 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
             weight = round(weight + (float(waiting["font_weight"]) - weight) * amount)
             if amount >= 0.5:
                 italic = bool(waiting["italic"])
-        if item._subtitle_gap_unblurred and slot == anchor_slot:
-            blur = 0.0  # Keep the held lyric readable until the next cue begins.
-        if original_index in item._subtitle_blur_restore_lines:
-            blur *= item._subtitle_blur_restore_progress
         if is_current and transitioning and not item._subtitle_incoming_visible:
             alpha *= p
         if index < leaving:
@@ -340,6 +407,12 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         glow *= 1 - waiting_amount
         reveal *= 1 - waiting_amount
         alpha *= 1 + (opacity - 1) * (1 - waiting_amount)
+        if strip_window is not None:
+            old_first, old_last, new_first, new_last = strip_window
+            old_visible = old_first <= slot < old_last
+            new_visible = new_first <= slot < new_last
+            if not old_visible and not new_visible:
+                continue
         if max(alpha, karaoke_alpha) <= _VISIBLE:
             continue
 
@@ -380,6 +453,11 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
             if horizontal:
                 x = row.center().x()
 
+        if strip_window is not None:
+            # Replacing an offscreen prefix must not change Qt's subpixel
+            # raster origin through floating-point cancellation.
+            row.moveTop(round(row.top(), 6))
+
         # A stable glyph size lets the role scale interpolate without rebuilding
         # the same blur raster for every intermediate font size.
         font_size = max(float(previous["size"]), float(active["size"]), float(upcoming["size"]))
@@ -399,7 +477,7 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
             pivot_x = x if horizontal else rect.center().x()
             row.moveLeft(pivot_x - glyph_width / 2)
         painter.save()
-        if index >= entering:
+        if index >= entering and strip_window is None:
             # New upcoming cues travel through the clipped edge at their normal
             # opacity, rather than materializing in the empty tail area. Every
             # physical line in a cue shares the same translation.
@@ -510,16 +588,56 @@ def paint_intro(item: "SourceItem", painter: QPainter, rect: QRectF, y: float) -
     spacing = radius * 4.8
     kind = source.subtitle_intro_style
     count = 5 if kind == "bars" else 3
-    width = radius * 6 if kind == "ring" else (count - 1) * spacing + radius * 2
+    width = radius * 8 if kind in {"ring", "orbit", "ripple"} else (count - 1) * spacing + radius * 2
     x = rect.center().x()
     x = max(rect.left() + width / 2 + 12, min(rect.right() - width / 2 - 12, x))
     y = max(rect.top() + radius * 3, min(rect.bottom() - radius * 3, y))
     if source.text_alignment != "center":
         x = rect.left() + width / 2 + 12 if source.text_alignment == "left" else rect.right() - width / 2 - 12
-    phase = (state.elapsed / source.subtitle_intro_period) % 1.0
+    # Hold the last waiting pose during departure, preventing a new pulse
+    # from brightening a dot that is already fading away.
+    phase_time = state.elapsed - max(0.0, -state.remaining) if state.exiting else state.elapsed
+    phase = (phase_time / source.subtitle_intro_period) % 1.0
     color = QColor(str(style["color"]))
-    base = painter.opacity() * float(style["opacity"]) * state.opacity
+    exit_pose = intro_exit_pose(source.subtitle_intro_exit, state.raw_progress) if state.exiting else None
+    base = painter.opacity() * float(style["opacity"]) * (exit_pose.opacity if exit_pose else state.opacity)
+    if exit_pose:
+        horizontal = source.subtitle_flow_direction in {"left", "right"}
+        sign = -1 if source.subtitle_flow_direction in {"down", "right"} else 1
+        painter.translate(sign * exit_pose.travel * unit if horizontal else 0,
+                          sign * exit_pose.travel * unit if not horizontal else 0)
+        painter.translate(x, y)
+        painter.scale(exit_pose.scale * exit_pose.spread, exit_pose.scale * exit_pose.spread)
+        painter.translate(-x, -y)
+        if exit_pose.reveal < 1:
+            painter.setClipRect(QRectF(x - width / 2, y - radius * 4,
+                                      width * exit_pose.reveal, radius * 8), Qt.ClipOperation.IntersectClip)
     painter.setPen(Qt.PenStyle.NoPen)
+    if kind == "orbit":
+        painter.setBrush(color)
+        for index in range(3):
+            angle = 2 * pi * (phase + index / 3)
+            painter.setOpacity(base * (1 - index * .22))
+            painter.drawEllipse(QPointF(x + cos(angle) * radius * 2.8, y + sin(angle) * radius * 2.8),
+                                radius * .7, radius * .7)
+        return
+    if kind == "ripple":
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(color, max(1.0, radius * .5)))
+        for index in range(3):
+            pulse = (phase + index / 3) % 1
+            painter.setOpacity(base * sin(pi * pulse) ** 2)
+            size = radius * (.4 + 3.1 * pulse)
+            painter.drawEllipse(QPointF(x, y), size, size)
+        return
+    if kind == "comet":
+        painter.setBrush(color)
+        for index in range(5):
+            pulse = (phase - index * .07) % 1
+            painter.setOpacity(base * (1 - index / 6) * sin(pi * pulse) ** 2)
+            size = radius * (1 - index * .12)
+            painter.drawEllipse(QPointF(x + (pulse - .5) * spacing * 2, y), size, size)
+        return
     if kind == "ring":
         ring = QRectF(x - radius * 3, y - radius * 3, radius * 6, radius * 6)
         pen = QPen(color, max(1.0, radius * 0.7), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)

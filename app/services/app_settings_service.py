@@ -292,4 +292,4 @@ class AppSettingsService(QObject):
     @staticmethod
     def default_output_directory() -> Path:
         """Return a writable default without creating any folder prematurely."""
-        return Path.home() / "Videos" / "Playlist Canvas"
+        return Path.home() / "Videos" / "Music Motion Studio"

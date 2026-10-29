@@ -451,11 +451,6 @@ class TrackDetailsDialog(QDialog):
         self.video_scope_badge = QLabel()
         self.video_scope_badge.setObjectName("trackVideoScopeBadge")
         self.video_scope_badge.setWordWrap(True)
-        self.video_scope_badge.setStyleSheet(
-            "background: rgba(121, 199, 180, 0.12); "
-            "border: 1px solid rgba(121, 199, 180, 0.35); "
-            "border-radius: 7px; padding: 8px 10px; font-weight: 700;"
-        )
         self.video_help = QLabel()
         self.video_help.setObjectName("mutedLabel")
         self.video_help.setWordWrap(True)
@@ -546,10 +541,6 @@ class TrackDetailsDialog(QDialog):
         """Cover, title, artist · album and one line of at-a-glance facts, above every tab."""
         header = QFrame()
         header.setObjectName("trackDetailsHeader")
-        header.setStyleSheet(
-            "#trackDetailsHeader { border: 1px solid rgba(128, 128, 128, 0.3);"
-            " border-radius: 10px; background: rgba(128, 128, 128, 0.07); }"
-        )
         layout = QHBoxLayout(header)
         layout.setContentsMargins(10, 10, 14, 10)
         layout.setSpacing(12)

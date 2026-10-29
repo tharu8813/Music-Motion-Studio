@@ -8,6 +8,7 @@ from pathlib import Path
 
 REQUIRED_FILES = (
     Path("app/resources/app_icon.ico"),
+    Path("app/resources/project_file_icon.ico"),
     Path("app/resources/ko.json"),
     Path("app/resources/en.json"),
     Path("app/resources/language-pack-template.json"),
@@ -33,9 +34,9 @@ REQUIRED_FILES = (
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("distribution", type=Path, nargs="?", default=root / "dist" / "Playlist Canvas")
+    parser.add_argument("distribution", type=Path, nargs="?", default=root / "dist" / "Music Motion Studio")
     distribution = parser.parse_args().distribution.resolve()
-    executable = distribution / "Playlist Canvas.exe"
+    executable = distribution / "Music Motion Studio.exe"
     internal = distribution / "_internal"
     missing = [str(path) for path in REQUIRED_FILES if not (internal / path).is_file()]
     # New help topics must ship with their pictures in both built-in languages.

@@ -268,7 +268,7 @@ def _art_welcome(p: QPainter, r: QRectF, korean: bool) -> None:
     p.setBrush(QColor("#FFFFFF"))
     p.drawPolygon(QPolygonF([QPointF(center.x() - 7, center.y() - 11), QPointF(center.x() - 7, center.y() + 11),
                              QPointF(center.x() + 12, center.y())]))
-    _text(p, _sub(r, 0, 0.84, 1, 0.16), "Playlist Canvas", "text", 13, True)
+    _text(p, _sub(r, 0, 0.84, 1, 0.16), "Music Motion Studio", "text", 13, True)
 
 
 def _art_layout(p: QPainter, r: QRectF, korean: bool) -> None:
@@ -440,10 +440,10 @@ def _art_editor_listen(p: QPainter, r: QRectF, korean: bool) -> None:
 
 # -- the pages ---------------------------------------------------------------------------------
 
-MAIN_GUIDE_TITLE = ("Playlist Canvas 시작하기", "Getting started with Playlist Canvas")
+MAIN_GUIDE_TITLE = ("Music Motion Studio 시작하기", "Getting started with Music Motion Studio")
 MAIN_GUIDE = (
     GuidePage(
-        ("Playlist Canvas에 오신 것을 환영합니다", "Welcome to Playlist Canvas"),
+        ("Music Motion Studio에 오신 것을 환영합니다", "Welcome to Music Motion Studio"),
         ("음악·가사·앨범 커버·비주얼라이저를 하나의 캔버스에 자유롭게 배치해 "
          "<b>플레이리스트 영상(MP4)</b>을 만드는 편집기입니다.<br><br>"
          "이 안내에서 화면 구성과 첫 영상을 만드는 기본 흐름을 짧게 소개합니다. "

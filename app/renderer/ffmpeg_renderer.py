@@ -2081,7 +2081,7 @@ class FFmpegRenderer:
             lines.append(f"title={self._ffmetadata_escape(title)}")
         if metadata.artist.strip():
             lines.append(f"artist={self._ffmetadata_escape(metadata.artist.strip())}")
-        comment = metadata.comment.strip() or "Playlist Canvas"
+        comment = metadata.comment.strip() or "Music Motion Studio"
         lines.append(f"comment={self._ffmetadata_escape(comment)}")
 
         chapters = metadata.include_chapters and len(tracks) > 1

@@ -19,7 +19,7 @@ SUBTITLE_ADVANCED_GROUPS = {
                "subtitle_stagger_order", "subtitle_zoom_amount", "subtitle_glow_strength", "subtitle_glow_radius"),
     "layout": ("subtitle_context_lines", "subtitle_next_lines", "subtitle_line_spacing", "subtitle_anchor", "text_alignment"),
     "styles": ("subtitle_role_styles", "subtitle_previous_distance_fade", "subtitle_next_distance_fade"),
-    "intro": ("subtitle_intro_enabled", "subtitle_intro_midtrack", "subtitle_intro_style",
+    "intro": ("subtitle_intro_enabled", "subtitle_intro_midtrack", "subtitle_intro_style", "subtitle_intro_exit",
               "subtitle_intro_gap", "subtitle_intro_period", "subtitle_intro_scale"),
 }
 
@@ -236,6 +236,7 @@ class Source:
     subtitle_intro_enabled: bool = True
     subtitle_intro_midtrack: bool = False
     subtitle_intro_style: str = "dots"
+    subtitle_intro_exit: str = "shrink"
     subtitle_intro_gap: float = 5.0
     subtitle_intro_period: float = 3.0
     subtitle_intro_scale: float = 1.0
@@ -360,7 +361,7 @@ class Source:
         """Convert the model to JSON-compatible data."""
         result = asdict(self)
         result["source_type"] = self.source_type.value
-        # Older Playlist Canvas versions only understand one duration. The
+        # Older project versions only understand one duration. The
         # longer phase is the least surprising compatibility fallback.
         result["animation_duration"] = max(
             self.animation_in_duration, self.animation_out_duration,
@@ -529,7 +530,8 @@ class Source:
             ("subtitle_flow_direction", ("up", "down", "left", "right")),
             ("subtitle_motion_easing", ("auto", "linear", "ease_in", "ease_out", "smooth")),
             ("subtitle_stagger_order", ("near_first", "far_first")),
-            ("subtitle_intro_style", ("dots", "breathing", "wave", "bars", "ring")),
+            ("subtitle_intro_style", ("dots", "breathing", "wave", "bars", "ring", "orbit", "ripple", "comet")),
+            ("subtitle_intro_exit", ("shrink", "fade", "drift", "spread", "wipe")),
             ("subtitle_karaoke_pending_mode", ("custom", "dim")),
         ):
             if getattr(source, name) not in allowed:

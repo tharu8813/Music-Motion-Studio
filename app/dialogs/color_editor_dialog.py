@@ -1,4 +1,4 @@
-"""Playlist Canvas color editor with localized personal-color controls."""
+"""Music Motion Studio color editor with localized personal-color controls."""
 
 from __future__ import annotations
 

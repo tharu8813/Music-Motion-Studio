@@ -37,7 +37,8 @@ class AutosaveController:
         not stutter the editor every few seconds.
         """
         window = self.window
-        if (not self.session.tracking_changes or not self.session.dirty
+        if (not getattr(window, '_project_open', True)
+                or not self.session.tracking_changes or not self.session.dirty
                 or window.project_controller.saving
                 or self.worker is not None):
             return
@@ -144,6 +145,7 @@ class AutosaveController:
                 window.upgrade_project_action.setEnabled(window._legacy_project_path is not None)
                 window.history.reset(window._project_document().to_dict())
             self.session.dirty = snapshot.dirty or window.project_controller.media_relinked
+            window.set_project_open(True)
             # Own the restored backup so saving this window cannot clear another window's work.
             try:
                 owned = window.autosave.save(window._project_document(), snapshot.project_path, dirty=self.session.dirty)

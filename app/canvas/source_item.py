@@ -186,6 +186,7 @@ class SourceItem(QGraphicsObject):
         self._subtitle_prefetch_line_count = 0
         self._subtitle_prefetch_progress = 0.0
         self._subtitle_prefetch_entry_line_count = 0
+        self._subtitle_strip_window: tuple[int, int, int, int] | None = None
         self._subtitle_emphasis = 1.0
         self._subtitle_previous_emphasis = 1.0
         self._subtitle_incoming_visible = True

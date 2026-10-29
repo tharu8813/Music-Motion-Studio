@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.ui.design_system import COLORS
+
 from pathlib import Path
 import json
 from typing import Any
@@ -67,7 +69,7 @@ class LyricsCompareDialog(QDialog):
             for row, cue in enumerate(cues):
                 if json.dumps(cue, sort_keys=True, ensure_ascii=False) not in other:
                     for column in range(table.columnCount()):
-                        table.item(row, column).setBackground(QColor("#40392B"))
+                        table.item(row, column).setBackground(QColor(COLORS["warning_surface"]))
         legend = QLabel("강조된 행은 시간·내용·단어 정보가 다른 구간입니다. 원본 파일은 변경하지 않습니다." if korean else
                         "Highlighted rows have different timing, text or word data. Original files are not modified.")
         legend.setWordWrap(True)

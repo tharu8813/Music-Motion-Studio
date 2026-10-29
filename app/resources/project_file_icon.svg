@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Music Motion Studio project</title>
+  <path d="M56 12H152L208 68V224Q208 244 188 244H56Q36 244 36 224V32Q36 12 56 12Z" fill="#F7FAF8" stroke="#406B61" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M152 12V56Q152 68 164 68H208" fill="#A6E7D4" stroke="#406B61" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M76 174V114L122 160L168 114V174" fill="none" stroke="#143B36" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -219,7 +219,7 @@ class MainWindowProjectTests(MainWindowTestCase):
 
         with TemporaryDirectory(prefix="pvs-unattended-update-") as directory:
             root = Path(directory)
-            installer = root / "Playlist Canvas setup.exe"
+            installer = root / "Music Motion Studio setup.exe"
             installer.write_bytes(b"verified by download worker")
             self.window.autosave = AutosaveService(root)
             self.window.store.replace([Source(SourceType.TEXT, "Unsaved update work")])
@@ -317,7 +317,7 @@ class MainWindowProjectTests(MainWindowTestCase):
         release = ReleaseInfo(
             version="9.0.0",
             tag_name="v9.0.0",
-            name="Playlist Canvas 9.0.0",
+            name="Music Motion Studio 9.0.0",
             body="Release notes",
             published_at="2026-08-12T00:00:00Z",
             html_url="https://github.com/tharu8813/Playlist-Canvas/releases/tag/v9.0.0",
@@ -333,7 +333,7 @@ class MainWindowProjectTests(MainWindowTestCase):
         release = ReleaseInfo(
             version="1.0.0",
             tag_name="v1.0.0",
-            name="Playlist Canvas 1.0.0",
+            name="Music Motion Studio 1.0.0",
             body="Older public release",
             published_at="2026-08-12T00:00:00Z",
             html_url="https://github.com/tharu8813/Playlist-Canvas/releases/tag/v1.0.0",
@@ -351,7 +351,7 @@ class MainWindowProjectTests(MainWindowTestCase):
         release = ReleaseInfo(
             version=__version__,
             tag_name=__version__,
-            name=f"Playlist Canvas {__version__}",
+            name=f"Music Motion Studio {__version__}",
             body="## 이번 버전\n\n- 변경 사항 A\n",
             published_at="2026-09-04T00:00:00Z",
             html_url=(
@@ -374,7 +374,7 @@ class MainWindowProjectTests(MainWindowTestCase):
 
         release = ReleaseInfo(
             version=__version__, tag_name=__version__,
-            name=f"Playlist Canvas {__version__}",
+            name=f"Music Motion Studio {__version__}",
             body="> [!NOTE]\n> 임시 공간이 필요합니다.\n\n## 변경\n\n- 항목 하나\n",
             published_at="2026-09-04T00:00:00Z",
             html_url=(
@@ -1594,7 +1594,8 @@ class MainWindowProjectTests(MainWindowTestCase):
             panel._used_refresh_timer.stop()
             panel.refresh()
             self.assertTrue(row_for("track one").data(Qt.ItemDataRole.UserRole + 3))
-            self.assertIn("추가됨", row_for("track one").text())
+            self.assertEqual(row_for("track one").data(Qt.ItemDataRole.UserRole + 5), "추가됨")
+            self.assertNotIn("추가됨", row_for("track one").text())
             self.assertNotIn("추가됨", row_for("art").text())
 
             source = Source(
@@ -1603,7 +1604,8 @@ class MainWindowProjectTests(MainWindowTestCase):
             self.window.store.add(source)
             panel._used_refresh_timer.stop()
             panel.refresh()
-            self.assertIn("추가됨", row_for("art").text())
+            self.assertTrue(row_for("art").data(Qt.ItemDataRole.UserRole + 3))
+            self.assertEqual(row_for("art").data(Qt.ItemDataRole.UserRole + 5), "추가됨")
 
 
 if __name__ == "__main__":

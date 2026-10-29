@@ -19,7 +19,7 @@ class DistributionVerificationTests(unittest.TestCase):
             required.update(path.relative_to(root) for path in (root / "app/resources/help").glob("*/*.png"))
             required.update((Path("numpy/_core/_multiarray_umath.test.pyd"),
                              Path("onnxruntime/capi/onnxruntime_pybind11_state.test.pyd")))
-            (distribution / "Playlist Canvas.exe").touch()
+            (distribution / "Music Motion Studio.exe").touch()
             for path in required:
                 target = distribution / "_internal" / path
                 target.parent.mkdir(parents=True, exist_ok=True)

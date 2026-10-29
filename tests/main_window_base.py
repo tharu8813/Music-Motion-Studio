@@ -27,8 +27,8 @@ class MainWindowTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.application = QApplication.instance() or QApplication([])
-        cls.application.setApplicationName("Playlist Canvas Tests")
-        cls.application.setOrganizationName("Playlist Canvas Tests")
+        cls.application.setApplicationName("Music Motion Studio Tests")
+        cls.application.setOrganizationName("Music Motion Studio Tests")
         # Isolate user presets from the developer's real preset folder.
         cls._preset_dir = tempfile.mkdtemp(prefix="pc-presets-")
         cls._prev_preset_dir = os.environ.get("PLAYLIST_CANVAS_PRESET_DIR")

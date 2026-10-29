@@ -206,11 +206,11 @@ class VisualTimeline(QAbstractScrollArea):
             if not rect.intersects(QRectF(self.LABEL, self.RULER, width - self.LABEL, height)):
                 continue
             selected = self.selected == (block.kind, block.identifier)
-            fill = QColor("#305449" if block.kind == "track" else "#343C40")
+            fill = QColor(COLORS["selection"] if block.kind == "track" else COLORS["alternate"])
             if not block.visible:
                 fill = QColor(COLORS["disabled"])
             painter.setBrush(fill)
-            pen = QPen(QColor(COLORS["accent"] if selected else "#58665F" if block.kind == "track" else COLORS["border"]),
+            pen = QPen(QColor(COLORS["accent"] if selected else COLORS["selection_border"] if block.kind == "track" else COLORS["border"]),
                        2 if selected else 1)
             if block.full:
                 pen.setStyle(Qt.PenStyle.DashLine)
@@ -237,7 +237,7 @@ class VisualTimeline(QAbstractScrollArea):
         if self._snap_guide is not None:
             painter.setPen(QPen(QColor(COLORS["text"]), 1, Qt.PenStyle.DashLine))
             painter.drawLine(QPointF(self.x_at(self._snap_guide), self.RULER), QPointF(self.x_at(self._snap_guide), height))
-        painter.setPen(QPen(QColor("#DCC092"), 1.5))
+        painter.setPen(QPen(QColor(COLORS["warning"]), 1.5))
         painter.drawLine(QPointF(self.x_at(self.playhead), self.RULER), QPointF(self.x_at(self.playhead), height))
         painter.restore()
         # Fixed lane headers cover clips that have scrolled past the left edge.
@@ -277,7 +277,7 @@ class VisualTimeline(QAbstractScrollArea):
             painter.drawLine(QPointF(x, self.RULER - 6), QPointF(x, self.RULER))
             tick += step
         x = self.x_at(self.playhead)
-        painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QColor("#DCC092"))
+        painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QColor(COLORS["warning"]))
         painter.drawPolygon(QPolygonF([QPointF(x - 5, 0), QPointF(x + 5, 0), QPointF(x + 5, 10),
                                        QPointF(x, 15), QPointF(x - 5, 10)]))
         painter.restore()

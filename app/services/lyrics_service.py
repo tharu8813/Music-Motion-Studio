@@ -151,7 +151,7 @@ class LyricsService:
     @classmethod
     def format_lrc(
         cls, cues: list[dict[str, object]], *, title: str = "",
-        artist: str = "", creator: str = "Playlist Canvas",
+        artist: str = "", creator: str = "Music Motion Studio",
     ) -> str:
         """Serialize timed lyric cues into a UTF-8 LRC document."""
         lines: list[str] = []

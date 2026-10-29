@@ -15,12 +15,12 @@ VSVersionInfo(
       StringTable(
         "041204B0",
         [
-          StringStruct("CompanyName", "Playlist Canvas"),
-          StringStruct("FileDescription", "Playlist Canvas"),
+          StringStruct("CompanyName", "Music Motion Studio"),
+          StringStruct("FileDescription", "Music Motion Studio"),
           StringStruct("FileVersion", "1.3.1.5"),
-          StringStruct("InternalName", "Playlist Canvas"),
-          StringStruct("OriginalFilename", "Playlist Canvas.exe"),
-          StringStruct("ProductName", "Playlist Canvas"),
+          StringStruct("InternalName", "Music Motion Studio"),
+          StringStruct("OriginalFilename", "Music Motion Studio.exe"),
+          StringStruct("ProductName", "Music Motion Studio"),
           StringStruct("ProductVersion", "1.3.1.5"),
         ],
       )

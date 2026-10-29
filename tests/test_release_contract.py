@@ -17,14 +17,14 @@ class ReleaseContractTests(unittest.TestCase):
         # Inno predefines SourcePath as the script directory. Reusing it as
         # an override accidentally includes the repository and virtualenv.
         self.assertNotIn("#ifndef SourcePath", installer)
-        self.assertIn('#define AppSourcePath "dist\\Playlist Canvas"', installer)
+        self.assertIn('#define AppSourcePath "dist\\Music Motion Studio"', installer)
         self.assertIn('Source: "{#AppSourcePath}\\*";', installer)
 
     def test_pyinstaller_does_not_bundle_development_ffmpeg(self) -> None:
         specification = (ROOT / "playlist_canvas.spec").read_text(encoding="utf-8")
         self.assertNotIn("bundled_ffmpeg", specification)
         self.assertIn("app_icon.ico", specification)
-        self.assertIn('name="Playlist Canvas"', specification)
+        self.assertIn('name="Music Motion Studio"', specification)
         self.assertIn('"sitecustomize", "usercustomize"', specification)
 
     def test_every_ffmpeg_subprocess_uses_hidden_window_options(self) -> None:
@@ -70,6 +70,19 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertTrue(icon.is_file())
         self.assertGreater(icon.stat().st_size, 1_000)
 
+    def test_windows_icons_have_native_small_and_high_dpi_sizes(self) -> None:
+        from PySide6.QtGui import QIcon
+        from PySide6.QtWidgets import QApplication
+        application = QApplication.instance() or QApplication([])
+        self.assertIsNotNone(application)
+        expected = {16, 20, 24, 32, 40, 48, 64, 96, 128, 256}
+        for name in ("app_icon", "project_file_icon"):
+            with self.subTest(name=name):
+                icon = QIcon(str(ROOT / "app/resources" / f"{name}.ico"))
+                self.assertEqual({size.width() for size in icon.availableSizes()}, expected)
+                for size in expected:
+                    self.assertFalse(icon.pixmap(size, size).isNull())
+
     def test_noncommercial_license_is_applied_to_repository_build_and_installer(self) -> None:
         license_path = ROOT / "LICENSE.txt"
         license_text = license_path.read_text(encoding="utf-8")
@@ -88,7 +101,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('Source: "LICENSE.txt"; DestDir: "{app}"', installer)
         self.assertIn("Source-Available Noncommercial Share-Alike License 1.0", readme)
         self.assertIn("선택 사항이며 라이선스 의무가 아닙니다", readme)
-        self.assertIn("이 영상은 Playlist Canvas를 이용해 제작되었습니다.", readme)
+        self.assertIn("이 영상은 Music Motion Studio를 이용해 제작되었습니다.", readme)
 
     def test_release_version_uses_four_numeric_parts(self) -> None:
         parts = __version__.split(".")
@@ -125,7 +138,7 @@ class ReleaseContractTests(unittest.TestCase):
     def test_documented_setup_names_and_badge_match_the_app_version(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         packaging = (ROOT / "PACKAGING.md").read_text(encoding="utf-8")
-        setup_names = re.findall(r"Playlist Canvas-([\d.]+)-setup\.exe", readme + packaging)
+        setup_names = re.findall(r"Music Motion Studio-([\d.]+)-setup\.exe", readme + packaging)
         self.assertTrue(setup_names)
         self.assertEqual(set(setup_names), {__version__})
         self.assertIn(f"badge/version-{__version__}-", readme)
@@ -159,6 +172,17 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('ValueData: "{app}\\project_file_icon.ico,0"', installer)
         self.assertIn('PlaylistCanvas.Project\\shell\\open\\command', installer)
         self.assertIn('""%1""', installer)
+        self.assertIn('Applications\\{#PreviousAppName}.exe"; Flags: deletekey', installer)
+
+    def test_renaming_keeps_upgrade_identity_and_preserves_existing_shortcuts(self) -> None:
+        installer = (ROOT / "setup.iss").read_text(encoding="utf-8")
+        self.assertIn('{{28b780ab-d9ec-420a-88d8-17d364505722}', installer)
+        self.assertIn('UsePreviousAppDir=yes', installer)
+        self.assertIn('UsePreviousGroup=no', installer)
+        # A previous desktop link must be remembered before InstallDelete removes it.
+        self.assertIn('function InitializeSetup(): Boolean;', installer)
+        self.assertIn('HadDesktopShortcut :=', installer)
+        self.assertIn('Result := HadDesktopShortcut and', installer)
 
     def test_updates_use_program_files_and_only_restart_after_success(self) -> None:
         installer = (ROOT / "setup.iss").read_text(encoding="utf-8")

@@ -43,6 +43,22 @@ class TrackOrderDialogTests(unittest.TestCase):
         finally:
             dialog.deleteLater()
 
+    def test_transport_uses_icons_and_accessible_playback_labels(self):
+        from PySide6.QtMultimedia import QMediaPlayer
+        dialog = TrackOrderDialog(self.tracks, self.translator)
+        try:
+            for button in (dialog.prev_button, dialog.play_button, dialog.next_button):
+                self.assertFalse(button.icon().isNull())
+                self.assertEqual(button.text(), "")
+                self.assertTrue(button.accessibleName())
+            self.assertFalse(dialog.volume_label.pixmap().isNull())
+            dialog._on_playback_state(QMediaPlayer.PlaybackState.PlayingState)
+            self.assertEqual(dialog.play_button.accessibleName(), "일시정지")
+            dialog._on_playback_state(QMediaPlayer.PlaybackState.PausedState)
+            self.assertEqual(dialog.play_button.accessibleName(), "재생")
+        finally:
+            dialog.deleteLater()
+
     def test_drag_drop_reorders_and_rebuilds_rows(self) -> None:
         from PySide6.QtCore import QPointF, Qt
         from PySide6.QtGui import QDropEvent

@@ -140,7 +140,7 @@ class AutoMixEditorTests(unittest.TestCase):
 
     def test_it_can_be_maximized_and_reopens_the_way_it_was_left(self):
         if not QApplication.organizationName():  # QSettings stores nothing without one
-            QApplication.setOrganizationName("Playlist Canvas Tests")
+            QApplication.setOrganizationName("Music Motion Studio Tests")
             self.addCleanup(QApplication.setOrganizationName, "")
         _host, editor = self._editor()
         self.assertTrue(editor.windowFlags() & Qt.WindowType.WindowMaximizeButtonHint)
@@ -620,7 +620,7 @@ class EditorWorkflowTests(AutoMixEditorTests):
 
     def test_the_workspace_is_remembered_and_can_go_back_to_the_default(self):
         if not QApplication.organizationName():
-            QApplication.setOrganizationName("Playlist Canvas Tests")
+            QApplication.setOrganizationName("Music Motion Studio Tests")
             self.addCleanup(QApplication.setOrganizationName, "")
         for key in ("splitter", "properties_visible", "lanes_visible", "snap"):
             self.addCleanup(QSettings().remove, f"automix_editor/{key}")

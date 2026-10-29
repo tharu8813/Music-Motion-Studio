@@ -6,14 +6,14 @@ from app.utils.release_notes_html import render_release_notes_html
 class RenderReleaseNotesHtmlTests(unittest.TestCase):
     def test_headings_lists_and_inline_formatting(self) -> None:
         html = render_release_notes_html(
-            "# Playlist Canvas 1.2.0.0\n\n"
+            "# Music Motion Studio 1.2.0.0\n\n"
             "## 주요 변경 사항\n\n"
             "- **굵게** 그리고 `코드` 와 [링크](https://example.com)\n"
             "- 두 번째 항목\n\n"
             "일반 문단입니다.\n",
             korean=True,
         )
-        self.assertIn("<h1>Playlist Canvas 1.2.0.0</h1>", html)
+        self.assertIn("<h1>Music Motion Studio 1.2.0.0</h1>", html)
         self.assertIn("<h2>주요 변경 사항</h2>", html)
         self.assertIn("<ul><li><b>굵게</b>", html)
         self.assertIn("<code>코드</code>", html)

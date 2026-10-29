@@ -24,12 +24,10 @@ class PreviewLayoutTests(unittest.TestCase):
                 )
                 controls = None
                 try:
-                    self.assertTrue(preview.performance_bar.isHidden())
-                    preview.performance_toggle.click()
-                    self.assertFalse(preview.performance_bar.isHidden())
-                    preview.tracks_toggle.click()
-                    self.assertTrue(preview.track_list_panel.isHidden())
-                    preview.tracks_toggle.click()
+                    self.assertTrue(preview.performance_monitor.isHidden())
+                    preview.performance_action.trigger()
+                    self.assertFalse(preview.performance_monitor.isHidden())
+                    self.assertFalse(hasattr(preview, "tracks_toggle"))
                     self.assertFalse(preview.track_list_panel.isHidden())
                     self.assertEqual(preview.timeline.value(), 0)
                     self.assertFalse(preview._playing)

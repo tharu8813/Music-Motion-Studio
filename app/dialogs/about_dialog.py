@@ -57,7 +57,7 @@ class AboutDialog(QDialog):
         self.icon_label.setFixedSize(72, 72)
         self.icon_label.setPixmap(QApplication.windowIcon().pixmap(64, 64))
         title_layout = QVBoxLayout()
-        self.name_label = QLabel("Playlist Canvas")
+        self.name_label = QLabel("Music Motion Studio")
         self.name_label.setObjectName("aboutProductName")
         self.version_label = QLabel(f"Version {__version__}")
         self.version_label.setObjectName("aboutVersion")
@@ -144,7 +144,7 @@ class AboutDialog(QDialog):
         """Return a compact support block safe to paste into an issue report."""
         ffmpeg = str(self.ffmpeg_path) if self.ffmpeg_path else "Not configured"
         return "\n".join((
-            "Playlist Canvas diagnostics",
+            "Music Motion Studio diagnostics",
             f"App version: {__version__}",
             f"Python: {platform.python_version()} ({platform.machine()})",
             f"Qt: {qVersion()}",
@@ -188,13 +188,13 @@ class AboutDialog(QDialog):
             QMessageBox.warning(
                 self,
                 "라이선스 오류" if korean else "License error",
-                "Playlist Canvas 라이선스 파일을 열 수 없습니다."
-                if korean else "Could not open the Playlist Canvas license file.",
+                "Music Motion Studio 라이선스 파일을 열 수 없습니다."
+                if korean else "Could not open the Music Motion Studio license file.",
             )
 
     def retranslate(self) -> None:
         korean = self.translator.is_korean
-        self.setWindowTitle("프로그램 정보" if korean else "About Playlist Canvas")
+        self.setWindowTitle("프로그램 정보" if korean else "About Music Motion Studio")
         self.description_label.setText(
             "음악 재생목록을 시각적인 영상으로 구성하고 MP4로 내보내는 데스크톱 스튜디오입니다.\n"
             "ChatGPT Codex와 Claude Code를 활용해 제작했습니다."
@@ -215,12 +215,12 @@ class AboutDialog(QDialog):
             ("설정되지 않음" if korean else "Not configured")
         )
         self.notice_label.setText(
-            "Playlist Canvas는 비상업적 동일조건 소스 공개 라이선스로 배포됩니다. "
+            "Music Motion Studio는 비상업적 동일조건 소스 공개 라이선스로 배포됩니다. "
             "프로그램과 수정본의 상업적 수정·배포는 금지되며, 제작물의 상업적 이용은 허용됩니다. "
-            "온라인 제작물에 Playlist Canvas와 원본 저장소를 표시하는 것은 선택 사항입니다. "
+            "온라인 제작물에 Music Motion Studio와 원본 저장소를 표시하는 것은 선택 사항입니다. "
             "FFmpeg는 앱에 포함되지 않으며, 자동 설치본은 BtbN FFmpeg GPL 배포본을 SHA-256으로 검증합니다."
             if korean else
-            "Playlist Canvas uses a noncommercial, share-alike source-available license. Commercial modification or "
+            "Music Motion Studio uses a noncommercial, share-alike source-available license. Commercial modification or "
             "distribution of the app is prohibited, while commercial use of output is permitted. Crediting Playlist "
             "Canvas and its original repository in public online uploads is optional. "
             "FFmpeg is not bundled; managed installs use the SHA-256-verified BtbN FFmpeg GPL build."

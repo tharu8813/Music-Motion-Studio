@@ -1,53 +1,69 @@
-"""Generate the deterministic Playlist Canvas Windows icon."""
+"""Render SVG masters into PNG and multi-size Windows ICO assets.
+
+Both icons share one motion-shaped M, without gradients, shadows or lettering.
+Run with the project's Python: python tools/generate_app_icon.py
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
+import struct
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QBuffer, QIODevice, QRectF, Qt
+from PySide6.QtGui import QImage, QPainter
+from PySide6.QtSvg import QSvgRenderer
 
 
-def main() -> int:
-    size = 256
+ROOT = Path(__file__).resolve().parents[1]
+RESOURCES = ROOT / "app" / "resources"
+ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
+
+
+def render(source: Path, size: int) -> QImage:
+    """Rasterize the vector master independently at each Explorer/taskbar size."""
+    renderer = QSvgRenderer(str(source))
+    if not renderer.isValid():
+        raise ValueError(f"Invalid SVG: {source}")
     image = QImage(size, size, QImage.Format.Format_ARGB32)
     image.fill(Qt.GlobalColor.transparent)
     painter = QPainter(image)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-    background = QLinearGradient(34, 24, 224, 234)
-    background.setColorAt(0.0, QColor("#6D5DFB"))
-    background.setColorAt(0.55, QColor("#1685D1"))
-    background.setColorAt(1.0, QColor("#06B6D4"))
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(background)
-    painter.drawRoundedRect(QRectF(12, 12, 232, 232), 54, 54)
-
-    painter.setBrush(QColor(10, 20, 38, 96))
-    painter.drawRoundedRect(QRectF(35, 35, 186, 186), 42, 42)
-
-    bars = ((58, 99, 14, 58), (81, 78, 14, 100), (104, 91, 14, 74),
-            (127, 66, 14, 124), (150, 86, 14, 84), (173, 105, 14, 46))
-    painter.setBrush(QColor("#DFF8FF"))
-    for x, y, width, height in bars:
-        painter.drawRoundedRect(QRectF(x, y, width, height), 7, 7)
-
-    play = QPainterPath()
-    play.moveTo(QPointF(103, 80))
-    play.lineTo(QPointF(103, 176))
-    play.lineTo(QPointF(177, 128))
-    play.closeSubpath()
-    painter.setPen(QPen(QColor(255, 255, 255, 220), 5, Qt.PenStyle.SolidLine,
-                        Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-    painter.setBrush(QColor(255, 255, 255, 242))
-    painter.drawPath(play)
+    renderer.render(painter, QRectF(0, 0, size, size))
     painter.end()
+    return image
 
-    output = Path(__file__).resolve().parents[1] / "app" / "resources" / "app_icon.ico"
-    output.parent.mkdir(parents=True, exist_ok=True)
-    if not image.save(str(output), "ICO"):
-        raise RuntimeError("Qt could not write the Windows ICO asset.")
-    print(output)
+
+def png_data(image: QImage) -> bytes:
+    buffer = QBuffer()
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    if not image.save(buffer, "PNG"):
+        raise RuntimeError("Qt could not encode the icon as PNG.")
+    return bytes(buffer.data())
+
+
+def write_ico(source: Path, destination: Path) -> None:
+    """Windows ICO container with independently rendered RGBA PNG entries."""
+    payloads = [png_data(render(source, size)) for size in ICON_SIZES]
+    offset = 6 + 16 * len(ICON_SIZES)
+    directory = bytearray(struct.pack("<HHH", 0, 1, len(ICON_SIZES)))
+    for size, payload in zip(ICON_SIZES, payloads):
+        directory.extend(struct.pack(
+            "<BBBBHHII", size % 256, size % 256, 0, 0, 1, 32, len(payload), offset,
+        ))
+        offset += len(payload)
+    destination.write_bytes(bytes(directory) + b"".join(payloads))
+
+
+def main() -> int:
+    for stem in ("app_icon", "project_file_icon"):
+        source = RESOURCES / f"{stem}.svg"
+        write_ico(source, RESOURCES / f"{stem}.ico")
+        if not render(source, 512).save(str(RESOURCES / f"{stem}.png"), "PNG"):
+            raise RuntimeError(f"Could not save {stem}.png")
+        print(f"{stem}: SVG + 512px PNG + {len(ICON_SIZES)} ICO sizes")
+    readme_icon = ROOT / "docs" / "images" / "music-motion-studio-icon.png"
+    readme_icon.parent.mkdir(parents=True, exist_ok=True)
+    readme_icon.write_bytes((RESOURCES / "app_icon.png").read_bytes())
     return 0
 
 

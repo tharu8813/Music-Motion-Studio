@@ -6,7 +6,7 @@ from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QProxyStyle, QStyle
 
 
-def _pixmap(shape: str, color: str = "#B7C2BF", fill: str = "none") -> QPixmap:
+def _pixmap(shape: str, color: str = "#C1C8C9", fill: str = "none") -> QPixmap:
     svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
            f'<g fill="{fill}" stroke="{color}" stroke-width="1.6" '
            f'stroke-linecap="round" stroke-linejoin="round">{shape}</g></svg>')
@@ -24,7 +24,7 @@ def _render(shape: str) -> QIcon:
 
 
 _PIN = '<path d="M8 3h8 M9.5 3v5.5L6 13h12l-3.5-4.5V3z M12 13v8"/>'
-_PIN_ACCENT = "#79C7B4"  # design_system COLORS["accent"]
+_PIN_ACCENT = "#B4CDC3"  # design_system COLORS["accent"]
 
 
 def pin_icon() -> QIcon:
@@ -133,7 +133,7 @@ class StudioIconStyle(QProxyStyle):
             sp.SP_FileDialogDetailedView: '<path d="M3 5h18v15H3z M3 10h18 M9 5v15"/>',
             sp.SP_FileDialogInfoView: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6 M12 7v1"/>',
             sp.SP_DialogCloseButton: '<path d="m6 6 12 12 M18 6 6 18"/>',
-            sp.SP_DesktopIcon: '<rect x="4" y="4" width="16" height="16" rx="2"/>',
+            sp.SP_DesktopIcon: '<path d="M9 3H3v6 M15 3h6v6 M21 15v6h-6 M9 21H3v-6 M3 3l6 6 M21 3l-6 6 M21 21l-6-6 M3 21l6-6"/>',
             sp.SP_ComputerIcon: '<rect x="3" y="4" width="18" height="12" rx="1"/><path d="M12 16v4 M8 20h8"/>',
             sp.SP_DialogResetButton: '<path d="M4 10a8 8 0 1 1 1 8 M4 4v6h6"/>',
             sp.SP_BrowserReload: '<path d="M4 10a8 8 0 1 1 1 8 M4 4v6h6"/>',

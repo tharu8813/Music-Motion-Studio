@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""One-folder Windows build specification for Playlist Canvas."""
+"""One-folder Windows build specification for Music Motion Studio."""
 
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_all
@@ -70,6 +70,7 @@ analysis = Analysis(
         (str(project_root / "app" / "ui" / "studio.qss"), "app/ui"),
         (str(project_root / "app" / "assets" / "icons" / "check.svg"), "assets/icons"),
         (str(project_root / "app" / "resources" / "app_icon.ico"), "app/resources"),
+        (str(project_root / "app" / "resources" / "project_file_icon.ico"), "app/resources"),
         (str(project_root / "app" / "resources" / "language-pack-template.json"), "app/resources"),
         (str(project_root / "app" / "resources" / "ko.json"), "app/resources"),
         (str(project_root / "app" / "resources" / "en.json"), "app/resources"),
@@ -104,7 +105,7 @@ executable = EXE(
     analysis.scripts,
     [],
     exclude_binaries=True,
-    name="Playlist Canvas",
+    name="Music Motion Studio",
     icon=str(project_root / "app" / "resources" / "app_icon.ico"),
     version=str(project_root / "windows_version_info.txt"),
     debug=False,
@@ -121,7 +122,7 @@ COLLECT(
     analysis.datas,
     strip=False,
     upx=False,
-    name="Playlist Canvas",
+    name="Music Motion Studio",
 )
 
 # Settings → Maintenance → Integrity check compares the installed files with
@@ -129,7 +130,7 @@ COLLECT(
 import hashlib
 import json
 
-_dist = Path(DISTPATH) / "Playlist Canvas"
+_dist = Path(DISTPATH) / "Music Motion Studio"
 _integrity = {}
 for _path in sorted(_dist.rglob("*")):
     if _path.is_file() and _path.suffix.lower() not in {".pdb", ".log", ".tmp"} and _path.name != "integrity.json":

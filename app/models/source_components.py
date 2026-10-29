@@ -161,6 +161,7 @@ class LyricsComponent(TextComponent):
     intro_enabled: bool = _legacy("subtitle_intro_enabled")
     intro_midtrack: bool = _legacy("subtitle_intro_midtrack")
     intro_style: str = _legacy("subtitle_intro_style")
+    intro_exit: str = _legacy("subtitle_intro_exit")
     intro_gap: float = _legacy("subtitle_intro_gap")
     intro_period: float = _legacy("subtitle_intro_period")
     intro_scale: float = _legacy("subtitle_intro_scale")

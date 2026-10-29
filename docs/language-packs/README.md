@@ -1,10 +1,11 @@
-# Playlist Canvas external language packs
+# Music Motion Studio external language packs
 
-Playlist Canvas 1.0.1 and later can load data-only UTF-8 JSON language packs.
+Music Motion Studio can load data-only UTF-8 JSON language packs, a feature
+introduced in Playlist Canvas 1.0.1.
 Use **Settings → General → External language packs → Import** or place a file
 in the folder opened by **Open folder**, then choose **Reload**.
 
-On Windows, Playlist Canvas automatically creates the following folder and
+On Windows, Music Motion Studio automatically creates the following folder and
 three language files on first launch:
 
 ```text

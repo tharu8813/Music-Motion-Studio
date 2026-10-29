@@ -19,7 +19,7 @@ output-setup/
 # Local FFmpeg development copy
 /ffmpeg/
 
-# Playlist Canvas user and generated files
+# Music Motion Studio user and generated files
 .playlist.autosave.json
 *.recovery.json
 *.pvsproj

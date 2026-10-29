@@ -65,23 +65,21 @@ class LyricsTailScrollTests(unittest.TestCase):
         at_start, _, _ = self.observe(scene, item, track, 10)
         self.assertAlmostEqual(before['Cue 7'][0].center().y(), at_start['Cue 7'][0].center().y(), delta=.2)
 
-    def test_new_final_cue_enters_from_bottom_instead_of_fading_in_inside_blank_space(self):
-        scene, item, track = self.scene(next_lines=1)
-        values = [self.observe(scene, item, track, time)[0]['Cue 7'] for time in (11.5, 11.6, 11.75, 11.999)]
-        self.assertGreaterEqual(values[0][0].top(), 400)
+    def test_final_cue_keeps_the_shared_scroll_instead_of_restarting_entry(self):
+        scene, item, track = self.scene()
+        values = [self.observe(scene, item, track, time)[0]['Cue 7'] for time in (12, 12.1, 12.25, 12.5)]
         self.assertTrue(all(first[0].top() > second[0].top() for first, second in zip(values, values[1:])))
         self.assertTrue(all(abs(value[1] - .8) < 1e-6 for value in values))
+        self.assertAlmostEqual(values[0][0].top() - values[-1][0].top(), item._lyric_line_height())
         self.assertLess(values[-1][0].bottom(), 400)
 
     def test_multiline_tail_moves_as_one_block(self):
-        scene, item, track = self.scene(next_lines=1, multiline=True)
+        scene, item, track = self.scene(multiline=True)
         distances = []
-        for time in (11.5, 11.6, 11.75, 11.999):
+        for time in (12, 12.1, 12.25, 12.5):
             rows, _, _ = self.observe(scene, item, track, time)
             first, second = rows['Last A'][0], rows['Last B'][0]
             distances.append(second.center().y() - first.center().y())
-            if time == 11.5:
-                self.assertGreaterEqual(first.top(), 400)
         self.assertTrue(all(abs(value - distances[0]) < 1e-6 for value in distances))
 
     def test_multiple_new_tail_cues_keep_their_spacing_when_automatic_context_expands(self):
@@ -91,13 +89,11 @@ class LyricsTailScrollTests(unittest.TestCase):
         for time in (9.5, 9.6, 9.75, 9.999):
             rows, _, _ = self.observe(scene, item, track, time)
             a, b = (rows[f'Cue {index}'][0] for index in (6, 7))
-            if time == 9.5:
-                self.assertGreaterEqual(a.top(), 400)
             distances.append(b.center().y() - a.center().y())
         self.assertTrue(all(abs(value - distances[0]) < 1e-6 for value in distances))
 
-    def test_entry_respects_all_flow_directions(self):
-        for direction in ('up', 'down', 'left', 'right'):
+    def test_horizontal_entry_respects_both_flow_directions(self):
+        for direction in ('left', 'right'):
             with self.subTest(direction=direction):
                 scene, item, track = self.scene(next_lines=1, direction=direction)
                 rows, _, _ = self.observe(scene, item, track, 11.5)
@@ -124,7 +120,7 @@ class LyricsTailScrollTests(unittest.TestCase):
         self.assertEqual(item.source.to_dict(), original)
 
     def test_two_future_cues_are_prepared_outside_before_they_are_displayed(self):
-        for direction in ('up', 'down', 'left', 'right'):
+        for direction in ('left', 'right'):
             with self.subTest(direction=direction):
                 scene, item, track = self.scene(next_lines=1, direction=direction)
                 rows, entering, _ = self.observe(scene, item, track, 5)
@@ -140,7 +136,7 @@ class LyricsTailScrollTests(unittest.TestCase):
                 self.assertEqual(item._subtitle_prefetch_line_count, 0)
 
     def test_prepared_cue_and_displayed_cue_share_the_same_entry_origin(self):
-        for direction in ('up', 'down', 'left', 'right'):
+        for direction in ('left', 'right'):
             with self.subTest(direction=direction):
                 scene, item, track = self.scene(next_lines=1, direction=direction)
                 before = self.observe(scene, item, track, 7.99999)[0]['Cue 5']
@@ -149,7 +145,7 @@ class LyricsTailScrollTests(unittest.TestCase):
                 self.assertAlmostEqual(before[0].center().y(), after[0].center().y(), delta=.2)
                 self.assertAlmostEqual(before[1], after[1])
 
-    def test_preroll_changes_visible_frames_before_every_cue_boundary(self):
+    def test_vertical_strip_does_not_move_independently_before_cue_boundaries(self):
         from app.canvas.renderers import lyrics_renderer
         paint = lyrics_renderer.paint_lines
 
@@ -172,18 +168,17 @@ class LyricsTailScrollTests(unittest.TestCase):
                 track.lyrics[4]['text'] = 'Future A\nFuture B'
                 for seconds in (3.9, 5.9, 7.9, 9.9):
                     with self.subTest(direction=direction, wrap=wrap, seconds=seconds):
-                        options = dict(elapsed_seconds=seconds, transparent=True, output_scale=2)
                         before = deepcopy(item.source.to_dict())
-                        actual = CanvasSnapshot.capture_track(scene, track, 1, 1, 0, **options)
+                        actual = self.observe(scene, item, track, seconds)[2]
                         with patch.object(lyrics_renderer, 'paint_lines', side_effect=without_preroll):
-                            baseline = CanvasSnapshot.capture_track(scene, track, 1, 1, 0, **options)
-                        self.assertNotEqual(actual, baseline)
+                            baseline = self.observe(scene, item, track, seconds)[2]
+                        self.assertEqual(actual, baseline)
                         self.assertEqual(item.source.to_dict(), before)
 
     def test_every_promoted_cue_keeps_position_and_only_scrolls_one_slot(self):
         for boundary in (4, 6, 8, 10, 12):
             scene, item, track = self.scene(next_lines=1)
-            title = f'Cue {int(boundary / 2) + 1}'
+            title = f'Cue {int(boundary / 2)}'
             before = self.observe(scene, item, track, boundary - .00001)[0][title][0]
             start = self.observe(scene, item, track, boundary)[0][title][0]
             end = self.observe(scene, item, track, boundary + .5)[0][title][0]

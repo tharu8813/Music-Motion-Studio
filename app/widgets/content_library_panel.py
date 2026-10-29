@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+from app.ui.design_system import COLORS
+
 from collections.abc import Callable
 from pathlib import Path
 from stat import S_ISREG
 
-from PySide6.QtCore import QItemSelectionModel, QMimeData, QPoint, QPointF, QRectF, QSettings, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QItemSelectionModel, QMimeData, QPoint, QPointF, QRectF, QSettings, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
-    QColor, QCursor, QDrag, QFont, QFontMetrics, QIcon, QPainter, QPen, QPixmap, QPolygonF,
+    QColor, QCursor, QDrag, QFont, QFontMetrics, QIcon, QPainter, QPalette, QPen, QPixmap, QPolygonF,
 )
 from PySide6.QtWidgets import (
     QAbstractItemView, QButtonGroup, QComboBox, QFileDialog, QHBoxLayout, QLabel, QListView,
     QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton, QToolButton,
-    QVBoxLayout, QWidget,
+    QVBoxLayout, QWidget, QStyledItemDelegate, QStyleOptionViewItem, QStyle,
 )
 
 from app.services.project_content_service import ProjectContentService
@@ -21,8 +23,63 @@ from app.dialogs.content_preview_dialog import ContentPreviewDialog
 from app.utils.i18n import Translator
 
 
+class ContentItemDelegate(QStyledItemDelegate):
+    """Paint usage independently of the file name and thumbnail."""
+
+    def paint(self, painter, option, index) -> None:
+        content_option = QStyleOptionViewItem(option)
+        in_project = bool(index.data(Qt.ItemDataRole.UserRole + 3))
+        font = QFont(option.font)
+        font.setPixelSize(11)
+        font.setBold(True)
+        marker = "✓ " + str(index.data(Qt.ItemDataRole.UserRole + 5))
+        marker_width = QFontMetrics(font).horizontalAdvance(marker) + 16
+        content_option.rect.adjust(0, 0, -marker_width, 0)
+        option.widget.style().drawPrimitive(
+            QStyle.PrimitiveElement.PE_PanelItemViewItem, option, painter, option.widget,
+        )
+        if in_project:
+            painter.save()
+            painter.fillRect(option.rect, QColor(20, 23, 25, 65))
+            painter.restore()
+            content_option.palette.setColor(QPalette.ColorRole.Text, QColor(COLORS["disabled_text"]))
+            content_option.palette.setColor(QPalette.ColorRole.HighlightedText, QColor(COLORS["muted"]))
+        super().paint(painter, content_option, index)
+        if in_project:
+            painter.save()
+            painter.setPen(QColor("#88D5A5"))
+            painter.setFont(font)
+            marker_rect = option.rect.adjusted(0, 0, -8, 0)
+            marker_rect.setLeft(option.rect.right() - marker_width + 8)
+            painter.drawText(
+                marker_rect,
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                marker,
+            )
+            painter.restore()
+
+
 class ContentListWidget(QListWidget):
     """Expose library paths as file URLs so dropping is the only add gesture."""
+
+    delete_requested = Signal()
+
+    def event(self, event) -> bool:
+        if (event.type() == QEvent.Type.ShortcutOverride
+                and event.key() == Qt.Key.Key_Delete
+                and event.modifiers() == Qt.KeyboardModifier.NoModifier):
+            event.accept()
+            return True
+        return super().event(event)
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        if (event.key() == Qt.Key.Key_Delete
+                and event.modifiers() == Qt.KeyboardModifier.NoModifier):
+            if not event.isAutoRepeat():
+                self.delete_requested.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def mimeData(self, items: list[QListWidgetItem]) -> QMimeData:  # noqa: N802
         """Build a standard local-file payload for Qt's native drag lifecycle."""
@@ -101,7 +158,7 @@ class ContentLibraryPanel(QWidget):
     """Import project content and reuse it without browsing repeatedly."""
 
     add_requested = Signal(str, str)
-    VIEW_MODES = ("list", "grid", "compact")
+    VIEW_MODES = ("list", "compact")
 
     def __init__(
         self, service: ProjectContentService, translator: Translator,
@@ -164,6 +221,8 @@ class ContentLibraryPanel(QWidget):
         layout.addLayout(view_row)
         self.list = ContentListWidget()
         self.list.setObjectName("projectContentList")
+        self.list.setItemDelegate(ContentItemDelegate(self.list))
+        self.list.delete_requested.connect(lambda: self._remove_selected(confirm=True))
         self.list.setIconSize(QSize(38, 38))
         self.list.setSpacing(2)
         self.list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -305,7 +364,7 @@ class ContentLibraryPanel(QWidget):
             self.list.setWordWrap(True)
             self.list.setUniformItemSizes(True)
             self.list.setIconSize(QSize(72, 72))
-            self.list.setGridSize(QSize(116, 112))
+            self.list.setGridSize(QSize(176, 112))
             self.list.setSpacing(5)
         else:
             self.list.setViewMode(QListView.ViewMode.ListMode)
@@ -352,6 +411,10 @@ class ContentLibraryPanel(QWidget):
             )
         except Exception:  # a stale project reference must not break the list
             used_keys = set()
+        # Stable sorting preserves library order within each usage group.
+        visible_items.sort(
+            key=lambda content: self.service._key(content.path) in used_keys
+        )
         added_label = "추가됨" if korean else "Added"
         used_count = 0
         listed = [self.list.item(row).data(Qt.ItemDataRole.UserRole)
@@ -374,20 +437,16 @@ class ContentLibraryPanel(QWidget):
             detail = f"{type_label} · {extension}" if extension else type_label
             if not available:
                 detail += " · " + ("파일 없음" if korean else "Missing file")
-            # The "Added" marker reads best pinned to the left of each line and
-            # tinted, rather than trailing a long detail string.
-            name_line = f"✓ {content.name}" if in_project else content.name
+            # The delegate paints usage beside the file details without adding height.
+            name_line = content.name
             if self._view_mode == "compact":
-                item_text = (
-                    f"{name_line}  ·  {added_label}  ·  {detail}" if in_project
-                    else f"{name_line}  ·  {detail}"
-                )
+                item_text = f"{name_line}  ·  {detail}"
                 item_height = 32
             elif self._view_mode == "grid":
                 item_text = name_line
                 item_height = 104
             else:
-                detail_line = f"{added_label} · {detail}" if in_project else detail
+                detail_line = detail
                 item_text = f"{name_line}\n{detail_line}"
                 item_height = 54
             existing = in_place and index < len(listed)
@@ -395,17 +454,18 @@ class ContentLibraryPanel(QWidget):
             item.setText(item_text)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsDragEnabled)
             item.setData(Qt.ItemDataRole.UserRole + 3, in_project)
-            if in_project:
-                item.setForeground(QColor("#2F9E44"))
-            else:
-                item.setData(Qt.ItemDataRole.ForegroundRole, None)
+            item.setData(Qt.ItemDataRole.UserRole + 5, added_label)
+            item.setData(
+                Qt.ItemDataRole.ForegroundRole,
+                QColor(COLORS["disabled_text"]) if in_project else None,
+            )
             icon_key = (content.path, content.media_type, self._view_mode, available,
                         (stat.st_mtime_ns, stat.st_size) if stat is not None else None)
             if item.data(Qt.ItemDataRole.UserRole + 4) != icon_key:
                 item.setIcon(self._content_item_icon(path, content.media_type, available))
                 item.setData(Qt.ItemDataRole.UserRole + 4, icon_key)
             item.setSizeHint(
-                QSize(108, item_height) if self._view_mode == "grid"
+                QSize(168, item_height) if self._view_mode == "grid"
                 else QSize(0, item_height)
             )
             item.setData(Qt.ItemDataRole.UserRole, content.id)
@@ -495,16 +555,12 @@ class ContentLibraryPanel(QWidget):
 
     def _content_icon(self, media_type: str, available: bool) -> QIcon:
         """Create a crisp, theme-safe icon for a project content category."""
-        colors = {
-            "image": QColor("#36A2EB"),
-            "video": QColor("#EC4899"),
-            "audio": QColor("#8B5CF6"),
-            "font": QColor("#F59E0B"),
-            "lyrics": QColor("#14B8A6"),
-        }
-        accent = colors.get(media_type, QColor("#64748B"))
+        accent = QColor({
+            "image": "#8EBBF0", "video": "#BEA3E8", "audio": "#E4BB7E",
+            "font": "#E5A6BD", "lyrics": "#88CDBB",
+        }.get(media_type, COLORS["muted"]))
         if not available:
-            accent = QColor("#E05252")
+            accent = QColor(COLORS["danger"])
 
         pixmap = QPixmap(40, 40)
         pixmap.fill(Qt.GlobalColor.transparent)
@@ -515,7 +571,7 @@ class ContentLibraryPanel(QWidget):
         background.setAlpha(42)
         painter.setPen(QPen(accent, 1.4))
         painter.setBrush(background)
-        painter.drawRoundedRect(QRectF(1.5, 1.5, 37.0, 37.0), 9.0, 9.0)
+        painter.drawRoundedRect(QRectF(1.5, 1.5, 37.0, 37.0), 4.0, 4.0)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(
             accent, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap,
@@ -608,11 +664,41 @@ class ContentLibraryPanel(QWidget):
         )
         dialog.exec()
 
-    def _remove_selected(self) -> None:
+    def _remove_selected(self, *, confirm: bool = False) -> None:
         content_ids = self._selected_ids()
         if not content_ids:
             content_id = self._selected_id()
             content_ids = [content_id] if content_id else []
+        if not content_ids:
+            return
+        selected_ids = set(content_ids)
+        has_used_content = any(
+            self.list.item(row).data(Qt.ItemDataRole.UserRole) in selected_ids
+            and self.list.item(row).data(Qt.ItemDataRole.UserRole + 3)
+            for row in range(self.list.count())
+        )
+        if confirm or has_used_content:
+            korean = self.translator.is_korean
+            message = (
+                f"선택한 콘텐츠 {len(content_ids)}개를 목록에서 제거하시겠습니까?"
+                if korean else f"Remove {len(content_ids)} selected item(s) from the library?"
+            )
+            if has_used_content:
+                message += (
+                    "\n\n선택 항목에 이미 프로젝트에 추가된 콘텐츠가 포함되어 있습니다."
+                    if korean else "\n\nThe selection includes content already used in this project."
+                )
+            message += (
+                "\n\n원본 파일과 캔버스·플레이리스트에 추가된 항목은 유지됩니다."
+                if korean else "\n\nOriginal files and items on the Canvas or playlist will be kept."
+            )
+            answer = QMessageBox.warning(
+                self, "콘텐츠 제거 확인" if korean else "Confirm content removal",
+                message, QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
         # Snapshot the IDs first: each service mutation may synchronously refresh
         # the list and replace its QListWidgetItem objects.
         for content_id in content_ids:

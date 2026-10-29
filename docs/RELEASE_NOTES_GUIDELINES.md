@@ -1,4 +1,4 @@
-# Playlist Canvas 릴리즈 노트 작성 가이드
+# Music Motion Studio 릴리즈 노트 작성 가이드
 
 > **AI 개발 도구 및 릴리즈 작성자 필독.** 이 문서는 GitHub Releases, docs/releases/ 아래의 버전별 문서, docs/release-notes/의 초안, 앱의 업데이트 안내에 적용되는 **사용자용 릴리즈 노트 작성 기준**입니다.
 >
@@ -32,7 +32,7 @@
 
 ### 새 기능이 있는 일반 업데이트
 
-    # Playlist Canvas 1.x.x.x
+    # Music Motion Studio 1.x.x.x
 
     이번 업데이트에서는 [핵심 변화]를 추가하고 [주요 문제]를 개선했습니다.
 
@@ -47,7 +47,7 @@
 
 ### 오류 수정 위주의 소규모 업데이트
 
-    # Playlist Canvas 1.x.x.x
+    # Music Motion Studio 1.x.x.x
 
     [사용자가 겪던 핵심 문제]를 해결한 업데이트입니다.
 

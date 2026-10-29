@@ -12,13 +12,17 @@ from app.ui.studio_icons import StudioIconStyle
 
 
 COLORS = {
-    "window": "#191B1D", "panel": "#212426", "field": "#191C1E",
-    "button": "#2C3033", "hover": "#373D40", "text": "#E6E8E7",
-    "muted": "#A3AAA9", "border": "#393E40", "disabled": "#25292B",
+    "window": "#161819", "panel": "#1E2022", "field": "#191B1D",
+    "button": "#292C2F", "hover": "#353A3E", "text": "#ECEEED",
+    "muted": "#ADB3B5", "border": "#3C4246", "disabled": "#242729",
     # Distinct from explanatory text: disabled controls keep their values visible.
-    "disabled_text": "#6C7472",
-    "alternate": "#272B2D", "shadow": "#111314", "accent": "#79C7B4",
-    "accent_hover": "#96D7C7",
+    "disabled_text": "#798184",
+    "alternate": "#25282A", "shadow": "#101213", "accent": "#B4CDC3",
+    "accent_hover": "#CEE0D8", "selection": "#30423C",
+    "selection_border": "#718D82", "stage": "#121415",
+    "warning": "#DEC18D", "warning_surface": "#352F25",
+    "danger": "#E5A19B", "danger_surface": "#36272A",
+    "success": "#B4CDC3", "info_surface": "#25312D",
 }
 
 
@@ -48,7 +52,7 @@ def apply_studio_style(application: QApplication | None) -> None:
     load_application_font(fonts / "malgunbd.ttf")
     font = QFont()
     font.setFamilies(["Segoe UI", "Malgun Gothic", "Noto Sans CJK KR", "sans-serif"])
-    font.setPointSizeF(9.0)
+    font.setPointSizeF(9.75)
     application.setFont(font)
     palette = QPalette()
     roles = {
@@ -57,6 +61,8 @@ def apply_studio_style(application: QApplication | None) -> None:
         "Text": "text", "Button": "button", "ButtonText": "text",
         "Highlight": "accent", "HighlightedText": "window", "Link": "accent",
         "PlaceholderText": "muted", "BrightText": "text",
+        "Mid": "border", "Midlight": "hover", "Dark": "shadow",
+        "Light": "hover", "Shadow": "shadow",
     }
     for role, color in roles.items():
         palette.setColor(getattr(QPalette.ColorRole, role), QColor(COLORS[color]))

@@ -113,7 +113,7 @@ def preview_benchmark(args) -> dict:
 
     executable = FFmpegRenderer.find_executable(args.ffmpeg)
     application = QApplication.instance() or QApplication([])
-    application.setOrganizationName("Playlist Canvas Benchmark")
+    application.setOrganizationName("Music Motion Studio Benchmark")
     application.setApplicationName("Performance Benchmark")
     with tempfile.TemporaryDirectory(prefix="pc-preview-bench-") as directory:
         root = Path(directory)

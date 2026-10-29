@@ -64,6 +64,19 @@ class UpdateServiceTests(unittest.TestCase):
         with self.assertRaises(UpdateError):
             GitHubUpdateService.release_from_payload(payload)
 
+    def test_renamed_setup_assets_keep_the_same_security_checks(self) -> None:
+        for stem in ("Music Motion Studio", "Music.Motion.Studio", "Music-Motion-Studio"):
+            with self.subTest(stem=stem):
+                payload = self._payload()
+                asset = payload["assets"][0]
+                asset["name"] = f"{stem}-1.2.0-setup.exe"
+                release = GitHubUpdateService.release_from_payload(payload)
+                self.assertTrue(release.can_install)
+                self.assertEqual(release.asset_name, asset["name"])
+                asset["browser_download_url"] = "https://example.com/setup.exe"
+                with self.assertRaises(UpdateError):
+                    GitHubUpdateService.release_from_payload(payload)
+
     def test_setup_download_requires_exact_size_and_sha256(self) -> None:
         data = b"verified Playlist Canvas Setup"
         release = GitHubUpdateService.release_from_payload(self._payload(data))

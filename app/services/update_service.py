@@ -25,7 +25,10 @@ LATEST_RELEASE_API = "https://api.github.com/repos/tharu8813/Playlist-Canvas/rel
 _VERSION_PATTERN = re.compile(
     r"^[vV]?(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?(?:[-+].*)?$"
 )
-_SETUP_PATTERN = re.compile(r"playlist[\s._-]*canvas.*setup.*\.exe$", re.IGNORECASE)
+_SETUP_PATTERN = re.compile(
+    r"^(?:music[\s._-]*motion[\s._-]*studio|playlist[\s._-]*canvas).*setup.*\.exe$",
+    re.IGNORECASE,
+)
 _MAX_RELEASE_RESPONSE = 2 * 1024 * 1024
 _MAX_SETUP_SIZE = 750 * 1024 * 1024
 
@@ -189,7 +192,7 @@ class GitHubUpdateService:
     ) -> Path:
         """Download, size-check, and SHA-256 verify a release Setup executable."""
         if not release.can_install:
-            raise UpdateError("This release has no SHA-256-verified Playlist Canvas Setup asset.")
+            raise UpdateError("This release has no SHA-256-verified Music Motion Studio Setup asset.")
         self._validate_asset_url(release.asset_url)
         if release.asset_size < 1 or release.asset_size > _MAX_SETUP_SIZE:
             raise UpdateError("The Setup asset size is missing or outside the allowed range.")
@@ -236,7 +239,7 @@ class GitHubUpdateService:
             raise
         except (HTTPError, URLError, TimeoutError, OSError) as error:
             partial.unlink(missing_ok=True)
-            raise UpdateError("The Playlist Canvas Setup download failed.") from error
+            raise UpdateError("The Music Motion Studio Setup download failed.") from error
         if progress:
             progress(1.0, "Setup download and SHA-256 verification complete")
         return destination

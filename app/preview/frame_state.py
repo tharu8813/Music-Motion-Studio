@@ -77,9 +77,20 @@ def resolve_lyrics_intro_state(track: PlaylistTrack, source: Source, elapsed: fl
     first_cue = next((cue for cue in track.lyrics if str(cue.get("text", "")).strip()), None)
     if first_cue is None:
         return None  # Missing lyrics are not an intro.
-    first = float(first_cue["start"]) - track.lyrics_timing_offset_seconds - source.subtitle_timing_offset
+    first_start = float(first_cue["start"])
+    first = first_start - track.lyrics_timing_offset_seconds - source.subtitle_timing_offset
     duration = source.subtitle_animation_duration if source.subtitle_animation != "none" else 0.0
-    before_first = source.subtitle_intro_enabled and first > 0 and 0.0 <= elapsed < first + duration
+    first_exit_duration = duration
+    if source.subtitle_intro_enabled and first > 0 and duration > 0:
+        # The temporary opening row must leave before the lyric anchor changes.
+        # Include the cue resolver's 0.5 ms tolerance, so even that boundary
+        # frame uses ordinary scrolling rather than the marker's held layout.
+        next_start = next((float(cue["start"]) for cue in track.lyrics
+                           if str(cue.get("text", "")).strip()
+                           and float(cue["start"]) > first_start), float("inf"))
+        first_end = float(first_cue.get("end", float("inf")))
+        first_exit_duration = min(duration, max(0.0, min(first_end, next_start) - first_start - .0005))
+    before_first = source.subtitle_intro_enabled and first > 0 and 0.0 <= elapsed < first + first_exit_duration
     if (not before_first and source.subtitle_karaoke_enabled
             and not any(cue.get("format") == "ttml" for cue in track.lyrics)):
         return None  # Ordinary lyrics retain their existing midtrack behavior.
@@ -91,6 +102,8 @@ def resolve_lyrics_intro_state(track: PlaylistTrack, source: Source, elapsed: fl
         return None
     age, remaining = elapsed - window[0], window[1] - elapsed
     exiting = remaining <= 0
+    if before_first and exiting:
+        duration = first_exit_duration
     raw = min(1.0, (elapsed - window[1] if exiting else age) / duration) if duration else 1.0
     progress = lyric_progress(source, raw)
     held = None if before_first else LyricsService.display_cue_index(

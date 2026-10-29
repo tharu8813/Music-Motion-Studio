@@ -24,8 +24,8 @@ class LanguagePackTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.application = QApplication.instance() or QApplication([])
-        cls.application.setApplicationName("Playlist Canvas Language Pack Tests")
-        cls.application.setOrganizationName("Playlist Canvas Tests")
+        cls.application.setApplicationName("Music Motion Studio Language Pack Tests")
+        cls.application.setOrganizationName("Music Motion Studio Tests")
 
     @staticmethod
     def _payload() -> dict[str, object]:

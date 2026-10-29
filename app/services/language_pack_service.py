@@ -199,7 +199,7 @@ class LanguagePackService:
         try:
             if normalized_version(minimum) > normalized_version(__version__):
                 raise LanguagePackError(
-                    f"This pack requires Playlist Canvas {minimum} or later."
+                    f"This pack requires Music Motion Studio {minimum} or later."
                 )
         except LanguagePackError:
             raise

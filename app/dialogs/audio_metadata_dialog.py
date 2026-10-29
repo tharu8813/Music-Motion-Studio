@@ -122,7 +122,7 @@ class AudioMetadataDialog(QDialog):
             "프로젝트에서 사용할 정보를 확인하거나 수정한 뒤 추가하세요."
             if korean else
             "Some audio files have no title, artist, or album tag. Review or edit the "
-            "information that Playlist Canvas should use before adding them."
+            "information that Music Motion Studio should use before adding them."
         )
         self.table.setHorizontalHeaderLabels(
             ["파일", "제목", "아티스트", "앨범", "누락 항목"]

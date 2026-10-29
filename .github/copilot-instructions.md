@@ -1,4 +1,4 @@
-# Playlist Canvas의 GitHub Copilot 작업 지침
+# Music Motion Studio의 GitHub Copilot 작업 지침
 
 릴리즈 노트, 패치 노트, GitHub Release 설명, 앱 업데이트 공지와 docs/releases/ 및 docs/release-notes/ 관련 파일을 작성·수정할 때는 **[릴리즈 노트 작성 가이드](../docs/RELEASE_NOTES_GUIDELINES.md)**를 먼저 읽고 따르세요.
 

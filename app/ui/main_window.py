@@ -81,6 +81,7 @@ from app.dialogs.text_editor_dialog import TextEditorDialog
 from app.dialogs.about_dialog import AboutDialog
 from app.dialogs.help_dialog import HelpDialog
 from app.dialogs.update_dialogs import UpdateAvailableDialog, UpdateDownloadDialog
+from app.dialogs.welcome_dialog import MAIN_GUIDE, MAIN_GUIDE_TITLE, GuideDialog
 from app.ffmpeg.install_worker import FFmpegCatalogWorker, FFmpegInstallWorker
 from app.ffmpeg.managed_installer import (
     FFmpegInstallError,
@@ -499,6 +500,55 @@ class MainWindow(QMainWindow):
         self._sync_export_notification_tray(self.settings_service.current)
         QTimer.singleShot(0, self._finish_initialization)
 
+    def set_project_open(self, opened: bool) -> None:
+        """Keep app-level navigation available while there is no editing project."""
+        if getattr(self, '_project_open', True) == opened:
+            return
+        self._project_open = opened
+        self.centralWidget().setEnabled(opened)
+        self.statusBar().setEnabled(opened)
+        if not opened:
+            self._history_timer.stop()
+            self._autosave_debounce_timer.stop()
+            with self.project_session.suspend_changes():
+                self.store.replace([])
+                self.playlist_service.replace([])
+                self.project_content_service.replace([])
+                self.history.reset(self._project_document().to_dict())
+            self.project_session.dirty = False
+            allowed = {self.new_action, self.open_action, self.exit_action, self.settings_action,
+                       self.file_menu.menuAction(), self.tools_menu.menuAction(),
+                       self.help_menu.menuAction(), self.language_menu.menuAction(),
+                       self.recent_projects_menu.menuAction()}
+            for menu in (self.help_menu, self.language_menu, self.recent_projects_menu):
+                allowed.update(menu.actions())
+            # Widget actions for app-wide toolbar controls must stay available.
+            for action in self.toolbar.actions():
+                widget = self.toolbar.widgetForAction(action)
+                if widget is self.language_button:
+                    allowed.add(action)
+            self._project_blocked_actions = {
+                action: action.isEnabled() for action in self.findChildren(QAction)
+                if action not in allowed and not action.isSeparator()
+            }
+            for action in self._project_blocked_actions:
+                action.setEnabled(False)
+                action.changed.connect(self._guard_project_action)
+        else:
+            for action, enabled in self._project_blocked_actions.items():
+                action.changed.disconnect(self._guard_project_action)
+                action.setEnabled(enabled)
+            self._project_blocked_actions = {}
+            self.upgrade_project_action.setEnabled(self._legacy_project_path is not None)
+            self.automix_editor_action.setEnabled(self.project_settings.transition_mode == 'automix')
+            self._sync_canvas_shortcut_actions_to_focus()
+        self._update_project_status()
+
+    def _guard_project_action(self) -> None:
+        action = self.sender()
+        if not getattr(self, '_project_open', True) and isinstance(action, QAction) and action.isEnabled():
+            action.setEnabled(False)
+
     def _build_toolbar(self) -> None:
         toolbar = QToolBar("Main toolbar")
         self.toolbar = toolbar
@@ -508,14 +558,14 @@ class MainWindow(QMainWindow):
         self.new_action = QAction(self)
         self.new_action.setShortcut(QKeySequence.StandardKey.New)
         self.new_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon))
-        self.new_action.triggered.connect(self._show_project_start_dialog)
+        self.preview_controller.connect_guarded_action(self.new_action, self._show_project_start_dialog)
         toolbar.addAction(self.new_action)
         self.open_action = QAction(self)
         self.open_action.setShortcut(QKeySequence.StandardKey.Open)
         self.open_action.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton)
         )
-        self.open_action.triggered.connect(self._open_project)
+        self.preview_controller.connect_guarded_action(self.open_action, self._open_project)
         toolbar.addAction(self.open_action)
         self.save_action = QAction(self)
         self.save_action.setShortcut(QKeySequence.StandardKey.Save)
@@ -532,7 +582,7 @@ class MainWindow(QMainWindow):
         self.undo_action.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowBack)
         )
-        self.undo_action.triggered.connect(self._undo)
+        self.preview_controller.connect_guarded_action(self.undo_action, self._undo)
         self.undo_action.setEnabled(False)
         toolbar.addAction(self.undo_action)
         self.redo_action = QAction(self)
@@ -540,7 +590,7 @@ class MainWindow(QMainWindow):
         self.redo_action.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowForward)
         )
-        self.redo_action.triggered.connect(self._redo)
+        self.preview_controller.connect_guarded_action(self.redo_action, self._redo)
         self.redo_action.setEnabled(False)
         toolbar.addAction(self.redo_action)
         self.center_horizontal_action = QAction(
@@ -561,7 +611,7 @@ class MainWindow(QMainWindow):
         self.presets_action.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
         )
-        self.presets_action.triggered.connect(self._choose_preset)
+        self.preview_controller.connect_guarded_action(self.presets_action, self._choose_preset)
         toolbar.addAction(self.presets_action)
         toolbar.addSeparator()
         self.fit_action = QAction(self)
@@ -623,7 +673,7 @@ class MainWindow(QMainWindow):
         self.settings_action.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView)
         )
-        self.settings_action.triggered.connect(self._show_settings)
+        self.preview_controller.connect_guarded_action(self.settings_action, self._show_settings)
 
         toolbar.addWidget(self._toolbar_spacer())
         toolbar.addAction(self.panels_action)
@@ -634,7 +684,7 @@ class MainWindow(QMainWindow):
         self.playlist_files_action.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogListView)
         )
-        self.playlist_files_action.triggered.connect(self._export_playlist_files)
+        self.preview_controller.connect_guarded_action(self.playlist_files_action, self._export_playlist_files)
         toolbar.addAction(self.playlist_files_action)
         self.export_action = QAction(self)
         self.export_action.setEnabled(True)
@@ -642,7 +692,7 @@ class MainWindow(QMainWindow):
         self.export_action.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton)
         )
-        self.export_action.triggered.connect(self._export_video)
+        self.preview_controller.connect_guarded_action(self.export_action, self._export_video)
         toolbar.addAction(self.export_action)
         self.preview_action = QAction(self)
         self.preview_action.setIcon(
@@ -736,7 +786,7 @@ class MainWindow(QMainWindow):
         pixmap.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        color = QColor("#77879E")
+        color = QColor("#ADB3B5")
         guide_pen = QPen(color, 1.0, Qt.PenStyle.DashLine)
         shape_pen = QPen(color, 1.8)
         if horizontal:
@@ -759,7 +809,7 @@ class MainWindow(QMainWindow):
         enabled = any(
             source is not None and not source.locked
             for source in (self.store.get(source_id) for source_id in self.store.selected_ids)
-        )
+        ) and self._preview_ui_lock_state is None
         self.center_horizontal_action.setEnabled(enabled)
         self.center_vertical_action.setEnabled(enabled)
 
@@ -821,6 +871,14 @@ class MainWindow(QMainWindow):
     ) -> None:
         """Enable global key sequences only while Canvas editing owns focus."""
         del previous
+        if self._preview_ui_lock_state is not None:
+            for action in (
+                *self._canvas_shortcut_actions, self.duplicate_action,
+                self.select_all_action, self.delete_action, self.cut_action,
+                self.copy_action, self.paste_action, self.clear_selection_action,
+            ):
+                action.setEnabled(False)
+            return
         enabled = self._canvas_shortcut_scope_active(current)
         for action in self._canvas_shortcut_actions:
             action.setEnabled(enabled)
@@ -1239,7 +1297,7 @@ class MainWindow(QMainWindow):
         self.file_menu.addAction(self.playlist_files_action)
         self.file_menu.addSeparator()
         self.import_m3u_action = QAction(self)
-        self.import_m3u_action.triggered.connect(self._choose_m3u_playlist)
+        self.preview_controller.connect_guarded_action(self.import_m3u_action, self._choose_m3u_playlist)
         self.file_menu.addAction(self.import_m3u_action)
         self.export_m3u_action = QAction(self)
         self.export_m3u_action.triggered.connect(self._export_m3u_playlist)
@@ -1248,12 +1306,12 @@ class MainWindow(QMainWindow):
         self.exit_action = QAction(self)
         self.exit_action.setShortcut(QKeySequence.StandardKey.Quit)
         self.exit_action.setMenuRole(QAction.MenuRole.QuitRole)
-        self.exit_action.triggered.connect(self.close)
+        self.preview_controller.connect_guarded_action(self.exit_action, self.close)
         self.file_menu.addAction(self.exit_action)
 
         self.project_menu = menu_bar.addMenu("")
         self.project_settings_action = QAction(self)
-        self.project_settings_action.triggered.connect(self._show_project_settings)
+        self.preview_controller.connect_guarded_action(self.project_settings_action, self._show_project_settings)
         self.project_menu.addAction(self.project_settings_action)
         self.project_menu.addSeparator()
         self.project_menu.addAction(self.presets_action)
@@ -1263,7 +1321,7 @@ class MainWindow(QMainWindow):
         self.project_menu.addSeparator()
         self.upgrade_project_action = QAction(self)
         self.upgrade_project_action.setEnabled(False)
-        self.upgrade_project_action.triggered.connect(self._upgrade_legacy_project)
+        self.preview_controller.connect_guarded_action(self.upgrade_project_action, self._upgrade_legacy_project)
         self.project_menu.addAction(self.upgrade_project_action)
 
         self.edit_menu = menu_bar.addMenu("")
@@ -1322,7 +1380,7 @@ class MainWindow(QMainWindow):
             self.insert_category_menus[category] = category_menu
             for source_type in source_types:
                 action = QAction(self)
-                action.triggered.connect(
+                self.preview_controller.connect_guarded_action(action,
                     lambda checked=False, kind=source_type: self._add_source(kind)
                 )
                 category_menu.addAction(action)
@@ -1336,32 +1394,32 @@ class MainWindow(QMainWindow):
         self.view_menu.addAction(self.inspector_panel_action)
         self.view_menu.addAction(self.bottom_panel_action)
         self.reset_layout_action = QAction(self)
-        self.reset_layout_action.triggered.connect(self._reset_workspace_layout)
+        self.preview_controller.connect_guarded_action(self.reset_layout_action, self._reset_workspace_layout)
         self.view_menu.addAction(self.reset_layout_action)
         self.view_menu.addSeparator()
         self.show_playlist_action = QAction(self)
         self.show_playlist_action.setShortcut(QKeySequence("Ctrl+Alt+1"))
-        self.show_playlist_action.triggered.connect(lambda: self._show_bottom_panel(0))
+        self.preview_controller.connect_guarded_action(self.show_playlist_action, lambda: self._show_bottom_panel(0))
         self.view_menu.addAction(self.show_playlist_action)
         self.show_timeline_action = QAction(self)
         self.show_timeline_action.setShortcut(QKeySequence("Ctrl+Alt+2"))
-        self.show_timeline_action.triggered.connect(lambda: self._show_bottom_panel(1))
+        self.preview_controller.connect_guarded_action(self.show_timeline_action, lambda: self._show_bottom_panel(1))
         self.view_menu.addAction(self.show_timeline_action)
         self.view_menu.addSeparator()
         self.view_menu.addAction(self.preview_action)
 
         self.tools_menu = menu_bar.addMenu("")
         self.lyrics_search_action = QAction(self)
-        self.lyrics_search_action.triggered.connect(self._show_lyrics_search)
+        self.preview_controller.connect_guarded_action(self.lyrics_search_action, self._show_lyrics_search)
         self.tools_menu.addAction(self.lyrics_search_action)
         self.lrc_generator_action = QAction(self)
-        self.lrc_generator_action.triggered.connect(self._show_lrc_generator)
+        self.preview_controller.connect_guarded_action(self.lrc_generator_action, self._show_lrc_generator)
         self.tools_menu.addAction(self.lrc_generator_action)
         self.mp3_metadata_action = QAction(self)
-        self.mp3_metadata_action.triggered.connect(self._show_mp3_metadata_editor)
+        self.preview_controller.connect_guarded_action(self.mp3_metadata_action, self._show_mp3_metadata_editor)
         self.tools_menu.addAction(self.mp3_metadata_action)
         self.automix_editor_action = QAction(self)
-        self.automix_editor_action.triggered.connect(lambda: self.preview_controller.edit_transition())
+        self.preview_controller.connect_guarded_action(self.automix_editor_action, lambda: self.preview_controller.edit_transition())
         settings = getattr(self, "_project_settings", None)
         self.automix_editor_action.setEnabled(settings is not None and settings.transition_mode == "automix")
         self.tools_menu.addAction(self.automix_editor_action)
@@ -1371,6 +1429,9 @@ class MainWindow(QMainWindow):
         self.language_menu.setTitle("언어")
         self.tools_menu.addMenu(self.language_menu)
         self.help_menu = menu_bar.addMenu("")
+        self.welcome_guide_action = QAction(self)
+        self.welcome_guide_action.triggered.connect(self._show_welcome_guide)
+        self.help_menu.addAction(self.welcome_guide_action)
         self.help_action = QAction(self)
         self.help_action.setShortcut(QKeySequence("F1"))
         self.help_action.triggered.connect(self._show_help)
@@ -1404,6 +1465,7 @@ class MainWindow(QMainWindow):
             self.lyrics_search_action: "lyrics_search",
             self.mp3_metadata_action: "audio",
             self.language_menu.menuAction(): "language", self.help_action: "help",
+            self.welcome_guide_action: "help",
             self.shortcuts_action: "shortcuts", self.check_updates_action: "check_updates",
             self.about_action: "about",
             **{self.insert_category_menus[category].menuAction(): name for category, name in (
@@ -1438,7 +1500,7 @@ class MainWindow(QMainWindow):
             )
             action.setToolTip(str(path))
             action.setStatusTip(str(path))
-            action.triggered.connect(
+            self.preview_controller.connect_guarded_action(action,
                 lambda _checked=False, selected=Path(path):
                 self._open_recent_project(selected)
             )
@@ -1532,7 +1594,7 @@ class MainWindow(QMainWindow):
         self.left_tabs.addTab(self.content_library_panel, "")
         self.layer_panel = LayerPanel(self.store, self.translator)
         self.left_tabs.addTab(self.layer_panel, "")
-        self.left_tabs.setElideMode(Qt.TextElideMode.ElideRight)
+        self.left_tabs.setElideMode(Qt.TextElideMode.ElideNone)
         self.left_tabs.tabBar().setExpanding(True)
         left_layout.addWidget(self.left_tabs)
         top_splitter.addWidget(left_workspace)
@@ -1541,7 +1603,26 @@ class MainWindow(QMainWindow):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding,
         )
         center_layout = QVBoxLayout(center)
-        center_layout.setContentsMargins(16, 16, 16, 12)
+        center.setObjectName("canvasWorkspace")
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setSpacing(0)
+        canvas_header = QFrame()
+        self.canvas_workspace_header = canvas_header
+        canvas_header.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        canvas_header.setObjectName("canvasWorkspaceHeader")
+        canvas_header_layout = QHBoxLayout(canvas_header)
+        canvas_header_layout.setContentsMargins(16, 5, 12, 5)
+        canvas_header_layout.setSpacing(8)
+        self.canvas_workspace_title = QLabel()
+        self.canvas_workspace_title.setObjectName("workspaceHeading")
+        canvas_header_layout.addWidget(self.canvas_workspace_title)
+        canvas_header_layout.addStretch()
+        for action in (self.fit_action, self.grid_action):
+            button = QToolButton()
+            button.setDefaultAction(action)
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            canvas_header_layout.addWidget(button)
+        center_layout.addWidget(canvas_header)
         self.canvas = LiveCanvas(self.store, self.translator)
         self.canvas.files_dropped.connect(self._handle_dropped_files)
         self.canvas.source_template_dropped.connect(self._handle_source_template_drop)
@@ -1841,6 +1922,7 @@ class MainWindow(QMainWindow):
         )
         self.source_cards_scroll.setFrameShape(QFrame.Shape.NoFrame)
         cards_widget = QWidget()
+        cards_widget.setObjectName("sourceCardsContent")
         cards_layout = QVBoxLayout(cards_widget)
         cards_layout.setContentsMargins(0, 0, 0, 0)
         cards_layout.setSpacing(12)
@@ -3071,6 +3153,9 @@ class MainWindow(QMainWindow):
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         """Accept general files globally, but reserve lyrics for Playlist rows."""
+        if not getattr(self, '_project_open', True):
+            event.ignore()
+            return
         if self._drag_returned_to_project_content(event):
             self._reject_returned_project_content_drag(event)
             return
@@ -3088,6 +3173,9 @@ class MainWindow(QMainWindow):
 
     def dropEvent(self, event: QDropEvent) -> None:
         """Route general file drops while refusing lyrics outside Playlist rows."""
+        if not getattr(self, '_project_open', True):
+            event.ignore()
+            return
         if self._drag_returned_to_project_content(event):
             self._reject_returned_project_content_drag(event)
             return
@@ -3448,6 +3536,10 @@ class MainWindow(QMainWindow):
     def _show_shortcuts(self) -> None:
         """Open the dedicated, grouped keyboard shortcut reference."""
         ShortcutsDialog(self.translator, self).exec()
+
+    def _show_welcome_guide(self) -> None:
+        """Replay the first-run tour without changing its automatic display setting."""
+        GuideDialog(MAIN_GUIDE, MAIN_GUIDE_TITLE, self.translator.is_korean, self).exec()
 
     def _show_help(self) -> None:
         """Open the offline user guide on the tab (and topic) for what is in use."""
@@ -4018,9 +4110,9 @@ class MainWindow(QMainWindow):
             "비권장 FFmpeg 버전" if korean else "Non-recommended FFmpeg version"
         )
         box.setText(
-            f"FFmpeg {release.series}은(는) 이 Playlist Canvas 패치의 권장 버전이 아닙니다."
+            f"FFmpeg {release.series}은(는) 이 Music Motion Studio 패치의 권장 버전이 아닙니다."
             if korean else
-            f"FFmpeg {release.series} is not recommended for this Playlist Canvas patch."
+            f"FFmpeg {release.series} is not recommended for this Music Motion Studio patch."
         )
         excerpt = release.notes[:1000]
         box.setInformativeText(
@@ -5024,6 +5116,7 @@ class MainWindow(QMainWindow):
         """Refresh all user-interface strings for the active language."""
         text = self.translator.text
         korean = self.translator.is_korean
+        self.canvas_workspace_title.setText("캔버스" if korean else "Canvas")
         self.setWindowTitle(text("app_title"))
         self.new_action.setText(text("new"))
         self.open_action.setText(text("open"))
@@ -5116,6 +5209,9 @@ class MainWindow(QMainWindow):
             "사용 설명서" if self.translator.is_korean
             else "User Guide"
         )
+        self.welcome_guide_action.setText(
+            "시작 안내 다시 보기" if self.translator.is_korean else "Getting started"
+        )
         self.shortcuts_action.setText(
             "단축키 안내" if self.translator.is_korean else "Keyboard shortcuts"
         )
@@ -5125,7 +5221,7 @@ class MainWindow(QMainWindow):
         )
         self.about_action.setText(
             "프로그램 정보" if self.translator.is_korean
-            else "About Playlist Canvas"
+            else "About Music Motion Studio"
         )
         self.project_settings_action.setText(
             "프로젝트 설정" if self.translator.is_korean else "Project settings"
@@ -5526,11 +5622,11 @@ class MainWindow(QMainWindow):
 
     def _apply_style(self) -> None:
         """Apply the shared studio skin without restyling every open window."""
-        from app.ui.design_system import apply_studio_style
+        from app.ui.design_system import COLORS, apply_studio_style
         apply_studio_style(QApplication.instance())
         for panel in (self.source_sidebar, self.layer_panel, self.playlist_editor):
             panel.setGraphicsEffect(None)
         self.canvas.set_theme_colors(
-            QColor("#17191B"), QColor("#202326"), QColor(255, 255, 255, 10),
-            QColor("#646A70"),
+            QColor(COLORS["stage"]), QColor(COLORS["field"]), QColor(255, 255, 255, 6),
+            QColor(COLORS["border"]),
         )

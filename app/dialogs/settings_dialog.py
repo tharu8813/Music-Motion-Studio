@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.ui.design_system import COLORS
+
 import subprocess
 from pathlib import Path
 
@@ -25,6 +27,7 @@ from PySide6.QtWidgets import (
     QProgressDialog,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSlider,
     QSpinBox,
     QTabWidget,
@@ -495,11 +498,14 @@ class SettingsDialog(QDialog):
         ):
             hint.setObjectName("mutedLabel")
             hint.setWordWrap(True)
+            hint.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
             button.setMinimumWidth(120)
-            row = QHBoxLayout()
+            row_widget = QWidget()
+            row = QHBoxLayout(row_widget)
+            row.setContentsMargins(0, 0, 0, 0)
             row.addWidget(hint, 1)
-            row.addWidget(button)
-            maintenance_form.addRow(label, row)
+            row.addWidget(button, 0, Qt.AlignmentFlag.AlignTop)
+            maintenance_form.addRow(label, row_widget)
         self.integrity_button.clicked.connect(self._check_integrity)
         self.program_reinstall_button.clicked.connect(self._confirm_program_reinstall)
         self.reset_button.clicked.connect(self._confirm_reset)
@@ -666,7 +672,7 @@ class SettingsDialog(QDialog):
             return
         korean = self.translator.is_korean
         kind = (
-            "Playlist Canvas 권장 버전" if korean else "Recommended for Playlist Canvas"
+            "Music Motion Studio 권장 버전" if korean else "Recommended for Music Motion Studio"
         ) if release.recommended else (
             "호환성 확인이 필요한 버전" if korean else "Compatibility should be verified"
         )
@@ -761,7 +767,7 @@ class SettingsDialog(QDialog):
             self,
             "언어팩 가져오기" if korean else "Import language pack",
             str(Path.home()),
-            "Playlist Canvas language pack (*.json);;JSON files (*.json)",
+            "Music Motion Studio language pack (*.json);;JSON files (*.json)",
         )
         if not path:
             return
@@ -978,7 +984,7 @@ class SettingsDialog(QDialog):
                 "Installing FFmpeg" if self._ffmpeg_installing else
                 "설치 확인 필요" if korean else "FFmpeg needs attention"
             )
-            color = "#F59E0B" if positive else "#EF4444"
+            color = COLORS["warning"] if positive else COLORS["danger"]
         elif path is not None and path.is_file():
             title = "FFmpeg 사용 가능" if korean else "FFmpeg configured"
             managed = self._managed_installation
@@ -988,11 +994,11 @@ class SettingsDialog(QDialog):
                 f"Managed install · {managed.series or 'FFmpeg'} · {managed.version}\n{path}"
                 if managed else str(path)
             )
-            color = "#22C55E"
+            color = COLORS["success"]
         elif path is not None:
             title = "FFmpeg 파일 없음" if korean else "FFmpeg file not found"
             detail = str(path)
-            color = "#EF4444"
+            color = COLORS["danger"]
         else:
             title = "FFmpeg가 설정되지 않음" if korean else "FFmpeg is not configured"
             detail = (
@@ -1000,7 +1006,7 @@ class SettingsDialog(QDialog):
                 if korean else
                 "Use automatic download or select an existing ffmpeg executable."
             )
-            color = "#94A3B8"
+            color = COLORS["muted"]
         self.ffmpeg_status_dot.setStyleSheet(
             f"background: {color}; border: 0; border-radius: 6px;"
         )
@@ -1066,12 +1072,12 @@ class SettingsDialog(QDialog):
         )
         self.ffmpeg_about_description.setText(
             "FFmpeg은 영상과 음성을 읽고, 결합하고, 압축하여 최종 동영상 파일로 만드는 "
-            "오픈 소스 미디어 처리 엔진입니다. Playlist Canvas에서는 프로젝트 편집은 "
+            "오픈 소스 미디어 처리 엔진입니다. Music Motion Studio에서는 프로젝트 편집은 "
             "FFmpeg 없이도 가능하지만 동영상 내보내기에는 필요합니다. 잘 모르겠다면 "
             "권장 버전을 선택해 설치하면 되며, 프로그램 전용 폴더에 안전하게 설치됩니다."
             if korean else
             "FFmpeg is an open-source media engine that reads, combines, and compresses video "
-            "and audio into the final video file. You can edit a Playlist Canvas project without "
+            "and audio into the final video file. You can edit a Music Motion Studio project without "
             "FFmpeg, but video export requires it. If you are unsure, install the recommended "
             "version; it is safely kept in the application-only folder."
         )
@@ -1142,9 +1148,9 @@ class SettingsDialog(QDialog):
         )
         self.language_label.setText("언어" if korean else "Language")
         self.appearance_hint.setText(
-            "Playlist Canvas는 일관된 편집 환경을 위해 다크 스튜디오 테마만 제공합니다."
+            "Music Motion Studio는 일관된 편집 환경을 위해 다크 스튜디오 테마만 제공합니다."
             if korean else
-            "Playlist Canvas uses one dark studio theme so the editing workspace stays consistent."
+            "Music Motion Studio uses one dark studio theme so the editing workspace stays consistent."
         )
         self.language_pack_label.setText("외부 언어팩" if korean else "External language packs")
         self.language_pack_import_button.setText("가져오기" if korean else "Import")
@@ -1214,9 +1220,9 @@ class SettingsDialog(QDialog):
         ):
             checkbox.setText(text)
         self.export_notification_hint.setText(
-            "선택한 단계가 시작될 때 Windows 알림을 한 번 표시합니다. 운영체제의 알림 설정에서 Playlist Canvas 알림이 차단되어 있으면 표시되지 않을 수 있습니다."
+            "선택한 단계가 시작될 때 Windows 알림을 한 번 표시합니다. 운영체제의 알림 설정에서 Music Motion Studio 알림이 차단되어 있으면 표시되지 않을 수 있습니다."
             if korean else
-            "Shows one Windows notification when each selected stage starts. Notifications may not appear if Playlist Canvas is blocked in system notification settings."
+            "Shows one Windows notification when each selected stage starts. Notifications may not appear if Music Motion Studio is blocked in system notification settings."
         )
         self.ffmpeg_browse_button.setText("찾아보기" if korean else "Browse")
         self.ffmpeg_test_button.setText("확인" if korean else "Check")
@@ -1235,9 +1241,9 @@ class SettingsDialog(QDialog):
             "Download the selected version, verify SHA-256, and activate it."
         )
         self.ffmpeg_update_button.setToolTip(
-            "현재 관리 설치본을 이 Playlist Canvas 버전의 권장 FFmpeg로 교체합니다."
+            "현재 관리 설치본을 이 Music Motion Studio 버전의 권장 FFmpeg로 교체합니다."
             if korean else
-            "Replace the managed install with the FFmpeg version recommended for this Playlist Canvas release."
+            "Replace the managed install with the FFmpeg version recommended for this Music Motion Studio release."
         )
         self.ffmpeg_reinstall_button.setToolTip(
             "현재 관리 중인 버전을 다시 다운로드·검증하여 교체합니다."
@@ -1245,9 +1251,9 @@ class SettingsDialog(QDialog):
             "Download, verify, and replace the currently managed version."
         )
         self.ffmpeg_delete_button.setToolTip(
-            "Playlist Canvas가 설치한 FFmpeg만 삭제합니다. 직접 지정한 외부 FFmpeg는 삭제하지 않습니다."
+            "Music Motion Studio가 설치한 FFmpeg만 삭제합니다. 직접 지정한 외부 FFmpeg는 삭제하지 않습니다."
             if korean else
-            "Delete only FFmpeg installed by Playlist Canvas. External FFmpeg files are never removed."
+            "Delete only FFmpeg installed by Music Motion Studio. External FFmpeg files are never removed."
         )
         self.managed_install_label.setText(
             "Windows 64비트용 BtbN FFmpeg GPL 배포본을 앱 전용 폴더에 내려받고 SHA-256으로 검증합니다."
@@ -1465,7 +1471,7 @@ class SettingsDialog(QDialog):
             "프로젝트와 설정은 그대로 유지됩니다. 계속할까요?"
             if korean else
             "Download the latest official Setup from GitHub and install it again.\n"
-            "After the download is SHA-256 verified, Playlist Canvas closes and runs Setup.\n"
+            "After the download is SHA-256 verified, Music Motion Studio closes and runs Setup.\n"
             "Projects and settings are kept. Continue?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
@@ -1488,7 +1494,7 @@ class SettingsDialog(QDialog):
             "Cleared: every setting, the recent projects list, the window layout, AutoMix editor "
             "presets, the AutoMix analysis cache, the preview cache and downloaded updates\n"
             "Kept: project files, user presets, language packs and the installed FFmpeg\n\n"
-            "Playlist Canvas closes and starts again. Continue?",
+            "Music Motion Studio closes and starts again. Continue?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )

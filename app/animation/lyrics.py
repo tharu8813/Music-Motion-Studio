@@ -1,6 +1,7 @@
 """Lyric motion and role defaults shared by the renderer and its editor."""
 
 from math import pi, sin
+from typing import NamedTuple
 from app.animation.curves import clamp_progress, ease_in_out_cubic, ease_out_quint
 from app.models.source import Source
 
@@ -17,7 +18,38 @@ INTRO_STYLE_LABELS = {
     "wave": ("세 점 · 웨이브", "Dots · wave"),
     "bars": ("리듬 막대", "Rhythm bars"),
     "ring": ("회전 링", "Spinning ring"),
+    "orbit": ("공전하는 점", "Orbiting dots"),
+    "ripple": ("퍼지는 파동", "Ripples"),
+    "comet": ("흐르는 빛", "Comet trail"),
 }
+
+INTRO_EXIT_LABELS = {
+    "shrink": ("부드럽게 축소", "Soft shrink"),
+    "fade": ("서서히 사라짐", "Fade out"),
+    "drift": ("흘러 사라짐", "Drift away"),
+    "spread": ("퍼지며 사라짐", "Spread out"),
+    "wipe": ("차례로 지워짐", "Wipe away"),
+}
+
+
+class IntroExitPose(NamedTuple):
+    opacity: float = 1.0
+    scale: float = 1.0
+    travel: float = 0.0
+    spread: float = 1.0
+    reveal: float = 1.0
+
+
+def intro_exit_pose(kind: str, progress: float) -> IntroExitPose:
+    """A monotone exit, independent of the lyric's bounce/glow pulse."""
+    amount = ease_in_out_cubic(clamp_progress(progress))
+    return IntroExitPose(
+        opacity=1 - amount,
+        scale=1 - .25 * amount if kind == "shrink" else 1.0,
+        travel=-.35 * amount if kind == "drift" else 0.0,
+        spread=1 + .8 * amount if kind == "spread" else 1.0,
+        reveal=1 - amount if kind == "wipe" else 1.0,
+    )
 
 
 def lyric_progress(source: Source, progress: float) -> float:

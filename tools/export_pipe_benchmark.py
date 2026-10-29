@@ -168,8 +168,8 @@ def main() -> int:
 
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     application = QApplication.instance() or QApplication([])
-    application.setOrganizationName("Playlist Canvas Benchmark")
-    application.setApplicationName("Playlist Canvas Benchmark")
+    application.setOrganizationName("Music Motion Studio Benchmark")
+    application.setApplicationName("Music Motion Studio Benchmark")
     preset_directory = tempfile.mkdtemp(prefix="pc-bench-presets-")
     os.environ["PLAYLIST_CANVAS_PRESET_DIR"] = preset_directory
 

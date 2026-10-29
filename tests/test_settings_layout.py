@@ -16,6 +16,24 @@ from app.utils.i18n import Language, Translator
 
 
 class SettingsLayoutTests(unittest.TestCase):
+    def test_maintenance_explanations_fit_their_wrapped_height(self):
+        app = QApplication.instance() or QApplication([])
+        apply_studio_style(app)
+        translator = Translator()
+        for language in (Language.KOREAN, Language.ENGLISH):
+            translator.set_language(language)
+            dialog = SettingsDialog(AppSettings(), language, Theme.DARK, translator)
+            try:
+                dialog.show()
+                dialog.tabs.setCurrentIndex(5)
+                for width in (820, 720):
+                    dialog.resize(width, 520)
+                    app.processEvents()
+                    for hint in (dialog.integrity_hint, dialog.program_reinstall_hint, dialog.reset_hint):
+                        self.assertGreaterEqual(hint.height(), hint.heightForWidth(hint.width()))
+            finally:
+                dialog.close()
+
     def test_tabs_preserve_values_and_fit_in_both_languages(self):
         app = QApplication.instance() or QApplication([])
         apply_studio_style(app)

@@ -123,6 +123,14 @@ class ProjectController:
         if not hasattr(window, "project_status_label"):
             return
         korean = window.translator.is_korean
+        if not getattr(window, '_project_open', True):
+            window.project_status_label.setText('열린 프로젝트 없음' if korean else 'No project open')
+            window.project_status_label.setToolTip(
+                '파일 메뉴에서 프로젝트를 만들거나 열어 주세요.' if korean
+                else 'Create or open a project from the File menu.')
+            window.setWindowTitle('Music Motion Studio')
+            window.setWindowModified(False)
+            return
         title = window.project_settings.title
         # "Untitled Project" is the model's stored default, not a name the user chose.
         name = title if title and title != "Untitled Project" else (
@@ -148,7 +156,7 @@ class ProjectController:
         )
         window.project_status_label.setText(f"{name}  ·  {state}{legacy}")
         # Taskbar/Alt+Tab: which project is open and whether it has unsaved edits.
-        window.setWindowTitle(f"{name}[*] — Playlist Canvas")
+        window.setWindowTitle(f"{name}[*] — Music Motion Studio")
         window.setWindowModified(bool(self.session.dirty))
         window.project_status_label.setToolTip(
             "프로젝트 스냅샷을 백그라운드에서 저장하고 있습니다."
@@ -224,6 +232,7 @@ class ProjectController:
             window._autosave_debounce_timer.start()
         else:
             self.session.dirty = False
+        window.set_project_open(True)
         window._update_project_status()
         if music_paths:
             # The normal import path: missing-tag review, M3U8 review, lyrics, project content.
@@ -247,7 +256,7 @@ class ProjectController:
                 return True
 
     def show_startup_dialog(self) -> bool:
-        """Block the editor until the user chooses how to start the session."""
+        """Choose a project, or keep the app open with project tools disabled."""
         window = self.window
         # Recovery belongs before the project choice.  Requiring the user to click
         # "New project" first meant a newer snapshot could be silently skipped when
@@ -257,6 +266,7 @@ class ProjectController:
         while window.isVisible():
             dialog = StartupDialog(window.translator, window.recent_projects, window)
             if dialog.exec() != dialog.DialogCode.Accepted:
+                window.set_project_open(False)
                 return False
             if dialog.action == StartupDialog.NEW_PROJECT:
                 if window._new_project(confirm_unsaved=False):
@@ -292,7 +302,7 @@ class ProjectController:
                 window,
                 "프로젝트 저장" if window.translator.is_korean else "Save project",
                 default,
-                "Playlist Canvas Project (*.pvsproj);;Legacy JSON Project (*.project.json *.json)",
+                "Music Motion Studio Project (*.pvsproj);;Legacy JSON Project (*.project.json *.json)",
             )
             if not selected:
                 return False
@@ -404,7 +414,7 @@ class ProjectController:
             window,
             "프로젝트 열기" if window.translator.is_korean else "Open project",
             "",
-            "Playlist Canvas Project (*.pvsproj *.project.json *.json)",
+            "Music Motion Studio Project (*.pvsproj *.project.json *.json)",
         )
         if not selected:
             return
@@ -478,12 +488,12 @@ class ProjectController:
                     window,
                     "프로젝트 버전 차이" if korean else "Project version differs",
                     (
-                        "이 프로젝트는 다른 버전의 Playlist Canvas에서 저장되었습니다.\n\n"
+                        "이 프로젝트는 다른 버전의 Music Motion Studio에서 저장되었습니다.\n\n"
                         f"프로젝트 저장 버전: {document.app_version}\n"
                         f"현재 프로그램 버전: {__version__}\n\n"
                         "일부 기능이나 표시 결과가 달라질 수 있습니다. 프로젝트를 계속 엽니다."
                         if korean else
-                        "This project was saved with a different version of Playlist Canvas.\n\n"
+                        "This project was saved with a different version of Music Motion Studio.\n\n"
                         f"Project version: {document.app_version}\n"
                         f"Current app version: {__version__}\n\n"
                         "Some features or visual results may differ. The project will continue opening."
@@ -515,6 +525,7 @@ class ProjectController:
             window.upgrade_project_action.setEnabled(window._legacy_project_path is not None)
             window.recent_projects.add(window.current_project_path)
             self.session.dirty = self.media_relinked
+            window.set_project_open(True)
             if self.media_relinked:
                 window._autosave_debounce_timer.start()
             window._update_project_status()
@@ -660,7 +671,7 @@ class ProjectController:
             )
         resolved_path = path.expanduser().resolve()
         report = (
-            f"Playlist Canvas {__version__}\n"
+            f"Music Motion Studio {__version__}\n"
             f"Project: {resolved_path}\n"
             f"Stage: {stage}\n"
             f"Exception: {type(error).__name__}: {error}\n"
@@ -757,7 +768,7 @@ class ProjectController:
             "업그레이드 프로젝트 저장"
             if window.translator.is_korean else "Save upgraded project",
             str(default),
-            "Playlist Canvas Project (*.pvsproj)",
+            "Music Motion Studio Project (*.pvsproj)",
         )
         if not selected:
             return

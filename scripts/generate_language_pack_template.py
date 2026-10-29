@@ -153,7 +153,7 @@ def _metadata(locale: str, name: str, native_name: str) -> dict[str, str]:
         "locale": locale,
         "name": name,
         "native_name": native_name,
-        "author": "Playlist Canvas",
+        "author": "Music Motion Studio",
         "version": "1.0.2",
         "minimum_app_version": "1.0.2",
     }

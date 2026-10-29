@@ -359,11 +359,6 @@ class TrackAnalysisPanel(QWidget):
         results_layout.addLayout(self.facts_form)
         root.addWidget(self.results)
         root.addStretch(1)
-        self.setStyleSheet(
-            "#analysisCard, #analysisProgressBox { border: 1px solid rgba(128, 128, 128, 0.35);"
-            " border-radius: 8px; background: rgba(128, 128, 128, 0.07); }"
-            " #analysisCardValue { font-size: 15px; font-weight: 700; }"
-        )
         self._render()
 
     # -- state fed by MainWindow --------------------------------------------

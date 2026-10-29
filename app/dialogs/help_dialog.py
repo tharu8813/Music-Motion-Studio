@@ -263,7 +263,7 @@ class HelpDialog(QDialog):
             f".crumb{{font-size:12px;color:{COLORS['muted']};margin:0;}}"
             f".tags{{font-size:12px;margin:0 0 10px 0;}}"
             f".note{{background-color:{COLORS['alternate']};padding:8px 12px;margin:12px 0;}}"
-            f".tip{{background-color:#1F302C;padding:8px 12px;margin:12px 0;}}"
+            f".tip{{background-color:{COLORS['info_surface']};padding:8px 12px;margin:12px 0;}}"
         )
         self.browser.viewport().installEventFilter(self)
 
@@ -332,7 +332,7 @@ class HelpDialog(QDialog):
 
     def retranslate(self) -> None:
         korean = self.korean
-        self.setWindowTitle(self._text("Playlist Canvas 도움말", "Playlist Canvas Help"))
+        self.setWindowTitle(self._text("Music Motion Studio 도움말", "Music Motion Studio Help"))
         self.title_label.setText(self._text("사용 설명서", "User Guide"))
         self.intro_label.setText(self._text(
             "창마다 탭이 나뉘어 있습니다. 어느 창에서든 F1을 누르면 그 창의 도움말이 열립니다. "

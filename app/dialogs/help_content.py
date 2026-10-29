@@ -98,7 +98,7 @@ def _e(tab: str, identifier: str, title: tuple[str, str], tags: tuple[str, str],
 _CANVAS = (
     _e("canvas", "workspace", ("화면 구성 한눈에 보기", "The workspace at a glance"),
        ("시작하기,화면,패널", "getting started,workspace,panels"),
-       """<p>Playlist Canvas는 음악·가사·앨범 커버·비주얼라이저를 하나의 캔버스에 배치해 <b>플레이리스트 영상(MP4)</b>을 만드는 편집기입니다. 메인 창은 다음처럼 나뉩니다.</p>
+       """<p>Music Motion Studio는 음악·가사·앨범 커버·비주얼라이저를 하나의 캔버스에 배치해 <b>플레이리스트 영상(MP4)</b>을 만드는 편집기입니다. 메인 창은 다음처럼 나뉩니다.</p>
 [[img:canvas_workspace]]
 <ol>
 <li><b>메뉴와 도구 모음</b> — 파일·프로젝트·편집·추가·보기·도구·도움말 메뉴와 새로 만들기·열기·저장, 실행 취소·다시 실행, 가로·세로 중앙 정렬 버튼</li>
@@ -117,7 +117,7 @@ _CANVAS = (
 </ul>
 <div class='note'>캔버스 둘레의 회색 작업 영역과 그리드는 편집 보조 화면입니다. 최종 영상에는 아트보드 안쪽만 들어갑니다.</div>
 <div class='tip'>어느 창에서든 <b>F1</b>을 누르면 그 창에 맞는 도움말 탭이 열립니다. 메인 창에서는 포커스가 있는 패널(플레이리스트, 레이어, 속성 등)의 주제가 바로 선택됩니다.</div>""",
-       """<p>Playlist Canvas arranges music, lyrics, album art and visualizers on one canvas and turns them into a <b>playlist video (MP4)</b>. The main window is laid out like this:</p>
+       """<p>Music Motion Studio arranges music, lyrics, album art and visualizers on one canvas and turns them into a <b>playlist video (MP4)</b>. The main window is laid out like this:</p>
 [[img:canvas_workspace]]
 <ol>
 <li><b>Menus and toolbar</b> — File, Project, Edit, Add, View, Tools and Help, plus New, Open, Save, Undo, Redo and horizontal/vertical centering</li>
@@ -774,7 +774,7 @@ _PREVIEW = (
 [[img:preview_screen]]
 <ol>
 <li><b>미리보기 화면</b> — 가사·곡 정보·진행 바·오디오 반응 효과·애니메이션이 실제 재생 시간에 맞춰 움직입니다.</li>
-<li><b>곡 목록 · 성능 정보</b> — 오른쪽 곡 목록 패널과 렌더링 상태 표시줄을 켜고 끕니다.</li>
+<li><b>성능 모니터</b> — 미리보기 화면을 우클릭한 뒤 <b>성능 모니터 켜기</b>를 선택합니다. 전체화면에서도 사용할 수 있습니다.</li>
 <li><b>곡 목록</b> — 곡을 누르면 그 곡의 처음으로 이동합니다. 재생 중인 곡이 강조됩니다.</li>
 <li><b>현재 곡</b> — 곡 번호·제목·아티스트와 곡 안의 재생 위치</li>
 <li><b>재생 타임라인</b> — 전체 영상 기준 위치. 숫자는 곡 경계, 색 막대는 곡이 겹치는 <a href='topic:preview_mix'>전환 구간</a>입니다.</li>
@@ -786,13 +786,14 @@ _PREVIEW = (
 <li>여는 동안 <b>미리보기 준비</b> 창이 단계별 진행을 보여 줍니다(오디오 믹스, 화면 구성, 저장된 곡 분석 불러오기).</li>
 <li>미리보기 중에는 프로젝트가 바뀌지 않도록 편집이 잠깁니다. 도움말(<code>F1</code>)과 단축키 안내는 계속 쓸 수 있습니다.</li>
 <li><b>편집으로 돌아가기</b>, 또는 하단의 플레이리스트·타임라인 탭을 누르면 편집 화면으로 돌아옵니다.</li>
+<li>미리보기 화면을 두 번 누르면 전체화면으로 전환합니다. 다시 두 번 누르거나 <code>Esc</code>를 누르면 원래 화면으로 돌아옵니다. 전체화면에서 마우스를 움직이면 커서와 하단 재생 바가 나타나고, 잠시 움직이지 않으면 숨겨집니다.</li>
 </ul>
 <div class='note'>미리보기는 부드러운 재생을 위해 최종 해상도보다 낮게 렌더링될 수 있습니다. 내보낸 영상은 선택한 출력 해상도로 선명하게 만들어집니다.</div>""",
        """<p><b>Preview</b> plays the whole playlist with its music where the canvas was, so you can check the result before exporting. Open it with the <b>Preview</b> tab at the bottom, <b>View → Preview</b> or <code>Ctrl+Alt+3</code>.</p>
 [[img:preview_screen]]
 <ol>
 <li><b>Preview screen</b> — lyrics, track info, progress, audio-reactive visuals and animations move with the real playback time.</li>
-<li><b>Track list · Performance</b> — show or hide the track list panel and the rendering status bar.</li>
+<li><b>Performance monitor</b> — right-click the preview and choose <b>Show performance monitor</b>. It also works in fullscreen.</li>
 <li><b>Track list</b> — click a track to jump to its start; the playing track is highlighted.</li>
 <li><b>Now playing</b> — track number, title, artist and position within the track</li>
 <li><b>Playback timeline</b> — position in the whole video. Numbers mark track boundaries; colored bars are the <a href='topic:preview_mix'>transitions</a> where tracks overlap.</li>
@@ -804,6 +805,7 @@ _PREVIEW = (
 <li>While it opens, a <b>Preparing preview</b> window lists each step (audio mix, screen, loading saved track analysis).</li>
 <li>Editing is locked during Preview so the project cannot change. Help (<code>F1</code>) and the shortcut list still work.</li>
 <li><b>Back to editing</b>, or the Playlist or Timeline tab, returns to the editor.</li>
+<li>Double-click the preview to enter fullscreen. Double-click again or press <code>Esc</code> to return. Moving the mouse in fullscreen reveals the cursor and bottom playback bar; they hide after a short idle period.</li>
 </ul>
 <div class='note'>Preview may render below the final resolution to play smoothly. The exported video is rendered sharp at the output resolution you choose.</div>""",
        ("preview_controls", "preview_mix", "preview_quality"),
@@ -822,7 +824,7 @@ _PREVIEW = (
 </table>
 <ul>
 <li>볼륨은 곡 정보/설정의 미리듣기, 가사/자막 편집기와 같은 값을 공유합니다.</li>
-<li>재생 중에도 곡 목록 패널을 접으면 화면이 넓어집니다.</li>
+<li>곡 목록은 미리보기 오른쪽에 항상 표시됩니다.</li>
 </ul>""",
        """<table cellspacing='4'>
 <tr><th>Control</th><th>Action</th></tr>
@@ -835,7 +837,7 @@ _PREVIEW = (
 </table>
 <ul>
 <li>The volume is shared with listening in Track information/settings and the lyrics/subtitle editor.</li>
-<li>Fold the track list panel for a larger picture, even while playing.</li>
+<li>The track list is always shown on the right of Preview.</li>
 </ul>""",
        ("full_preview", "shortcuts"),
        ("스페이스 일시정지 탐색 이동 볼륨 이전 곡 다음 곡 5초", "space pause seek volume previous next track 5 seconds")),
@@ -1909,7 +1911,7 @@ Transitions shorten the video by the overlaps.</li>
        ("settings",),
        ("언어 번역 언어팩 json 가져오기 제거 새로고침 템플릿 로캘", "language translation pack json import remove reload template locale")),
 
-    _e("other", "updates", ("프로그램 업데이트", "Updating Playlist Canvas"),
+    _e("other", "updates", ("프로그램 업데이트", "Updating Music Motion Studio"),
        ("업데이트", "updates"),
        """<p>시작 후 공식 GitHub 저장소의 최신 안정 릴리즈를 백그라운드에서 확인합니다. 새 버전이 있으면 릴리즈 노트와 현재·최신 버전을 보여 줍니다.</p>
 <ol><li><b>다운로드 및 업데이트</b>를 고릅니다.</li>
@@ -1972,7 +1974,7 @@ Transitions shorten the video by the overlaps.</li>
 <h2>Preview looks wrong</h2>
 <p>If GPU preview is unstable, switch to <a href='topic:preview_quality'>CPU compatibility mode</a> and restart.</p>
 <h2>Support information</h2>
-<p><b>Help → About Playlist Canvas</b> shows the version and runtime, copies diagnostics and opens the log folder. Send the diagnostics and the latest log when asking for help. After a crash, an error report appears at the next start.</p>""",
+<p><b>Help → About Music Motion Studio</b> shows the version and runtime, copies diagnostics and opens the log folder. Send the diagnostics and the latest log when asking for help. After a crash, an error report appears at the next start.</p>""",
        ("maintenance", "ffmpeg", "projects"),
        ("오류 문제 로그 진단 정보 프로그램 정보 실행 안됨 충돌 비정상 종료 누락 미디어 실패 디스크 공간",
         "error problem log diagnostics about does not start crash missing media fail disk space")),

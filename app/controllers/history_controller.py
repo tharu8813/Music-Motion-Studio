@@ -32,7 +32,7 @@ class HistoryController:
     def schedule(self) -> None:
         """Coalesce rapid property edits such as dragging into a single undo entry."""
         window = self.window
-        if self.session.tracking_changes:
+        if self.session.tracking_changes and getattr(window, '_project_open', True):
             self.session.mark_changed()
             window._update_project_status()
             window._history_timer.start()
@@ -40,7 +40,7 @@ class HistoryController:
 
     def commit(self) -> None:
         window = self.window
-        if self.session.tracking_changes:
+        if self.session.tracking_changes and getattr(window, '_project_open', True):
             window.history.commit(window._project_document().to_dict())
 
     def update_actions(self, can_undo: bool, can_redo: bool) -> None:

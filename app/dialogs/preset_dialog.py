@@ -191,7 +191,7 @@ class DesignPresetDialog(QDialog):
             self,
             "프리셋 가져오기" if korean else "Import preset",
             "",
-            f"Playlist Canvas preset (*{PRESET_SUFFIX});;JSON (*.json)",
+            f"Music Motion Studio preset (*{PRESET_SUFFIX});;JSON (*.json)",
         )
         if not path:
             return
@@ -213,7 +213,7 @@ class DesignPresetDialog(QDialog):
             self,
             "프리셋 내보내기" if korean else "Export preset",
             f"{preset.name(self.translator.language.value)}{PRESET_SUFFIX}",
-            f"Playlist Canvas preset (*{PRESET_SUFFIX})",
+            f"Music Motion Studio preset (*{PRESET_SUFFIX})",
         )
         if not path:
             return

@@ -66,7 +66,7 @@ class ExportFfmetadataTests(unittest.TestCase):
         )
         self.assertNotIn("[CHAPTER]", text)
         self.assertIn("title=my-export", text)
-        self.assertIn("comment=Playlist Canvas", text)
+        self.assertIn("comment=Music Motion Studio", text)
 
 
 class FFmpegStreamingIntegrationTests(unittest.TestCase):

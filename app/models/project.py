@@ -1,4 +1,4 @@
-"""Serializable document model for a Playlist Canvas project."""
+"""Serializable document model for a Music Motion Studio project."""
 
 from __future__ import annotations
 
@@ -137,7 +137,7 @@ def migrate_project_payload(data: dict[str, Any]) -> dict[str, Any]:
 
 @dataclass(slots=True)
 class ProjectDocument:
-    """Complete Playlist Canvas project document."""
+    """Complete Music Motion Studio project document."""
 
     sources: list[Source] = field(default_factory=list)
     groups: list[LayerGroup] = field(default_factory=list)

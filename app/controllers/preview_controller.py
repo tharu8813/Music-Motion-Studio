@@ -16,6 +16,7 @@ audit -- out of scope for this mechanical MainWindow decomposition.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING
@@ -42,6 +43,60 @@ class PreviewController:
 
     def __init__(self, window: "MainWindow") -> None:
         self.window = window
+        self._action_prompt_open = False
+
+    def connect_guarded_action(self, action: QAction, callback: Callable[[], object]) -> None:
+        """Use the same preview-exit gate for menu clicks and action shortcuts."""
+
+        def trigger(_checked: bool = False) -> None:
+            if self.confirm_exit_for_action(action):
+                callback()
+
+        action.triggered.connect(trigger)
+
+    def confirm_exit_for_action(self, action: QAction) -> bool:
+        """Keep playback intact on dismissal; fully release it before continuing."""
+        window = self.window
+        if self._action_prompt_open:
+            return False
+        if window._inline_preview is None:
+            return window._preview_ui_lock_state is None
+        korean = window.translator.is_korean
+        label = action.text().replace("&", "")
+        box = QMessageBox(window)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("미리보기 모드" if korean else "Preview mode")
+        box.setText(
+            f"‘{label}’ 작업을 진행하려면 미리보기 모드를 해제해야 합니다."
+            if korean else f'Exit preview mode to continue with “{label}”.'
+        )
+        box.setInformativeText(
+            "계속하면 미리보기 재생을 종료한 뒤 선택한 작업을 실행합니다.\n"
+            "닫기를 선택하면 미리보기를 유지합니다."
+            if korean else
+            "Continuing stops preview playback, then runs the selected action.\n"
+            "Choose Close to keep the preview open."
+        )
+        close = box.addButton(
+            "닫기" if korean else "Close", QMessageBox.ButtonRole.RejectRole,
+        )
+        proceed = box.addButton(
+            "미리보기 모드 해제 및 진행" if korean else "Exit preview and continue",
+            QMessageBox.ButtonRole.AcceptRole,
+        )
+        box.setDefaultButton(close)
+        box.setEscapeButton(close)
+        self._action_prompt_open = True
+        try:
+            box.exec()
+            confirmed = box.clickedButton() is proceed
+        finally:
+            self._action_prompt_open = False
+            box.deleteLater()
+        if not confirmed:
+            return False
+        window._finish_inline_preview()
+        return window._inline_preview is None and window._preview_ui_lock_state is None
 
     # -- bottom-tab embedded playback preview ---------------------------
 
@@ -189,6 +244,7 @@ class PreviewController:
         window.preview_tab_layout.addWidget(controls_page)
         window.canvas_stack.setCurrentWidget(preview)
         self.lock_editor_for_inline_preview()
+        window.canvas_workspace_header.hide()
         track_panel = getattr(preview, "track_list_panel", None)
         if isinstance(track_panel, QWidget):
             window._inline_preview_track_panel = track_panel
@@ -197,10 +253,7 @@ class PreviewController:
             track_panel.setStyleSheet(controls_page.styleSheet())
             window.preview_track_inspector_layout.addWidget(track_panel)
         window.inspector_stack.setCurrentWidget(window.preview_track_inspector)
-        tracks_toggle = getattr(preview, "tracks_toggle", None)
-        if tracks_toggle is not None:
-            tracks_toggle.toggled.connect(window.inspector_stack.setVisible)
-            window.inspector_stack.setVisible(tracks_toggle.isChecked())
+        window.inspector_stack.setVisible(True)
         window.statusBar().showMessage(
             "캔버스에서 전체 미리보기를 재생합니다 · 편집 기능이 잠겼습니다."
             if window.translator.is_korean else
@@ -379,16 +432,21 @@ class PreviewController:
         window = self.window
         if window._preview_ui_lock_state is not None:
             return
-        widgets = (window.canvas,)
-        # Help only opens read-only dialogs, so it stays usable (F1 included);
-        # every other menu keeps its action disabled like before.
-        read_only_actions = {
-            window.help_menu.menuAction(), window.help_action,
-            window.shortcuts_action, window.about_action,
-        }
+        widgets = (window.canvas, window.left_workspace)
+        # Lock only stable editor actions. Menus (notably Recent projects) can
+        # rebuild during playback, so their transient actions must not be saved
+        # and restored here. Guarded menu actions exit Preview before editing.
+        editor_actions = (
+            window.fit_action, window.grid_action, window.snap_action,
+            window.panels_action, window.inspector_panel_action, window.bottom_panel_action,
+            window.center_horizontal_action, window.center_vertical_action,
+            window.cut_action, window.copy_action, window.paste_action,
+            window.duplicate_action, window.delete_action,
+            window.select_all_action, window.clear_selection_action,
+            *window._canvas_shortcut_actions, *window.language_actions.values(),
+        )
         actions = tuple(
-            (action, action.isEnabled()) for action in window.findChildren(QAction)
-            if action not in read_only_actions
+            (action, action.isEnabled()) for action in editor_actions
         )
         window._preview_ui_lock_state = {
             "widgets": tuple((widget, widget.isEnabled()) for widget in widgets),
@@ -412,7 +470,6 @@ class PreviewController:
             widget.setEnabled(False)
         for action, _enabled in actions:
             action.setEnabled(False)
-        window.toolbar.setEnabled(False)
         window._set_sidebar_visible(False, persist=False, sync_action=False)
         controls_page = window._inline_preview_controls
         if controls_page is not None:
@@ -454,6 +511,7 @@ class PreviewController:
         window._inline_preview_track_panel = None
         preview._stop_preview()
         window.canvas_stack.setCurrentWidget(window.canvas)
+        window.canvas_workspace_header.show()
         window.canvas_stack.removeWidget(preview)
         if track_panel is not None:
             window.preview_track_inspector_layout.removeWidget(track_panel)
@@ -507,6 +565,10 @@ class PreviewController:
         else:
             window.inspector_stack.setCurrentWidget(window.inspector)
         window.inspector_stack.setVisible(bool(state["inspector_visible"]))
+        saved_sizes = list(state.get("main_splitter_sizes", ()))
+        if saved_sizes:
+            window.main_splitter.setSizes(saved_sizes)
+            window.main_splitter.lock_edge_sizes({0: saved_sizes[0], 2: saved_sizes[2]})
         window.main_splitter.setMinimumHeight(
             state.get("top_panel_minimum_height", window.main_splitter.minimumHeight())
         )

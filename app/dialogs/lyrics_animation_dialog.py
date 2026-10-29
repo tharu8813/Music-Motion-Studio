@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
 
-from app.animation.lyrics import INTRO_STYLE_LABELS, LYRIC_EFFECT_LABELS, role_style
+from app.animation.lyrics import INTRO_EXIT_LABELS, INTRO_STYLE_LABELS, LYRIC_EFFECT_LABELS, role_style
 from app.canvas.live_canvas import CanvasScene
 from app.canvas.source_item import SourceItem
 from app.dialogs.help_dialog import install_help_shortcut
@@ -43,7 +43,8 @@ class LyricsAnimationDialog(QDialog):
         "subtitle_next_distance_fade": ("다음 가사가 현재 위치에 가까울수록 블러를 약하게 하고 불투명하게 표시합니다. 이전 가사와 별도로 적용합니다.", "Make nearby upcoming cues clearer and more opaque, independently of previous cues."),
         "subtitle_intro_enabled": ("첫 가사가 시작되기 전 임시 대기 줄을 표시합니다. 첫 가사 전환과 함께 사라집니다.", "Show a temporary waiting row before the first lyric; it exits with the first cue transition."),
         "subtitle_intro_midtrack": ("긴 자막 공백을 보컬 분석하고, 음악이 있지만 보컬이 없는 구간에만 임시 줄을 표시합니다.", "Analyze long lyric gaps and show a temporary row only when music plays without vocals."),
-        "subtitle_intro_style": ("임시 줄 안에서 점·웨이브·막대·링이 움직이는 모습입니다. 줄 전체의 이동은 움직임 탭을 따릅니다.", "Inner indicator animation: dots, wave, bars or ring. The whole row follows Motion settings."),
+        "subtitle_intro_style": ("대기 중 표시할 점·막대·링·공전·파동·빛의 움직임입니다. 퇴장 효과와 따로 선택할 수 있습니다.", "Waiting animation: dots, bars, ring, orbit, ripples or comet. Choose its exit separately."),
+        "subtitle_intro_exit": ("대기 줄이 끝날 때 사라지는 방식입니다. 가사 이동과 같은 시간에 끝나며, 대기 표시 스타일과 독립적으로 적용됩니다.", "How the waiting indicator disappears. Ends with the lyric transition, independently of its waiting style."),
         "subtitle_intro_gap": ("중간 대기 줄을 표시할 최소 무보컬 구간 길이입니다. 첫 가사 전 대기에는 적용하지 않습니다.", "Minimum vocal-free interlude length. Does not affect the wait before the first lyric."),
         "subtitle_intro_period": ("점이 차례로 밝아지는 등 표시 스타일이 한 번 반복되는 시간입니다. 줄 전환 시간과는 별개입니다.", "Duration of one indicator cycle, separate from cue transition duration."),
         "subtitle_intro_scale": ("현재 가사 글꼴 크기를 기준으로 임시 표시의 크기를 조절합니다.", "Indicator size relative to the current lyric font."),
@@ -58,7 +59,7 @@ class LyricsAnimationDialog(QDialog):
         "subtitle_glow_strength", "subtitle_glow_radius", "subtitle_context_lines",
         "subtitle_next_lines", "subtitle_line_spacing", "text_alignment", "subtitle_role_styles",
         "subtitle_previous_distance_fade", "subtitle_next_distance_fade",
-        "subtitle_intro_enabled", "subtitle_intro_midtrack", "subtitle_intro_style",
+        "subtitle_intro_enabled", "subtitle_intro_midtrack", "subtitle_intro_style", "subtitle_intro_exit",
         "subtitle_intro_gap", "subtitle_intro_period", "subtitle_intro_scale",
     )
 
@@ -207,6 +208,7 @@ class LyricsAnimationDialog(QDialog):
         self._spin(intro, "subtitle_intro_gap", "최소 간주 길이", "Minimum interlude", 2, 30, 0.5, " s")
         intro = self._group(intro_page, "표시 스타일", "Indicator appearance")
         self._combo(intro, "subtitle_intro_style", "표시 스타일", "Indicator style", INTRO_STYLE_LABELS)
+        self._combo(intro, "subtitle_intro_exit", "퇴장 효과", "Exit effect", INTRO_EXIT_LABELS)
         self._spin(intro, "subtitle_intro_period", "한 사이클 시간", "Cycle duration", 1, 10, 0.25, " s")
         self._spin(intro, "subtitle_intro_scale", "표시 크기", "Indicator scale", 0.25, 3, 0.05)
         intro_hint = QLabel(self._tr(
@@ -221,6 +223,8 @@ class LyricsAnimationDialog(QDialog):
         self.intro_preview_mode = QComboBox()
         self.intro_preview_mode.addItem(self._tr("첫 가사 전", "Before first lyric"), "start")
         self.intro_preview_mode.addItem(self._tr("곡 중간 · 보컬 없는 예시", "Mid-track · instrumental sample"), "middle")
+        self.intro_preview_mode.addItem(self._tr("첫 가사 · 퇴장 확인", "First lyric · exit preview"), "start_exit")
+        self.intro_preview_mode.addItem(self._tr("간주 · 퇴장 확인", "Interlude · exit preview"), "middle_exit")
         intro_preview = self._group(intro_page, "예시 미리보기", "Sample preview")
         intro_preview.addRow(self._tr("미리보기 구간", "Preview segment"), self.intro_preview_mode)
         self.intro_preview_mode.setToolTip(self._tr("미리보기 예시만 바꿉니다. 곡의 실제 가사나 분석 구간은 변경하지 않습니다.",
@@ -440,7 +444,7 @@ class LyricsAnimationDialog(QDialog):
                                                       "Advanced values active · only related Properties locked" if active else "Advanced values ignored · basic Properties used"))
         effect = self._draft.subtitle_animation
         intro_enabled = self._draft.subtitle_intro_enabled or self._draft.subtitle_intro_midtrack
-        for key in ("subtitle_intro_style", "subtitle_intro_period", "subtitle_intro_scale"):
+        for key in ("subtitle_intro_style", "subtitle_intro_exit", "subtitle_intro_period", "subtitle_intro_scale"):
             self.controls[key].setEnabled(intro_enabled)
         self.controls["subtitle_intro_gap"].setEnabled(self._draft.subtitle_intro_midtrack)
         for key in ("subtitle_animation_duration", "subtitle_motion_easing"):
@@ -564,9 +568,15 @@ class LyricsAnimationDialog(QDialog):
             {"start": wait, "end": wait + 2, "text": self._preview_texts[1]},
             {"start": wait + 2 + gap, "end": wait + 6 + gap, "text": self._preview_texts[2]},
         ])
-        middle = self.intro_preview_mode.currentData() == "middle"
+        mode = self.intro_preview_mode.currentData()
+        middle = mode in {"middle", "middle_exit"}
         clock = self._preview_seconds() if elapsed is None else elapsed
         seconds = wait + 2 + clock % (gap + 3) if middle else clock % (wait + 3)
+        if mode in {"start_exit", "middle_exit"}:
+            duration = (self._preview_source.subtitle_animation_duration
+                        if self._preview_source.subtitle_animation != "none" else 0)
+            end = wait + 2 + gap if middle else wait
+            seconds = end - .25 + clock % (duration + 1)
         image = CanvasSnapshot.capture_track(self._scene, track, 1, 1, 0, elapsed_seconds=seconds,
                                               output_scale=self._preview_scale(),
                                               lyric_instrumental_spans=((wait + 2, wait + 2 + gap),))

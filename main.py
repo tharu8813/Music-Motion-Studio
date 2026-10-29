@@ -1,4 +1,4 @@
-"""Application entry point for Playlist Canvas."""
+"""Application entry point for Music Motion Studio."""
 
 from __future__ import annotations
 
@@ -8,11 +8,11 @@ import shutil
 import threading
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QEvent, QSettings, QStandardPaths, QTimer
+from PySide6.QtCore import QSettings, QStandardPaths, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
-from app import LEGACY_PRODUCT_NAME, PRODUCT_NAME, __version__
+from app import LEGACY_PRODUCT_NAMES, PRODUCT_NAME, __version__
 from app.ui.launch_splash import LaunchSplash
 from app.utils.logging_setup import configure_logging, install_exception_hook
 
@@ -59,11 +59,13 @@ def open_initial_workspace(
 
 def _configure_product_identity(application: QApplication) -> None:
     """Apply the new brand and migrate settings/recoveries from the old name."""
-    application.setApplicationName(LEGACY_PRODUCT_NAME)
-    application.setOrganizationName(LEGACY_PRODUCT_NAME)
-    legacy_data = Path(QStandardPaths.writableLocation(
-        QStandardPaths.StandardLocation.AppLocalDataLocation
-    ))
+    legacy_roots: list[Path] = []
+    for name in LEGACY_PRODUCT_NAMES:
+        application.setApplicationName(name)
+        application.setOrganizationName(name)
+        legacy_roots.append(Path(QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.AppLocalDataLocation
+        )))
 
     application.setApplicationName(PRODUCT_NAME)
     application.setApplicationDisplayName(PRODUCT_NAME)
@@ -73,18 +75,22 @@ def _configure_product_identity(application: QApplication) -> None:
     ))
 
     current = QSettings()
-    migration_key = "migration/playlist_canvas_brand"
-    if not current.value(migration_key, False, bool):
-        legacy = QSettings(LEGACY_PRODUCT_NAME, LEGACY_PRODUCT_NAME)
+    migration_key = "migration/music_motion_studio_brand"
+    if current.value(migration_key, False, bool):
+        return
+    # Prefer the most recent brand, then fill any gaps from the original name.
+    # User choices already made in Music Motion Studio always win.
+    for name in LEGACY_PRODUCT_NAMES:
+        legacy = QSettings(QSettings.defaultFormat(), QSettings.Scope.UserScope, name, name)
         for key in legacy.allKeys():
             if not current.contains(key):
                 current.setValue(key, legacy.value(key))
-        current.setValue(migration_key, True)
-        current.sync()
 
-    legacy_recoveries = legacy_data / "recoveries"
     current_recoveries = current_data / "recoveries"
-    if legacy_recoveries.is_dir() and legacy_recoveries != current_recoveries:
+    for legacy_data in legacy_roots:
+        legacy_recoveries = legacy_data / "recoveries"
+        if not legacy_recoveries.is_dir() or legacy_recoveries == current_recoveries:
+            continue
         try:
             current_recoveries.mkdir(parents=True, exist_ok=True)
             for snapshot in legacy_recoveries.glob("*.recovery.json"):
@@ -92,8 +98,10 @@ def _configure_product_identity(application: QApplication) -> None:
                 if not target.exists():
                     shutil.copy2(snapshot, target)
         except OSError:
-            # The legacy recovery remains untouched and can be copied manually.
-            pass
+            # Leave the original intact and retry migration on the next launch.
+            return
+    current.setValue(migration_key, True)
+    current.sync()
 
 
 def main() -> int:
@@ -140,17 +148,15 @@ def main() -> int:
     if "--smoke-test" in sys.argv:
         QTimer.singleShot(0, application.quit)
         return application.exec()
+    window.set_project_open(False)
+    window.schedule_automatic_update_check()
     from app.dialogs.welcome_dialog import MAIN_GUIDE, MAIN_GUIDE_TITLE, WELCOME_KEY, GuideDialog, first_time
 
     if update_recovery is None and first_time(WELCOME_KEY):
         GuideDialog(MAIN_GUIDE, MAIN_GUIDE_TITLE, window.translator.is_korean, window).exec()
     if not open_initial_workspace(window, launch_project, update_recovery=update_recovery):
-        window.close()
-        # No exec() will run its cleanup, so delete the closed window here, not at exit.
-        application.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-        return 0
+        window.set_project_open(False)
     window.check_ffmpeg_availability()
-    window.schedule_automatic_update_check()
     return application.exec()
 
 

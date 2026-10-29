@@ -447,7 +447,7 @@ class ExportOrchestrator:
         if icon.isNull():
             icon = window.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
         tray = QSystemTrayIcon(icon, window)
-        tray.setToolTip("Playlist Canvas")
+        tray.setToolTip("Music Motion Studio")
         tray.messageClicked.connect(window._restore_from_export_notification)
         tray.show()
         window._notification_tray = tray

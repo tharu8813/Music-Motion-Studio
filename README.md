@@ -1,6 +1,6 @@
 <div align="center">
-  <img src="docs/images/playlist-canvas-icon.png" width="112" alt="Playlist Canvas 아이콘">
-  <h1>Playlist Canvas</h1>
+  <img src="docs/images/music-motion-studio-icon.png" width="112" alt="Music Motion Studio 아이콘">
+  <h1>Music Motion Studio</h1>
   <p><b>좋아하는 음악에 가사와 움직이는 화면을 더해, 나만의 플레이리스트 영상을 만드세요.</b></p>
   <p>
     <img src="https://img.shields.io/badge/version-1.3.1.5-1685D1" alt="버전 1.3.1.5">
@@ -14,11 +14,13 @@
   </p>
 </div>
 
-**Playlist Canvas는 PC에 있는 음악, 이미지, 영상과 가사를 조합해 플레이리스트 영상을 만드는 무료 Windows 프로그램입니다.** MP4·MOV·MKV 영상, 오디오만 저장하기, LRC·SRT 자막 내보내기를 지원합니다. 디자인 프리셋을 골라 시작하고, 화면에서 요소를 끌어 배치한 뒤 음악과 함께 미리보며 완성할 수 있습니다. 코딩 지식이나 별도의 Python 설치는 필요하지 않습니다.
+**Music Motion Studio는 PC에 있는 음악, 이미지, 영상과 가사를 조합해 플레이리스트 영상을 만드는 무료 Windows 프로그램입니다.** MP4·MOV·MKV 영상, 오디오만 저장하기, LRC·SRT 자막 내보내기를 지원합니다. 디자인 프리셋을 골라 시작하고, 화면에서 요소를 끌어 배치한 뒤 음악과 함께 미리보며 완성할 수 있습니다. 코딩 지식이나 별도의 Python 설치는 필요하지 않습니다.
+
+이전 이름은 **Playlist Canvas(플레이리스트 캔버스)**입니다. 기존 `.pvsproj`·JSON 프로젝트를 그대로 열 수 있으며, 이전 앱의 설정·최근 프로젝트 목록·복구 파일은 첫 실행 때 이어받습니다. 설치한 FFmpeg·프리셋·언어팩은 기존 저장 위치를 계속 사용합니다. GitHub 저장소 주소와 라이선스 원문도 유지합니다.
 
 **이 프로젝트는 ChatGPT Codex와 Claude Code를 활용하는 바이브코딩(Vibe Coding) 프로젝트입니다.** 사람이 아이디어와 제작 방향을 정하고, AI와 대화하며 프로그램을 구현합니다.
 
-![Playlist Canvas 편집 화면 — 가운데 캔버스, 왼쪽 요소와 레이어, 오른쪽 속성, 아래 플레이리스트](app/resources/help/ko/canvas_workspace.png)
+![Music Motion Studio 편집 화면 — 가운데 캔버스, 왼쪽 요소와 레이어, 오른쪽 속성, 아래 플레이리스트](app/resources/help/ko/canvas_workspace.png)
 
 ## 예시 영상
 
@@ -70,9 +72,9 @@ AutoMix는 곡의 박자, 조성, 보컬 구간과 분위기를 분석해 전환
 ## 다운로드와 설치
 
 1. [공식 다운로드 페이지](https://github.com/tharu8813/Playlist-Canvas/releases/latest)를 엽니다.
-2. **Assets**에서 이름이 `setup.exe`로 끝나는 Windows 설치 파일을 받습니다. 파일명 예시는 `Playlist.Canvas-1.3.1.5-setup.exe`입니다. `Source code`는 소스 코드 압축 파일입니다.
-3. 설치 파일을 실행해 언어와 설치 위치를 선택한 뒤, 시작 메뉴나 바탕 화면에서 **Playlist Canvas**를 엽니다.
-   기본 설치 위치는 `%ProgramFiles%\Playlist Canvas`이며 설치 시 관리자 권한을 요청합니다.
+2. **Assets**에서 이름이 `setup.exe`로 끝나는 Windows 설치 파일을 받습니다. 파일명 예시는 `Music.Motion.Studio-1.3.1.5-setup.exe`입니다. `Source code`는 소스 코드 압축 파일입니다.
+3. 설치 파일을 실행해 언어와 설치 위치를 선택한 뒤, 시작 메뉴나 바탕 화면에서 **Music Motion Studio**를 엽니다.
+   기본 설치 위치는 `%ProgramFiles%\Music Motion Studio`이며 설치 시 관리자 권한을 요청합니다.
 4. 프로그램의 **도구 → 설정 → FFmpeg**에서 **(권장)** 버전을 고르고 **선택 버전 다운로드 및 설치**를 누릅니다. 다운로드와 설치가 끝나면 자동으로 적용됩니다.
 
 FFmpeg는 음악과 화면을 합쳐 영상 파일로 만드는 구성요소이며, 프로그램 설치 파일에는 포함되지 않습니다. **MP4 내보내기, 내보내기 품질의 믹스 미리보기, 박자 기반 AutoMix 분석·미리듣기와 EQ 미리듣기**를 사용하려면 설치해 주세요. 기본 크로스페이드 미리보기는 FFmpeg 없이도 바로 재생하며, AutoMix 준비 중에도 기본 크로스페이드로 연결합니다. 이미 설치한 FFmpeg가 있다면 같은 설정 화면에서 `ffmpeg.exe`를 지정할 수 있습니다.
@@ -121,7 +123,7 @@ py -3.14 -m venv .venv
 워터마크를 넣을 의무는 없습니다. **출처 표시는 선택 사항이며 라이선스 의무가 아닙니다.** 원하면 영상 설명에 다음 문구를 사용할 수 있습니다.
 
 ```text
-이 영상은 Playlist Canvas를 이용해 제작되었습니다.
+이 영상은 Music Motion Studio를 이용해 제작되었습니다.
 https://github.com/tharu8813/Playlist-Canvas
 ```
 

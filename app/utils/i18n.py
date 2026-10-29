@@ -49,7 +49,7 @@ class LocaleOption(NamedTuple):
 
 
 _TEXT: dict[str, dict[Language, str]] = {
-    "app_title": {Language.KOREAN: "Playlist Canvas — 새 프로젝트", Language.ENGLISH: "Playlist Canvas — Untitled Project"},
+    "app_title": {Language.KOREAN: "Music Motion Studio — 새 프로젝트", Language.ENGLISH: "Music Motion Studio — Untitled Project"},
     "new": {Language.KOREAN: "새로 만들기", Language.ENGLISH: "New"},
     "open": {Language.KOREAN: "열기", Language.ENGLISH: "Open"},
     "save": {Language.KOREAN: "저장", Language.ENGLISH: "Save"},

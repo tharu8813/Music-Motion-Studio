@@ -18,7 +18,10 @@ from typing import Callable
 from PySide6.QtCore import QSettings, QStandardPaths
 
 MANIFEST_NAME = "integrity.json"
-KEPT_SETTINGS = ("export/ffmpeg_path", "migration/playlist_canvas_brand")
+KEPT_SETTINGS = (
+    "export/ffmpeg_path", "migration/playlist_canvas_brand",
+    "migration/music_motion_studio_brand",
+)
 """Survive a reset: the managed FFmpeg is only found through its saved path, and
 dropping the migration flag would copy the legacy brand's settings back in."""
 

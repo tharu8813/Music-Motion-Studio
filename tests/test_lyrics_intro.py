@@ -13,7 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QPointF
 
-from app.animation.lyrics import INTRO_STYLE_LABELS, lyric_progress
+from app.animation.lyrics import INTRO_EXIT_LABELS, INTRO_STYLE_LABELS, intro_exit_pose, lyric_progress
 from app.canvas.live_canvas import CanvasScene
 from app.canvas.source_item import SourceItem
 from app.dialogs.lyrics_animation_dialog import LyricsAnimationDialog
@@ -23,7 +23,10 @@ from app.preview.canvas_snapshot import CanvasSnapshot
 from app.preview.export_canvas_capture import ExportCanvasCapturer
 from app.preview.frame_state import lyric_instrumental_windows, resolve_lyrics_intro_state
 from app.renderer.export_timeline import ExportTimelinePlanner
+from app.renderer.export_timeline import ExportFrameSample
+from app.renderer.ffmpeg_renderer import RenderFrame
 from app.services import lyrics_intro_service as service
+from app.ui.design_system import apply_studio_style
 from app.utils.i18n import Translator
 
 
@@ -31,6 +34,7 @@ class LyricsIntroTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+        apply_studio_style(cls.app)
 
     def source(self, **options):
         return Source(SourceType.LYRICS, "Lyrics", width=600, height=360, font_size=30,
@@ -295,7 +299,7 @@ class LyricsIntroTests(unittest.TestCase):
         restored = Source.from_dict(source.to_dict())
         self.assertEqual(restored.to_dict(), source.to_dict())
         for key, value in (("subtitle_intro_enabled", 1), ("subtitle_intro_midtrack", "yes"),
-                           ("subtitle_intro_style", "bad"), ("subtitle_intro_gap", float("nan")),
+                           ("subtitle_intro_style", "bad"), ("subtitle_intro_exit", "bad"), ("subtitle_intro_gap", float("nan")),
                            ("subtitle_intro_period", 0), ("subtitle_intro_scale", 4)):
             with self.assertRaises(ValueError):
                 Source.from_dict(source.to_dict() | {key: value})
@@ -326,6 +330,119 @@ class LyricsIntroTests(unittest.TestCase):
         dialog._render_preview(1)
         self.assertFalse(dialog.preview.pixmap().isNull())
         self.assertEqual(source.subtitle_intro_style, "dots")
+
+    def test_gap_readability_does_not_override_the_interlude_previous_blur(self):
+        original = SourceItem._lyric_blur_pixmap
+        track, spans = self.track(), ((7, 17),)
+        track.lyrics[0]["text"] = "Held A\nHeld B"
+        for karaoke in (False, True):
+            if karaoke:
+                for cue in track.lyrics:
+                    cue["format"] = "ttml"
+                    cue["words"] = [{"start": cue["start"], "end": cue["end"],
+                                     "text": cue["text"], "offset": 0}]
+            for direction in ("up", "down", "left", "right"):
+                source = self.source(subtitle_intro_midtrack=True, subtitle_karaoke_enabled=karaoke,
+                    subtitle_animation_duration=1, subtitle_motion_easing="linear",
+                    subtitle_flow_direction=direction,
+                    subtitle_role_styles={"previous": {"blur": 6}, "next": {"blur": 6}})
+                values = []
+                for seconds in (6.9, 7, 7.25, 7.5, 8, 16.999, 17, 17.1, 17.5, 18):
+                    radii = {}
+                    def record(item, text, color, radius, *args):
+                        radii[text] = max(radius, radii.get(text, 0))
+                        return original(item, text, color, radius, *args)
+                    with patch.object(SourceItem, "_lyric_blur_pixmap", autospec=True, side_effect=record):
+                        self.capture(source, seconds, spans, track)
+                    with self.subTest(karaoke=karaoke, direction=direction, seconds=seconds):
+                        self.assertAlmostEqual(radii.get("Held A", 0), radii.get("Held B", 0))
+                    values.append(radii.get("Held A", 0))
+                with self.subTest(karaoke=karaoke, direction=direction):
+                    if karaoke:
+                        self.assertEqual(values[:2], [0, 0])
+                        self.assertTrue(0 < values[2] < values[3] < values[4])
+                    else:
+                        self.assertAlmostEqual(values[1], 6)
+                    self.assertTrue(all(abs(value - 6) < .001 for value in values[4:]))
+
+    def test_exit_effects_are_monotone_distinct_and_finish_with_the_lyric(self):
+        for kind in INTRO_EXIT_LABELS:
+            poses = [intro_exit_pose(kind, progress) for progress in (0, .1, .25, .5, .75, .9, 1)]
+            self.assertEqual(poses[0].opacity, 1)
+            self.assertEqual(poses[-1].opacity, 0)
+            self.assertTrue(all(a.opacity > b.opacity for a, b in zip(poses, poses[1:])))
+            self.assertLess(1 - intro_exit_pose(kind, .001).opacity, .00001)
+            source = self.source(subtitle_intro_exit=kind, subtitle_animation_duration=1)
+            _, marker, _ = self.capture(source, 4.5)
+            self.assertTrue(marker)
+            _, marker, _ = self.capture(source, 5)
+            self.assertFalse(marker)
+        self.assertEqual(len({intro_exit_pose(kind, .5) for kind in INTRO_EXIT_LABELS}), len(INTRO_EXIT_LABELS))
+        frames = [bytes(self.capture(self.source(subtitle_intro_exit=kind,
+                       subtitle_animation_duration=1), 4.5)[2].constBits()) for kind in INTRO_EXIT_LABELS]
+        self.assertEqual(len(set(frames)), len(INTRO_EXIT_LABELS))
+
+    def test_exit_choice_is_saved_and_scoped_to_the_intro_category(self):
+        source = self.source(subtitle_intro_exit="drift")
+        self.assertEqual(Source.from_dict(source.to_dict()).subtitle_intro_exit, "drift")
+        legacy = source.to_dict()
+        legacy.pop("subtitle_intro_exit")
+        self.assertEqual(Source.from_dict(legacy).subtitle_intro_exit, "shrink")
+        source.subtitle_advanced_settings = {"subtitle_intro_exit": "wipe"}
+        self.assertEqual(source.resolved_lyrics().subtitle_intro_exit, "drift")
+        source.subtitle_advanced_categories = ["intro"]
+        self.assertEqual(source.resolved_lyrics().subtitle_intro_exit, "wipe")
+        dialog = LyricsAnimationDialog(source, Translator())
+        self.addCleanup(dialog.deleteLater)
+        self.addCleanup(dialog.close)
+        control = dialog.controls["subtitle_intro_exit"]
+        self.assertEqual(control.count(), len(INTRO_EXIT_LABELS))
+        control.setCurrentIndex(control.findData("spread"))
+        self.assertEqual(dialog.settings()["subtitle_advanced_settings"]["subtitle_intro_exit"], "spread")
+        dialog.category_toggles["intro"].setChecked(False)
+        self.assertEqual(dialog._preview_source.subtitle_intro_exit, "drift")
+        self.assertEqual(source.subtitle_intro_exit, "drift")
+
+    def test_each_exit_matches_export_and_repeated_seeking_at_both_scales(self):
+        track = self.track()
+        for kind in INTRO_EXIT_LABELS:
+            source = self.source(subtitle_intro_midtrack=True, subtitle_intro_exit=kind,
+                                 subtitle_intro_style="orbit", subtitle_animation_duration=1)
+            original = deepcopy(source.to_dict())
+            scene = CanvasScene()
+            scene.set_artboard_size(source.width, source.height)
+            item = SourceItem(source)
+            scene.addItem(item)
+            for scale in (1, 2):
+                capturer = ExportCanvasCapturer(scene, [track], 25, set(), [(None, None)],
+                    lambda image, duration, _key: RenderFrame(image, duration), lambda: None, lambda *_: None,
+                    output_scale=scale, instrumental_spans_by_track={track.id: {source.id: ((7, 17),)}})
+                first = None
+                for seconds in (17.25, 4.5, 17.75, 17.25):
+                    actual = CanvasSnapshot.capture_track(scene, track, 1, 1, 0, elapsed_seconds=seconds,
+                        output_scale=scale, playlist_tracks=[track], playlist_duration_seconds=25,
+                        timeline_seconds=seconds, lyric_instrumental_spans=((7, 17),))
+                    exported = capturer.capture(ExportFrameSample(track, 1, 0, .1, seconds, seconds)).image
+                    with self.subTest(kind=kind, scale=scale, seconds=seconds):
+                        self.assertEqual(actual, exported)
+                    if first is None:
+                        first = actual
+                self.assertEqual(first, actual)
+            self.assertEqual(original, source.to_dict())
+
+    def test_exit_preview_skips_the_long_wait(self):
+        source = self.source(subtitle_animation_duration=1, subtitle_intro_midtrack=True)
+        dialog = LyricsAnimationDialog(source, Translator())
+        self.addCleanup(dialog.deleteLater)
+        self.addCleanup(dialog.close)
+        for mode in ("start_exit", "middle_exit"):
+            dialog.intro_preview_mode.setCurrentIndex(dialog.intro_preview_mode.findData(mode))
+            with patch("app.dialogs.lyrics_animation_dialog.CanvasSnapshot.capture_track",
+                       wraps=CanvasSnapshot.capture_track) as capture:
+                dialog._render_intro_preview(.75)
+            track = capture.call_args.args[1]
+            end = track.lyrics[0 if mode == "start_exit" else 1]["start"]
+            self.assertAlmostEqual(capture.call_args.kwargs["elapsed_seconds"], end + .5)
 
     def test_analysis_is_nonblocking_and_failure_never_means_instrumental(self):
         with TemporaryDirectory() as directory:

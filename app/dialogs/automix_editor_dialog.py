@@ -61,7 +61,7 @@ _SPLITTER_KEY = "automix_editor/splitter"
 _PANEL_KEY = "automix_editor/properties_visible"
 _LANES_KEY = "automix_editor/lanes_visible"
 _SNAP_KEY = "automix_editor/snap"
-PANEL_WIDTH = 340
+PANEL_WIDTH = 368
 _FIELD_GROUPS = {"style": ("스타일", "style"), "duration": ("길이", "length"), "tempo_match": ("템포", "tempo"),
                  "ramp_seconds": ("템포", "tempo"), "key_shift": ("템포", "tempo"), "eq_bands": ("대역", "bands"),
                  "vocal_handoff": ("대역", "bands"), "echo_beats": ("효과", "effect"),

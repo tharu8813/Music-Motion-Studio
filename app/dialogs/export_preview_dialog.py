@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.ui.design_system import COLORS
+
 import logging
 from bisect import bisect_right
 import math
@@ -56,6 +58,7 @@ from app.preview.gpu_texture_surface import (
 )
 from app.preview.gpu_health import GpuPreviewHealth
 from app.preview.text_template import format_timestamp
+from app.preview.presentation import PreviewPresentationController
 from app.controllers.preview_audio_controller import PreviewAudioController
 from app.widgets.audio_sync_warning import AudioSyncWarning
 from app.renderer.ffmpeg_renderer import FFmpegRenderer, VisualizerOverlay
@@ -162,7 +165,7 @@ class CpuPreviewSurface(QWidget):
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#111820"))
+        painter.fillRect(self.rect(), QColor(COLORS["stage"]))
         if not self.image.isNull():
             target_key = (self.image.width(), self.image.height(), self.width(), self.height())
             if self._target_key != target_key:
@@ -252,7 +255,7 @@ class PlaylistTimeline(QSlider):
                 painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
                                  painter.fontMetrics().elidedText(label, Qt.TextElideMode.ElideRight,
                                                                   int(text_rect.width())))
-        amber = QColor("#F5C66B")
+        amber = QColor(COLORS["warning"])
         for start, end, _transition_type in self._transition_regions:
             x0, x1 = x_at(start), x_at(end)
             if x1 - x0 < 1:
@@ -331,7 +334,7 @@ class PreviewTrackDelegate(QStyledItemDelegate):
                 fill.setAlpha(46)
             painter.setBrush(fill)
             painter.drawRoundedRect(rect, 5, 5)
-        if selected:
+        if index.data(Qt.ItemDataRole.UserRole + 3):
             painter.setBrush(accent)
             painter.drawRoundedRect(QRectF(rect.left(), rect.top() + 8, 3, rect.height() - 16), 1.5, 1.5)
         tile = QRectF(rect.left() + 10, rect.center().y() - 18, 36, 36)
@@ -340,7 +343,7 @@ class PreviewTrackDelegate(QStyledItemDelegate):
         if isinstance(icon, QIcon) and not icon.isNull():
             icon.paint(painter, tile.toRect())
         else:
-            painter.setBrush(QColor("#304B44") if selected else palette.alternateBase())
+            painter.setBrush(QColor(COLORS["selection"]) if selected else palette.alternateBase())
             painter.drawRoundedRect(tile, 5, 5)
             painter.setPen(accent if selected else palette.placeholderText().color())
             painter.drawText(tile, Qt.AlignmentFlag.AlignCenter, number)
@@ -821,15 +824,9 @@ class ExportPreviewDialog(QDialog):
         self.frame_rate_label.setObjectName("previewStatusChip")
         self.frame_rate_label.setMinimumWidth(170)
         self.frame_rate_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.tracks_toggle = QPushButton()
-        self.tracks_toggle.setCheckable(True)
-        self.tracks_toggle.setChecked(True)
-        self.performance_toggle = QPushButton()
-        self.performance_toggle.setCheckable(True)
         self.performance_bar = QFrame()
         self.performance_bar.setObjectName("previewPerformanceBar")
         self.performance_bar.hide()
-        self.performance_toggle.toggled.connect(self.performance_bar.setVisible)
         self.performance_title_label = QLabel()
         self.performance_title_label.setObjectName("previewPerformanceTitle")
         self.performance_scale_label = QLabel()
@@ -928,7 +925,6 @@ class ExportPreviewDialog(QDialog):
         self.timeline_title_label.setObjectName("panelTitle")
         self.track_list_panel = QFrame()
         self.track_list_panel.setObjectName("previewTrackPanel")
-        self.tracks_toggle.toggled.connect(self.track_list_panel.setVisible)
         self.track_list_panel.setMinimumWidth(210)
         self.track_list_panel.setMaximumWidth(300)
         self.track_list_panel.setSizePolicy(
@@ -989,8 +985,6 @@ class ExportPreviewDialog(QDialog):
         header_text.addWidget(self.dialog_title_label)
         header_text.addWidget(self.hint_label)
         header.addLayout(header_text, 1)
-        header.addWidget(self.tracks_toggle)
-        header.addWidget(self.performance_toggle)
         header.addWidget(self.button_box)
         layout.addLayout(header)
         self.audio_sync_warning = AudioSyncWarning(self, audio_output=self.audio_output,
@@ -1008,7 +1002,6 @@ class ExportPreviewDialog(QDialog):
             performance_layout.addWidget(metric, 1 + index // 2, index % 2)
         performance_layout.setColumnStretch(0, 1)
         performance_layout.setColumnStretch(1, 1)
-        layout.addWidget(self.performance_bar)
         layout.addWidget(self.error_banner)
 
         self.preview_stage = QFrame()
@@ -1022,6 +1015,8 @@ class ExportPreviewDialog(QDialog):
         stage_content_layout.addWidget(self.track_list_panel)
         stage_layout.addLayout(stage_content_layout, 1)
         layout.addWidget(self.preview_stage, 1)
+        from app.widgets.performance_monitor import PerformanceMonitor
+        self.performance_monitor = PerformanceMonitor(self, self.preview_stack_host)
 
         self.now_playing_card = QFrame()
         self.now_playing_card.setObjectName("previewInfoCard")
@@ -1077,9 +1072,10 @@ class ExportPreviewDialog(QDialog):
         self.forward_button.clicked.connect(lambda: self._seek_relative(5.0))
         self.next_button.clicked.connect(lambda: self._skip_track(1))
         self.volume_slider.valueChanged.connect(self._set_volume)
-        self.track_list.itemClicked.connect(self._restore_track_highlight)
         self.track_list.itemDoubleClicked.connect(self._jump_to_track_item)
         self._install_shortcuts()
+        self.presentation_controller = PreviewPresentationController(self, stage_content_layout)
+        self.performance_action = self.presentation_controller.monitor_action
         initial_gpu = (
             self.preferred_backend == "gpu_layers"
             and GPU_TEXTURE_SURFACE_AVAILABLE
@@ -1121,6 +1117,7 @@ class ExportPreviewDialog(QDialog):
 
         self.setObjectName("embeddedCanvasPreview")
         self.dialog_title_label.setObjectName("embeddedPreviewTitle")
+        self.dialog_title_label.hide()
         self.hint_label.hide()
         if source_layout is not None:
             source_layout.setContentsMargins(0, 0, 0, 0)
@@ -1313,11 +1310,18 @@ class ExportPreviewDialog(QDialog):
     def _highlight_track(self, index: int) -> None:
         if index == self._highlighted_track_index:
             return
+        previous = self.track_list.item(self._highlighted_track_index)
+        if previous is not None:
+            previous.setData(Qt.ItemDataRole.UserRole + 3, False)
         self._highlighted_track_index = index
+        playing_item = self.track_list.item(index)
+        if playing_item is not None:
+            playing_item.setData(Qt.ItemDataRole.UserRole + 3, True)
         self.previous_button.setEnabled(index > 0)
         self.next_button.setEnabled(index < len(self.tracks) - 1)
         if 0 <= index < self.track_list.count():
-            self.track_list.setCurrentRow(index)
+            if self.track_list.currentRow() < 0:
+                self.track_list.setCurrentRow(index)
             item = self.track_list.item(index)
             if item is not None:
                 self.track_list.scrollToItem(item)
@@ -1326,14 +1330,10 @@ class ExportPreviewDialog(QDialog):
         index = item.data(Qt.ItemDataRole.UserRole)
         if not isinstance(index, int) or not 0 <= index < len(self.tracks):
             return
+        self.track_list.setCurrentRow(index)
         start = float(item.data(Qt.ItemDataRole.UserRole + 1) or 0.0)
         self.timeline.setValue(round(start * TIMELINE_SCALE))
         self._highlight_track(index)
-
-    def _restore_track_highlight(self, _item: QListWidgetItem) -> None:
-        """Keep single clicks informational; navigation requires a double click."""
-        if 0 <= self._highlighted_track_index < self.track_list.count():
-            self.track_list.setCurrentRow(self._highlighted_track_index)
 
     @property
     def _active_render_scale(self) -> float:
@@ -3244,6 +3244,7 @@ class ExportPreviewDialog(QDialog):
             surface.backend_failed.connect(self._gpu_backend_failed)
             surface.frame_presented.connect(self._gpu_frame_presented)
             self.gpu_surface = surface
+            self.presentation_controller.watch_gpu_surface(surface)
             self.preview_stack.addWidget(surface)
         self.gpu_preview_enabled = enabled and self.gpu_surface is not None
         if was_enabled != self.gpu_preview_enabled:
@@ -3255,6 +3256,7 @@ class ExportPreviewDialog(QDialog):
         if not self.gpu_preview_enabled:
             self._gpu_refresh_deferred = False
         self.preview_stack.setCurrentIndex(1 if self.gpu_preview_enabled else 0)
+        self.presentation_controller.raise_overlays()
         korean = self.translator.is_korean
         self.preview_mode_label.setText(
             ("GPU 레이어 · 시작 중" if korean else "GPU layers · Starting")
@@ -3292,6 +3294,7 @@ class ExportPreviewDialog(QDialog):
         self._invalidate_preview_render_cache()
         self._gpu_refresh_deferred = False
         self.preview_stack.setCurrentIndex(0)
+        self.presentation_controller.raise_overlays()
         self.refresh_preview()
         korean = self.translator.is_korean
         self.preview_mode_label.setText(
@@ -3810,6 +3813,7 @@ class ExportPreviewDialog(QDialog):
         if self._closing:
             return
         self._closing = True
+        self.presentation_controller.shutdown()
         self._cover_worker.requestInterruption()
         if self._cover_worker.isRunning():
             self._finish_or_detach_worker(self._cover_worker)
@@ -4036,10 +4040,7 @@ class ExportPreviewDialog(QDialog):
             "Review the complete timeline with actual audio and export-equivalent composition."
         )
         self.performance_title_label.setText("성능" if korean else "Performance")
-        self.tracks_toggle.setText("곡 목록" if korean else "Track list")
-        self.tracks_toggle.setToolTip("곡 목록 펼치기 / 접기" if korean else "Show or hide the track list")
-        self.performance_toggle.setText("성능 정보" if korean else "Performance")
-        self.performance_toggle.setToolTip("미리보기 렌더링 상태 보기" if korean else "Show preview rendering status")
+        self.presentation_controller.retranslate()
         self.track_list_title_label.setText("트랙" if korean else "Tracks")
         self._populate_track_list()
         if getattr(self, "automix_details", None) is not None:

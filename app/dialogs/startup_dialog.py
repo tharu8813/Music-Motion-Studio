@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import sys
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QKeySequence, QPixmap, QShortcut
@@ -27,6 +28,7 @@ from app.dialogs.help_dialog import install_help_shortcut
 from app.services.recent_projects_service import RecentProjectsService
 from app.services.project_service import ProjectError, ProjectService, ProjectSummary
 from app.utils.i18n import Translator
+from app.widgets.activity_progress import ElidedLabel
 
 
 class _RecentProjectRow(QWidget):
@@ -51,17 +53,17 @@ class _RecentProjectRow(QWidget):
                 Qt.TransformationMode.SmoothTransformation,
             ))
         else:
-            thumbnail.setText("PVS")
+            thumbnail.setText("MMS")
         layout.addWidget(thumbnail)
         text_layout = QVBoxLayout()
         text_layout.setSpacing(2)
-        title = QLabel(summary.title)
+        title = ElidedLabel(summary.title)
         title.setObjectName("panelTitle")
-        description = QLabel(summary.description or str(path.parent))
+        description = ElidedLabel(summary.description or str(path.parent))
         description.setObjectName("mutedLabel")
         description.setWordWrap(False)
         meta_parts = [part for part in (summary.author, modified) if part]
-        metadata = QLabel("  ·  ".join(meta_parts))
+        metadata = ElidedLabel("  ·  ".join(meta_parts))
         metadata.setObjectName("mutedLabel")
         text_layout.addWidget(title)
         text_layout.addWidget(description)
@@ -91,51 +93,58 @@ class StartupDialog(QDialog):
         # A project file dragged from Explorer opens directly.
         self.setAcceptDrops(True)
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(32, 32, 32, 24)
-        root.setSpacing(18)
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        actions_card = QFrame()
+        actions_card.setObjectName("startupRail")
+        actions_card.setFixedWidth(292)
+        actions_layout = QVBoxLayout(actions_card)
+        actions_layout.setContentsMargins(28, 32, 28, 24)
+        actions_layout.setSpacing(12)
+        resource_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+        brand_icon = QLabel()
+        brand_icon.setPixmap(QIcon(str(resource_root / "app/resources/app_icon.ico")).pixmap(44, 44))
+        brand_icon.setFixedSize(48, 48)
+        actions_layout.addWidget(brand_icon)
+        actions_layout.addSpacing(8)
         self.title = QLabel()
         self.title.setObjectName("startupTitle")
-        title_font = self.title.font()
-        title_font.setPointSize(22)
-        title_font.setBold(True)
-        self.title.setFont(title_font)
+        self.title.setWordWrap(True)
         self.description = QLabel()
         self.description.setObjectName("mutedLabel")
-        root.addWidget(self.title)
-        root.addWidget(self.description)
-
-        body = QHBoxLayout()
-        body.setSpacing(32)
-        actions_card = QFrame()
-        actions_card.setObjectName("card")
-        actions_layout = QVBoxLayout(actions_card)
-        actions_layout.setContentsMargins(0, 20, 24, 0)
-        actions_layout.setSpacing(12)
+        self.description.setWordWrap(True)
+        actions_layout.addWidget(self.title)
+        actions_layout.addWidget(self.description)
+        actions_layout.addSpacing(24)
         self.actions_title = QLabel()
         self.actions_title.setObjectName("panelTitle")
         self.new_button = QPushButton()
-        self.new_button.setMinimumHeight(48)
+        self.new_button.setMinimumHeight(30)
         self.new_button.setProperty("primary", True)
         self.new_button.setIcon(QIcon())
         self.new_button.setIconSize(QSize(24, 24))
         self.open_button = QPushButton()
-        self.open_button.setMinimumHeight(44)
+        self.open_button.setMinimumHeight(30)
         self.open_button.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton)
         )
-        self.open_button.setIconSize(QSize(24, 24))
+        self.open_button.setIconSize(QSize(18, 18))
         actions_layout.addWidget(self.actions_title)
         actions_layout.addWidget(self.new_button)
         actions_layout.addWidget(self.open_button)
         actions_layout.addStretch()
-        body.addWidget(actions_card, 2)
+        self.exit_hint = QLabel()
+        self.exit_hint.setObjectName("mutedLabel")
+        self.exit_hint.setWordWrap(True)
+        actions_layout.addWidget(self.exit_hint)
+        root.addWidget(actions_card)
 
         recent_card = QFrame()
-        recent_card.setObjectName("card")
+        recent_card.setObjectName("startupRecentPane")
         recent_layout = QVBoxLayout(recent_card)
-        recent_layout.setContentsMargins(0, 20, 0, 0)
-        recent_layout.setSpacing(10)
+        recent_layout.setContentsMargins(28, 28, 28, 24)
+        recent_layout.setSpacing(16)
         recent_header = QHBoxLayout()
         self.recent_title = QLabel()
         self.recent_title.setObjectName("panelTitle")
@@ -149,6 +158,14 @@ class StartupDialog(QDialog):
         self.recent_list.setObjectName("recentProjectList")
         self.recent_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.recent_list.setAlternatingRowColors(False)
+        self.recent_empty = QLabel()
+        self.recent_empty.setObjectName("startupEmptyState")
+        self.recent_empty.setWordWrap(True)
+        self.recent_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_layout = QVBoxLayout(self.recent_list)
+        empty_layout.setContentsMargins(32, 32, 32, 32)
+        empty_layout.addWidget(self.recent_empty)
+        self.recent_empty.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         recent_layout.addWidget(self.recent_list, 1)
         recent_buttons = QHBoxLayout()
         self.remove_button = QPushButton()
@@ -158,12 +175,7 @@ class StartupDialog(QDialog):
         recent_buttons.addStretch()
         recent_buttons.addWidget(self.open_recent_button)
         recent_layout.addLayout(recent_buttons)
-        body.addWidget(recent_card, 3)
-        root.addLayout(body, 1)
-
-        self.exit_hint = QLabel()
-        self.exit_hint.setObjectName("mutedLabel")
-        root.addWidget(self.exit_hint)
+        root.addWidget(recent_card, 1)
 
         self.new_button.clicked.connect(self._choose_new)
         self.open_button.clicked.connect(self._browse_project)
@@ -184,13 +196,16 @@ class StartupDialog(QDialog):
         """Refresh all visible startup text."""
         korean = self.translator.is_korean
         self.setWindowTitle("프로젝트 시작" if korean else "Start a project")
-        self.title.setText("Playlist Canvas")
+        self.title.setText("Music Motion\nStudio")
         self.description.setText(
-            "새 작업을 시작하거나 기존 프로젝트에서 계속하세요. "
-            "프로젝트 파일을 이 창으로 끌어와도 열립니다."
+            "음악을 담고, 장면을 만드세요."
             if korean else
-            "Start something new or continue an existing project. "
-            "You can also drop a project file onto this window."
+            "Your music. Your moving canvas."
+        )
+        self.recent_empty.setText(
+            "아직 연 프로젝트가 없습니다.\n\n새 프로젝트를 만들거나\n프로젝트 파일을 이곳으로 끌어오세요."
+            if korean else
+            "No projects opened yet.\n\nCreate a project or drop\na project file here to begin."
         )
         self.actions_title.setText("시작" if korean else "Get started")
         self.new_button.setText("새 프로젝트 만들기" if korean else "Create new project")
@@ -205,8 +220,8 @@ class StartupDialog(QDialog):
         )
         self.open_recent_button.setText("선택한 프로젝트 열기" if korean else "Open selected")
         self.exit_hint.setText(
-            "이 창을 닫으면 프로그램이 종료됩니다."
-            if korean else "Closing this window exits the application."
+            "이 창을 닫아도 프로그램은 유지됩니다. 프로젝트를 열기 전에는 설정과 도움말 등 일부 기능만 사용할 수 있습니다."
+            if korean else "Closing this window keeps the application open. Only settings, help and other basic features are available until you open a project."
         )
         self.refresh_recent()
 
@@ -216,13 +231,13 @@ class StartupDialog(QDialog):
         self.recent_list.clear()
         projects = self.recent.projects()
         korean = self.translator.is_korean
-        if not projects:
-            empty = QListWidgetItem(
-                "최근 프로젝트가 없습니다." if korean else "No recent projects yet."
-            )
-            empty.setFlags(Qt.ItemFlag.NoItemFlags)
-            self.recent_list.addItem(empty)
-        else:
+        self.recent_empty.setVisible(not projects)
+        self.remove_button.setVisible(bool(projects))
+        self.open_recent_button.setVisible(bool(projects))
+        self.clear_button.setVisible(bool(projects))
+        self.new_button.setDefault(not projects)
+        self.open_recent_button.setDefault(bool(projects))
+        if projects:
             for path in projects:
                 try:
                     modified = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
@@ -270,7 +285,7 @@ class StartupDialog(QDialog):
             self,
             "프로젝트 열기" if korean else "Open project",
             "",
-            "Playlist Canvas Project (*.pvsproj *.project.json *.json)",
+            "Music Motion Studio Project (*.pvsproj *.project.json *.json)",
         )
         if selected:
             self.action = self.OPEN_PROJECT

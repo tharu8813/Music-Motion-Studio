@@ -19,7 +19,7 @@ class LaunchSplashTests(unittest.TestCase):
     def test_progress_localization_and_completion(self):
         for korean in (True, False):
             with self.subTest(korean=korean), patch("app.ui.launch_splash.launch_is_korean", return_value=korean):
-                splash = LaunchSplash("Playlist Canvas", "1.3.1.1")
+                splash = LaunchSplash("Music Motion Studio", "1.3.1.1")
                 window = QWidget()
                 try:
                     splash.show()

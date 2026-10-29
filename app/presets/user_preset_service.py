@@ -141,7 +141,7 @@ class UserPresetService:
         except (OSError, ValueError) as error:
             raise UserPresetError("The file could not be read as a preset.") from error
         if not isinstance(payload, dict) or payload.get("format") != _FORMAT:
-            raise UserPresetError("This is not a Playlist Canvas preset file.")
+            raise UserPresetError("This is not a Music Motion Studio preset file.")
         name = (str(payload.get("name") or "").strip()
                 or Path(source_path).stem or "Imported preset")
         raw_sources = payload.get("sources")

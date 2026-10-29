@@ -22,7 +22,7 @@ class MaintenanceTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
         # Always a test store: the reset test clears it, and must never touch the user's settings.
         cls._organization = QApplication.organizationName()
-        QApplication.setOrganizationName("Playlist Canvas Maintenance Tests")
+        QApplication.setOrganizationName("Music Motion Studio Maintenance Tests")
 
     @classmethod
     def tearDownClass(cls):
@@ -51,6 +51,7 @@ class MaintenanceTests(unittest.TestCase):
         settings = QSettings()
         settings.setValue("export/ffmpeg_path", "C:/ffmpeg.exe")
         settings.setValue("migration/playlist_canvas_brand", True)
+        settings.setValue("migration/music_motion_studio_brand", True)
         settings.setValue("language", "en")
         settings.setValue("guides/welcome_seen", True)
         with patch("app.automix.cache.clear_caches") as clear_caches, \
@@ -60,6 +61,7 @@ class MaintenanceTests(unittest.TestCase):
         settings = QSettings()
         self.assertEqual(settings.value("export/ffmpeg_path"), "C:/ffmpeg.exe")
         self.assertTrue(settings.contains("migration/playlist_canvas_brand"))
+        self.assertTrue(settings.value("migration/music_motion_studio_brand", False, bool))
         self.assertFalse(settings.contains("language"))
         self.assertFalse(settings.contains("guides/welcome_seen"))
         settings.clear()

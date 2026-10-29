@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.ui.design_system import COLORS
+
 from html import escape
 from pathlib import Path
 
@@ -19,6 +21,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSlider,
+    QStyle,
     QVBoxLayout,
     QWidget,
 )
@@ -68,10 +71,10 @@ class _ReorderList(QListWidget):
             if len(items) > 1:
                 painter = QPainter(pixmap)
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-                painter.setBrush(QColor("#79C7B4"))
+                painter.setBrush(QColor(COLORS["accent"]))
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.drawRoundedRect(pixmap.width() - 30, 4, 24, 18, 6, 6)
-                painter.setPen(QColor("#FFFFFF"))
+                painter.setPen(QColor(COLORS["window"]))
                 painter.drawText(
                     pixmap.width() - 30, 4, 24, 18,
                     Qt.AlignmentFlag.AlignCenter, f"{len(items)}",
@@ -152,7 +155,7 @@ class _TrackRow(QWidget):
             cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._title = escape(track.title)
         self._subtitle = (
-            f"<span style='color:#8A97A6'>{escape(track.artist)}"
+            f"<span style='color:{COLORS['muted']}'>{escape(track.artist)}"
             f" · {escape(track.album)}</span>"
         )
         self.meta_label = QLabel()
@@ -169,7 +172,7 @@ class _TrackRow(QWidget):
         )
 
     def _render_meta(self, playing: bool) -> None:
-        marker = "<span style='color:#2F9E44'>▶ </span>" if playing else ""
+        marker = f"<span style='color:{COLORS['accent']}'>▶ </span>" if playing else ""
         self.meta_label.setText(
             f"<b>{marker}{self._title}</b><br>{self._subtitle}"
         )
@@ -245,6 +248,7 @@ class TrackOrderDialog(QDialog):
         self.list_widget.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.list_widget.setDragEnabled(True)
         self.list_widget.setUniformItemSizes(True)
+        self.list_widget.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.list_widget.setSpacing(2)
         self.list_widget.order_changed.connect(self._apply_new_order)
         self.list_widget.itemDoubleClicked.connect(self._on_item_double_clicked)
@@ -268,11 +272,20 @@ class TrackOrderDialog(QDialog):
 
         transport = QHBoxLayout()
         transport.setSpacing(8)
-        self.prev_button = QPushButton("⏮")
-        self.play_button = QPushButton("▶")
-        self.next_button = QPushButton("⏭")
+        self.prev_button = QPushButton()
+        self.play_button = QPushButton()
+        self.next_button = QPushButton()
+        for button, icon, label in (
+            (self.prev_button, QStyle.StandardPixmap.SP_MediaSkipBackward, "이전 곡" if korean else "Previous track"),
+            (self.next_button, QStyle.StandardPixmap.SP_MediaSkipForward, "다음 곡" if korean else "Next track"),
+        ):
+            button.setIcon(self.style().standardIcon(icon))
+            button.setAccessibleName(label)
+            button.setToolTip(label)
+        self._on_playback_state(self.media_player.playbackState())
         for button in (self.prev_button, self.play_button, self.next_button):
             button.setFixedWidth(44)
+            button.setIconSize(QSize(20, 20))
         self.prev_button.clicked.connect(lambda: self._step_playing(-1))
         self.next_button.clicked.connect(lambda: self._step_playing(1))
         self.play_button.clicked.connect(self._toggle_playback)
@@ -285,13 +298,18 @@ class TrackOrderDialog(QDialog):
         self.volume_slider.setFixedWidth(90)
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(preview_volume())
+        self.volume_slider.setAccessibleName("음량" if korean else "Volume")
         self.volume_slider.valueChanged.connect(self._set_volume)
+        self.volume_label = QLabel()
+        self.volume_label.setPixmap(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaVolume).pixmap(18, 18))
+        self.volume_label.setAccessibleName("음량" if korean else "Volume")
+        self.volume_label.setToolTip("음량" if korean else "Volume")
         transport.addWidget(self.prev_button)
         transport.addWidget(self.play_button)
         transport.addWidget(self.next_button)
         transport.addWidget(self.position_slider, 1)
         transport.addWidget(self.time_label)
-        transport.addWidget(QLabel("🔊"))
+        transport.addWidget(self.volume_label)
         transport.addWidget(self.volume_slider)
         root.addLayout(transport)
 
@@ -321,11 +339,11 @@ class TrackOrderDialog(QDialog):
             track = self._tracks_by_id[track_id]
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, track_id)
-            item.setSizeHint(QSize(0, _COVER_PX + 12))
             row_widget = _TrackRow(track, korean)
             item.setToolTip(row_widget.tooltip_text)
             self.list_widget.addItem(item)
             self.list_widget.setItemWidget(item, row_widget)
+            item.setSizeHint(QSize(0, row_widget.sizeHint().height()))
         self.list_widget.blockSignals(False)
         self._renumber()
 
@@ -443,7 +461,13 @@ class TrackOrderDialog(QDialog):
 
     def _on_playback_state(self, state: QMediaPlayer.PlaybackState) -> None:
         playing = state == QMediaPlayer.PlaybackState.PlayingState
-        self.play_button.setText("⏸" if playing else "▶")
+        self.play_button.setIcon(self.style().standardIcon(
+            QStyle.StandardPixmap.SP_MediaPause if playing else QStyle.StandardPixmap.SP_MediaPlay
+        ))
+        korean = self.translator.is_korean
+        label = ("일시정지" if korean else "Pause") if playing else ("재생" if korean else "Play")
+        self.play_button.setAccessibleName(label)
+        self.play_button.setToolTip(label)
 
     def _on_media_status(self, status: QMediaPlayer.MediaStatus) -> None:
         if status == QMediaPlayer.MediaStatus.EndOfMedia:

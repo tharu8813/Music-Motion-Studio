@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.ui.design_system import COLORS
+
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -672,13 +674,13 @@ class ExportProgressDialog(QDialog):
         names = self._step_names()
         for index, (label, name) in enumerate(zip(self.step_labels, names, strict=True)):
             if index < active_index:
-                symbol, color, state = "✓", "#35A56F", "completed"
+                symbol, color, state = "✓", COLORS["success"], "completed"
                 status = "완료" if self._korean else "completed"
             elif index == active_index:
-                symbol, color, state = "●", "#79C7B4", "active"
+                symbol, color, state = "●", COLORS["accent"], "active"
                 status = "진행 중" if self._korean else "in progress"
             else:
-                symbol, color, state = "○", "#8793A1", "pending"
+                symbol, color, state = "○", COLORS["muted"], "pending"
                 status = "대기" if self._korean else "waiting"
             label.setProperty("stepState", state)
             label.setText(

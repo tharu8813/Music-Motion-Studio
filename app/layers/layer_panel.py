@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.ui.design_system import COLORS
+
 from PySide6.QtCore import QItemSelectionModel, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QDropEvent
 from PySide6.QtWidgets import (
@@ -218,7 +220,7 @@ class LayerPanel(QFrame):
 
         QTimer.singleShot(0, self, perform_refresh)  # dropped if the panel is deleted first
 
-    _LOCKED_FOREGROUND = QBrush(QColor("#E0603A"))
+    _LOCKED_FOREGROUND = QBrush(QColor(COLORS["warning"]))
 
     def _source_item(self, source: Source) -> QTreeWidgetItem:
         item = QTreeWidgetItem([source.name, "", ""])
