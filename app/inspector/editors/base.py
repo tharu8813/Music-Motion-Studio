@@ -234,6 +234,7 @@ class MotionSection(FieldSection):
 
     FAMILY = ("모션", "motion")
     LOOP_KEYS = ("loop_motion", "loop_motion_period", "loop_motion_amount")
+    APPEARANCE_KEYS = ("flip_horizontal", "flip_vertical", "frame_width", "frame_color", "frame_inset")
     REACTIVE_KEYS = ("music_reactive_enabled", "music_reactive_effect", "music_reactive_band",
                      "music_reactive_strength", "music_reactive_attack", "music_reactive_release",
                      "music_reactive_sensitivity", "music_reactive_threshold",
@@ -243,6 +244,11 @@ class MotionSection(FieldSection):
         ("loop_motion_period", None),
         ("loop_motion_amount", None),
         ("mask_shape", None),
+        ("flip_horizontal", None),
+        ("flip_vertical", None),
+        ("frame_width", "source_frame"),
+        ("frame_color", "source_frame"),
+        ("frame_inset", "source_frame"),
         ("music_reactive_enabled", "music_reaction"),
         ("music_reactive_effect", "music_reaction"),
         ("music_reactive_band", "music_reaction"),
@@ -259,6 +265,11 @@ class MotionSection(FieldSection):
         "loop_motion_period": ("반복 주기 (초)", "Loop period (s)"),
         "loop_motion_amount": ("모션 세기", "Motion strength"),
         "mask_shape": ("마스크 모양", "Mask shape"),
+        "flip_horizontal": ("좌우 반전", "Flip horizontally"),
+        "flip_vertical": ("상하 반전", "Flip vertically"),
+        "frame_width": ("프레임 두께", "Frame width"),
+        "frame_color": ("프레임 색상", "Frame color"),
+        "frame_inset": ("프레임 안쪽 여백", "Frame inset"),
         "music_reactive_enabled": ("음악에 맞춰 반응", "React to music"),
         "music_reactive_effect": ("반응 애니메이션", "Reaction effect"),
         "music_reactive_strength": ("반응 강도", "Reaction strength"),
@@ -270,9 +281,15 @@ class MotionSection(FieldSection):
         "music_reactive_curve": ("반응 곡선", "Response curve"),
         "music_reactive_offset": ("반응 시간 보정 (초)", "Reaction offset (s)"),
     }
-    SECTION_TITLES = {"music_reaction": ("음악 반응", "Music reaction"),
+    SECTION_TITLES = {"source_frame": ("장식 프레임", "Decorative frame"),
+                      "music_reaction": ("음악 반응", "Music reaction"),
                       "music_response": ("반응 조절", "Response tuning")}
     HELP = {
+        "flip_horizontal": ("요소 전체를 좌우로 반전합니다. 위치와 편집 핸들은 유지됩니다.", "Mirror the whole source horizontally, keeping its placement and editing handles."),
+        "flip_vertical": ("요소 전체를 상하로 반전합니다. 모든 요소와 영상 내보내기에 적용됩니다.", "Mirror the whole source vertically. Available for every source and video export."),
+        "frame_width": ("요소 안쪽에 사각 프레임을 추가합니다. 0이면 숨기며 기존 외곽선과 별도로 적용됩니다.", "Add an inside rectangular frame independently of the source outline. Zero hides it."),
+        "frame_color": ("장식 프레임의 색상과 투명도를 선택합니다.", "Choose the decorative frame color and transparency."),
+        "frame_inset": ("요소 가장자리와 프레임 사이 간격입니다. 작은 요소에서는 크기에 맞게 제한됩니다.", "Space between the source edge and frame. Clamped to fit smaller sources."),
         "loop_motion": ("요소가 화면에 있는 동안 계속 반복되는 움직임입니다. 등장·퇴장 애니메이션과 함께 적용됩니다.", "Movement repeated for as long as the source is on screen, on top of its entrance and exit."),
         "loop_motion_period": ("움직임 한 번에 걸리는 시간입니다. 회전은 이 시간마다 한 바퀴 돕니다.", "Seconds per cycle. Spin turns once per period."),
         "loop_motion_amount": ("움직임의 크기입니다. 0이면 멈추고, 1이 기본입니다.", "Size of the movement. 0 stops it; 1 is the default."),
@@ -293,6 +310,8 @@ class MotionSection(FieldSection):
         "breathe": ("숨쉬기", "Breathe"), "pulse": ("맥박", "Pulse"),
         "sway": ("흔들림", "Sway"), "spin": ("회전", "Spin"),
         "drift": ("떠돌기", "Drift"), "wobble": ("출렁임", "Wobble"),
+        "orbit": ("타원 궤도", "Orbit"), "shake": ("좌우 떨림", "Shake"),
+        "nod": ("끄덕이기", "Nod"), "blink": ("깜빡임", "Blink"),
     }
     REACTIVE_LABELS = {
         "bass_scale": ("확대·복귀", "Scale pulse"),
@@ -331,6 +350,11 @@ class MotionSection(FieldSection):
             "loop_motion_period": spin(0.2, 60.0, 0.25),
             "loop_motion_amount": spin(0.0, 5.0, 0.1),
             "mask_shape": mask,
+            "flip_horizontal": QCheckBox(),
+            "flip_vertical": QCheckBox(),
+            "frame_width": spin(0.0, 80.0, 1.0),
+            "frame_color": QPushButton(),
+            "frame_inset": spin(0.0, 200.0, 1.0),
             "music_reactive_enabled": QCheckBox(),
             "music_reactive_effect": reactive,
             "music_reactive_strength": spin(0.0, 1.0, 0.05),
@@ -346,6 +370,7 @@ class MotionSection(FieldSection):
     def hidden_when_off(self, source: Source) -> dict[str, bool]:
         moving = source.loop_motion != "none"
         return {"loop_motion_period": moving, "loop_motion_amount": moving,
+                "frame_color": source.frame_width > 0, "frame_inset": source.frame_width > 0,
                 **{key: source.music_reactive_enabled for key in self.REACTIVE_KEYS[1:]}}
 
     def retranslate(self, korean: bool) -> None:
@@ -356,6 +381,8 @@ class MotionSection(FieldSection):
             combo = self.widgets[key]
             for index in range(combo.count()):
                 combo.setItemText(index, labels[combo.itemData(index)][0 if korean else 1])
+        for key in ("flip_horizontal", "flip_vertical"):
+            self.widgets[key].setText("사용" if korean else "Enabled")
 
 
 def shows_mask(source: Source) -> bool:
@@ -369,6 +396,7 @@ def shows_mask(source: Source) -> bool:
 # outline_color, animation_in/out_duration) -- those are unaffected by
 # which type is selected.
 TYPE_SPECIFIC_FIELD_KEYS: tuple[str, ...] = (
+    "subtitle_auto_shrink", "subtitle_auto_wrap", "subtitle_wrap_to_source", "subtitle_wrap_width",
     "text", "font_size", "font_weight", "font_family",
     "text_stroke_color", "text_stroke_width", "text_alignment", "text_overflow",
     *(key for key, _section in TypographySection.ROWS),
@@ -445,6 +473,7 @@ def apply_shared_fields(inspector: "SourceInspector", source: Source) -> None:
     )
     show_fields(inspector, _ALWAYS_VISIBLE_FIELD_KEYS)
     show_fields(inspector, MotionSection.LOOP_KEYS)
+    show_fields(inspector, MotionSection.APPEARANCE_KEYS)
     inspector._set_field_visible("mask_shape", shows_mask(source))
 
 

@@ -151,13 +151,18 @@ class TTMLLyricsTests(unittest.TestCase):
             self.assertEqual({item.path.name for item in exact}, {"Song.TTML", "Song.lrc"})
             self.assertEqual(similar, [])
 
-    def test_ordinary_lyrics_are_complete_from_start_through_gaps(self):
-        source = Source(SourceType.LYRICS, "Lyrics", subtitle_karaoke_enabled=True)
+    def test_ordinary_lyrics_are_complete_from_first_timestamp_through_gaps(self):
+        source = Source(SourceType.LYRICS, "Lyrics", subtitle_karaoke_enabled=True,
+                        subtitle_intro_enabled=False)
         # Even enhanced LRC/previous audio-analysis word data is never animated.
         track = PlaylistTrack("missing.wav", "Track", lyrics=LyricsService._parse_lrc(
             "[00:05]<00:05>First<00:06>\n[00:12]Next"))
         track.lyrics[0]["end"] = 7
-        for elapsed, expected, length in [(0, 0, 5), (5, 0, 5), (10, 0, 5), (12, 1, 4), (30, 1, 4)]:
+        waiting = resolve_lyrics_cue_state(track, 0, 0, 0, "glow", .5, whole_lines=True)
+        self.assertIsNone(waiting.active_cue_index)
+        self.assertTrue(waiting.before_first)
+        self.assertEqual(resolve_lyrics_word_reveal(track, source, 0, waiting, None), ())
+        for elapsed, expected, length in [(5, 0, 5), (10, 0, 5), (12, 1, 4), (30, 1, 4)]:
             state = resolve_lyrics_cue_state(track, elapsed, 0, 0, "glow", .5, whole_lines=True)
             self.assertEqual(state.active_cue_index, expected)
             self.assertIsNone(state.release_progress)

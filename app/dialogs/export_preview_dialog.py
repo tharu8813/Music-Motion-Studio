@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -1109,6 +1110,7 @@ class ExportPreviewDialog(QDialog):
         controls_layout = QVBoxLayout(page)
         controls_layout.setContentsMargins(12, 8, 12, 8)
         controls_layout.setSpacing(5)
+        controls_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         source_layout = self.layout()
         for widget in (
             self.now_playing_card, self.timeline_card, self.transport_card,
@@ -1130,9 +1132,11 @@ class ExportPreviewDialog(QDialog):
         self.timeline_card.setObjectName("embeddedTimeline")
         self.transport_card.setObjectName("embeddedTransport")
         self.track_badge_label.setFixedSize(38, 38)
-        self.now_playing_card.setMaximumHeight(58)
-        self.timeline_card.setMaximumHeight(82)
-        self.transport_card.setMaximumHeight(56)
+        for card in (self.now_playing_card, self.timeline_card, self.transport_card):
+            # These rows include text, margins and a custom timeline widget.
+            # A fixed pixel cap can be smaller than their actual minimum size.
+            card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        controls_layout.addStretch(1)
         self.shortcut_hint_label.hide()
 
         # Recompose the dialog's two-row control card into the same one-line

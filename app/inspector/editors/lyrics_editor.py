@@ -38,6 +38,10 @@ class LyricsSection(FieldSection):
     }
 
     ROWS = (
+        ("subtitle_auto_shrink", "sub_layout"),
+        ("subtitle_auto_wrap", "sub_layout"),
+        ("subtitle_wrap_to_source", "sub_layout"),
+        ("subtitle_wrap_width", "sub_layout"),
         ("subtitle_animation", "sub_transition"),
         ("subtitle_animation_duration", "sub_transition"),
         ("subtitle_context_lines", "sub_layout"),
@@ -58,6 +62,10 @@ class LyricsSection(FieldSection):
     )
 
     LABELS = {
+        "subtitle_auto_shrink": ("글꼴 크기 자동 감소", "Automatically reduce font size"),
+        "subtitle_auto_wrap": ("자동 줄바꿈", "Automatic word wrap"),
+        "subtitle_wrap_to_source": ("줄바꿈 기준", "Wrap width basis"),
+        "subtitle_wrap_width": ("줄바꿈 너비", "Wrap width"),
         "subtitle_animation": ("전환 효과", "Transition effect"),
         "subtitle_animation_duration": ("전환 시간", "Transition duration"),
         "subtitle_context_lines": ("이전 가사 줄", "Previous lyric lines"),
@@ -87,6 +95,10 @@ class LyricsSection(FieldSection):
     }
 
     HELP = {
+        "auto_shrink": ("요소 너비보다 긴 줄의 글꼴 크기를 자동으로 줄입니다. 줄바꿈과 함께 사용할 수 있습니다.", "Shrink lines that exceed the element width. Can be combined with word wrapping."),
+        "auto_wrap": ("단어 사이에서 줄을 나눕니다. 한 단어를 글자별로 나누지 않으며, 원래 줄바꿈과 가사 시간은 유지합니다.", "Wrap at spaces without splitting words. Original line breaks and lyric timings are preserved."),
+        "wrap_to_source": ("요소 너비를 사용하거나 별도의 줄바꿈 너비를 지정합니다. 가로 이동에서는 각 가사의 표시 영역 너비를 사용합니다.", "Use the element width or a custom wrap width. Horizontal flow uses each cue's available width."),
+        "wrap_width": ("배율 적용 전 픽셀 단위 너비입니다. 요소 크기와 별도로 줄바꿈 위치를 정합니다.", "Width in pixels before element scaling, independent of the element size."),
         "animation": ("재생 중 가사·자막 큐가 바뀔 때 적용할 효과입니다. 미리보기와 내보내기에 동일하게 적용됩니다.", "Effect used when a lyric or subtitle cue changes during playback. Applies to both preview and export."),
         "animation_duration": ("자막 전환 효과가 재생되는 시간입니다. 효과를 없음으로 선택하면 즉시 전환됩니다.", "Duration of each subtitle transition. None switches cues immediately."),
         "context_lines": ("현재 가사와 함께 표시할 이전 가사 수입니다. 위치는 이동 방향을 따릅니다.", "Previous cues shown alongside the current cue. Their position follows the flow direction."),
@@ -125,6 +137,9 @@ class LyricsSection(FieldSection):
         pending_mode = QComboBox()
         pending_mode.addItem("Separate color", "custom")
         pending_mode.addItem("Dim reached color", "dim")
+        wrap_basis = QComboBox()
+        wrap_basis.addItem("Element width", True)
+        wrap_basis.addItem("Custom width", False)
         lines = QLineEdit()
         lines.setMaxLength(64)
         lines.setValidator(QRegularExpressionValidator(QRegularExpression(
@@ -133,6 +148,10 @@ class LyricsSection(FieldSection):
         self._lines_edited = False
         lines.textEdited.connect(self._mark_lines_edited)
         self.widgets: dict[str, QWidget] = {
+            "subtitle_auto_shrink": QCheckBox(),
+            "subtitle_auto_wrap": QCheckBox(),
+            "subtitle_wrap_to_source": wrap_basis,
+            "subtitle_wrap_width": spin(16, 100_000, 10),
             "subtitle_animation": animation,
             "subtitle_animation_duration": animation_duration,
             "subtitle_context_lines": context_lines,
@@ -182,6 +201,8 @@ class LyricsSection(FieldSection):
         """Previous-line styling only matters while previous lines are shown."""
         shows_previous = source.subtitle_context_lines != 0
         return {
+            "subtitle_wrap_to_source": source.subtitle_auto_wrap,
+            "subtitle_wrap_width": source.subtitle_auto_wrap and not source.subtitle_wrap_to_source,
             "subtitle_previous_opacity": shows_previous,
             "subtitle_previous_blur": shows_previous,
             "subtitle_accent_color": source.subtitle_accent_enabled or source.subtitle_karaoke_enabled,
@@ -194,6 +215,12 @@ class LyricsSection(FieldSection):
         }
 
     def retranslate(self, korean: bool) -> None:
+        for key in ("subtitle_auto_shrink", "subtitle_auto_wrap"):
+            self.widgets[key].setText("사용" if korean else "Enabled")
+        basis = self.widgets["subtitle_wrap_to_source"]
+        basis.setItemText(0, "요소 너비" if korean else "Element width")
+        basis.setItemText(1, "직접 지정" if korean else "Custom width")
+        self.widgets["subtitle_wrap_width"].setSuffix(" px")
         self.widgets["subtitle_animation_duration"].setSuffix(" 초" if korean else " s")
         self.widgets["subtitle_accent_enabled"].setText("사용" if korean else "Enabled")
         self.widgets["subtitle_karaoke_enabled"].setText("사용" if korean else "Enabled")

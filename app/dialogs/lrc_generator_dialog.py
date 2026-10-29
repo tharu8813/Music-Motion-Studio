@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from bisect import bisect_right
 from pathlib import Path
+from copy import deepcopy
 import re
 
 from PySide6.QtCore import QSize, QStandardPaths, Qt, QTimer, QUrl
@@ -42,6 +43,7 @@ from app.models.project import ProjectContent
 from app.models.playlist import PlaylistTrack
 from app.dialogs.help_dialog import install_help_shortcut
 from app.dialogs.lrc_shortcuts_dialog import LrcShortcutsDialog
+from app.dialogs.ttml_edit_dialog import TtmlRowsDialog, choose_ttml_edit_mode, line_cues, needs_ttml_protection
 from app.services.lyrics_service import LyricsError, LyricsService
 from app.services.lrc_draft_service import LrcDraft, LrcDraftError, LrcDraftService
 from app.services.preview_audio_settings import preview_volume, save_preview_volume
@@ -74,6 +76,7 @@ class LrcGeneratorDialog(QDialog):
         super().__init__(parent)
         self.translator = translator
         self.track_edit_mode = track_edit_mode
+        self._preserved_cues = None
         self.audio_path = ""
         self.lines: list[str] = []
         self.timestamps: list[float | None] = []
@@ -561,6 +564,8 @@ class LrcGeneratorDialog(QDialog):
 
     def _load_initial_cues(self, cues: list[dict[str, object]]) -> None:
         """Populate the editor from an existing timed-lyrics collection."""
+        if needs_ttml_protection(cues):
+            raise LyricsError("TTML requires an explicit conversion or deletion-only choice before line editing.")
         prepared: list[tuple[float, str]] = []
         for cue in cues:
             text = LyricsService.decode_line_breaks(cue.get("text", "")).strip()
@@ -665,6 +670,8 @@ class LrcGeneratorDialog(QDialog):
         previous_audio = self.audio_path
         if previous_audio and previous_audio != str(candidate.resolve()):
             self._save_draft_now()
+            self._initial_cues_supplied = False
+            self._preserved_cues = None
         self.media_player.stop()
         self.audio_path = str(candidate.resolve())
         if self.audio_path != previous_audio:
@@ -701,7 +708,7 @@ class LrcGeneratorDialog(QDialog):
             self.artist_edit.setText(self._initial_artist.strip() or "Unknown Artist")
         self._restoring_draft = was_restoring
         self._set_status("오디오를 불러왔습니다." if self._korean else "Audio loaded.")
-        if self.audio_path != previous_audio:
+        if self.audio_path != previous_audio and not self._initial_cues_supplied:
             self._offer_draft_recovery()
         self._update_enabled()
 
@@ -774,6 +781,24 @@ class LrcGeneratorDialog(QDialog):
                 return False
         if not cues:
             return False
+        mode = choose_ttml_edit_mode(cues, track.lyrics_path, self.translator, self)
+        if mode == "cancel":
+            return False
+        if mode == "delete":
+            if not self.result_track_id:
+                QMessageBox.warning(self, "가사/자막 편집기" if self._korean else "Lyrics/Subtitle Editor",
+                    "적용할 곡이 모호합니다. 플레이리스트에서 곡을 선택하거나 곡 정보/설정에서 편집하세요."
+                    if self._korean else "The target track is ambiguous. Select a playlist track or edit from Track Settings.")
+                return False
+            dialog = TtmlRowsDialog(cues, self.translator, self, title=track.title, target_track_id=track.id)
+            accepted = dialog.exec() == QDialog.DialogCode.Accepted
+            if accepted:
+                self._preserved_cues = dialog.timed_cues()
+                self.accept()
+            dialog.deleteLater()
+            return False
+        if mode == "convert":
+            cues = line_cues(cues)
         self._restoring_draft = True
         try:
             self.title_edit.setText(track.title)
@@ -1257,6 +1282,8 @@ class LrcGeneratorDialog(QDialog):
             self._autosave_after_change()
 
     def timed_cues(self) -> list[dict[str, object]]:
+        if self._preserved_cues is not None:
+            return deepcopy(self._preserved_cues)
         cues = [
             {"start": float(timestamp), "end": 0.0, "text": self.lines[index]}
             for index, timestamp in enumerate(self.timestamps)
@@ -1642,6 +1669,12 @@ class LrcGeneratorDialog(QDialog):
             if (self._applied_lyrics_track is not None
                     and not self._initial_cues_supplied
                     and self._lyrics_choice_audio != self.audio_path):
+                track = self._applied_lyrics_track
+                if needs_ttml_protection(track.lyrics, track.lyrics_path):
+                    if self._load_applied_track_lyrics():
+                        self._lyrics_choice_audio = self.audio_path
+                        self.pages.setCurrentIndex(2)
+                    return
                 choice = self._existing_lyrics_choice()
                 if choice == "cancel":
                     return
@@ -1891,13 +1924,13 @@ class LrcGeneratorDialog(QDialog):
         if self.pages.currentIndex() >= (1 if not self.track_edit_mode else 1):
             answer = QMessageBox.warning(
                 self,
-                "LRC 작업 닫기" if self._korean else "Close LRC work",
+                "가사/자막 편집기 닫기" if self._korean else "Close Lyrics/Subtitle Editor",
                 (
-                    "현재 LRC 작업을 닫을까요?\n\n"
+                    "현재 가사/자막 편집 작업을 닫을까요?\n\n"
                     "정상적으로 닫으면 자동 저장된 복구 내역도 삭제됩니다. "
                     "자동 복구는 프로그램이 비정상적으로 종료된 경우에만 제공됩니다."
                     if self._korean else
-                    "Close the current LRC work?\n\n"
+                    "Close the current lyrics/subtitle editing work?\n\n"
                     "Closing normally also deletes its autosaved recovery data. "
                     "Automatic recovery is kept only after an abnormal program termination."
                 ),
@@ -1924,7 +1957,7 @@ class LrcGeneratorDialog(QDialog):
 
     def retranslate(self) -> None:
         korean = self._korean
-        self.setWindowTitle("LRC 파일 생성기" if korean else "LRC File Generator")
+        self.setWindowTitle("가사/자막 편집기" if korean else "Lyrics/Subtitle Editor")
         self.audio_group.setTitle("오디오 파일" if korean else "Audio file")
         local_index = self.project_audio_combo.findData("__local__")
         if local_index >= 0:

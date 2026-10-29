@@ -802,6 +802,8 @@ class MainWindowPlaylistTests(MainWindowTestCase):
             self.assertEqual(dialog.selected_lyrics, edited)
             self.assertEqual(dialog.selected_lyrics_path, str(saved))
             self.assertEqual(track.lyrics[0]["text"], "Original")
+            self.assertEqual(dialog.result(), QDialog.DialogCode.Rejected)
+            dialog._accept()
             self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
         finally:
             dialog.close()
@@ -905,7 +907,7 @@ class MainWindowPlaylistTests(MainWindowTestCase):
             dialog = captured[0]
             try:
                 self.assertEqual(dialog._content_lyrics, [("my song.lrc", str(lrc.resolve()))])
-                self.assertFalse(dialog.content_lyrics_button.isHidden())
+                self.assertTrue(dialog.import_content_menu.menuAction().isVisible())
                 self.assertTrue(dialog._apply_lyrics_from_path(str(lrc)))
                 self.assertEqual(dialog.selected_lyrics[0]["text"], "From content")
                 self.assertTrue(dialog.selected_lyrics_path.endswith("my song.lrc"))

@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 from typing import Any
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QPlainTextEdit,
+    QDialog, QDialogButtonBox, QHBoxLayout, QLabel,
     QPushButton, QVBoxLayout, QWidget,
 )
 
 from app.services.lyrics_service import LyricsService
 from app.utils.i18n import Translator
+from app.widgets.lyrics_cue_table import LyricsCueTable
 
 
 class LyricsCompareDialog(QDialog):
@@ -38,8 +41,16 @@ class LyricsCompareDialog(QDialog):
         )
         title.setWordWrap(True)
         root.addWidget(title)
+        summary = QLabel(
+            f"현재 {len(current_cues)}행 → 새 가사 {len(incoming_cues)}행 · 교체하면 기존 가사 대신 적용됩니다."
+            if korean else f"{len(current_cues)} current → {len(incoming_cues)} incoming rows · replacement overwrites the attached lyrics."
+        )
+        summary.setObjectName("infoCallout")
+        summary.setWordWrap(True)
+        root.addWidget(summary)
 
         columns = QHBoxLayout()
+        self.previews = []
         columns.setSpacing(12)
         columns.addLayout(self._column(
             "현재 가사" if korean else "Current lyrics", current_path,
@@ -50,6 +61,18 @@ class LyricsCompareDialog(QDialog):
             incoming_cues, korean,
         ), 1)
         root.addLayout(columns, 1)
+        old = {json.dumps(cue, sort_keys=True, ensure_ascii=False) for cue in current_cues}
+        new = {json.dumps(cue, sort_keys=True, ensure_ascii=False) for cue in incoming_cues}
+        for table, cues, other in ((self.previews[0], current_cues, new), (self.previews[1], incoming_cues, old)):
+            for row, cue in enumerate(cues):
+                if json.dumps(cue, sort_keys=True, ensure_ascii=False) not in other:
+                    for column in range(table.columnCount()):
+                        table.item(row, column).setBackground(QColor("#40392B"))
+        legend = QLabel("강조된 행은 시간·내용·단어 정보가 다른 구간입니다. 원본 파일은 변경하지 않습니다." if korean else
+                        "Highlighted rows have different timing, text or word data. Original files are not modified.")
+        legend.setWordWrap(True)
+        legend.setObjectName("mutedLabel")
+        root.addWidget(legend)
 
         buttons = QDialogButtonBox()
         keep = buttons.addButton(
@@ -60,32 +83,34 @@ class LyricsCompareDialog(QDialog):
             "새 가사 적용" if korean else "Use new lyrics",
             QDialogButtonBox.ButtonRole.AcceptRole,
         )
-        replace.setDefault(True)
+        keep.setDefault(True)
         replace.setProperty("primary", True)
         keep.clicked.connect(self.reject)
         replace.clicked.connect(self._accept_replacement)
         root.addWidget(buttons)
 
-    @staticmethod
     def _column(
-        heading: str, path: str, cues: list[dict[str, Any]], korean: bool,
+        self, heading: str, path: str, cues: list[dict[str, Any]], korean: bool,
     ) -> QVBoxLayout:
         layout = QVBoxLayout()
         label = QLabel(f"<b>{heading}</b> · {len(cues)}" + ("개 구간" if korean else " cues"))
         layout.addWidget(label)
+        timing = QLabel(("단어·음절 시간 포함" if korean else "Word / syllable timing included")
+                        if any(cue.get("words") for cue in cues) else
+                        ("줄 단위 시간 정보" if korean else "Line timing"))
+        timing.setObjectName("mutedLabel")
+        layout.addWidget(timing)
         path_label = QLabel(Path(path).name if path else ("프로젝트 내장 가사" if korean else "Embedded lyrics"))
         path_label.setObjectName("mutedLabel")
+        path_label.setTextFormat(Qt.TextFormat.PlainText)
+        path_label.setWordWrap(True)
         path_label.setToolTip(path)
         path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(path_label)
-        preview = QPlainTextEdit()
-        preview.setReadOnly(True)
-        preview.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-        preview.setPlainText("\n".join(
-            f"[{LyricsService.lrc_timestamp(float(cue.get('start', 0.0)))}] "
-            f"{LyricsService.decode_line_breaks(cue.get('text', ''))}"
-            for cue in cues
-        ))
+        preview = LyricsCueTable(selectable=False)
+        preview.set_cues(cues, korean)
+        preview.setAccessibleName(heading)
+        self.previews.append(preview)
         layout.addWidget(preview, 1)
         return layout
 

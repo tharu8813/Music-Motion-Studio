@@ -12,7 +12,7 @@ from app.models.playlist import PlaylistTrack
 from app.models.project import ProjectDocument
 from app.services.lyrics_search_service import (
     FoundLyrics, LyricsSearchCancelled, LyricsSearchError, LyricsSearchQuery,
-    LyricsSearchResult, LyricsSearchService, LyricsRequestState, LIRIQO_API, PROVIDERS,
+    LyricsSearchResult, LyricsSearchService, LyricsRequestState, KUGOU_SEARCH_API, PROVIDERS,
 )
 from app.services.project_service import ProjectService
 
@@ -39,50 +39,17 @@ class LyricsSearchServiceTests(unittest.TestCase):
                 self.service.search(LyricsSearchQuery(" \t "))
             network.assert_not_called()
 
-    def response(self, tracks=None, **metadata):
-        return {"videoId": "video1", "metadata": {
-            "title": "Song", "artist": "Artist", "album": "Album", "duration": 120, **metadata},
-            "tracks": tracks if tracks is not None else [
-                {"provider": "lrclib", "syncLevel": "line", "lrc": "[00:01]Words"}]}
-
-    def test_unified_request_and_provider_filter(self):
-        rows = [{"provider": key, "syncLevel": "line", "lrc": "[00:01]Words"} for key in PROVIDERS]
-        with patch.object(self.service, "_get_json", return_value=self.response(rows)) as request:
-            batch = self.service.search(LyricsSearchQuery("Song", "Artist", "Alb", 120, "qq_portato"))
-        request.assert_called_once_with(LIRIQO_API, {"title": "Song", "artist": "Artist", "duration": 120}, None)
-        self.assertEqual([r.provider for r in batch.results], ["qq_portato"])
-
-    def test_quality_sorting_plain_filter_and_unusable_records(self):
-        rows = [{"provider": "lrclib", "syncLevel": "line", "lrc": "[00:01]Words"},
-                {"provider": "qq_portato", "syncLevel": "word", "timed": [{"text": "Words"}]},
-                {"provider": "apple_music_liriqo", "syncLevel": "syllable", "ttml": TTML},
-                {"provider": "netease", "syncLevel": "plain", "plain": "Words"},
-                {"provider": "unknown", "syncLevel": "line", "lrc": "[00:01]X"}, None,
-                {"provider": "lrclib", "syncLevel": "line"}]
-        with patch.object(self.service, "_get_json", return_value=self.response(rows)):
-            timed = self.service.search(LyricsSearchQuery("Song"))
-            all_lyrics = self.service.search(LyricsSearchQuery("Song", synced_only=False))
-        self.assertEqual([r.timing for r in timed.results], ["syllable", "word", "line"])
-        self.assertEqual(all_lyrics.results[-1].timing, "plain")
-        self.assertEqual(len({r.key for r in all_lyrics.results}), 4)
-
-    def test_empty_and_invalid_provider_responses(self):
-        with patch.object(self.service, "_get_json", return_value=self.response([])):
-            self.assertEqual(self.service.search(LyricsSearchQuery("Song")).results, [])
-        for payload in ([], {}, {"tracks": None}, {"tracks": [], "metadata": "bad"}):
-            with self.subTest(payload=payload), patch.object(self.service, "_get_json", return_value=payload):
-                with self.assertRaises(LyricsSearchError):
-                    self.service.search(LyricsSearchQuery("Song"))
-
-    def test_album_filters_actual_metadata(self):
-        with patch.object(self.service, "_get_json", return_value=self.response()):
-            self.assertEqual(self.service.search(LyricsSearchQuery("Song", album="Other")).results, [])
-            self.assertEqual(len(self.service.search(LyricsSearchQuery("Song", album="Alb")).results), 1)
-
     def test_duration_helps_disambiguate_versions(self):
         query = LyricsSearchQuery("Song", "Artist", "Album", 121)
         self.assertGreater(self.service._score(query, lrc_result(duration=120)),
                            self.service._score(query, lrc_result(duration=300)))
+
+    def test_unsupported_provider_is_rejected_before_network(self):
+        with patch.object(self.service, "_get_json") as request:
+            for provider in ("apple_music_liriqo", "qq_portato", "kugou_legato", "netease"):
+                with self.subTest(provider=provider), self.assertRaises(LyricsSearchError):
+                    self.service.search(LyricsSearchQuery("Song", provider=provider))
+        request.assert_not_called()
 
     def test_cancellation_before_search_and_download_has_no_network(self):
         cancel = Event()
@@ -202,16 +169,7 @@ class LyricsSearchServiceTests(unittest.TestCase):
             with self.assertRaisesRegex(LyricsSearchError, "temporary failure"):
                 self.service._get_json("https://example.com", {}, None)
 
-    def test_shared_response_cache_avoids_repeated_requests_when_filters_change(self):
-        raw = json.dumps(self.response()).encode()
-        with patch("app.services.lyrics_search_service.urlopen", return_value=io.BytesIO(raw)) as network:
-            self.service.search(LyricsSearchQuery("Song"))
-            reopened = LyricsSearchService(self.service.request_state)
-            batch = reopened.search(LyricsSearchQuery("Song", provider="lrclib"))
-        network.assert_called_once()
-        self.assertEqual(batch.results[0].title, "Song")
-
-    def test_liriqo_requests_are_paced_across_different_dialog_instances(self):
+    def test_provider_requests_are_paced_across_different_dialog_instances(self):
         state = LyricsRequestState()
         clock = [0.0]
         waits = []
@@ -222,9 +180,9 @@ class LyricsSearchServiceTests(unittest.TestCase):
              patch("app.services.lyrics_search_service.urlopen", side_effect=[io.BytesIO(b"[]"), io.BytesIO(b"[]")]):
             first, second = LyricsSearchService(state), LyricsSearchService(state)
             with patch.object(first, "_wait", side_effect=wait), patch.object(second, "_wait", side_effect=wait):
-                first._get_json(LIRIQO_API, {"title": "a"}, None)
-                second._get_json(LIRIQO_API, {"title": "b"}, None)
-        self.assertEqual([delay for delay in waits if delay > 0], [1.0])
+                first._get_json(KUGOU_SEARCH_API, {"title": "a"}, None)
+                second._get_json(KUGOU_SEARCH_API, {"title": "b"}, None)
+        self.assertEqual([delay for delay in waits if delay > 0], [.5])
 
     def test_rate_limit_and_server_errors_never_trigger_automatic_retries(self):
         for code in (429, 500, 502, 503, 504):
@@ -234,19 +192,19 @@ class LyricsSearchServiceTests(unittest.TestCase):
                 with patch("app.services.lyrics_search_service.monotonic", return_value=10), \
                      patch("app.services.lyrics_search_service.urlopen", side_effect=error) as network:
                     with self.assertRaises(LyricsSearchError):
-                        service._get_json(LIRIQO_API, {"q": "a"}, None)
+                        service._get_json(KUGOU_SEARCH_API, {"q": "a"}, None)
                 network.assert_called_once()
-                self.assertEqual(service.request_state.host("api.liriqo-alfarrizi.my.id").next_request, 12)
+                self.assertEqual(service.request_state.host("lyrics.kugou.com").next_request, 12)
 
     def test_long_server_cooldown_is_retained_and_never_retried_early(self):
         limited = HTTPError("", 429, "Too many", {"Retry-After": "120"}, None)
         with patch("app.services.lyrics_search_service.monotonic", return_value=10), \
              patch("app.services.lyrics_search_service.urlopen", side_effect=limited) as network:
             with self.assertRaises(LyricsSearchError):
-                self.service._get_json(LIRIQO_API, {"q": "a"}, None)
+                self.service._get_json(KUGOU_SEARCH_API, {"q": "a"}, None)
             reopened = LyricsSearchService(self.service.request_state)
             with self.assertRaisesRegex(LyricsSearchError, "rate limit"):
-                reopened._get_json(LIRIQO_API, {"q": "b"}, None)
+                reopened._get_json(KUGOU_SEARCH_API, {"q": "b"}, None)
         network.assert_called_once()
 
     def test_retry_after_http_date_and_cancellable_wait(self):

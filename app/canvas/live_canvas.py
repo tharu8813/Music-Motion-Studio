@@ -478,6 +478,8 @@ class LiveCanvas(QGraphicsView):
         self._items: dict[str, SourceItem] = {}
         self._retired_items: dict[str, SourceItem] = {}
         self._panning = False
+        self._fit_to_view = False
+        self._fitting_view = False
         self._space_panning = False
         self._setting_selection = False
         self._scene_selection_pending = False
@@ -679,6 +681,7 @@ class LiveCanvas(QGraphicsView):
             factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
             current = self.transform().m11()
             if 0.2 <= current * factor <= 3.0:
+                self._leave_fit_mode()
                 self.scale(factor, factor)
                 self.zoom_changed.emit(self.transform().m11())
             event.accept()
@@ -1225,14 +1228,35 @@ class LiveCanvas(QGraphicsView):
         super().keyReleaseEvent(event)  # type: ignore[arg-type]
 
     def fit_artboard(self) -> None:
-        """Fit the complete artboard into the view."""
-        self.fitInView(self.scene_model.artboard_rect.adjusted(-30, -30, 30, 30),
-                       Qt.AspectRatioMode.KeepAspectRatio)
-        self.zoom_changed.emit(self.transform().m11())
+        """Fit the artboard and keep it fitted as the workspace changes size."""
+        self._fit_to_view = True
+        if self._fitting_view:
+            return
+        self._fitting_view = True
+        try:
+            # Avoid fitInView's scrollbar/resize feedback loop.
+            self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self.fitInView(self.scene_model.artboard_rect.adjusted(-30, -30, 30, 30),
+                           Qt.AspectRatioMode.KeepAspectRatio)
+            self.zoom_changed.emit(self.transform().m11())
+        finally:
+            self._fitting_view = False
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(event)
+        if getattr(self, "_fit_to_view", False):
+            self.fit_artboard()
+
+    def _leave_fit_mode(self) -> None:
+        self._fit_to_view = False
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
     def set_zoom(self, zoom: float) -> None:
         """Restore a stored absolute zoom factor."""
         zoom = min(3.0, max(0.2, zoom))
+        self._leave_fit_mode()
         self.resetTransform()
         self.scale(zoom, zoom)
         self.zoom_changed.emit(self.transform().m11())
@@ -1244,6 +1268,7 @@ class LiveCanvas(QGraphicsView):
         relative = target / current
         if abs(relative - 1.0) < 1e-6:
             return
+        self._leave_fit_mode()
         previous_anchor = self.transformationAnchor()
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.scale(relative, relative)

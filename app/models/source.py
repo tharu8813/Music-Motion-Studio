@@ -72,7 +72,9 @@ class Shadow:
 SUBTITLE_ANIMATIONS = ("glow", "rise", "crossfade", "slide", "zoom", "cascade", "bounce", "none")
 TEXT_CASES = ("none", "upper", "lower", "capitalize", "small_caps")
 PROGRESS_KNOBS = ("auto", "none", "circle", "bar")
-LOOP_MOTIONS = ("none", "float", "breathe", "pulse", "sway", "spin", "drift", "wobble")
+LOOP_MOTIONS = ("none", "float", "breathe", "pulse", "sway", "spin", "drift", "wobble",
+                "orbit", "shake", "nod", "blink")
+SHAPE_KINDS = ("rectangle", "circle", "triangle", "diamond", "hexagon", "star", "heart", "arch", "pill")
 MUSIC_REACTIVE_EFFECTS = ("bass_scale", "bass_bounce", "bass_stretch", "bass_tilt")
 MUSIC_REACTIVE_BANDS = ("bass", "mid", "treble", "full")
 MUSIC_REACTIVE_CURVES = ("soft", "linear", "punchy")
@@ -118,6 +120,12 @@ class Source:
     scale: float = 1.0
     opacity: float = 1.0
     border_radius: float = 0.0
+    # Decorations apply to every source, independently of type-specific outlines.
+    flip_horizontal: bool = False
+    flip_vertical: bool = False
+    frame_width: float = 0.0
+    frame_color: str = "#FFFFFF"
+    frame_inset: float = 0.0
     shadow: Shadow = field(default_factory=Shadow)
     blur: float = 0.0
     outline_color: str = "#FFFFFF"
@@ -142,6 +150,10 @@ class Source:
     font_weight: int = 600
     text_alignment: str = "center"
     text_overflow: str = "wrap"
+    subtitle_auto_shrink: bool = True
+    subtitle_auto_wrap: bool = False
+    subtitle_wrap_to_source: bool = True
+    subtitle_wrap_width: float = 600.0
     text_stroke_color: str = "#000000"
     text_stroke_width: float = 0.0
     # Typography shared by every text-bearing source.
@@ -469,6 +481,12 @@ class Source:
                     )
         if not 0.0 <= source.opacity <= 1.0:
             raise ValueError(f"Source '{source.name}' opacity must be between 0 and 1.")
+        for name in ("flip_horizontal", "flip_vertical"):
+            if not isinstance(getattr(source, name), bool):
+                raise ValueError(f"Source '{source.name}' has an invalid {name}.")
+        if (not isinstance(source.frame_color, str)
+                or fullmatch(r"#[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?", source.frame_color) is None):
+            raise ValueError(f"Source '{source.name}' has an invalid frame color.")
         if not isinstance(source.music_reactive_enabled, bool):
             raise ValueError("Music reaction flag must be true or false.")
         personal_color_ranges = {
@@ -525,13 +543,17 @@ class Source:
                 or any(not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < 12
                        for index in source.subtitle_karaoke_lines)):
             raise ValueError(f"Source '{source.name}' has invalid karaoke line positions.")
-        for name in ("subtitle_intro_enabled", "subtitle_intro_midtrack", "subtitle_karaoke_enabled"):
+        for name in ("subtitle_intro_enabled", "subtitle_intro_midtrack", "subtitle_karaoke_enabled",
+                     "subtitle_auto_shrink", "subtitle_auto_wrap", "subtitle_wrap_to_source"):
             if not isinstance(getattr(source, name), bool):
                 raise ValueError(f"Source '{source.name}' has an invalid {name}.")
         for name, (minimum, maximum) in {
+            "frame_width": (0.0, 80.0),
+            "frame_inset": (0.0, 200.0),
             "text_letter_spacing": (-10.0, 60.0),
             "text_line_gap": (-40.0, 200.0),
             "subtitle_current_scale": (1.0, 2.0),
+            "subtitle_wrap_width": (16.0, 100_000.0),
             "subtitle_karaoke_pending_brightness": (0.0, 1.0),
             "subtitle_karaoke_offset": (-5.0, 5.0),
             "subtitle_animation_duration": (0.05, 3.0),

@@ -104,7 +104,7 @@ QFrame#card, #leftWorkspace, #inspectorWorkspaceStack { background: @panel; bord
 #canvasWorkspaceStack { background: @window; border: 0; }
 #sidePanel, #layerPanel, #playlistStrip, #timelineStrip { background: @panel; border: 0; border-radius: 0; }
 #panelTitle { color: @text; font-size: 13px; font-weight: 600; padding: 0; }
-#mutedLabel, #sectionHint { color: @muted; font-size: 11px; padding: 0; }
+#mutedLabel, #sectionHint { color: @muted; font-size: 12px; padding: 0; }
 #dialogTitle, #previewDialogTitle, #videoDialogTitle { color: @text; font-size: 21px; font-weight: 600; padding: 0; }
 #projectStatusChip { color: @muted; background: transparent; border: 0; padding: 6px 10px; margin-right: 6px; font-size: 12px; }
 #infoCallout { background: #243A35; border: 1px solid #35665A; border-radius: 6px; padding: 9px 11px; }
@@ -396,7 +396,24 @@ QPushButton#previewTransportButton:hover { background: @hover; border-color: @bo
     background: @panel; border: 1px solid @border; border-radius: 5px;
     selection-background-color: #304B44;
 }
-#lyricsDiscoveryDialog #lyricsDiscoveryTable::item { padding: 6px 5px; }
+#lyricsDiscoveryDialog #lyricsDiscoveryTable::item {
+    padding: 8px; border-bottom: 1px solid @border;
+}
+#lyricsDiscoveryDialog #lyricsDiscoveryTable QHeaderView::section {
+    background: @alternate; color: @muted; padding: 10px 8px;
+    border: none; border-bottom: 1px solid @border;
+}
+#lyricsDiscoveryDialog QRadioButton { spacing: 8px; padding: 6px 0; }
+#lyricsDiscoveryDialog QRadioButton::indicator {
+    width: 14px; height: 14px; border-radius: 8px;
+    border: 1px solid @muted; background: @field;
+}
+#lyricsDiscoveryDialog QRadioButton::indicator:checked {
+    background: @accent; border: 3px solid @field;
+}
+#lyricsDiscoveryDialog QRadioButton::indicator:disabled {
+    background: @disabled; border-color: @disabled_text;
+}
 #lyricsDiscoveryDialog #lyricsDiscoveryFilter { min-height: 30px; }
 #lyricsDiscoveryDialog #lyricsDiscoveryPreview {
     background: @panel; border: 1px solid @border; border-radius: 5px;

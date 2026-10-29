@@ -168,3 +168,16 @@ class HelpWindowLifetimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RecentHelpCoverageTests(unittest.TestCase):
+    def test_recent_topics_exist_in_both_languages(self):
+        for korean in (True, False):
+            topics = {topic.identifier: topic for topic in help_topics(korean)}
+            for identifier in ('lyrics_wrapping', 'lyrics_online_search', 'source_decoration', 'status_warnings'):
+                self.assertIn(identifier, topics)
+                self.assertTrue(topics[identifier].body)
+            body = topics['lyrics_files'].body
+            self.assertNotIn('LiriQo', body)
+            for provider in ('KuGou', 'AMLL', 'LRCLIB'):
+                self.assertIn(provider, body)

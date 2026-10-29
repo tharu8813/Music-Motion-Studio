@@ -684,6 +684,8 @@ def main() -> int:
                 if not arguments.only or capture.__name__.removeprefix("capture_") in arguments.only:
                     capture(session)
             session.close()
+    from capture_recent_help_images import main as capture_recent
+    capture_recent()
     QSettings().clear()
     return 0
 

@@ -345,6 +345,68 @@ class MainWindowPreviewTests(MainWindowTestCase):
         else:
             self.assertIsNone(self.window._preview_gpu_composition_anchor)
 
+    def test_embedded_timeline_and_buttons_fit_after_resize_and_panel_drag(self) -> None:
+        from PySide6.QtCore import QPoint
+        from app.renderer.ffmpeg_renderer import FFmpegNotFoundError
+
+        window = self.window
+        window.resize(1366, 720)
+        window.show()
+        self.application.processEvents()
+        original_minima = (
+            window.main_splitter.minimumHeight(),
+            window.bottom_workspace_stack.minimumHeight(),
+        )
+        track = PlaylistTrack("preview.wav", "Preview", duration_seconds=10.0)
+        window.playlist_service.add_tracks([track])
+        with (
+            patch("app.controllers.preview_controller.FFmpegRenderer", side_effect=FFmpegNotFoundError("test")),
+            patch.object(window, "check_ffmpeg_availability"),
+        ):
+            window.bottom_tabs.setCurrentIndex(2)
+        QTest.qWait(230)
+        preview = window._inline_preview
+        self.assertIsNotNone(preview)
+
+        def assert_controls_fit() -> None:
+            for control in (
+                preview.timeline, preview.play_button, preview.previous_button,
+                preview.next_button, preview.rewind_button, preview.forward_button,
+                preview.volume_slider, preview.preview_close_button,
+            ):
+                self.assertTrue(control.isVisible())
+                child = control
+                while child is not window:
+                    parent = child.parentWidget()
+                    self.assertIsNotNone(parent)
+                    self.assertTrue(
+                        parent.rect().contains(child.geometry()),
+                        f"{control.objectName()}: {child.geometry()} clipped by {parent.objectName()} {parent.rect()}",
+                    )
+                    child = parent
+
+        try:
+            for width, height in ((1560, 920), (1366, 720), (1100, 680), (960, 520)):
+                with self.subTest(size=(width, height)):
+                    window.resize(width, height)
+                    self.application.processEvents()
+                    assert_controls_fit()
+                    # A user dragging the divider cannot shrink the ruler away.
+                    window.workspace_splitter.setSizes([10_000, 1])
+                    self.application.processEvents()
+                    assert_controls_fit()
+            QTest.mouseClick(
+                preview.timeline, Qt.MouseButton.LeftButton,
+                pos=QPoint(preview.timeline.width() * 3 // 4, preview.timeline.height() // 2),
+            )
+            self.assertGreater(preview.timeline.value(), 0)
+        finally:
+            window.preview_controller.finish_inline_preview()
+        self.assertEqual(
+            (window.main_splitter.minimumHeight(), window.bottom_workspace_stack.minimumHeight()),
+            original_minima,
+        )
+
     def test_embedded_preview_keeps_complete_transport_controls(self) -> None:
         preview = ExportPreviewDialog(
             self.window.canvas.scene_model,
@@ -2454,6 +2516,10 @@ class MainWindowPreviewTests(MainWindowTestCase):
                 self.assertEqual(dialog.play_button.text(), "재생" if korean else "Play")
 
                 dialog._playback_position_changed(0)
+                self.assertIn("00:02.000", dialog.current_lyric.text())
+                self.assertEqual(dialog.next_lyric.text(), "First lyric")
+
+                dialog._playback_position_changed(2_000)
                 self.assertEqual(dialog.current_lyric.text(), "First lyric")
                 self.assertEqual(dialog.next_lyric.text(), "Second lyric")
 

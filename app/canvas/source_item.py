@@ -154,6 +154,10 @@ class SourceItem(QGraphicsObject):
         self._raw_pixmap = QPixmap()
         self._raw_pixmap_path: str | None = None
         self._lyric_fonts: dict[str, QFont] = {}
+        self._lyric_font_cache: dict[tuple, QFont] = {}
+        self._lyric_advance_cache: dict[tuple, float] = {}
+        self._lyric_wrap_cache: dict[tuple, tuple[tuple[str, int], ...]] = {}
+        self._lyric_height_cache: tuple[tuple, float] | None = None
         self._lyric_ghost_cache: dict[tuple[object, ...], tuple[QPixmap, float]] = {}
         self._lyric_coverage_cache: dict[tuple, tuple[np.ndarray, int, int]] = {}
         self._lyric_reveal_cache: dict[tuple[object, ...], tuple[tuple[float, ...], QPainterPath]] = {}
@@ -168,6 +172,9 @@ class SourceItem(QGraphicsObject):
         self._subtitle_intro_state = None
         self._subtitle_word_reveal: tuple[float, ...] = ()
         self._subtitle_gap_unblurred = False
+        self._subtitle_before_first = False
+        self._subtitle_blur_restore_lines = frozenset()
+        self._subtitle_blur_restore_progress = 1.0
         self._music_reaction_level = 0.0
         self._music_preview_current_line: int | None = None
         self._subtitle_cue_layout: tuple[tuple[int, int, int], ...] = ()
@@ -176,6 +183,9 @@ class SourceItem(QGraphicsObject):
         self._subtitle_previous_line_count = 0
         self._subtitle_leaving_line_count = 0
         self._subtitle_entering_line_count = 0
+        self._subtitle_prefetch_line_count = 0
+        self._subtitle_prefetch_progress = 0.0
+        self._subtitle_prefetch_entry_line_count = 0
         self._subtitle_emphasis = 1.0
         self._subtitle_previous_emphasis = 1.0
         self._subtitle_incoming_visible = True
@@ -204,7 +214,8 @@ class SourceItem(QGraphicsObject):
                 shadow = self.source.shadow
                 spread = max(0.0, shadow.blur_radius * 0.18)
                 painted = painted.united(rect.translated(
-                    shadow.offset_x, shadow.offset_y,
+                    -shadow.offset_x if self.source.flip_horizontal else shadow.offset_x,
+                    -shadow.offset_y if self.source.flip_vertical else shadow.offset_y,
                 ).adjusted(-spread, -spread, spread, spread))
             bounds = bounds.united(painted.adjusted(-1, -1, 1, 1))
         return bounds
@@ -1011,7 +1022,33 @@ class SourceItem(QGraphicsObject):
         }
         self._lyric_ghost_cache.clear()
         self._lyric_coverage_cache.clear()
+        self._lyric_font_cache.clear()
+        self._lyric_advance_cache.clear()
+        self._lyric_wrap_cache.clear()
+        self._lyric_height_cache = None
         self._lyric_resource_key = resource_key
+
+    def _lyric_font(self, size: int, weight: int, italic: bool) -> QFont:
+        """Return a detached font; painting must not mutate a cached instance."""
+        key = (self.source.font_family, size, weight, italic, self._typography_key())
+        font = self._lyric_font_cache.pop(key, None)
+        if font is None:
+            font = self.text_font(size, weight)
+            font.setItalic(italic)
+            if len(self._lyric_font_cache) >= 64:
+                self._lyric_font_cache.pop(next(iter(self._lyric_font_cache)))
+        self._lyric_font_cache[key] = font
+        return QFont(font)
+
+    def _lyric_text_advance(self, font: QFont, text: str) -> float:
+        key = (font.key(), text)
+        advance = self._lyric_advance_cache.pop(key, None)
+        if advance is None:
+            advance = QFontMetricsF(font).horizontalAdvance(text)
+            if len(self._lyric_advance_cache) >= 256:
+                self._lyric_advance_cache.pop(next(iter(self._lyric_advance_cache)))
+        self._lyric_advance_cache[key] = advance
+        return advance
 
     def text_font(self, size: int, weight: int) -> QFont:
         """A font for this source's text with its shared typography applied."""
@@ -1136,6 +1173,10 @@ class SourceItem(QGraphicsObject):
 
     def _lyric_line_height(self) -> float:
         """Return a font-metric row that preserves Latin/Korean descenders."""
+        key = (self._lyric_fonts["regular"].key(), self._lyric_fonts["current"].key(),
+               float(self.source.subtitle_line_spacing))
+        if self._lyric_height_cache is not None and self._lyric_height_cache[0] == key:
+            return self._lyric_height_cache[1]
         regular = QFontMetricsF(self._lyric_fonts["regular"])
         current = QFontMetricsF(self._lyric_fonts["current"])
         glyph_height = max(regular.height(), current.height())
@@ -1143,12 +1184,14 @@ class SourceItem(QGraphicsObject):
         # row directly on its lower edge. Keep a small guard proportional to
         # the real font descent for g, j, p, q and y, plus configured spacing.
         descender_guard = max(2.0, max(regular.descent(), current.descent()) * 0.35)
-        return max(
+        value = max(
             16.0,
             glyph_height
             + max(0.0, float(self.source.subtitle_line_spacing))
             + descender_guard,
         )
+        self._lyric_height_cache = (key, value)
+        return value
 
     def lyric_line_capacity(self) -> int:
         """Return the number of physical lyric rows that fit in this source."""

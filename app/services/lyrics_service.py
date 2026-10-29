@@ -299,8 +299,9 @@ class LyricsService:
 
         Timed subtitle files can leave silence before the first cue or gaps between
         cues.  A Lyrics source should not fall back to its editor placeholder during
-        those gaps: show the first cue from track start, then retain the most recent
-        cue until the next one begins.
+        those gaps: preview the upcoming first cue, then retain the most recent
+        cue until the next one begins. This is a layout anchor, not proof the cue
+        has started; current_cue_index supplies the active timed interval.
         """
         if not cues:
             return None

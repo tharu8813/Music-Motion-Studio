@@ -448,8 +448,13 @@ class MainWindow(QMainWindow):
         self._source_variant_containers: dict[SourceType, QWidget] = {}
         self._source_variant_toggles: dict[SourceType, QToolButton] = {}
         self.setAcceptDrops(True)
-        self.resize(1560, 920)
-        self.setMinimumSize(1100, 680)
+        self.setMinimumSize(960, 520)
+        screen = QApplication.primaryScreen()
+        available = screen.availableGeometry() if screen is not None else None
+        self.resize(
+            min(1560, max(960, available.width() - 24)) if available else 1560,
+            min(920, max(520, available.height() - 64)) if available else 920,
+        )
         self._build_toolbar()
         self._build_workspace()
         self.source_layout_controller = SourceLayoutController(self.store, self.canvas.source_content_bounds)
@@ -459,6 +464,19 @@ class MainWindow(QMainWindow):
             self.translator.is_korean, self,
         )
         self.statusBar().addPermanentWidget(self.activity_progress)
+        from app.widgets.warning_indicator import WarningIndicator
+        self.warning_indicator = WarningIndicator(self.translator.is_korean, self)
+        self.statusBar().insertWidget(0, self.warning_indicator)
+        self._warning_refresh_timer = QTimer(self)
+        self._warning_refresh_timer.setSingleShot(True)
+        self._warning_refresh_timer.setInterval(150)
+        self._warning_refresh_timer.timeout.connect(self._refresh_status_warnings)
+        for signal in (self.playlist_service.playlist_changed, self.store.source_added,
+                       self.store.source_removed, self.store.source_changed, self.store.sources_replaced):
+            signal.connect(lambda *_args: self._warning_refresh_timer.start())
+        self.translator.language_changed.connect(
+            lambda: (self.warning_indicator.set_korean(self.translator.is_korean), self._refresh_status_warnings())
+        )
         self._build_zoom_controls()
         self._apply_style()
         self._add_welcome_sources()
@@ -1481,6 +1499,7 @@ class MainWindow(QMainWindow):
         top_splitter = CanvasCenteredSplitter(
             Qt.Orientation.Horizontal, center_index=1,
         )
+        top_splitter.setMinimumHeight(220)
         top_splitter.setChildrenCollapsible(False)
         self.main_splitter = top_splitter
         left_workspace = QFrame()
@@ -1562,6 +1581,8 @@ class MainWindow(QMainWindow):
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding,
         )
         self.inspector.set_mix_transitions_active(self.project_settings.transition_mode != "none")
+        self.inspector.lyrics_search_requested.connect(self._show_lyrics_search)
+        self.playlist_service.playlist_changed.connect(self.inspector.refresh_lyrics_status)
         self.inspector.animation_preview_requested.connect(
             self._preview_source_animation
         )
@@ -1655,15 +1676,16 @@ class MainWindow(QMainWindow):
         self.bottom_tabs.addTab(self.preview_tab_page, "")
         self.bottom_workspace_stack = QStackedWidget()
         self.bottom_workspace_stack.setObjectName("bottomWorkspaceStack")
+        self.bottom_workspace_stack.setMinimumHeight(120)
         self.bottom_workspace_stack.addWidget(self.bottom_tabs)
         self.workspace_splitter.addWidget(self.bottom_workspace_stack)
         self.workspace_splitter.setStretchFactor(0, 1)
         self.workspace_splitter.setStretchFactor(1, 0)
-        saved_sizes = settings.value("workspace/vertical_splitter", [650, 270])
+        saved_sizes = settings.value("workspace/vertical_splitter", [650, self._DEFAULT_BOTTOM_PANEL_HEIGHT])
         try:
             sizes = [max(120, int(value)) for value in saved_sizes]
         except (TypeError, ValueError):
-            sizes = [650, 270]
+            sizes = [650, self._DEFAULT_BOTTOM_PANEL_HEIGHT]
         legacy_bottom_height = sizes[1] if len(sizes) == 2 else self._bottom_open_height
         self._bottom_open_height = saved_panel_size(
             "workspace/bottom_panel_height", legacy_bottom_height, 180, 1200,
@@ -2258,7 +2280,7 @@ class MainWindow(QMainWindow):
         if template_type is SourceType.TIME:
             default_text = "%current_time% / %total_time%"
         elif source_type is SourceType.LYRICS:
-            default_text = "Lyrics are not available for this track."
+            default_text = ""
         elif source_type is SourceType.TRACK_LIST:
             default_text = "▶ 01. Current track\n  02. Next track"
         elif source_type is SourceType.NOW_PLAYING:
@@ -2288,6 +2310,7 @@ class MainWindow(QMainWindow):
             locked=False,
         )
         if source_type is SourceType.LYRICS:
+            source.subtitle_fallback = ""
             source.subtitle_context_lines = -1
             source.subtitle_next_lines = -1
         elif source_type is SourceType.TRACK_LIST:
@@ -4894,8 +4917,34 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("선택한 곡에 가사를 연결했습니다." if korean else "Lyrics attached to the selected track.", 5000)
         return True
 
+    def _refresh_status_warnings(self) -> None:
+        """Recompute actionable warnings; resolved conditions disappear automatically."""
+        from app.dialogs.ttml_edit_dialog import needs_ttml_protection
+        ko = self.translator.is_korean
+        tracks = self.playlist_service.tracks
+        entries = []
+        ttml = [track for track in tracks if needs_ttml_protection(track.lyrics, track.lyrics_path)]
+        lyrics_sources = [s for s in self.store.sources() if s.source_type is SourceType.LYRICS and s.visible]
+        if ttml and (not lyrics_sources or any(not s.subtitle_karaoke_enabled for s in lyrics_sources)):
+            entries.append(("ttml", "TTML 실시간 가사 설정 확인" if ko else "Check TTML real-time lyrics",
+                f"TTML 가사가 적용된 곡이 {len(ttml)}곡 있습니다. 가사/자막 요소가 없거나 실시간 가사 기능이 꺼져 있어 단어·음절 강조가 정상적으로 표시되지 않을 수 있습니다. 요소를 선택하고 자막/가사 → 실시간 가사를 켜세요."
+                if ko else f"{len(ttml)} tracks use TTML. A lyrics element is missing or real-time lyrics is off. Word/syllable highlighting may not display correctly. Enable real-time lyrics in the lyrics element's properties."))
+        elif any(t.lyrics for t in tracks) and not lyrics_sources:
+            entries.append(("lyrics_element", "가사를 표시할 요소 없음" if ko else "No visible lyrics element",
+                "가사는 연결되어 있지만 표시할 가사/자막 요소가 없습니다. 요소 탭에서 추가하세요." if ko else "Lyrics are attached, but no visible lyrics element exists. Add one from Sources."))
+        missing = [t for t in tracks if t.file_path and not Path(t.file_path).is_file()]
+        if missing:
+            entries.append(("missing_audio", "음악 파일 누락" if ko else "Missing audio files",
+                (f"{len(missing)}곡의 원본 파일을 찾을 수 없습니다. 파일 위치를 확인하거나 프로젝트를 다시 열어 미디어를 연결하세요. " if ko else f"{len(missing)} audio files are missing. Check their locations or reopen the project to relink media. ") + ", ".join(t.title for t in missing[:3])))
+        if tracks and not any(t.enabled for t in tracks):
+            entries.append(("excluded", "모든 곡이 제외됨" if ko else "All tracks excluded",
+                "미리보기와 내보내기에 사용할 곡이 없습니다. 플레이리스트에서 사용할 곡을 포함하세요." if ko else "No tracks are enabled for preview or export. Include tracks in the Playlist."))
+        self.warning_indicator.set_warnings(entries)
+
     def _show_lrc_generator(self) -> None:
         """Open the audio-assisted LRC authoring workflow."""
+        from copy import deepcopy
+        from app.dialogs.ttml_edit_dialog import TtmlRowsDialog, choose_ttml_edit_mode, line_cues
         selected_ids = self.playlist_editor._selected_ids()
         selected_track = next(
             (
@@ -4904,17 +4953,31 @@ class MainWindow(QMainWindow):
             ),
             None,
         )
-        dialog = LrcGeneratorDialog(
-            self.project_content_service.items,
-            self.translator,
-            self,
-            playlist_tracks=self.playlist_service.tracks,
-            target_track_id=selected_track.id if selected_track else "",
-            initial_audio_path=selected_track.file_path if selected_track else "",
-            initial_cues=selected_track.lyrics if selected_track else None,
-            initial_title=selected_track.title if selected_track else "",
-            initial_artist=selected_track.artist if selected_track else "",
-        )
+        cues = deepcopy(selected_track.lyrics) if selected_track else []
+        if selected_track and not cues and selected_track.lyrics_path:
+            try:
+                cues = LyricsService.load(selected_track.lyrics_path)
+            except LyricsError as error:
+                QMessageBox.warning(self, "가사/자막 편집기" if self.translator.is_korean else "Lyrics/Subtitle Editor", str(error))
+                return
+        mode = choose_ttml_edit_mode(cues, selected_track.lyrics_path if selected_track else "", self.translator, self)
+        if mode == "cancel":
+            return
+        if mode == "delete":
+            dialog = TtmlRowsDialog(cues, self.translator, self, title=selected_track.title,
+                                    target_track_id=selected_track.id)
+        else:
+            dialog = LrcGeneratorDialog(
+                self.project_content_service.items,
+                self.translator,
+                self,
+                playlist_tracks=self.playlist_service.tracks,
+                target_track_id=selected_track.id if selected_track else "",
+                initial_audio_path=selected_track.file_path if selected_track else "",
+                initial_cues=line_cues(cues) if mode == "convert" else cues or None,
+                initial_title=selected_track.title if selected_track else "",
+                initial_artist=selected_track.artist if selected_track else "",
+            )
         accepted = dialog.exec() == QDialog.DialogCode.Accepted
         if accepted and dialog.result_track_id:
             cues = dialog.timed_cues()
@@ -4925,7 +4988,7 @@ class MainWindow(QMainWindow):
             self.playlist_service.update_track(
                 dialog.result_track_id,
                 lyrics_path=lyrics_path,
-                lyrics=[cue.copy() for cue in cues],
+                lyrics=deepcopy(cues),
             )
         if dialog.saved_paths and dialog.add_saved_files_to_project:
             added = self.project_content_service.add_paths(dialog.saved_paths)
@@ -4937,6 +5000,7 @@ class MainWindow(QMainWindow):
                     f"Added {added} saved LRC file(s) to project content.",
                     5000,
                 )
+        dialog.deleteLater()
 
     def _show_mp3_metadata_editor(self) -> None:
         """Open the standalone editor for source MP3 ID3 tags."""
@@ -5021,8 +5085,8 @@ class MainWindow(QMainWindow):
         self.settings_action.setText("설정" if self.translator.is_korean else "Settings")
         self.lyrics_search_action.setText("가사 검색 및 가져오기…" if korean else "Search && Import Lyrics…")
         self.lrc_generator_action.setText(
-            "LRC 파일 생성기" if self.translator.is_korean
-            else "LRC File Generator"
+            "가사/자막 편집기" if self.translator.is_korean
+            else "Lyrics/Subtitle Editor"
         )
         self.mp3_metadata_action.setText(
             "MP3 메타데이터 편집기" if self.translator.is_korean

@@ -1,8 +1,8 @@
-"""Selectable multi-provider lyrics through https://github.com/AlFarrizi-Studio/LiriQo."""
+"""Direct lyric provider search with recording-specific downloads."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from collections import OrderedDict
 from difflib import SequenceMatcher
 from email.utils import parsedate_to_datetime
@@ -22,14 +22,23 @@ from xml.etree import ElementTree as ET
 from app import __version__
 from app.models.playlist import PlaylistTrack
 from app.services.lyrics_service import LyricsError, LyricsService
+from app.services.krc_lyrics import KRCError, krc_to_ttml
 
-LIRIQO_API = "https://api.liriqo-alfarrizi.my.id/v1/lyrics"
+KUGOU_SEARCH_API = "https://lyrics.kugou.com/search"
+KUGOU_DOWNLOAD_API = "https://lyrics.kugou.com/download"
+KUGOU_CATALOG_API = "https://mobileservice.kugou.com/api/v3/search/song"
+AMLL_SEARCH_API = "https://api.amll.dev/v1/lyrics/search"
+AMLL_GET_API = "https://api.amll.dev/v1/lyrics/get"
+LRCLIB_SEARCH_API = "https://lrclib.net/api/search"
+# Historical source labels are retained for already-loaded documents only.
 PROVIDERS = {
+    "kugou": "KuGou", "amll": "AMLL TTML DB",
     "apple_music_liriqo": "Apple Music", "unison_community": "Unison",
     "qq_portato": "QQ Music", "kugou_legato": "KuGou",
-    "lrclib_wordsync": "LRCLib (estimated word sync)", "lrclib": "LRCLib",
+    "lrclib_wordsync": "LRCLib (estimated word sync)", "lrclib": "LRCLIB",
     "ytm_line": "YouTube Music", "netease": "NetEase Cloud Music",
 }
+SEARCH_PROVIDERS = ("kugou", "amll", "lrclib")
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 MAX_CACHE_BYTES = 32 * 1024 * 1024
 MAX_REQUEST_WAIT = 30
@@ -46,7 +55,8 @@ class LyricsRequestState:
 
     def __init__(self, *, intervals=None, cooldown_delay=5):
         self.intervals = intervals if intervals is not None else {
-            "api.liriqo-alfarrizi.my.id": 1.0,
+            "lyrics.kugou.com": .5, "mobileservice.kugou.com": .5, "api.amll.dev": .2,
+            "lrclib.net": .5,
         }
         self.cooldown_delay = cooldown_delay
         self.lock = Lock()
@@ -89,6 +99,10 @@ _REQUEST_STATE = LyricsRequestState()
 class LyricsSearchError(ValueError):
     """An actionable search, provider, or download failure."""
 
+    def __init__(self, message, *, status=None):
+        super().__init__(message)
+        self.status = status
+
 
 class LyricsSearchCancelled(Exception):
     pass
@@ -106,8 +120,8 @@ class LyricsSearchQuery:
     def validate(self):
         if not self.title.strip():
             raise LyricsSearchError("제목은 필수입니다. / A song title is required.")
-        if self.provider not in {"all", *PROVIDERS}:
-            raise LyricsSearchError("Unknown lyric provider.")
+        if self.provider not in {"all", *SEARCH_PROVIDERS}:
+            raise LyricsSearchError("지원하지 않는 가사 제공자입니다. / Unsupported lyric search provider.")
         if not isfinite(self.duration) or not 0 <= self.duration <= 86400:
             raise LyricsSearchError("Invalid track duration.")
 
@@ -135,6 +149,7 @@ class LyricsSearchResult:
 class LyricsSearchBatch:
     results: list[LyricsSearchResult]
     warnings: list[str] = field(default_factory=list)
+    provider_counts: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -218,9 +233,9 @@ class LyricsSearchService:
                     if limited:
                         retry = self._retry_after(error.headers, self.request_state.cooldown_delay)
                         host.next_request = max(host.next_request, monotonic() + retry)
-                        raise LyricsSearchError(f"제공자의 요청 한도 또는 일시적 오류입니다. 약 {int(retry) + 1}초 후 다시 시도하거나 다른 제공자를 선택하세요. / Provider rate limit or temporary failure; retry in {int(retry) + 1}s or use another provider. (HTTP {error.code})") from error
+                        raise LyricsSearchError(f"제공자의 요청 한도 또는 일시적 오류입니다. 약 {int(retry) + 1}초 후 다시 시도하세요. / Provider rate limit or temporary failure; retry in {int(retry) + 1}s. (HTTP {error.code})", status=error.code) from error
                     if error.code == 404:
-                        raise LyricsSearchError("가사를 찾을 수 없습니다. / Lyrics were not found.") from error
+                        raise LyricsSearchError("가사를 찾을 수 없습니다. / Lyrics were not found.", status=404) from error
                     raise LyricsSearchError(f"제공자 응답 오류 / Provider HTTP error: {error.code}") from error
                 finally:
                     error.close()
@@ -231,11 +246,11 @@ class LyricsSearchService:
 
     def _request_json(self, url, params, cancel):
         request = Request(url + "?" + urlencode(params), headers={
-            "User-Agent": f"PlaylistCanvas/{__version__} (https://github.com/AlFarrizi-Studio/LiriQo)",
+            "User-Agent": f"PlaylistCanvas/{__version__}",
             "Accept": "application/json",
         })
         try:
-            with urlopen(request, timeout=30 if url == LIRIQO_API else 10) as response:
+            with urlopen(request, timeout=10) as response:
                 chunks, size = [], 0
                 while chunk := response.read(64 * 1024):
                     _cancelled(cancel)
@@ -256,46 +271,183 @@ class LyricsSearchService:
     def search(self, query: LyricsSearchQuery, cancel: Event | None = None) -> LyricsSearchBatch:
         query.validate()
         _cancelled(cancel)
-        params = {"title": query.title.strip()}
-        if query.artist.strip():
-            params["artist"] = query.artist.strip()
-        if query.duration:
-            params["duration"] = query.duration
-        data = self._get_json(LIRIQO_API, params, cancel)
+        results, warnings, counts = [], [], {}
+        succeeded = 0
+        for provider in SEARCH_PROVIDERS if query.provider == "all" else (query.provider,):
+            _cancelled(cancel)
+            try:
+                search = {"kugou": self._search_kugou, "amll": self._search_amll,
+                          "lrclib": self._search_lrclib}[provider]
+                batch = search(query, cancel)
+            except LyricsSearchError as error:
+                warnings.append(f"{PROVIDERS[provider]}: {error}")
+            else:
+                succeeded += 1
+                counts[provider] = len(batch.results)
+                results.extend(batch.results)
+                warnings.extend(batch.warnings)
         _cancelled(cancel)
-        if not isinstance(data, dict) or not isinstance(data.get("tracks"), list):
-            raise LyricsSearchError("LiriQo 응답을 읽을 수 없습니다. / Invalid LiriQo response.")
-        metadata = data.get("metadata") or {}
-        if not isinstance(metadata, dict):
-            raise LyricsSearchError("Invalid LiriQo metadata.")
-        results = []
-        for index, row in enumerate(data["tracks"][:100]):
+        if not succeeded:
+            raise LyricsSearchError("\n".join(warnings))
+        results.sort(key=lambda result: self._score(query, result), reverse=True)
+        return LyricsSearchBatch(results, warnings, counts)
+
+    def _search_lrclib(self, query, cancel):
+        # Album and duration rank recordings locally; neither constrains discovery.
+        params = {"track_name": query.title.strip()}
+        if query.artist.strip():
+            params["artist_name"] = query.artist.strip()
+        data = self._get_json(LRCLIB_SEARCH_API, params, cancel)
+        if not isinstance(data, list):
+            raise LyricsSearchError("LRCLIB 검색 응답을 읽을 수 없습니다. / Invalid LRCLIB search response.")
+        results, seen = [], set()
+        for row in data[:100]:
+            _cancelled(cancel)
+            if not isinstance(row, dict) or row.get("instrumental") is True:
+                continue
+            identifier, title = row.get("id"), row.get("trackName")
+            if (isinstance(identifier, bool) or not isinstance(identifier, (str, int))
+                    or not str(identifier).isdigit() or str(identifier) in seen
+                    or not isinstance(title, str) or not title.strip()):
+                continue
+            synced, plain = row.get("syncedLyrics"), row.get("plainLyrics")
+            synced = synced if isinstance(synced, str) and synced.strip() else ""
+            plain = plain if isinstance(plain, str) and plain.strip() else ""
+            if not (synced or plain) or (query.synced_only and not synced):
+                continue
+            seen.add(str(identifier))
+            results.append(LyricsSearchResult("lrclib", str(identifier), title,
+                row.get("artistName") if isinstance(row.get("artistName"), str) else "",
+                row.get("albumName") if isinstance(row.get("albumName"), str) else "",
+                self._duration(row.get("duration")), "line" if synced else "plain", synced, plain))
+        # Keep the selected record's response: fetching never searches for a different version.
+        return LyricsSearchBatch(results)
+
+    def _search_kugou(self, query, cancel):
+        params = {"ver": 1, "man": "yes", "client": "pc",
+                  "keyword": " - ".join(part.strip() for part in (query.artist, query.title) if part.strip())}
+        # User/playlist durations rank results; they must not constrain discovery.
+        data = self._get_json(KUGOU_SEARCH_API, params, cancel)
+        batch = self._kugou_results(data, cancel)
+        if batch.results:
+            return batch
+        # The lyric endpoint expects catalog spellings, unlike song search.
+        # Resolve aliases/localized artist tags before declaring no results.
+        keyword = " ".join(part.strip() for part in (query.title, query.artist) if part.strip())
+        data = self._get_json(KUGOU_CATALOG_API, {"keyword": keyword, "page": 1, "pagesize": 20}, cancel)
+        if (not isinstance(data, dict) or data.get("status") != 1 or not isinstance(data.get("data"), dict)
+                or not isinstance(data["data"].get("info"), list)):
+            raise LyricsSearchError("KuGou 곡 검색 응답을 읽을 수 없습니다. / Invalid KuGou catalog response.")
+        recordings = []
+        seen = set()
+        for row in data["data"]["info"][:100]:
             _cancelled(cancel)
             if not isinstance(row, dict):
                 continue
-            provider, timing = row.get("provider"), row.get("syncLevel")
-            if provider not in PROVIDERS or timing not in {"syllable", "word", "line", "plain"}:
+            title, artist = row.get("songname"), row.get("singername")
+            if not isinstance(title, str) or not title.strip() or not isinstance(artist, str) or not artist.strip():
                 continue
-            if query.provider != "all" and provider != query.provider:
+            signature = _normal(title), _normal(artist)
+            if signature in seen:
                 continue
-            if query.synced_only and timing == "plain":
+            seen.add(signature)
+            recording = LyricsSearchResult("kugou", "", title, artist,
+                duration=self._duration(row.get("duration")))
+            recordings.append((recording, row))
+        recordings.sort(key=lambda pair: self._score(query, pair[0]), reverse=True)
+        # Bound catalog expansion: no unbounded fan-out or empty-result retry loop.
+        for recording, row in recordings[:3]:
+            _cancelled(cancel)
+            resolved = {"ver": 1, "man": "yes", "client": "pc",
+                        "keyword": f"{recording.artist} - {recording.title}"}
+            if recording.duration:
+                resolved["duration"] = round(recording.duration * 1000)
+            if isinstance(row.get("hash"), str) and re.fullmatch(r"[a-fA-F0-9]{32}", row["hash"]):
+                resolved["hash"] = row["hash"]
+            # Do not issue the same empty request again if metadata was unchanged.
+            if resolved == params:
                 continue
-            if not any(row.get(key) for key in ("ttml", "lrc", "timed", "plain")):
+            batch = self._kugou_results(self._get_json(KUGOU_SEARCH_API, resolved, cancel), cancel)
+            if batch.results:
+                return LyricsSearchBatch(batch.results, [
+                    "KuGou: 곡 검색으로 제목·아티스트 표기를 확인해 가사를 찾았습니다. 곡과 길이를 확인하세요. / "
+                    "Resolved catalog metadata to find lyrics; check the recording and duration."])
+        return LyricsSearchBatch([], [
+            "KuGou: 곡 검색까지 확인했지만 제공되는 가사를 찾지 못했습니다. 제목 또는 아티스트 표기를 바꿔 보세요. / "
+            "No lyrics found after catalog search; try another title or artist spelling."])
+
+    @staticmethod
+    def _kugou_results(data, cancel):
+        if not isinstance(data, dict) or data.get("status") != 200 or not isinstance(data.get("candidates"), list):
+            raise LyricsSearchError("KuGou 검색 응답을 읽을 수 없습니다. / Invalid KuGou search response.")
+        results, seen = [], set()
+        for row in data["candidates"][:100]:
+            _cancelled(cancel)
+            if not isinstance(row, dict):
                 continue
-            # Metadata belongs to the recording resolved by LiriQo, shared by all variants.
-            result = LyricsSearchResult(
-                provider, f"{data.get('videoId', '')}:{index}",
-                str(metadata.get("title") or query.title),
-                str(metadata.get("artist") or query.artist), str(metadata.get("album") or ""),
-                self._duration(metadata.get("duration")), timing, payload=row)
-            # Album is a local filter: the API has no documented album parameter.
-            if query.album.strip() and _normal(query.album) not in _normal(result.album):
+            identifier, accesskey = row.get("id"), row.get("accesskey")
+            title, artist = row.get("song"), row.get("singer")
+            if (isinstance(identifier, bool) or not isinstance(identifier, (str, int))
+                    or not str(identifier).isdigit() or str(identifier) in seen
+                    or not isinstance(accesskey, str) or not accesskey
+                    or not isinstance(title, str) or not title.strip()):
                 continue
-            results.append(result)
-        quality = {"syllable": 4, "word": 3, "line": 2, "plain": 1}
-        results.sort(key=lambda result: (quality[result.timing], self._score(query, result)), reverse=True)
-        _cancelled(cancel)
+            seen.add(str(identifier))
+            results.append(LyricsSearchResult("kugou", str(identifier), title,
+                artist if isinstance(artist, str) else "", duration=LyricsSearchService._duration(row.get("duration"), 1000),
+                payload={"accesskey": accesskey}))
         return LyricsSearchBatch(results)
+
+    @staticmethod
+    def _amll_data(value):
+        if not isinstance(value, dict) or value.get("status") != 200 or not isinstance(value.get("data"), dict):
+            raise LyricsSearchError("AMLL 응답을 읽을 수 없습니다. / Invalid AMLL response.")
+        return value["data"]
+
+    def _search_amll(self, query, cancel):
+        params = {"musicName": query.title.strip(), "pageSize": 50}
+        if query.artist.strip():
+            params["artistName"] = query.artist.strip()
+        data = self._amll_data(self._get_json(AMLL_SEARCH_API, params, cancel))
+        if not isinstance(data.get("items"), list):
+            raise LyricsSearchError("Invalid AMLL search results.")
+        warnings = []
+        if not data["items"] and "artistName" in params:
+            params = {key: value for key, value in params.items() if key != "artistName"}
+            data = self._amll_data(self._get_json(AMLL_SEARCH_API, params, cancel))
+            if not isinstance(data.get("items"), list):
+                raise LyricsSearchError("Invalid AMLL search results.")
+            if data["items"]:
+                warnings.append("AMLL: 제목으로 검색 범위를 넓혔습니다. 아티스트를 확인하세요. / "
+                                "Broadened to title search; check the artist.")
+
+        def names(row, key):
+            values = row.get(key)
+            return [value for value in values if isinstance(value, str) and value.strip()] if isinstance(values, list) else []
+
+        results, seen = [], set()
+        for row in data["items"][:100]:
+            _cancelled(cancel)
+            if not isinstance(row, dict):
+                continue
+            identifier, filename = row.get("id"), row.get("filename")
+            titles = names(row, "musicNames")
+            if (isinstance(identifier, bool) or not isinstance(identifier, (str, int))
+                    or not str(identifier).isdigit() or str(identifier) in seen or not titles
+                    or not isinstance(filename, str) or not filename.endswith(".ttml")):
+                continue
+            seen.add(str(identifier))
+            title = max(titles, key=lambda value: SequenceMatcher(None, _normal(query.title), _normal(value)).ratio())
+            results.append(LyricsSearchResult("amll", str(identifier), title,
+                ", ".join(names(row, "artistNames")), ", ".join(names(row, "albumNames")),
+                payload={"filename": filename}))
+        pagination = data.get("pagination", {})
+        if not isinstance(pagination, dict):
+            raise LyricsSearchError("Invalid AMLL pagination.")
+        if pagination.get("hasMore") is True:
+            warnings.append("AMLL: 검색 결과 일부를 표시합니다. 제목·아티스트를 더 구체적으로 입력하세요. / "
+                            "Showing partial results; refine the title or artist.")
+        return LyricsSearchBatch(results, warnings)
 
     @staticmethod
     def _duration(value, divisor=1):
@@ -312,7 +464,7 @@ class LyricsSearchService:
             if value.strip():
                 score += weight * SequenceMatcher(None, _normal(value), _normal(candidate)).ratio()
         if query.duration and result.duration:
-            score += max(0, 1 - abs(query.duration - result.duration) / 15)
+            score += max(-1, 1 - abs(query.duration - result.duration) / 15)
         return score
 
     def fetch(self, result: LyricsSearchResult, cancel: Event | None = None) -> FoundLyrics:
@@ -320,6 +472,21 @@ class LyricsSearchService:
         if result.provider not in PROVIDERS:
             raise LyricsSearchError("Unknown lyric provider.")
         payload = result.payload
+        if result.provider == "kugou" and "accesskey" in payload and "ttml" not in payload:
+            data = self._get_json(KUGOU_DOWNLOAD_API, {"id": result.identifier, "accesskey": payload["accesskey"],
+                "fmt": "krc", "charset": "utf8", "client": "pc", "ver": 1}, cancel)
+            if not isinstance(data, dict) or not isinstance(data.get("content"), str):
+                raise LyricsSearchError("Invalid KuGou lyric response.")
+            try:
+                payload = {"ttml": krc_to_ttml(data["content"], max_bytes=MAX_RESPONSE_BYTES,
+                                              check_cancel=lambda: _cancelled(cancel))}
+            except KRCError as error:
+                raise LyricsSearchError(f"KRC 가사를 읽을 수 없습니다. / Invalid KRC lyrics: {error}") from error
+        elif result.provider == "amll" and "filename" in payload and "ttml" not in payload:
+            data = self._amll_data(self._get_json(AMLL_GET_API, {"id": result.identifier}, cancel))
+            if str(data.get("id")) != result.identifier or data.get("filename") != payload["filename"]:
+                raise LyricsSearchError("선택한 가사와 응답이 다릅니다. 다시 검색하세요. / Lyric identity mismatch; search again.")
+            payload = {"ttml": data.get("lyrics")}
         if payload:
             if payload.get("ttml"):
                 content, format_name = payload["ttml"], "ttml"
@@ -335,7 +502,7 @@ class LyricsSearchService:
             content = result.synced_lyrics or result.plain_lyrics
             format_name = "lrc" if result.synced_lyrics else "txt"
         if not isinstance(content, str) or not content.strip():
-            raise LyricsSearchError("이 결과에는 제공되는 가사가 없습니다. 다른 곡이나 제공자를 선택하세요. / No lyrics are available for this recording; select another result or provider.")
+            raise LyricsSearchError("이 결과에는 제공되는 가사가 없습니다. 다른 결과를 선택하세요. / No lyrics are available for this recording; select another result.")
         if len(content.encode("utf-8")) > MAX_RESPONSE_BYTES:
             raise LyricsSearchError("Lyric response is too large.")
         try:
@@ -348,6 +515,8 @@ class LyricsSearchService:
         except (LyricsError, TypeError, ValueError) as error:
             raise LyricsSearchError(f"가사 시간 정보를 읽을 수 없습니다. / Invalid lyric timings: {error}") from error
         _cancelled(cancel)
+        if result.provider in SEARCH_PROVIDERS:
+            result = replace(result, timing="word" if any(cue.get("words") for cue in cues) else "line" if cues else "plain")
         return FoundLyrics(result, format_name, content, cues)
 
     @staticmethod

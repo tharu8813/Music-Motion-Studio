@@ -240,6 +240,11 @@ class VisualizerOverlay:
     loop_motion_amount: float = 1.0
     mask_shape: str = "none"
     inner_radius: float = 0.55
+    flip_horizontal: bool = False
+    flip_vertical: bool = False
+    frame_width: float = 0.0
+    frame_color: str = "#FFFFFF"
+    frame_inset: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,6 +276,11 @@ class VideoClipOverlay:
     animation_out: str = "none"
     # Absolute start/end and effective in/out duration of each visual ownership window.
     animation_windows: tuple[tuple[float, float, float, float], ...] = ()
+    flip_horizontal: bool = False
+    flip_vertical: bool = False
+    frame_width: float = 0.0
+    frame_color: str = "#FFFFFF"
+    frame_inset: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)

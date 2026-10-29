@@ -141,7 +141,11 @@ class PlaylistTrack:
                 offset = word.get("offset")
                 if isinstance(offset, int) and "\n" in cue["text"][previous_offset:offset]:
                     previous_end = float(cue["start"])
-                if (not previous_end <= word["start"] <= word["end"] <= float(cue["end"])
+                # Independently rounded source timestamps may overlap by 1 ms.
+                # Keep the source values; this tolerance must not admit words
+                # outside the cue, negative times, or reversed intervals.
+                if (not float(cue["start"]) <= word["start"] <= word["end"] <= float(cue["end"])
+                        or word["start"] + .001 + 1e-9 < previous_end
                         or not isinstance(offset, int) or isinstance(offset, bool) or offset < previous_offset
                         or cue["text"][offset:offset + len(word["text"])] != word["text"]):
                     raise ValueError(f"Track '{track.title}' has invalid word timing or text offsets.")

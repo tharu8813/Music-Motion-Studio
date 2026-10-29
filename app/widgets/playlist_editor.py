@@ -647,7 +647,10 @@ class PlaylistEditor(QFrame):
         scroll_position = self.list_widget.verticalScrollBar().value()
         self._ignore_order_signal = True
         updates_enabled = self.list_widget.updatesEnabled()
-        self.list_widget.setUpdatesEnabled(False)
+        # False may be inherited from the window during undo/redo. Explicitly
+        # disabling the list then would keep it disabled when the window resumes.
+        if updates_enabled:
+            self.list_widget.setUpdatesEnabled(False)
         try:
             # A service refresh can arrive while an external drag is still over
             # the list. Clear references to soon-to-be-deleted TrackRow widgets
@@ -742,7 +745,8 @@ class PlaylistEditor(QFrame):
             )
         finally:
             self._ignore_order_signal = False
-            self.list_widget.setUpdatesEnabled(updates_enabled)
+            if updates_enabled:
+                self.list_widget.setUpdatesEnabled(True)
         self._update_action_state()
 
     def _selected_ids(self) -> list[str]:

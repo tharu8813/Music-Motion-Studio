@@ -69,11 +69,15 @@ class LyricsSectionTests(unittest.TestCase):
         self.assertEqual(kinds.pop("subtitle_accent_color"), "color")
         self.assertEqual(kinds.pop("subtitle_karaoke_pending_mode"), "combo")
         self.assertEqual(kinds.pop("subtitle_karaoke_pending_color"), "color")
+        self.assertEqual(kinds.pop("subtitle_auto_shrink"), "check")
+        self.assertEqual(kinds.pop("subtitle_auto_wrap"), "check")
+        self.assertEqual(kinds.pop("subtitle_wrap_to_source"), "combo")
         self.assertEqual(set(kinds.values()), {"spin"})
         self.assertIsInstance(self.section.widgets["subtitle_animation"], QComboBox)
 
         hidden = self.section.hidden_when_off(Source(SourceType.LYRICS, "L", subtitle_context_lines=0))
         self.assertEqual(hidden, {
+            "subtitle_wrap_to_source": False, "subtitle_wrap_width": False,
             "subtitle_previous_opacity": False, "subtitle_previous_blur": False,
             "subtitle_accent_color": False,
             "subtitle_accent_enabled": True,
