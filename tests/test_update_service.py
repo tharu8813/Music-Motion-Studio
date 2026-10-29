@@ -137,15 +137,17 @@ class UpdateServiceTests(unittest.TestCase):
             self.assertFalse(destination.with_suffix(".exe.download").exists())
         self.assertEqual(updates[-1][0], 1.0)
 
-    def test_automatic_install_has_no_prompt_or_machine_restart_and_resumes_exact_snapshot(self) -> None:
+    def test_automatic_install_shows_progress_without_wizard_or_restart_and_resumes_snapshot(self) -> None:
         installer = Path("한글 경로/Playlist Canvas-setup.exe").resolve()
         snapshot = Path("다른 작업/unsaved.recovery.json").resolve()
         root = Path("Program Files/Playlist Canvas").resolve()
         with patch("app.services.update_service.installation_root", return_value=root):
             arguments = automatic_setup_arguments(installer, snapshot, 1234, korean=True)
-        for flag in ("/SP-", "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART",
+        for flag in ("/SP-", "/SILENT", "/NORESTART",
                      "/NOCLOSEAPPLICATIONS", "/NORESTARTAPPLICATIONS", "/AUTOMATICUPDATE=1"):
             self.assertIn(flag, arguments)
+        self.assertNotIn("/VERYSILENT", arguments)
+        self.assertNotIn("/SUPPRESSMSGBOXES", arguments)
         self.assertIn(f"/UPDATERECOVERY={snapshot}", arguments)
         self.assertIn("/UPDATEPID=1234", arguments)
         self.assertIn(f"/DIR={root}", arguments)

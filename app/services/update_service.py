@@ -78,10 +78,10 @@ def is_newer_version(candidate: str, current: str = __version__) -> bool:
 
 
 def automatic_setup_arguments(installer: Path, recovery_path: Path, parent_pid: int, *, korean: bool) -> list[str]:
-    """Update the running installation, then resume this exact workspace."""
+    """Show Setup progress while replacing the installation and restoring this workspace."""
     root = installation_root()
     return [
-        "/SP-", "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART",
+        "/SP-", "/SILENT", "/NORESTART",
         "/NOCLOSEAPPLICATIONS", "/NORESTARTAPPLICATIONS",
         "/AUTOMATICUPDATE=1", f"/UPDATEPID={parent_pid}",
         f"/UPDATERECOVERY={recovery_path.resolve()}",

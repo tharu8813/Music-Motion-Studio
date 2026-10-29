@@ -99,8 +99,16 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Check: UpdateDesktopShortcut
 
 [InstallDelete]
-; Keep the existing installation identity/path, but retire only old launchers.
+; Replace only the PyInstaller-managed runtime of a recognized existing install.
+; Never wipe {app}: it may contain user files, and preserving the same AppId
+; keeps Inno Setup's upgrade/uninstall history intact.
+; This entry MUST precede the old EXE deletion so its Check sees the marker.
+Type: filesandordirs; Name: "{app}\_internal"; Check: IsExistingManagedInstallation
+; Remove stale launchers after the product/EXE name change.
 Type: files; Name: "{app}\{#PreviousAppName}.exe"
+Type: files; Name: "{app}\Playlist.Canvas.exe"
+Type: files; Name: "{app}\Playlist-Canvas.exe"
+Type: files; Name: "{app}\PlaylistCanvas.exe"
 Type: files; Name: "{userdesktop}\{#PreviousAppName}.lnk"
 Type: files; Name: "{commondesktop}\{#PreviousAppName}.lnk"
 Type: files; Name: "{userprograms}\{#PreviousAppName}\*.lnk"
@@ -152,6 +160,17 @@ function IsAutomaticUpdate(): Boolean;
 begin
   Result := ExpandConstant('{param:AUTOMATICUPDATE|0}') = '1';
 end;
+
+function IsExistingManagedInstallation(): Boolean;
+begin
+  { Only remove a PyInstaller runtime if a known application EXE and the
+    shipped integrity manifest are present in the selected install folder. }
+  Result :=
+    FileExists(ExpandConstant('{app}\integrity.json')) and
+    (FileExists(ExpandConstant('{app}\{#PreviousAppName}.exe')) or
+     FileExists(ExpandConstant('{app}\{#MyAppExeName}')));
+end;
+
 
 function UpdateDesktopShortcut(): Boolean;
 begin

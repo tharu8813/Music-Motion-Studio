@@ -1,6 +1,6 @@
 # Music Motion Studio Windows 패키징 가이드
 
-Playlist Canvas에서 제품 이름을 변경했습니다. `setup.iss`의 기존 AppId GUID와 `.pvsproj`의 `PlaylistCanvas.Project` 연결 식별자는 유지합니다. 업그레이드는 이전 설치 경로를 재사용하고 실행 파일·시작 메뉴·기존 바탕 화면 바로가기를 새 이름으로 교체합니다. 내부 데이터 폴더 `%LOCALAPPDATA%\PlaylistCanvas`는 FFmpeg·프리셋·언어팩을 계속 찾을 수 있도록 유지합니다. Qt 설정과 복구 파일은 새 이름으로 첫 실행할 때 이전됩니다. 최신 앱의 자동 업데이트와 릴리즈 배포는 `tharu8813/Music-Motion-Studio` 저장소에서 처리하고, `tharu8813/Playlist-Canvas`는 구버전 사용자용 릴리즈 배포 저장소로 별도 유지합니다. `LICENSE.txt` 원문은 변경하지 않습니다.
+Playlist Canvas에서 제품 이름을 변경했습니다. `setup.iss`의 기존 AppId GUID와 `.pvsproj`의 `PlaylistCanvas.Project` 연결 식별자는 유지합니다. 업그레이드는 이전 설치 경로를 재사용하고, 기존 설치본이 확인되면 PyInstaller의 `_internal` 런타임 폴더를 새 파일로 교체합니다. 이름이 바뀐 구형 실행 파일·시작 메뉴·기존 바탕 화면 바로가기는 정리하며, 설치 폴더 전체를 무조건 삭제하거나 구형 제거 프로그램을 실행하지 않습니다. 내부 데이터 폴더 `%LOCALAPPDATA%\PlaylistCanvas`는 FFmpeg·프리셋·언어팩을 계속 찾을 수 있도록 유지합니다. Qt 설정과 복구 파일은 새 이름으로 첫 실행할 때 이전됩니다. 최신 앱의 자동 업데이트와 릴리즈 배포는 `tharu8813/Music-Motion-Studio` 저장소에서 처리하고, `tharu8813/Playlist-Canvas`는 구버전 사용자용 릴리즈 배포 저장소로 별도 유지합니다. `LICENSE.txt` 원문은 변경하지 않습니다.
 
 아이콘 원본은 `app/resources/app_icon.svg`와 `project_file_icon.svg`입니다. `python tools/generate_app_icon.py`로 PNG와 16~256px의 10개 크기가 포함된 ICO를 함께 재생성합니다.
 
@@ -66,7 +66,7 @@ Inno Setup 6을 설치한 뒤 프로젝트 루트에서 다음 명령을 실행�
 
 `setup.iss`는 `dist\Music Motion Studio` 폴더 전체를 설치 원본으로 사용합니다. 따라서 PyInstaller 빌드가 먼저 성공해야 합니다.
 
-설치는 관리자 권한을 요청하며(`PrivilegesRequired=admin`) 기본 경로는 `%ProgramFiles%\Music Motion Studio`입니다. 업데이트는 일반 사용자 권한으로 Setup을 시작하고 Setup 자체가 권한 상승을 요청합니다. `/AUTOMATICUPDATE=1 /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /UPDATEPID=<종료할 앱 PID> /UPDATERECOVERY=<복구본 경로> /UPDATEREADY=<준비 완료 신호 파일>`을 전달합니다. 설치된 앱은 `/DIR=<현재 실행 중인 앱 폴더>`를 전달해 사용자 지정 경로도 유지합니다. 편집기는 Setup의 준비 완료 신호를 받은 뒤 최신 작업을 다시 백업하고 종료합니다. 권한 요청을 취소하면 편집기는 열린 상태로 남습니다. Setup은 해당 프로세스가 종료된 뒤 기존 파일을 제자리에서 갱신하며, 성공했을 때만 원래 사용자의 일반 권한으로 `--resume-update <복구본 경로>`를 실행합니다. 이전 설치본의 제거 프로그램은 호출하지 않으며, 제거 시 설치 폴더 안의 사용자 파일은 삭제하지 않습니다.
+설치는 관리자 권한을 요청하며(`PrivilegesRequired=admin`) 기본 경로는 `%ProgramFiles%\Music Motion Studio`입니다. 업데이트는 일반 사용자 권한으로 Setup을 시작하고 Setup 자체가 권한 상승을 요청합니다. `/AUTOMATICUPDATE=1 /SILENT /NORESTART /SP- /UPDATEPID=<종료할 앱 PID> /UPDATERECOVERY=<복구본 경로> /UPDATEREADY=<준비 완료 신호 파일>`을 전달합니다. 설치된 앱은 `/DIR=<현재 실행 중인 앱 폴더>`를 전달해 사용자 지정 경로도 유지합니다. `/SILENT`는 사용자의 추가 선택 없이 설치하되 진행률 창을 보여줍니다. 설치 오류도 숨기지 않습니다. 편집기는 Setup의 준비 완료 신호를 받은 뒤 최신 작업을 다시 백업하고 종료합니다. 권한 요청을 취소하면 편집기는 열린 상태로 남습니다. Setup은 해당 프로세스가 종료된 뒤 기존 파일을 제자리에서 갱신하며, 성공했을 때만 원래 사용자의 일반 권한으로 `--resume-update <복구본 경로>`를 실행합니다. 이전 설치본의 제거 프로그램은 호출하지 않으며, 업데이트 시 동일한 앱 ID와 기존 제거 기록을 유지합니다. `_internal` 정리는 설치 폴더 안에 앱 실행 파일과 `integrity.json`이 함께 있는 경우에만 실행하고, 사용자 설정·프로젝트 파일 및 다른 임의 폴더는 삭제하지 않습니다. 제거 시 설치 폴더 안의 사용자 파일도 삭제하지 않습니다.
 
 설치 마법사는 루트의 `LICENSE.txt`를 Playlist Canvas Source-Available Noncommercial Share-Alike License 1.0 동의 화면으로 표시하며, 설치된 프로그램 폴더에도 같은 원문을 복사합니다.
 

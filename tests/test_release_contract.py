@@ -184,6 +184,13 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('function InitializeSetup(): Boolean;', installer)
         self.assertIn('HadDesktopShortcut :=', installer)
         self.assertIn('Result := HadDesktopShortcut and', installer)
+        # Retire obsolete binaries and PyInstaller runtime, but never remove
+        # the whole application directory or purge per-user settings.
+        self.assertIn('Type: files; Name: "{app}\\{#PreviousAppName}.exe"', installer)
+        self.assertIn('Type: filesandordirs; Name: "{app}\\_internal"; Check: IsExistingManagedInstallation', installer)
+        self.assertIn("function IsExistingManagedInstallation(): Boolean;", installer)
+        self.assertIn("integrity.json", installer)
+        self.assertNotIn('Type: filesandordirs; Name: "{app}"', installer)
 
     def test_updates_use_program_files_and_only_restart_after_success(self) -> None:
         installer = (ROOT / "setup.iss").read_text(encoding="utf-8")
