@@ -7,7 +7,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt, QTimer, Signal
-from PySide6.QtGui import QContextMenuEvent, QImage, QMouseEvent
+from PySide6.QtGui import QContextMenuEvent, QEnterEvent, QImage, QMouseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget
 
@@ -277,7 +277,11 @@ class PreviewPresentationTests(unittest.TestCase):
         self.assertEqual(QApplication.overrideCursor().shape(), Qt.CursorShape.BlankCursor)
 
         # Native child windows may send only Enter/Hover events, not MouseMove.
-        self.app.sendEvent(preview.preview_label, QEvent(QEvent.Type.Enter))
+        global_pos = preview.preview_label.mapToGlobal(QPoint(10, 10))
+        self.app.sendEvent(
+            preview.preview_label,
+            QEnterEvent(QPointF(10, 10), QPointF(10, 10), QPointF(global_pos)),
+        )
         self.assertEqual(QApplication.overrideCursor(), previous)
         self.assertTrue(controller._controls_shown)
 
