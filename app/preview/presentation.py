@@ -45,6 +45,7 @@ class PreviewPresentationController(QObject):
         self._surface_cursors = []
         self._last_pointer_position = None
         self._owns_cursor_override = False
+        self._window_active = False
         self._controls_shown = False
         self.controls_animation = None
         self.idle_timer = QTimer(self)
@@ -149,6 +150,7 @@ class PreviewPresentationController(QObject):
         window.setScreen(preview.screen())
         window.exit_requested.connect(self.exit_fullscreen)
         self.window = window
+        self._window_active = True
         root = QVBoxLayout(window)
         root.setContentsMargins(0, 0, 0, 0)
         self.surface_layout.removeWidget(host)
@@ -216,6 +218,7 @@ class PreviewPresentationController(QObject):
                 widget.setCursor(cursor) if explicit else widget.unsetCursor()
         self._surface_cursors = []
         self.window = None
+        self._window_active = False
         self.controls.hide()
         self._controls_shown = False
         window.hide()
@@ -291,6 +294,11 @@ class PreviewPresentationController(QObject):
     def show_controls(self) -> None:
         if not self.is_fullscreen:
             return
+        # A focus transition can arrive while the OS is still recreating the
+        # fullscreen native surface. Only start another idle countdown once
+        # the preview window is active again.
+        if not self._window_active:
+            return
         # A single, balanced application override hides the pointer even over
         # native/OpenGL child surfaces. Restore it on the first activity event,
         # instead of leaving a global ArrowCursor override or hidden children.
@@ -310,8 +318,28 @@ class PreviewPresentationController(QObject):
         self.idle_timer.start()
 
     def _track_pointer(self) -> None:
-        if self.is_fullscreen and QCursor.pos() != self._last_pointer_position:
+        if self.is_fullscreen and self._window_active and QCursor.pos() != self._last_pointer_position:
             self.show_controls()
+
+    def _fullscreen_activation_changed(self, active: bool) -> None:
+        """Clear any blank cursor on Alt+Tab; re-arm idle only after refocus."""
+        if not self.is_fullscreen:
+            return
+        self._window_active = active
+        if active:
+            self.show_controls()
+            self.pointer_timer.start()
+        else:
+            self.idle_timer.stop()
+            self.pointer_timer.stop()
+            if self._owns_cursor_override:
+                QApplication.restoreOverrideCursor()
+                self._owns_cursor_override = False
+            # The Win32 fullscreen surface may retain an earlier BlankCursor.
+            self.window.setCursor(Qt.CursorShape.ArrowCursor)
+            handle = self.window.windowHandle()
+            if handle is not None:
+                handle.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
 
     def raise_overlays(self) -> None:
         """Keep telemetry and controls above CPU and OpenGL surfaces alike."""
@@ -320,7 +348,7 @@ class PreviewPresentationController(QObject):
                 widget.raise_()
 
     def hide_controls(self) -> None:
-        if not self.is_fullscreen:
+        if not self.is_fullscreen or not self._window_active:
             return
         modal = QApplication.activeModalWidget()
         if (self._menu is not None or self.preview._scrubbing
@@ -349,6 +377,13 @@ class PreviewPresentationController(QObject):
 
     def eventFilter(self, watched, event) -> bool:
         kind = event.type()
+        if watched is self.window:
+            if kind == QEvent.Type.WindowDeactivate:
+                self._fullscreen_activation_changed(False)
+                return False
+            if kind == QEvent.Type.WindowActivate:
+                self._fullscreen_activation_changed(True)
+                return False
         if kind not in _PRESENTATION_EVENTS:
             return False
         preview = self.preview

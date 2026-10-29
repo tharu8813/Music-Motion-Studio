@@ -306,6 +306,37 @@ class PreviewPresentationTests(unittest.TestCase):
         self.assertEqual(QApplication.overrideCursor().shape(), Qt.CursorShape.BlankCursor)
         self.assertFalse(controller._controls_shown)
 
+    def test_alt_tab_deactivation_restores_cursor_and_pauses_idle(self):
+        preview, controller = self.make_preview()
+        previous = QApplication.overrideCursor()
+        controller.enter_fullscreen()
+        self.app.processEvents()
+        controller.hide_controls()
+        self.assertEqual(QApplication.overrideCursor().shape(), Qt.CursorShape.BlankCursor)
+
+        # Simulate Windows deactivating the fullscreen window on Alt+Tab.
+        controller.eventFilter(controller.window, QEvent(QEvent.Type.WindowDeactivate))
+        self.assertFalse(controller._window_active)
+        self.assertFalse(controller.idle_timer.isActive())
+        self.assertFalse(controller.pointer_timer.isActive())
+        self.assertEqual(QApplication.overrideCursor(), previous)
+
+        # A pending idle callback must not re-hide the OS cursor in another app.
+        controller.hide_controls()
+        self.assertEqual(QApplication.overrideCursor(), previous)
+
+        # Returning focus must immediately show the pointer and restart polling.
+        controller.eventFilter(controller.window, QEvent(QEvent.Type.WindowActivate))
+        self.assertTrue(controller._window_active)
+        self.assertTrue(controller.idle_timer.isActive())
+        self.assertTrue(controller.pointer_timer.isActive())
+        self.assertEqual(QApplication.overrideCursor(), previous)
+        controller.hide_controls()
+        self.assertEqual(QApplication.overrideCursor().shape(), Qt.CursorShape.BlankCursor)
+        controller.show_controls()
+        self.assertEqual(QApplication.overrideCursor(), previous)
+        controller.exit_fullscreen()
+
     def test_idle_cursor_override_is_balanced_over_repeated_fullscreen_sessions(self):
         preview, controller = self.make_preview()
         original = QApplication.overrideCursor()
