@@ -2143,12 +2143,13 @@ class FunctionalRegressionTests(unittest.TestCase):
                 {"start": 9.0, "end": 13.0, "text": "New current"},
             ],
         )
-        seen: list[tuple[float, int, str]] = []
+        seen: list[tuple[float, int, tuple[int, int, int, int] | None, str]] = []
 
         def observe(*_args: object, **_kwargs: object) -> QImage:
             seen.append((
                 item._subtitle_transition_progress,
                 item._subtitle_leaving_line_count,
+                item._subtitle_strip_window,
                 source.text,
             ))
             return QImage(1, 1, QImage.Format.Format_ARGB32)
@@ -2163,12 +2164,16 @@ class FunctionalRegressionTests(unittest.TestCase):
 
         mid, done = seen
         self.assertLess(mid[0], 1.0)
-        self.assertEqual(mid[1], 2)
-        self.assertIn("Old top\nsecond row", mid[2])
-        self.assertIn("Former current", mid[2])
-        self.assertIn("New current", mid[2])
+        self.assertEqual(mid[1], 0)  # A continuous strip does not stage a leaving row.
+        self.assertIsNotNone(mid[2])
+        self.assertLess(mid[2][0], mid[2][2])  # The old context remains while scrolling.
+        self.assertIn("Old top\nsecond row", mid[3])
+        self.assertIn("Former current", mid[3])
+        self.assertIn("New current", mid[3])
         self.assertEqual(done[1], 0)
-        self.assertNotIn("Old top", done[2])
+        self.assertIsNotNone(done[2])
+        self.assertEqual(done[2][0], done[2][2])  # The visible windows converge.
+        self.assertEqual(done[2][1], done[2][3])
         self.assertEqual(item._subtitle_leaving_line_count, 0)
 
     def test_lyric_context_starts_new_cue_from_previous_stable_position(self) -> None:
