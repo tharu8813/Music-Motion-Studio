@@ -12,6 +12,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ReleaseContractTests(unittest.TestCase):
+    def test_installer_sources_only_the_packaged_distribution(self) -> None:
+        installer = (ROOT / "setup.iss").read_text(encoding="utf-8")
+        # Inno predefines SourcePath as the script directory. Reusing it as
+        # an override accidentally includes the repository and virtualenv.
+        self.assertNotIn("#ifndef SourcePath", installer)
+        self.assertIn('#define AppSourcePath "dist\\Playlist Canvas"', installer)
+        self.assertIn('Source: "{#AppSourcePath}\\*";', installer)
+
     def test_pyinstaller_does_not_bundle_development_ffmpeg(self) -> None:
         specification = (ROOT / "playlist_canvas.spec").read_text(encoding="utf-8")
         self.assertNotIn("bundled_ffmpeg", specification)

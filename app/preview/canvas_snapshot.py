@@ -899,7 +899,7 @@ class CanvasSnapshot:
                     visible_last = min(len(display_cues), cue_index + next_context + 1)
                     # Prepare two future cue blocks before either becomes a
                     # displayed upcoming cue. They do not consume context slots.
-                    last = min(len(display_cues), visible_last + 2)
+                    last = min(len(display_cues), visible_last + (2 if next_context > 0 else 0))
                     blocks = [
                         LyricsService.decode_line_breaks(cue.get("text", "")).strip()
                         for cue in display_cues[first:last]

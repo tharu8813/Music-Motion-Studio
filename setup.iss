@@ -16,8 +16,8 @@
 #define MyAppGUID "{{28b780ab-d9ec-420a-88d8-17d364505722}"
 
 ; 선택적 설정 (필요시 수정)
-#ifndef SourcePath
-  #define SourcePath "dist\Playlist Canvas"
+#ifndef AppSourcePath
+  #define AppSourcePath "dist\Playlist Canvas"
 #endif
 #define SetupIconPath "app\resources\app_icon.ico"
 #define ProjectIconPath "app\resources\project_file_icon.ico"
@@ -85,7 +85,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "{#SourcePath}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.log,*.tmp"
+Source: "{#AppSourcePath}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.log,*.tmp"
 Source: "{#ProjectIconPath}"; DestDir: "{app}"; DestName: "project_file_icon.ico"; Flags: ignoreversion
 Source: "LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 
