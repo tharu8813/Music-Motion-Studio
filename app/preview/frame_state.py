@@ -81,7 +81,10 @@ def resolve_lyrics_intro_state(track: PlaylistTrack, source: Source, elapsed: fl
     first = first_start - track.lyrics_timing_offset_seconds - source.subtitle_timing_offset
     duration = source.subtitle_animation_duration if source.subtitle_animation != "none" else 0.0
     first_exit_duration = duration
-    if source.subtitle_intro_enabled and first > 0 and duration > 0:
+    if (source.subtitle_intro_enabled and first > 0 and duration > 0
+            and first <= elapsed < first + duration):
+        # Only inspect upcoming lyrics while the opening marker is exiting;
+        # before the first cue, later rows should not be traversed.
         # The temporary opening row must leave before the lyric anchor changes.
         # Include the cue resolver's 0.5 ms tolerance, so even that boundary
         # frame uses ordinary scrolling rather than the marker's held layout.
