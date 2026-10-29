@@ -376,7 +376,12 @@ class PreviewPresentationController(QObject):
             if kind == QEvent.Type.Resize and watched is host:
                 self._position_controls()
             elif kind in _ACTIVITY_EVENTS:
-                self.show_controls()
+                # Hiding or moving an overlay can generate Enter without any
+                # physical pointer movement. Do not wake the idle controls in
+                # response to that synthetic change of hovered child widget.
+                entering = kind in {QEvent.Type.Enter, QEvent.Type.HoverEnter}
+                if not entering or not self._owns_cursor_override or QCursor.pos() != self._last_pointer_position:
+                    self.show_controls()
         return False
 
     def shutdown(self) -> None:

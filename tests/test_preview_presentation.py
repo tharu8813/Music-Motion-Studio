@@ -277,6 +277,8 @@ class PreviewPresentationTests(unittest.TestCase):
         self.assertEqual(QApplication.overrideCursor().shape(), Qt.CursorShape.BlankCursor)
 
         # Native child windows may send only Enter/Hover events, not MouseMove.
+        # Make the remembered position stale to represent actual movement.
+        controller._last_pointer_position = QPoint(-10000, -10000)
         global_pos = preview.preview_label.mapToGlobal(QPoint(10, 10))
         self.app.sendEvent(
             preview.preview_label,
@@ -292,6 +294,17 @@ class PreviewPresentationTests(unittest.TestCase):
         self.assertEqual(QApplication.overrideCursor(), previous)
         self.assertTrue(controller._controls_shown)
         controller.exit_fullscreen()
+
+    def test_overlay_reparent_enter_does_not_reveal_idle_cursor(self):
+        preview, controller = self.make_preview()
+        controller.enter_fullscreen()
+        self.app.processEvents()
+        controller.hide_controls()
+        self.assertEqual(QApplication.overrideCursor().shape(), Qt.CursorShape.BlankCursor)
+        # The overlay disappearing may emit Enter while the mouse is still.
+        controller.eventFilter(preview.preview_label, QEvent(QEvent.Type.Enter))
+        self.assertEqual(QApplication.overrideCursor().shape(), Qt.CursorShape.BlankCursor)
+        self.assertFalse(controller._controls_shown)
 
     def test_idle_cursor_override_is_balanced_over_repeated_fullscreen_sessions(self):
         preview, controller = self.make_preview()
