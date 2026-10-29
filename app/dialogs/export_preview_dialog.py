@@ -3322,9 +3322,31 @@ class ExportPreviewDialog(QDialog):
             self._gpu_refresh_deferred = False
             self._schedule_refresh()
 
+    def _fullscreen_gpu_focus_changed(self, active: bool) -> None:
+        """Avoid treating an Alt+Tab-suspended OpenGL swap as a GPU failure."""
+        if not self.gpu_preview_enabled or self.gpu_surface is None:
+            return
+        if not active:
+            self._gpu_watchdog.stop()
+            self._gpu_health.cancel_wait()
+            return
+        if getattr(self.gpu_surface, "frame_pending", False):
+            # A submitted frame can remain pending while Windows suspends the
+            # inactive fullscreen surface. Request another paint and give it
+            # a fresh watchdog window instead of counting the old delay.
+            self.gpu_surface.update()
+            self._gpu_health.frame_queued(monotonic())
+            self._gpu_watchdog.start()
+        else:
+            QTimer.singleShot(0, self, self.refresh_preview)
+
     def _gpu_watchdog_timeout(self) -> None:
         """Retry one stalled swap, then fail closed to the current CPU scene."""
         if not self.gpu_preview_enabled or self.gpu_surface is None:
+            self._gpu_health.cancel_wait()
+            return
+        if (self.presentation_controller.is_fullscreen
+                and not self.presentation_controller._window_active):
             self._gpu_health.cancel_wait()
             return
         window = self.window()

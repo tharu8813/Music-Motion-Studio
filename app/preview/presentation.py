@@ -326,6 +326,7 @@ class PreviewPresentationController(QObject):
         if not self.is_fullscreen:
             return
         self._window_active = active
+        self.preview._fullscreen_gpu_focus_changed(active)
         if active:
             self.show_controls()
             self.pointer_timer.start()

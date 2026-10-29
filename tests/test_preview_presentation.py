@@ -306,6 +306,36 @@ class PreviewPresentationTests(unittest.TestCase):
         self.assertEqual(QApplication.overrideCursor().shape(), Qt.CursorShape.BlankCursor)
         self.assertFalse(controller._controls_shown)
 
+    def test_alt_tab_pauses_gpu_watchdog_and_rearms_pending_frame_after_focus(self):
+        from unittest.mock import Mock
+
+        preview, controller = self.make_preview()
+        controller.enter_fullscreen()
+        self.app.processEvents()
+        surface = Mock()
+        surface.frame_pending = True
+        with patch.object(preview, "gpu_preview_enabled", True), patch.object(
+            preview, "gpu_surface", surface,
+        ):
+            preview._gpu_health.frame_queued(1.0)
+            preview._gpu_watchdog.start()
+            controller.eventFilter(controller.window, QEvent(QEvent.Type.WindowDeactivate))
+            self.assertFalse(preview._gpu_watchdog.isActive())
+            self.assertFalse(preview._gpu_health.stats.awaiting_frame)
+            self.assertEqual(preview._gpu_health.stats.total_stalls, 0)
+
+            # Even an already queued watchdog callback cannot mark background
+            # fullscreen as an unresponsive OpenGL surface.
+            preview._gpu_watchdog_timeout()
+            self.assertEqual(preview._gpu_health.stats.total_stalls, 0)
+
+            controller.eventFilter(controller.window, QEvent(QEvent.Type.WindowActivate))
+            surface.update.assert_called()
+            self.assertTrue(preview._gpu_health.stats.awaiting_frame)
+            self.assertTrue(preview._gpu_watchdog.isActive())
+            preview._gpu_watchdog.stop()
+            preview._gpu_health.cancel_wait()
+
     def test_alt_tab_deactivation_restores_cursor_and_pauses_idle(self):
         preview, controller = self.make_preview()
         previous = QApplication.overrideCursor()
