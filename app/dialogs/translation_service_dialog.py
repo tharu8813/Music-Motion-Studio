@@ -27,6 +27,8 @@ class TranslationServiceDialog(QDialog):
         self.credentials = TranslationCredentials(settings)
         self.source_combo, self.target_combo, self.mode_combo = source_combo, target_combo, mode_combo
         self._provider, self._changing_provider, self._installed_llms = "", False, {}
+        self._languages_restored = False
+        self.connection = None
         self.workflow = None
         self.setObjectName("translationServiceDialog")
         self.setWindowTitle(self.tr_text("번역 서비스 및 모델 설정", "Translation service and models"))
@@ -178,13 +180,18 @@ class TranslationServiceDialog(QDialog):
         base = "translation/config/" + self._provider + "/"
         for name, value in (("model", self._model_value()),
             ("endpoint", self.endpoint_edit.text()),
-            ("instructions", self.instructions_edit.toPlainText()), ("target", self._language_value(self.target_combo)),
-            ("source", self._language_value(self.source_combo))):
+            ("instructions", self.instructions_edit.toPlainText())):
             if name != "model" or self._provider not in LOCAL_LLM_PROVIDERS or value:
                 self.settings.setValue(base + name, value)
+        if self._languages_restored:
+            for name, combo in (("source", self.source_combo), ("target", self.target_combo)):
+                self.settings.setValue("translation/languages/" + name, self._language_value(combo))
         if self._provider not in {"chatgpt", "local_nmt"}:
             self.credentials.save(self._provider, {"key": self.key_edit.text()},
                 remember=self.remember_check.isChecked())
+        self.settings.sync()
+        if self.settings.status() != self.settings.Status.NoError:
+            raise TranslationError("번역 설정을 저장할 수 없습니다. 설정 폴더 권한을 확인하세요. / Cannot save translation settings; check folder permissions.")
 
     def _provider_changed(self, *_args):
         provider = self.provider_combo.currentData()
@@ -208,8 +215,13 @@ class TranslationServiceDialog(QDialog):
         defaults = {"ollama": "http://localhost:11434/v1", "lmstudio": "http://localhost:1234/v1"}
         self.endpoint_edit.setText(str(self.settings.value(base + "endpoint", defaults.get(provider, ""))))
         self.instructions_edit.setPlainText(str(self.settings.value(base + "instructions", "")))
-        self._set_language(self.target_combo, str(self.settings.value(base + "target", "ko")))
-        self._set_language(self.source_combo, str(self.settings.value(base + "source", "en" if provider == "local_nmt" else "auto")))
+        if not self._languages_restored:
+            # Migrate the active provider once; later switches retain the common pair.
+            self._set_language(self.target_combo, str(self.settings.value("translation/languages/target",
+                self.settings.value(base + "target", "ko"))))
+            self._set_language(self.source_combo, str(self.settings.value("translation/languages/source",
+                self.settings.value(base + "source", "en" if provider == "local_nmt" else "auto"))))
+            self._languages_restored = True
         credentials = self.credentials.load(provider)
         self.key_edit.setText(credentials.get("key", ""))
         self.remember_check.setChecked(bool(self.settings.value("translation/secrets/" + provider, "")))
@@ -282,7 +294,8 @@ class TranslationServiceDialog(QDialog):
         elif source == "auto":
             message = self.tr_text("로컬 번역 모델은 원문 언어를 직접 선택해야 합니다.", "Choose a source language for local translation.")
         elif matching:
-            message = self.tr_text(f"{source} → {target} 모델 설치됨 · 오프라인 번역 준비 완료", f"{source} → {target} installed · ready offline")
+            message = self.tr_text(f"{source} → {target} 모델 파일 확인됨 · 실행은 번역 시 확인합니다.",
+                                   f"{source} → {target} model files found · execution checked when translating.")
         else:
             message = self.tr_text(f"{source} → {target} 모델 설치가 필요합니다. 아래 버튼으로 자동 설치하세요.", f"Install a {source} → {target} model using the button below.")
         self.local_pair_note.setText(message)
@@ -290,6 +303,23 @@ class TranslationServiceDialog(QDialog):
     def _pair_changed(self, *_args):
         if self._provider == "local_nmt" and not self._changing_provider:
             self._refresh_local_models(self._model_value())
+
+    def connection_signature(self):
+        import hashlib
+        config = self._config()
+        # Never keep an additional plaintext credential in connection metadata.
+        key = self.credentials.load("chatgpt").get("access_token", "") if config.provider == "chatgpt" else config.key
+        return (config.provider, config.endpoint, hashlib.sha256(key.encode()).hexdigest())
+
+    def record_connection(self, connected, models=()):
+        from time import monotonic
+        self.connection = (self.connection_signature(), connected, frozenset(models), monotonic())
+
+    def verified_connection(self):
+        from time import monotonic
+        if self.connection and self.connection[0] == self.connection_signature() and monotonic() - self.connection[3] < 300:
+            return self.connection[1:3]
+        return None
 
     def _install_local_pair(self):
         if self._provider == "local_nmt":
@@ -346,11 +376,14 @@ class TranslationServiceDialog(QDialog):
         self.manager = LocalLLMManagerDialog(self.translator, self.parentWidget(), service=service)
         dialog = self.manager
         provider = self._provider
+        signature = self.connection_signature()
         def finished(_result):
             self._installed_llms[provider] = dialog.models
             if self._provider == provider:
                 if dialog._discovered:
                     self._populate_llm_models(dialog.models, dialog.selected_model or self._model_value())
+                    if signature == self.connection_signature():
+                        self.record_connection(True, [model["id"] for model in dialog.models])
                 try:
                     self._save_settings()
                 except TranslationError as error:

@@ -1,24 +1,64 @@
 """Managed Argos/CTranslate2 packages and in-process CPU translation."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import stat
+from threading import Event
 import unicodedata
 from tempfile import TemporaryDirectory
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from zipfile import BadZipFile, ZipFile
 
+from PySide6.QtCore import QLockFile
+
 from app.services.lyrics_translation_service import IncompleteTranslation, TranslationError, check_cancel, request_json, same_language
 
 CATALOG_URL = "https://raw.githubusercontent.com/argosopentech/argospm-index/main/index.json"
 MAX_ARCHIVE = 1024 * 1024 * 1024
 MAX_EXPANDED = 2 * MAX_ARCHIVE
+
+
+def _retry_install_io(operation, cancel=None):
+    """Bounded, cancellable retries for Windows sharing/access-denied races."""
+    waiter = cancel if cancel is not None else Event()
+    for attempt, delay in enumerate((.05, .1, .2, .4, .8, .8, 0)):
+        check_cancel(cancel)
+        try:
+            return operation()
+        except PermissionError as error:
+            if os.name != "nt" or getattr(error, "winerror", None) not in {5, 32, 33} or attempt == 6:
+                raise
+            waiter.wait(delay)
+            check_cancel(cancel)
+
+
+@contextmanager
+def _publication_lock(target, cancel):
+    """Coordinate this model's atomic publication across threads and app processes."""
+    lock = QLockFile(str(target.parent / ("." + target.name + ".lock")))
+    waiter = cancel if cancel is not None else Event()
+    for _ in range(100):
+        check_cancel(cancel)
+        if lock.tryLock(0):
+            break
+        if lock.error() != QLockFile.LockError.LockFailedError:
+            raise TranslationError("모델 설치 잠금을 만들 수 없습니다. 폴더 권한을 확인하세요. / Cannot lock model installation; check folder permissions.")
+        waiter.wait(.05)
+    else:
+        raise TranslationError("같은 모델을 다른 작업에서 설치하고 있습니다. 잠시 후 다시 시도하세요. / Another operation is installing this model; retry shortly.")
+    try:
+        yield
+    finally:
+        lock.unlock()
 
 
 class _HTTPSRedirect(HTTPRedirectHandler):
@@ -118,67 +158,87 @@ class LocalTranslationModels:
 
     def install(self, archive, cancel=None, progress=None):
         """Extract data only, in a temporary sibling; preserve package licenses."""
-        self.root.mkdir(parents=True, exist_ok=True)
+        check_cancel(cancel)
         archive = Path(archive)
-        if archive.stat().st_size > MAX_ARCHIVE:
-            raise TranslationError("모델 파일이 너무 큽니다(최대 1 GB). / Model package exceeds 1 GB.")
         try:
-            with TemporaryDirectory(prefix=".install-", dir=self.root) as temporary:
+            self.root.mkdir(parents=True, exist_ok=True)
+            if archive.stat().st_size > MAX_ARCHIVE:
+                raise TranslationError("모델 파일이 너무 큽니다(최대 1 GB). / Model package exceeds 1 GB.")
+            with TemporaryDirectory(prefix=".install-", dir=self.root, ignore_cleanup_errors=True) as temporary:
                 stage = Path(temporary)
-                with ZipFile(archive) as package:
-                    entries = package.infolist()
-                    if len(entries) > 10_000 or sum(entry.file_size for entry in entries) > MAX_EXPANDED:
-                        raise ValueError("Oversized package")
-                    seen = set()
-                    for number, entry in enumerate(entries):
-                        check_cancel(cancel)
-                        path = PurePosixPath(entry.filename)
-                        if (path.is_absolute() or ".." in path.parts or "\\" in entry.orig_filename or ":" in entry.filename
-                                or any(part.rstrip(". ") != part or part.split(".")[0].upper() in
-                                    {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))} for part in path.parts)
-                                or stat.S_ISLNK(entry.external_attr >> 16) or entry.flag_bits & 1):
-                            raise ValueError("Unsafe package path")
-                        destination = stage.joinpath(*path.parts)
-                        if not destination.resolve().is_relative_to(stage.resolve()):
-                            raise ValueError("Unsafe package path")
-                        if entry.is_dir():
-                            destination.mkdir(parents=True, exist_ok=True)
-                            continue
-                        key = str(destination).casefold()
-                        if key in seen:
-                            raise ValueError("Duplicate package path")
-                        seen.add(key)
-                        destination.parent.mkdir(parents=True, exist_ok=True)
-                        with package.open(entry) as incoming, destination.open("wb") as outgoing:
-                            while chunk := incoming.read(1024 * 1024):
-                                check_cancel(cancel)
-                                outgoing.write(chunk)
-                        if progress:
-                            progress(number + 1, len(entries))
-                candidates = list(stage.glob("metadata.json")) + list(stage.glob("*/metadata.json"))
-                if len(candidates) != 1:
-                    raise ValueError("Expected one translation package")
-                model = self._read(candidates[0].parent)
-                with archive.open("rb") as handle:
-                    digest = hashlib.file_digest(handle, "sha256").hexdigest()[:16]
-                target = self.root / f"{model.source}-{model.target}-{digest}"
-                check_cancel(cancel)
-                if not target.exists():
-                    ready = model.directory
-                    if ready == stage:
-                        ready = stage / ".ready"
-                        ready.mkdir()
-                        for child in tuple(stage.iterdir()):
-                            if child != ready:
-                                child.rename(ready / child.name)
-                    if not ready.resolve().is_relative_to(self.root.resolve()) or not target.resolve().is_relative_to(self.root.resolve()):
-                        raise ValueError("Model path leaves managed directory")
-                    ready.rename(target)
-                return self._read(target)
+                try:
+                    with ZipFile(archive) as package:
+                        entries = package.infolist()
+                        if len(entries) > 10_000 or sum(entry.file_size for entry in entries) > MAX_EXPANDED:
+                            raise ValueError("Oversized package")
+                        seen = set()
+                        for number, entry in enumerate(entries):
+                            check_cancel(cancel)
+                            path = PurePosixPath(entry.filename)
+                            if (path.is_absolute() or ".." in path.parts or "\\" in entry.orig_filename or ":" in entry.filename
+                                    or any(part.rstrip(". ") != part or part.split(".")[0].upper() in
+                                        {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))} for part in path.parts)
+                                    or stat.S_ISLNK(entry.external_attr >> 16) or entry.flag_bits & 1):
+                                raise ValueError("Unsafe package path")
+                            destination = stage.joinpath(*path.parts)
+                            if not destination.resolve().is_relative_to(stage.resolve()):
+                                raise ValueError("Unsafe package path")
+                            if entry.is_dir():
+                                destination.mkdir(parents=True, exist_ok=True)
+                                continue
+                            key = str(destination).casefold()
+                            if key in seen:
+                                raise ValueError("Duplicate package path")
+                            seen.add(key)
+                            destination.parent.mkdir(parents=True, exist_ok=True)
+                            with package.open(entry) as incoming, destination.open("wb") as outgoing:
+                                while chunk := incoming.read(1024 * 1024):
+                                    check_cancel(cancel)
+                                    outgoing.write(chunk)
+                            if progress:
+                                progress(number + 1, len(entries))
+                    candidates = list(stage.glob("metadata.json")) + list(stage.glob("*/metadata.json"))
+                    if len(candidates) != 1:
+                        raise ValueError("Expected one translation package")
+                    model = self._read(candidates[0].parent)
+                    with archive.open("rb") as handle:
+                        digest = hashlib.file_digest(handle, "sha256").hexdigest()[:16]
+                    target = self.root / f"{model.source}-{model.target}-{digest}"
+                    check_cancel(cancel)
+                    with _publication_lock(target, cancel):
+                        if not target.exists():
+                            ready = model.directory
+                            if ready == stage:
+                                ready = stage / ".ready"
+                                ready.mkdir()
+                                for child in tuple(stage.iterdir()):
+                                    if child != ready:
+                                        _retry_install_io(lambda source=child: source.rename(ready / source.name), cancel)
+                            if not ready.resolve().is_relative_to(self.root.resolve()) or not target.resolve().is_relative_to(self.root.resolve()):
+                                raise ValueError("Model path leaves managed directory")
+                            _retry_install_io(lambda: ready.rename(target), cancel)
+                    return self._read(target)
+                finally:
+                    self._cleanup_stage(stage)
         except TranslationError:
             raise
-        except (OSError, ValueError, KeyError, TypeError, RuntimeError, BadZipFile):
+        except OSError:
+            raise TranslationError("모델 설치 폴더에 접근할 수 없습니다. 파일을 사용하는 프로그램과 폴더 권한·디스크 공간을 확인한 뒤 다시 시도하세요. 기존 모델은 유지됩니다. / Cannot access model installation folder; check file locks, permissions and disk space. Existing models are preserved.") from None
+        except (ValueError, KeyError, TypeError, RuntimeError, BadZipFile):
             raise TranslationError("지원하는 .argosmodel 파일이 아닙니다. CTranslate2·SentencePiece 모델을 확인하세요. / Invalid or unsupported Argos model package.") from None
+
+    def _cleanup_stage(self, stage):
+        # Delete only the private directory created for this installation.
+        if not stage.resolve().is_relative_to(self.root.resolve()) or not stage.name.startswith(".install-"):
+            raise ValueError("Unexpected installation cleanup directory")
+        try:
+            _retry_install_io(lambda: shutil.rmtree(stage))
+        except FileNotFoundError:
+            pass
+        except OSError:
+            # A published model remains successful even if an external handle prevents
+            # temporary cleanup. Hidden leftovers are never discovered as models.
+            logging.getLogger(__name__).warning("Could not remove locked temporary model directory: %s", stage)
 
     def download(self, entry, cancel=None, progress=None):
         check_cancel(cancel)

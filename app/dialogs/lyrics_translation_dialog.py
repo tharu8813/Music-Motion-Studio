@@ -135,7 +135,6 @@ class LyricsTranslationDialog(QDialog):
         self.workflow.busy_changed.connect(self._busy_changed)
         self.workflow.status_changed.connect(self._status_changed)
         self.workflow.progress_changed.connect(self._progress)
-        self.workflow.completed.connect(self._translation_completed)
         self.service_dialog.changed.connect(self._refresh_summary)
         self.source_combo.currentTextChanged.connect(self._refresh_summary)
         self.target_combo.currentTextChanged.connect(self._refresh_summary)
@@ -143,7 +142,7 @@ class LyricsTranslationDialog(QDialog):
         self._draft_timer = QTimer(self)
         self._draft_timer.setSingleShot(True)
         self._draft_timer.setInterval(500)
-        self._draft_timer.timeout.connect(self.draft.save)
+        self._draft_timer.timeout.connect(self._autosave_draft)
         saved = str(self.settings.value("translation/provider", "chatgpt"))
         mode = "cloud_llm" if saved in CLOUD_LLM_PROVIDERS else "local_llm" if saved in LOCAL_LLM_PROVIDERS else "local"
         self.settings.setValue("translation/last_" + mode, saved)
@@ -152,6 +151,10 @@ class LyricsTranslationDialog(QDialog):
         self.mode_combo.blockSignals(False)
         self.service_dialog._mode_changed()
         self._refresh_summary()
+        self._readiness_timer = QTimer(self)
+        self._readiness_timer.setInterval(30_000)
+        self._readiness_timer.timeout.connect(self._refresh_summary)
+        self._readiness_timer.start()
         self.review_panel._update_selection()
         if self.draft.restored:
             self._status_changed(self.tr_text("이전에 저장한 번역 초안을 복원했습니다. 아래 표에서 이어서 편집하세요.",
@@ -170,9 +173,11 @@ class LyricsTranslationDialog(QDialog):
         for button in self.findChildren(QPushButton):
             button.setAutoDefault(False)
 
-    def _translation_completed(self):
-        if not self._closing:
-            self.review_panel.table.setFocus(Qt.FocusReason.OtherFocusReason)
+    def _autosave_draft(self):
+        try:
+            self.draft.save()
+        except TranslationError as error:
+            self._status_changed(str(error))
 
     def tr_text(self, ko, en):
         return ko if self.translator.is_korean else en
@@ -207,7 +212,27 @@ class LyricsTranslationDialog(QDialog):
                 from dataclasses import replace
                 config = replace(config, key="pending")
             config.validate()
-            message = self.tr_text("번역 준비 완료", "Ready to translate")
+            if config.same_language:
+                message = self.tr_text("같은 언어입니다. 서비스 요청 없이 번역문을 비웁니다.",
+                                       "Same languages: no service request; translations will be blank.")
+            elif config.provider == "local_nmt":
+                s.local_models.get(config.model)
+                message = self.tr_text("모델 파일 확인됨 · 실행 가능 여부는 번역 시 확인합니다.",
+                                       "Model files found · execution is checked when translating.")
+            else:
+                verified = s.verified_connection()
+                if verified is None:
+                    message = self.tr_text("필수 설정 입력됨 · 연결과 모델 실행은 미확인입니다. 서비스 설정에서 연결을 테스트할 수 있습니다.",
+                        "Required settings entered · connection and execution unverified. Test connection in service settings.")
+                elif not verified[0]:
+                    message = self.tr_text("최근 연결 확인 실패 · 서비스 설정에서 다시 테스트하세요.",
+                                           "Recent connection check failed · retest in service settings.")
+                elif config.model not in verified[1]:
+                    message = self.tr_text("최근 서버 연결 확인됨 · 선택 모델은 조회 목록에 없습니다. 모델 ID와 권한을 확인하세요.",
+                                           "Server checked recently · selected model was not listed. Check model ID and access.")
+                else:
+                    message = self.tr_text("최근 연결·모델 확인됨(5분 이내) · 실행 시 사용 한도와 메모리 상태는 달라질 수 있습니다.",
+                                           "Connection/model checked within 5 minutes · limits and memory can still change.")
         except TranslationError as error:
             message = str(error)
         self.readiness_label.setText(message)
@@ -276,14 +301,20 @@ class LyricsTranslationDialog(QDialog):
         self.review_panel._commit_editor()
         self.review_panel.capture_draft()
         self._draft_timer.stop()
-        if result != QDialog.DialogCode.Accepted:
+        try:
             self.draft.save()
-        else:
-            self.draft.clear()
+        except TranslationError as error:
+            self._closing = False
+            self._status_changed(str(error))
+            return
+        self._readiness_timer.stop()
         try:
             self.service_dialog._save_settings()
-        except TranslationError:
-            pass
+        except TranslationError as error:
+            self._closing = False
+            self._status_changed(str(error))
+            self._readiness_timer.start()
+            return
         for window in (self.service_dialog, self.advanced_dialog):
             window.hide()
         if manager:

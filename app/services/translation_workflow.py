@@ -51,6 +51,8 @@ class TranslationWorkflow(QObject):
             self.service.prepare(self.draft.cues)
             if config.provider == "local_nmt" and not config.same_language and not config.model:
                 raise TranslationError(self.services.local_pair_note.text())
+            if config.provider == "chatgpt" and not config.same_language and not self.auth.profile():
+                raise TranslationError(self.tr_text("서비스 설정에서 ChatGPT에 로그인하세요.", "Sign in to ChatGPT in service settings."))
             check = replace(config, key="pending") if config.provider == "chatgpt" else config
             check.validate()
             self.services._save_settings()
@@ -119,22 +121,28 @@ class TranslationWorkflow(QObject):
         review, services = self.review, self.services
         review._set_review_busy(False)
         services._settings_panel.setEnabled(True)
+        save_error = ""
+        if self.operation in {"models", "connection", "local_llm_models"} and worker.error:
+            services.record_connection(False)
         if worker.error or worker.cancel.is_set():
             if self._snapshot is not None:
                 self.draft.rows = self._snapshot
                 self.draft.has_result = self._previous_result
                 # Retain earlier edited/saved translations; failed rows remain retryable.
                 if worker.error:
+                    self.draft.dirty = True
                     for row in self._rows:
                         self.draft.rows[row].status = "failed"
                         self.draft.rows[row].detail = worker.error
                         self.draft.rows[row].checked = False
                 review.restore_draft()
-                self.draft.save()
+                save_error = self._save_draft()
             self.set_status(worker.error or self.tr_text("취소했습니다. 번역은 적용되지 않았습니다.",
                                                         "Cancelled. No translations were applied."))
         elif self.operation == "translate" and worker.value is not None:
             config, texts = worker.value
+            if not config.same_language and config.provider != "local_nmt":
+                services.record_connection(True, [config.model])
             # Activity can report incomplete physical lines before final results arrive.
             incomplete = review._incomplete_rows.copy()
             for index in self._rows:
@@ -145,13 +153,15 @@ class TranslationWorkflow(QObject):
                 row.status = "incomplete" if index in incomplete else "complete" if row.text else "unneeded"
                 row.detail = review.table.item(index, 4).toolTip() if index in incomplete else ""
             self.draft.has_result = True
+            self.draft.dirty = True
             review.restore_draft()
             count = sum(bool(self.draft.rows[i].text.strip()) for i in self._rows if i not in incomplete)
             missing = len(set(self._rows) & incomplete)
             self.set_status(self.tr_text(f"번역 {count}줄 · 번역 미완료 {missing}줄. 결과를 검토한 뒤 적용하세요.",
                 f"{count} translated · {missing} incomplete. Review before applying."))
-            self.draft.save()
+            save_error = self._save_draft()
         elif self.operation in {"models", "connection"} and worker.value is not None:
+            services.record_connection(True, [row[0] for row in worker.value])
             previous = services._model_value()
             services.model_combo.clear()
             for slug, name in worker.value:
@@ -165,6 +175,7 @@ class TranslationWorkflow(QObject):
                 self.tr_text("연결됨 · 모델 목록이 비었습니다. 고급 설정에서 사용 가능한 모델 ID를 입력하세요.",
                              "Connected · no models listed. Enter an available model ID in Advanced settings."))
         elif self.operation == "local_llm_models" and worker.value is not None:
+            services.record_connection(True, [row["id"] for row in worker.value])
             services._installed_llms[services._provider] = worker.value
             previous = services._model_value() or str(services.settings.value("translation/config/" + services._provider + "/model", ""))
             services._populate_llm_models(worker.value, previous)
@@ -174,14 +185,27 @@ class TranslationWorkflow(QObject):
                 "No local LLMs installed. Download one in the local LLM manager."))
         elif self.operation in {"install_local", "import_local"} and worker.value is not None:
             services._refresh_local_models(worker.value.id)
-            self.set_status(self.tr_text("언어 모델을 설치했습니다. 번역을 시작할 수 있습니다.",
-                                        "Language model installed. You can start translating."))
+            if services.model_combo.findData(worker.value.id) >= 0:
+                self.set_status(self.tr_text("모델 파일을 설치했습니다. 실행 가능 여부는 번역 시 확인합니다.",
+                                            "Model files installed. Execution is checked when translating."))
+            else:
+                self.set_status(self.tr_text(f"{worker.value.source} → {worker.value.target} 모델을 설치했습니다. 사용할 원문·번역 언어를 확인하세요.",
+                    f"Installed {worker.value.source} → {worker.value.target}. Check source and target languages before use."))
         self._rows = []
         self._snapshot = None
         services._refresh_account()
         services.changed.emit()
+        if save_error:
+            self.set_status(self.status + "\n" + save_error)
         review._update_selection()
         worker.deleteLater()
         self.busy_changed.emit(False)
         if self.operation == "translate" and not worker.error and not worker.cancel.is_set() and worker.value is not None:
             self.completed.emit()
+
+    def _save_draft(self):
+        try:
+            self.draft.save()
+        except TranslationError as error:
+            return str(error)
+        return ""

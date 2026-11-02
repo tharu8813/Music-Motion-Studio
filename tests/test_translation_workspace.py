@@ -129,7 +129,7 @@ class TranslationWorkspaceTests(unittest.TestCase):
         self.assertEqual(dialog.selected_cues[0]["translation"]["language"], "ja")
         self.assertEqual(dialog.selected_cues[1]["translation"]["model"], "chosen-model")
         self.assertEqual(dialog.selected_cues[2], self.cues[2])
-        self.assertFalse(self.settings.contains(dialog.draft.key))
+        self.assertTrue(self.settings.contains(dialog.draft.key))
 
     def test_settings_close_during_translation_keeps_live_editor_and_main_close_cancels(self):
         entered = Event()

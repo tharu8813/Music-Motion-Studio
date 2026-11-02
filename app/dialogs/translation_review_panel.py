@@ -8,11 +8,11 @@ from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QWidget, QDialogButtonBox, QHBoxLayout,
     QHeaderView, QLabel, QPlainTextEdit, QPushButton, QStyledItemDelegate,
-    QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QTableWidget, QTableWidgetItem, QVBoxLayout, QCheckBox, QMessageBox,
 )
 
 from app.ui.design_system import COLORS
-from app.services.lyrics_translation_service import TranslationConfig, TranslationError, apply_translations, approved_translation
+from app.services.lyrics_translation_service import TranslationConfig, TranslationError, apply_translations, approved_translation, translation_text
 from app.services.lyrics_translation_prompt import lyric_text
 
 
@@ -79,6 +79,10 @@ class TranslationReviewPanel(QWidget):
             self._row_action_buttons.append(button)
         self.selection_label = QLabel()
         row_actions.addWidget(self.selection_label, 1)
+        self.follow_check = QCheckBox(self.tr_text("진행 행 따라가기", "Follow active rows"))
+        self.follow_check.setToolTip(self.tr_text("끄면 번역 중에도 현재 검토 위치를 유지합니다.",
+                                                "When off, translation preserves your review position."))
+        row_actions.addWidget(self.follow_check)
         review_layout.addLayout(row_actions)
         self.table = QTableWidget(len(cues), 5)
         self.table.setItemDelegateForColumn(2, _TranslationDelegate(self.table))
@@ -126,8 +130,8 @@ class TranslationReviewPanel(QWidget):
         self.table.resizeRowsToContents()
         review_layout.addWidget(self.table, 1)
         selection_note = QLabel(self.tr_text(
-            "체크하지 않은 줄은 기존 번역을 유지합니다. 빈 번역문을 체크해 적용하면 해당 번역을 삭제합니다.",
-            "Unchecked rows keep existing translations. Applying a checked empty translation removes it."))
+            "체크하지 않은 줄은 기존 번역을 유지합니다. 기존 번역 삭제는 확인을 거칩니다. 적용 후 곡 정보 창에서도 적용하고 프로젝트를 저장하세요.",
+            "Unchecked rows keep translations. Deletion requires confirmation. Apply again in track settings, then save the project."))
         selection_note.setWordWrap(True)
         review_layout.addWidget(selection_note)
         edit_note = QLabel(self.tr_text("번역문을 두 번 클릭해 수정 · 줄바꿈은 Enter · 편집 완료는 Ctrl+Enter",
@@ -158,6 +162,9 @@ class TranslationReviewPanel(QWidget):
         filters.addWidget(self.style_button)
         review_layout.insertLayout(1, filters)
         footer = QHBoxLayout()
+        self.discard_button = QPushButton(self.tr_text("초안 삭제…", "Delete draft…"))
+        self.discard_button.clicked.connect(self.discard_draft)
+        footer.addWidget(self.discard_button)
         footer.addStretch()
         self.save_button = QPushButton(self.tr_text("초안 저장", "Save draft"))
         footer.addWidget(self.save_button)
@@ -216,6 +223,7 @@ class TranslationReviewPanel(QWidget):
                     self.table.item(row, 4).setText(self.tr_text("수정됨", "Edited"))
                     self.table.item(row, 4).setToolTip("")
                 self.draft.rows[row].edited = True
+                self.draft.dirty = True
                 self.draft.rows[row].status = "edited"
                 if self.draft.rows[row].config is None:
                     self.draft.rows[row].config = TranslationConfig("manual", target=self._language_value(self.target_combo))
@@ -231,7 +239,8 @@ class TranslationReviewPanel(QWidget):
             self.table.resizeRowToContents(row)
         selected = sum(self.table.item(row, 0).checkState() == Qt.CheckState.Checked for row in range(self.table.rowCount()))
         removals = sum(self.table.item(row, 0).checkState() == Qt.CheckState.Checked
-            and bool(self.cues[row].get("translation")) and not self.table.item(row, 3).text().strip()
+            and bool(self.cues[row].get("translation"))
+            and not translation_text(self.cues[row].get("text", ""), self.table.item(row, 3).text())
             for row in range(self.table.rowCount()))
         self.selection_label.setText(self.tr_text(f"{selected}줄 선택", f"{selected} rows selected"))
         translated = sum(bool(self.table.item(row, 3).text().strip()) for row in range(self.table.rowCount()))
@@ -239,6 +248,8 @@ class TranslationReviewPanel(QWidget):
             f"원문 {len(self._editable_rows)}줄 · 번역 {translated}줄 · 선택한 번역 삭제 {removals}줄",
             f"{len(self._editable_rows)} original rows · {translated} translated · {removals} selected for removal"))
         self.apply_button.setText(self.tr_text(f"선택한 {selected}줄 적용", f"Apply {selected} selected rows"))
+        self.apply_button.setToolTip(self.tr_text("곡 정보 창에 임시 반영합니다. 취소에 대비해 복구 초안은 보관합니다.",
+                                                "Stage in track settings. A recovery draft is retained if you cancel."))
         self.apply_button.setEnabled(self.worker is None and self._review_ready and selected > 0)
 
         self.capture_draft()
@@ -264,6 +275,14 @@ class TranslationReviewPanel(QWidget):
             return
         texts = [self.table.item(row, 3).text() if self.table.item(row, 0).checkState() == Qt.CheckState.Checked else None
                  for row in range(self.table.rowCount())]
+        removals = [i + 1 for i, (cue, text) in enumerate(zip(self.cues, texts))
+                    if cue.get("translation") and text is not None and not translation_text(cue.get("text", ""), text)]
+        if removals and QMessageBox.warning(self, self.tr_text("기존 번역 삭제 확인", "Confirm translation deletion"),
+                self.tr_text(f"빈 번역문을 적용하면 기존 번역 {len(removals)}개가 삭제됩니다. 행: {', '.join(map(str, removals[:20]))}\n계속할까요? 복구 초안은 보관됩니다.",
+                    f"Applying blank translations deletes {len(removals)} existing translations. Rows: {', '.join(map(str, removals[:20]))}\nContinue? A recovery draft will be retained."),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel) != QMessageBox.StandardButton.Yes:
+            return
         try:
             reviewed = []
             for index, (cue, text) in enumerate(zip(self.cues, texts)):
@@ -271,16 +290,19 @@ class TranslationReviewPanel(QWidget):
                 config = self.draft.rows[index].config or TranslationConfig(metadata.get("provider", "manual"),
                     target=metadata.get("language", self._language_value(self.target_combo)), model=metadata.get("model", ""))
                 reviewed.extend(apply_translations([cue], [text], config))
+            self.capture_draft()
+            self.draft.record_applied(reviewed)
+            self.draft.save()
             self.selected_cues = reviewed
         except TranslationError as error:
             self.workflow.set_status(str(error))
             return
-        self.draft.clear()
         self.applied.emit()
 
     def _set_review_busy(self, busy):
         for button in self._row_action_buttons:
             button.setEnabled(not busy)
+        self.discard_button.setEnabled(not busy)
         if busy:
             self._edit_triggers = self.table.editTriggers()
             self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -295,6 +317,7 @@ class TranslationReviewPanel(QWidget):
     def _activity(self, event):
         if self.worker is None or self._operation != "translate":
             return
+        scroll = self.table.verticalScrollBar().value()
         self.table.blockSignals(True)
         try:
             if event["stage"] == "working":
@@ -303,7 +326,8 @@ class TranslationReviewPanel(QWidget):
                     for column in range(self.table.columnCount()):
                         self.table.item(row, column).setBackground(QColor(COLORS["info_surface"]))
                 if event["rows"]:
-                    self.table.scrollToItem(self.table.item(event["rows"][0], 2))
+                    if self.follow_check.isChecked():
+                        self.table.scrollToItem(self.table.item(event["rows"][0], 2))
                     self.workflow.set_status(self.tr_text(
                         f"{event['rows'][0] + 1}~{event['rows'][-1] + 1}번째 가사를 번역하고 있습니다. 완료된 번역은 표에 바로 표시됩니다.",
                         f"Translating rows {event['rows'][0] + 1}–{event['rows'][-1] + 1}. Completed results appear in the table."))
@@ -325,6 +349,8 @@ class TranslationReviewPanel(QWidget):
                 self.table.resizeRowToContents(row)
         finally:
             self.table.blockSignals(False)
+            if not self.follow_check.isChecked():
+                self.table.verticalScrollBar().setValue(scroll)
 
     def _filter(self, *_args):
         mode = self.filter_combo.currentData()
@@ -340,6 +366,9 @@ class TranslationReviewPanel(QWidget):
             return
         self.draft.has_result = self._review_ready
         for index, row in enumerate(self.draft.rows):
+            if (row.text != self.table.item(index, 3).text()
+                    or row.checked != (self.table.item(index, 0).checkState() == Qt.CheckState.Checked)):
+                self.draft.dirty = True
             row.text = self.table.item(index, 3).text()
             row.checked = self.table.item(index, 0).checkState() == Qt.CheckState.Checked
             row.detail = self.table.item(index, 4).toolTip()
@@ -350,6 +379,7 @@ class TranslationReviewPanel(QWidget):
         self.draft.changed.emit()
 
     def restore_draft(self):
+        scroll = self.table.verticalScrollBar().value()
         labels = {"ready": ("대기", "Ready"), "saved": ("저장됨", "Saved"), "complete": ("완료", "Complete"),
                   "unneeded": ("번역 불필요", "Not needed"), "incomplete": ("번역 미완료", "Incomplete"),
                   "failed": ("번역 실패", "Failed"), "edited": ("수정됨", "Edited")}
@@ -367,12 +397,37 @@ class TranslationReviewPanel(QWidget):
         self._incomplete_rows = {i for i, row in enumerate(self.draft.rows) if row.status == "incomplete"}
         self._update_selection()
         self.table.resizeRowsToContents()
+        if not self.follow_check.isChecked():
+            self.table.verticalScrollBar().setValue(scroll)
 
     def save_draft(self):
         self._commit_editor()
         self.capture_draft()
-        self.draft.save()
+        try:
+            saved = self.draft.save()
+        except TranslationError as error:
+            self.workflow.set_status(str(error))
+            return
         if not self.worker:
-            self.workflow.set_status(self.tr_text("초안을 저장했습니다. 다시 열면 이어서 검토할 수 있습니다.",
-                                                 "Draft saved. Reopen to continue reviewing."))
+            self.workflow.set_status(self.tr_text("복구 초안을 저장했습니다. 적용 후에도 명시적으로 삭제할 때까지 이 기기에 보관합니다.",
+                "Recovery draft saved on this device until explicitly deleted.") if saved else
+                self.tr_text("보관할 번역 변경사항이 없습니다.", "No translation changes to save."))
+
+    def discard_draft(self):
+        if self.worker:
+            return
+        if QMessageBox.warning(self, self.tr_text("번역 초안 삭제", "Delete translation draft"),
+                self.tr_text("이 곡의 보관된 복구 초안과 현재 편집을 삭제하고, 창을 열었을 때의 번역으로 돌아갈까요? 저장된 곡과 프로젝트는 바뀌지 않습니다.",
+                    "Delete this track's recovery drafts and current edits, returning to translations present when opened? Saved tracks and projects are unchanged."),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel) != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.draft.discard()
+        except TranslationError as error:
+            self.workflow.set_status(str(error))
+            return
+        self.restore_draft()
+        self.workflow.set_status(self.tr_text("보관된 초안을 삭제했습니다. 새로 편집하거나 번역하면 다시 자동 저장합니다.",
+                                            "Drafts deleted. New edits or translations will be autosaved."))
 

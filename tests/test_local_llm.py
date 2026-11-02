@@ -284,7 +284,7 @@ class TranslationSetupUITests(unittest.TestCase):
         reopened._apply()
         self.assertEqual(reopened.result(), QDialog.DialogCode.Accepted)
         self.assertEqual(reopened.selected_cues[0]["translation"]["text"], "안녕")
-        self.assertFalse(self.settings.contains(reopened.draft.key))
+        self.assertTrue(self.settings.contains(reopened.draft.key))
 
     def test_settings_can_close_without_hiding_review_or_losing_edits(self):
         dialog = self.dialog()

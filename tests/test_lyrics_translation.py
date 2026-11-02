@@ -317,7 +317,8 @@ class TranslationUITests(unittest.TestCase):
         self.assertEqual(dialog.table.item(0, 0).checkState(), Qt.CheckState.Checked)
         self.assertTrue(dialog.apply_button.isEnabled())
         self.assertEqual(dialog.selected_cues, self.cues)
-        dialog._apply()
+        with patch("app.dialogs.translation_review_panel.QMessageBox.warning", return_value=QMessageBox.StandardButton.Yes):
+            dialog._apply()
         self.assertNotIn("translation", dialog.selected_cues[0])
         self.assertEqual(self.cues[0]["translation"]["text"], "이전 번역")
 
@@ -377,7 +378,7 @@ class TranslationUITests(unittest.TestCase):
         self.assertEqual(dialog._config().target, "ja")
         dialog.target_combo.setEditText("en-GB")
         dialog._save_settings()
-        self.assertEqual(self.settings.value("translation/config/openai/target"), "en-GB")
+        self.assertEqual(self.settings.value("translation/languages/target"), "en-GB")
         dialog.provider_combo.setCurrentIndex(dialog.provider_combo.findData("claude"))
         dialog.provider_combo.setCurrentIndex(dialog.provider_combo.findData("openai"))
         self.assertEqual(dialog._config().target, "en-GB")
@@ -411,7 +412,8 @@ class TranslationUITests(unittest.TestCase):
         self.assertEqual(dialog.table.item(0, 0).checkState(), Qt.CheckState.Checked)
         self.assertEqual(dialog.table.item(1, 0).checkState(), Qt.CheckState.Checked)
         self.assertIn("1", dialog.review_summary.text().split("·")[-1])
-        dialog._apply()
+        with patch("app.dialogs.translation_review_panel.QMessageBox.warning", return_value=QMessageBox.StandardButton.Yes):
+            dialog._apply()
         self.assertNotIn("translation", dialog.selected_cues[0])
         self.assertEqual(dialog.selected_cues[1], self.cues[1])
 

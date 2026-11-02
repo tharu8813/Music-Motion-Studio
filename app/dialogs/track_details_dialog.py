@@ -111,6 +111,7 @@ class TrackDetailsDialog(QDialog):
         )
         self.track = track
         self.translation_style_callback = None
+        self._translation_draft_staged = False
         # EQ preview: the player swaps to a copy of the track rendered with the
         # current volume/EQ (Qt Multimedia cannot filter audio itself).
         self.ffmpeg_executable = ffmpeg_executable
@@ -431,6 +432,7 @@ class TrackDetailsDialog(QDialog):
 
         self.cue_summary = QLabel()
         self.cue_summary.setObjectName("mutedLabel")
+        self.cue_summary.setWordWrap(True)
         lyrics_layout.addWidget(self.cue_summary)
         self.preview = QTextEdit()
         self.preview.setReadOnly(True)
@@ -1042,6 +1044,7 @@ class TrackDetailsDialog(QDialog):
             draft_key=self.track.id, style_callback=self.translation_style_callback)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.selected_lyrics = deepcopy(dialog.selected_cues)
+            self._translation_draft_staged = True
             self._refresh_preview()
         dialog.deleteLater()
 
@@ -1364,6 +1367,13 @@ class TrackDetailsDialog(QDialog):
             f"{count}개 타임코드 · 보정 적용 미리보기"
             if korean else f"{count} timed cues · adjusted preview"
         )
+        if self.selected_lyrics != self.track.lyrics:
+            self.cue_summary.setText(self.cue_summary.text() + (
+                " · 아직 임시 변경입니다. 이 창에서 적용한 뒤 프로젝트를 저장하세요."
+                if korean else " · Staged changes: Apply here, then save the project."))
+            if self._translation_draft_staged:
+                self.cue_summary.setText(self.cue_summary.text() + (
+                    " 번역 복구 초안은 보관됩니다." if korean else " Translation recovery drafts are retained."))
         if translated_count:
             self.cue_summary.setText(self.cue_summary.text() + (
                 f" · 번역 {translated_count}줄" if korean else f" · {translated_count} translated rows"))
