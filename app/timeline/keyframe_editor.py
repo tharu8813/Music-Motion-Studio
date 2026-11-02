@@ -7,10 +7,10 @@ from PySide6.QtGui import QColor, QBrush, QPen, QPolygonF, QKeySequence
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QGraphicsItem,
     QGraphicsPolygonItem, QGraphicsScene, QGraphicsView, QHBoxLayout,
-    QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget,
+    QDialog, QLabel, QMenu, QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
 
-from app.animation.keyframes import INTERPOLATIONS, Keyframe, PROPERTIES
+from app.animation.keyframes import INTERPOLATIONS, Keyframe, PROPERTIES, properties_for, property_value
 from app.ui.design_system import COLORS
 
 
@@ -182,6 +182,7 @@ class KeyframeEditor(QWidget):
         self.interpolation.setCurrentIndex(INTERPOLATIONS.index("ease_in_out"))
         self.add, self.apply, self.delete = QPushButton(), QPushButton(), QPushButton()
         self.copy, self.paste, self.clear = QPushButton(), QPushButton(), QPushButton()
+        self.graph = QPushButton()
         self.prev, self.next = QPushButton("‹ ◆"), QPushButton("◆ ›")
         for widget in (self.property, self.time, self.value, self.interpolation, self.add, self.apply,
                        self.delete, self.copy, self.paste, self.clear, self.prev, self.next):
@@ -197,6 +198,24 @@ class KeyframeEditor(QWidget):
         for widget in (self.copy, self.paste, self.clear, self.prev, self.next):
             tools.removeWidget(widget)
             utility.addWidget(widget)
+        utility.addWidget(self.graph)
+        # Keep named editing actions readable in the 960 px workspace.
+        # Zoom and the destructive bank reset remain available in one menu.
+        self.more = QPushButton("⋯")
+        self.more.setFixedWidth(30)
+        self.more.setStyleSheet("padding: 3px; min-width: 0px;")
+        self.more_menu = QMenu(self.more)
+        self.more_actions = []
+        for button in (self.fit, self.minus, self.plus, self.clear):
+            utility.removeWidget(button)
+            button.hide()
+            action = self.more_menu.addAction("")
+            action.triggered.connect(lambda _checked=False, target=button: target.click())
+            self.more_actions.append((action, button))
+        self.more_menu.aboutToShow.connect(lambda: [action.setEnabled(button.isEnabled()) for action, button in self.more_actions])
+        self.more.setMenu(self.more_menu)
+        self.more.setAccessibleName("확대·축소 및 초기화 / Zoom and reset")
+        utility.addWidget(self.more)
         layout.addLayout(utility)
         for combo in (self.source_combo, self.mode, self.track, self.property, self.interpolation):
             combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
@@ -232,6 +251,7 @@ class KeyframeEditor(QWidget):
         self.paste.clicked.connect(controller.paste)
         self.clear.clicked.connect(self.confirm_clear)
         self.apply.clicked.connect(self.apply_selected)
+        self.graph.clicked.connect(self.edit_graph)
         self.prev.clicked.connect(lambda: controller.navigate(-1))
         self.next.clicked.connect(lambda: controller.navigate(1))
         self.property.currentIndexChanged.connect(self.fill_value)
@@ -285,19 +305,49 @@ class KeyframeEditor(QWidget):
             self.interpolation.setCurrentIndex(INTERPOLATIONS.index(item.point.interpolation))
         self.apply.setEnabled(len(items) == 1 and self.controller.editable)
         self.delete.setEnabled(bool(items) and self.controller.editable)
+        segment = self.selected_segment()
+        self.graph.setEnabled(bool(segment) and self.controller.editable)
+        self.graph.setToolTip("다음 키프레임이 있는 시작점을 하나 선택하세요." if self.korean else
+                              "Select one keyframe that has a following keyframe.")
+
+    def selected_segment(self):
+        if len(self.selection()) != 1:
+            return None
+        name, time = next(iter(self.selection()))
+        points = self.controller.curves().get(name, [])
+        for first, following in zip(points, points[1:]):
+            if abs(first.time - time) <= 1e-6:
+                return name, first, following
+        return None
+
+    def edit_graph(self):
+        segment = self.selected_segment()
+        if not segment or not self.controller.editable:
+            return
+        from app.timeline.bezier_editor import BezierEditor
+        name, point, following = segment
+        label = PROPERTIES[name].labels[0 if self.korean else 1]
+        dialog = BezierEditor(point, following, label, self.korean, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            updated = replace(point, interpolation="bezier", bezier=dialog.handles)
+            self.controller.replace_points({(name, point.time)}, [(name, updated)])
+        dialog.deleteLater()
 
     def fill_value(self):
         name = self.property.currentData()
+        if name not in PROPERTIES:
+            return
         spec = PROPERTIES[name]
         self.value.setRange(spec.minimum, spec.maximum)
         self.value.setSingleStep(spec.step)
         if self.controller.source:
-            self.value.setValue(self.controller.evaluated().get(name, getattr(self.controller.source, name)))
+            self.value.setValue(self.controller.evaluated().get(name, property_value(self.controller.source, name)))
 
     def apply_selected(self):
         if len(self.selection()) == 1:
-            name, _ = next(iter(self.selection()))
-            self.controller.replace_points(self.selection(), [(name, Keyframe(self.time.value(), self.value.value(), self.interpolation.currentData()))])
+            name, time = next(iter(self.selection()))
+            point = next(p for p in self.controller.curves()[name] if abs(p.time - time) <= 1e-6)
+            self.controller.replace_points(self.selection(), [(name, replace(point, time=self.time.value(), value=self.value.value(), interpolation=self.interpolation.currentData()))])
 
     def confirm_clear(self):
         if not self.controller.editable:
@@ -317,6 +367,12 @@ class KeyframeEditor(QWidget):
             self._context = context
         self.playhead_line = None
         self.scene.clear()
+        property_name = self.property.currentData()
+        self.property.clear()
+        visible_properties = properties_for(source)
+        for name, spec in visible_properties.items():
+            self.property.addItem(spec.labels[0 if ko else 1], name)
+        self.property.setCurrentIndex(max(0, self.property.findData(property_name)))
         self.source_combo.clear()
         self.source_combo.addItem("요소 선택…" if ko else "Choose source…", "")
         for item in controller.store.sources():
@@ -341,16 +397,19 @@ class KeyframeEditor(QWidget):
         for widget in (self.mode, self.enabled):
             widget.setEnabled(bool(source and not source.locked and len(controller.store.selected_ids) == 1))
         self.enabled.setText("활성" if ko else "Enabled")
+        self.more.setToolTip("확대·축소 및 초기화" if ko else "Zoom and reset")
         self.expanded.setText("속성 펼치기" if ko else "Expand properties")
         self.snap.setText("스냅" if ko else "Snap")
         for widget, labels in ((self.fit, ("맞춤", "Fit")), (self.add, ("추가", "Add")), (self.apply, ("적용", "Apply")),
                                (self.delete, ("삭제", "Delete")), (self.copy, ("복사", "Copy")),
-                               (self.paste, ("붙여넣기", "Paste")), (self.clear, ("초기화", "Clear"))):
+                               (self.paste, ("붙여넣기", "Paste")), (self.clear, ("초기화", "Clear")),
+                               (self.graph, ("그래프", "Graph"))):
             widget.setText(labels[0 if ko else 1])
-        for index, spec in enumerate(PROPERTIES.values()):
-            self.property.setItemText(index, spec.labels[0 if ko else 1])
-        for index, label in enumerate(("유지", "선형", "서서히 시작", "서서히 종료", "부드럽게") if ko else
-                                      ("Hold", "Linear", "Ease in", "Ease out", "Ease in out")):
+        for (action, _), label in zip(self.more_actions, ("전체 맞춤", "축소", "확대", "현재 키프레임 초기화") if ko else
+                                      ("Fit all", "Zoom out", "Zoom in", "Clear current keyframes")):
+            action.setText(label)
+        for index, label in enumerate(("유지", "선형", "서서히 시작", "서서히 종료", "부드럽게", "베지어") if ko else
+                                      ("Hold", "Linear", "Ease in", "Ease out", "Ease in out", "Bezier")):
             self.interpolation.setItemText(index, label)
         self.hint.setText("드래그로 시간 이동 · Ctrl/드래그로 다중 선택 · Ctrl+C/V · Delete · ←/→ 프레임 이동 · Alt+←/→ 키프레임 이동 · 자동 OFF는 기본값 수정"
                           if ko else "Drag time · Ctrl/rubber band selects · Ctrl+C/V · Delete · Arrows nudge frames · Alt+arrows navigate · Auto OFF edits base values")
@@ -365,7 +424,7 @@ class KeyframeEditor(QWidget):
         self.time.setValue(controller.time)
         last = max((p.time for points in controller.curves().values() for p in points), default=0)
         width = max(self.view.viewport().width() - 4, self.time_x(max(controller.duration, last)) + 40)
-        height = self.ROW * (len(PROPERTIES) + 2) if self.expanded.isChecked() else 60
+        height = self.ROW * (len(visible_properties) + 2) if self.expanded.isChecked() else 60
         self.scene.setSceneRect(0, 0, width, height)
         step = max(.01, 10 ** ceil(log10(max(.001, 65 / self.zoom))))
         for i in range(min(2000, int((width - self.LEFT) / self.zoom / step) + 1)):
@@ -376,7 +435,7 @@ class KeyframeEditor(QWidget):
             label.setDefaultTextColor(QColor(COLORS["muted"]))
             label.setPos(x, 0)
         if self.expanded.isChecked():
-            for row, (name, spec) in enumerate(PROPERTIES.items()):
+            for row, (name, spec) in enumerate(visible_properties.items()):
                 label = self.scene.addText(spec.labels[0 if ko else 1])
                 label.setDefaultTextColor(QColor(COLORS["text"]))
                 label.setPos(0, self.row_y(row) - 12)

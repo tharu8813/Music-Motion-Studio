@@ -204,6 +204,32 @@ class CanvasProcessStreamTests(unittest.TestCase):
     @unittest.skipUnless(os.environ.get('PLAYLIST_CANVAS_TEST_FFMPEG') and piped_export_supported(),
                          'Real FFmpeg pipe test is opt-in')
     def test_opaque_and_alpha_streams_match_serial_pixels_including_fonts(self):
+        from app.animation.keyframes import Keyframe
+        # Exercise serialization into the independent Qt renderer, including
+        # custom handles and nested properties, on opaque and alpha bands.
+        for item in self.scene.items():
+            if not isinstance(item, SourceItem):
+                continue
+            source = item.source
+            source.shadow.enabled = True
+            endpoints = {"width": (source.width, source.width * .7),
+                         "border_radius": (0, 20), "shadow.offset_x": (-3, 8),
+                         "shadow.opacity": (.15, .8)}
+            if source.source_type is SourceType.TEXT:
+                endpoints["font_size"] = (13, 26)
+            else:
+                endpoints["outline_width"] = (0, 6)
+            source.keyframes.global_curves = {
+                name: [Keyframe(0, start, "bezier", (.2, -.4, .7, 1.5)), Keyframe(.25, end)]
+                for name, (start, end) in endpoints.items()
+            }
+        # Prepare invariant/crop decisions after the animated project exists,
+        # as ExportSession does before it starts either rendering path.
+        self.capturer = ExportCanvasCapturer(
+            self.scene, [self.track], 6, set(), [(None, 0), (1, None)],
+            self.stage, lambda: None, lambda *_: None,
+            retain_static_frames=False, output_fps=24,
+        )
         for key in ('base', 'layer:0'):
             with self.subTest(key=key), TemporaryDirectory() as root:
                 self.captured.clear()

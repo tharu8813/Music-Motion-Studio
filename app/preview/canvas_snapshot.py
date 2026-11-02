@@ -17,6 +17,7 @@ from PySide6.QtGui import QColor, QImage, QPainter, QPixmap, QTransform
 from app.canvas.live_canvas import CanvasScene
 from app.animation.lyrics import lyric_progress
 from app.animation.keyframes import evaluate as evaluate_keyframes
+from app.animation.canvas_keyframes import keyframe_source
 from app.canvas.source_item import SourceItem
 from app.canvas.renderers.lyrics_renderer import lyric_cue_extent, lyric_wrapped_rows
 from app.animation.curves import (
@@ -702,6 +703,8 @@ class CanvasSnapshot:
         original_text: list[tuple[SourceItem, str]] = []
         original_keyframe_opacity = []
         original_editor_poses = []
+        original_editor_sources = []
+        keyframe_context = ExitStack()
         original_music_levels: list[tuple[SourceItem, float, int | None]] = []
         original_transforms: list[
             tuple[SourceItem, object, float, float, float, QTransform]
@@ -783,9 +786,17 @@ class CanvasSnapshot:
                 original_editor_poses.append((graphics_item, graphics_item._editor_keyframe_opacity))
                 del graphics_item._editor_keyframe_opacity
                 graphics_item._suppress_position_sync = True
+                original_editor_sources.append((graphics_item, source))
+                source = graphics_item._editor_keyframe_base
+                graphics_item.prepareGeometryChange()
+                graphics_item.source = source
+                graphics_item._sync_transform_origin()
                 graphics_item.setPos(source.x, source.y)
                 graphics_item.setScale(source.scale)
                 graphics_item.setRotation(source.rotation)
+            key_values = evaluate_keyframes(source, global_seconds, track.id,
+                elapsed_seconds if global_seconds >= start_seconds and 0 <= elapsed_seconds < track.duration_seconds else None)
+            source = keyframe_context.enter_context(keyframe_source(graphics_item, key_values))
             if (source.source_type is SourceType.TIME
                     or (source.source_type is SourceType.TEXT and "%" in source.text)):
                 original_text.append((graphics_item, source.text))
@@ -1320,8 +1331,6 @@ class CanvasSnapshot:
                 pose = animation_pose(
                     style, local_progress, phase == "in", source.width, source.height,
                 ).combined(pose)
-            key_values = evaluate_keyframes(source, global_seconds, track.id,
-                elapsed_seconds if global_seconds >= start_seconds and 0 <= elapsed_seconds < track.duration_seconds else None)
             if not pose.is_identity or key_values:
                 original_transforms.append((
                     graphics_item, graphics_item.pos(), graphics_item.scale(),
@@ -1464,6 +1473,13 @@ class CanvasSnapshot:
                 graphics_item.update()
             for graphics_item, visible in original_visibility:
                 graphics_item.setVisible(visible)
+            keyframe_context.close()
+            for item in original_sync_flags:
+                item._suppress_position_sync = True
+            for item, source in original_editor_sources:
+                item.prepareGeometryChange()
+                item.source = source
+                item._sync_transform_origin()
             # Newest first: an item changed twice ends on its oldest state.
             for (
                 graphics_item, position, scale, rotation, opacity, transform,

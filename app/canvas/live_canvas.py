@@ -593,6 +593,7 @@ class LiveCanvas(QGraphicsView):
         """Refresh canvas representation after an Inspector update."""
         item = self._items.get(source.id)
         if item:
+            item.source = source
             item.apply_source()
 
     def _show_interaction_hint(self, text: str) -> None:

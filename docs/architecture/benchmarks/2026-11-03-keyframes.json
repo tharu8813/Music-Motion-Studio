@@ -1,0 +1,1582 @@
+{
+  "date": "2026-11-03",
+  "base_commit": "9ca6afa4834f93bc2635ede8e4b8fbf4afa951d9",
+  "scope": "Advanced keyframes working tree: custom Bezier, 10 Canvas properties, actual GPU and 600-second soak",
+  "environment": {
+    "os": "Windows",
+    "python": "3.14",
+    "pyside6": "6.12.0",
+    "ffmpeg": "9.0.2",
+    "gpu": "NVIDIA GeForce RTX 5060",
+    "gpu_driver": "621.01",
+    "gpu_memory_mib": 8151
+  },
+  "aggregate": {
+    "modules": 179,
+    "tests": 2301,
+    "passed": 2290,
+    "skipped": 11,
+    "failed": 0
+  },
+  "method": "Fresh process per module, followed by module/case replacements from explicit FFmpeg and native Windows reruns; duplicate runs are not added.",
+  "sandbox_retry": {
+    "module": "tests.test_chatgpt_auth",
+    "initial": "Localhost callback denied with WinError 10013, then timed out",
+    "retry": "All 7 cases passed outside the sandbox using mocked OAuth responses"
+  },
+  "gpu_device": {
+    "backend_info": {
+      "api": "OpenGL",
+      "version": "3.3",
+      "vendor": "NVIDIA Corporation",
+      "renderer": "NVIDIA GeForce RTX 5060/PCIe/SSE2"
+    },
+    "keyframe_fixture": true,
+    "source_count": 4
+  },
+  "gpu_soak": {
+    "backend": "gpu_layers",
+    "seconds": 600.0,
+    "loop_wraps": 126,
+    "accepted_frames": 11938,
+    "pressure_drops": 0,
+    "seek_count": 155,
+    "heartbeats": 5486,
+    "heartbeat_max_ms": 138.52570000017295,
+    "rss_baseline_bytes": 416542720,
+    "rss_peak_bytes": 456089600,
+    "rss_end_bytes": 449507328,
+    "gpu_start": {
+      "submitted_frames": 207,
+      "presented_frames": 213,
+      "dropped_pending_frames": 0,
+      "texture_uploads": 207,
+      "texture_reuses": 205,
+      "uploaded_bytes": 80600832,
+      "texture_evictions": 0,
+      "cached_textures": 2,
+      "allocated_bytes": 778752,
+      "peak_allocated_bytes": 778752,
+      "texture_budget_bytes": 268435456,
+      "filtered_layers": 0,
+      "texture_allocations": 2,
+      "presented_scene_frames": 206
+    },
+    "gpu_end": {
+      "submitted_frames": 17688,
+      "presented_frames": 18396,
+      "dropped_pending_frames": 0,
+      "texture_uploads": 17689,
+      "texture_reuses": 17687,
+      "uploaded_bytes": 6887672064,
+      "texture_evictions": 0,
+      "cached_textures": 2,
+      "allocated_bytes": 778752,
+      "peak_allocated_bytes": 778752,
+      "texture_budget_bytes": 268435456,
+      "filtered_layers": 0,
+      "texture_allocations": 2,
+      "presented_scene_frames": 17688
+    }
+  },
+  "gpu_health_at_end": {
+    "presented_frames": 18396,
+    "total_stalls": 0,
+    "consecutive_stalls": 0,
+    "last_latency_ms": 2.531400001316797,
+    "maximum_latency_ms": 325.4377999983262,
+    "awaiting_frame": false
+  },
+  "decoder_at_end": {
+    "accepted_frames": 12077,
+    "dropped_frames": 6265,
+    "seek_count": 157,
+    "source_switches": 0,
+    "frame_handle": "NoHandle",
+    "gpu_backed_frame": false,
+    "throttled_frames": 6265,
+    "pressure_drops": 0,
+    "filter_pending": false
+  },
+  "gpu_still_enabled_at_end": true,
+  "repeat_lifecycle": {
+    "backend": "gpu_layers",
+    "embedded": true,
+    "cycles": 10,
+    "rss_baseline_bytes": 445517824,
+    "rss_peak_bytes": 491560960,
+    "rss_end_bytes": 474898432,
+    "rss_samples_bytes": [
+      445517824,
+      457768960,
+      468844544,
+      476397568,
+      478396416,
+      485302272,
+      489439232,
+      491560960,
+      472768512,
+      474898432
+    ]
+  },
+  "native_gpu_and_advanced_cases": 24,
+  "parallel_export_cases": 7,
+  "limitations": [
+    "640x360 artboard with adaptive preview resolution; not all large projects or GPUs",
+    "NVIDIA OpenGL composition/presentation, not a claim of GPU shader effects or hardware video decode",
+    "No physical monitor input or screen-reader manual audit"
+  ],
+  "remaining_skips": [
+    {
+      "module": "tests.test_automix_beat_this_real_model",
+      "count": 3
+    },
+    {
+      "module": "tests.test_automix_structure_real_model",
+      "count": 2
+    },
+    {
+      "module": "tests.test_export_session",
+      "count": 6
+    }
+  ],
+  "modules": [
+    {
+      "module": "tests.test_activity_progress",
+      "code": 0,
+      "tests": 6,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.33
+    },
+    {
+      "module": "tests.test_adaptive_preview_quality",
+      "code": 0,
+      "tests": 4,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.28
+    },
+    {
+      "module": "tests.test_application_launch",
+      "code": 0,
+      "tests": 5,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.44
+    },
+    {
+      "module": "tests.test_architecture",
+      "code": 0,
+      "tests": 4,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 2.3
+    },
+    {
+      "module": "tests.test_audio_sync_warning",
+      "code": 0,
+      "tests": 20,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.62
+    },
+    {
+      "module": "tests.test_audit_regressions",
+      "code": 0,
+      "tests": 24,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 12.23
+    },
+    {
+      "module": "tests.test_auto_line_counts",
+      "code": 0,
+      "tests": 4,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.29
+    },
+    {
+      "module": "tests.test_automix_analysis_controller",
+      "code": 0,
+      "tests": 17,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.79
+    },
+    {
+      "module": "tests.test_automix_analysis_service",
+      "code": 0,
+      "tests": 13,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.45
+    },
+    {
+      "module": "tests.test_automix_audition",
+      "code": 0,
+      "tests": 9,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.32
+    },
+    {
+      "module": "tests.test_automix_basic_analyzer",
+      "code": 0,
+      "tests": 24,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 4.75
+    },
+    {
+      "module": "tests.test_automix_beat_this",
+      "code": 0,
+      "tests": 34,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.7
+    },
+    {
+      "module": "tests.test_automix_beat_this_onnx",
+      "code": 0,
+      "tests": 9,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 10.5
+    },
+    {
+      "module": "tests.test_automix_beat_this_real_model",
+      "code": 0,
+      "tests": 3,
+      "skipped": 3,
+      "failures": [],
+      "seconds": 0.46
+    },
+    {
+      "module": "tests.test_automix_cache",
+      "code": 0,
+      "tests": 21,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.07
+    },
+    {
+      "module": "tests.test_automix_candidates",
+      "code": 0,
+      "tests": 47,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.59
+    },
+    {
+      "module": "tests.test_automix_compatibility",
+      "code": 0,
+      "tests": 9,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.41
+    },
+    {
+      "module": "tests.test_automix_details_panel",
+      "code": 0,
+      "tests": 12,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.69
+    },
+    {
+      "module": "tests.test_automix_diagnostics",
+      "code": 0,
+      "tests": 7,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.11
+    },
+    {
+      "module": "tests.test_automix_editor_dialog",
+      "code": 0,
+      "tests": 57,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 10.68
+    },
+    {
+      "module": "tests.test_automix_ffmpeg_integration",
+      "code": 0,
+      "tests": 15,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 10.22
+    },
+    {
+      "module": "tests.test_automix_filter_sweep",
+      "code": 0,
+      "tests": 5,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 2.14
+    },
+    {
+      "module": "tests.test_automix_intelligence",
+      "code": 0,
+      "tests": 15,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 4.46
+    },
+    {
+      "module": "tests.test_automix_invariants",
+      "code": 0,
+      "tests": 5,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.37
+    },
+    {
+      "module": "tests.test_automix_key",
+      "code": 0,
+      "tests": 12,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.46
+    },
+    {
+      "module": "tests.test_automix_listening_report",
+      "code": 0,
+      "tests": 1,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.65
+    },
+    {
+      "module": "tests.test_automix_manual_transitions",
+      "code": 0,
+      "tests": 32,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.88
+    },
+    {
+      "module": "tests.test_automix_models",
+      "code": 0,
+      "tests": 18,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.27
+    },
+    {
+      "module": "tests.test_automix_music",
+      "code": 0,
+      "tests": 11,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 2.08
+    },
+    {
+      "module": "tests.test_automix_p1_regressions",
+      "code": 0,
+      "tests": 11,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 5.03
+    },
+    {
+      "module": "tests.test_automix_parallel_mix",
+      "code": 0,
+      "tests": 3,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 4.05
+    },
+    {
+      "module": "tests.test_automix_planner",
+      "code": 0,
+      "tests": 38,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.56
+    },
+    {
+      "module": "tests.test_automix_presets",
+      "code": 0,
+      "tests": 2,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.31
+    },
+    {
+      "module": "tests.test_automix_progressive",
+      "code": 0,
+      "tests": 21,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.98
+    },
+    {
+      "module": "tests.test_automix_renderer",
+      "code": 0,
+      "tests": 65,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 16.31
+    },
+    {
+      "module": "tests.test_automix_rhythm",
+      "code": 0,
+      "tests": 6,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.55
+    },
+    {
+      "module": "tests.test_automix_structure",
+      "code": 0,
+      "tests": 39,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.69
+    },
+    {
+      "module": "tests.test_automix_structure_real_model",
+      "code": 0,
+      "tests": 2,
+      "skipped": 2,
+      "failures": [],
+      "seconds": 0.43
+    },
+    {
+      "module": "tests.test_automix_tail_protection",
+      "code": 0,
+      "tests": 5,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 3.23
+    },
+    {
+      "module": "tests.test_automix_transition_style",
+      "code": 0,
+      "tests": 31,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.47
+    },
+    {
+      "module": "tests.test_automix_variety",
+      "code": 0,
+      "tests": 30,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.78
+    },
+    {
+      "module": "tests.test_automix_vocal_sections",
+      "code": 0,
+      "tests": 16,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.52
+    },
+    {
+      "module": "tests.test_automix_workflow",
+      "code": 0,
+      "tests": 5,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.58
+    },
+    {
+      "module": "tests.test_autosave_service",
+      "code": 0,
+      "tests": 6,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.41
+    },
+    {
+      "module": "tests.test_background_editor",
+      "code": 0,
+      "tests": 1,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.3
+    },
+    {
+      "module": "tests.test_bounded_export_pipeline",
+      "code": 0,
+      "tests": 8,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.5
+    },
+    {
+      "module": "tests.test_canvas_pipe",
+      "code": 0,
+      "tests": 15,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 8.58
+    },
+    {
+      "module": "tests.test_canvas_process_stream",
+      "code": 0,
+      "tests": 7,
+      "skipped": 0,
+      "failures": [],
+      "evidence": "work/keyframe-process-export-final.log"
+    },
+    {
+      "module": "tests.test_canvas_snapping",
+      "code": 0,
+      "tests": 26,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.23
+    },
+    {
+      "module": "tests.test_chatgpt_auth",
+      "code": 0,
+      "tests": 7,
+      "skipped": 0,
+      "failures": [],
+      "evidence": "work/keyframe-auth-native-final.log"
+    },
+    {
+      "module": "tests.test_color_editor",
+      "code": 0,
+      "tests": 10,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.6
+    },
+    {
+      "module": "tests.test_content_preview_dialog",
+      "code": 0,
+      "tests": 3,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.56
+    },
+    {
+      "module": "tests.test_decoder_backpressure",
+      "code": 0,
+      "tests": 4,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.25
+    },
+    {
+      "module": "tests.test_distribution_verification",
+      "code": 0,
+      "tests": 1,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.48
+    },
+    {
+      "module": "tests.test_export_audio_staging",
+      "code": 0,
+      "tests": 2,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.48
+    },
+    {
+      "module": "tests.test_export_frame_equivalence",
+      "code": 0,
+      "tests": 16,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 2.07
+    },
+    {
+      "module": "tests.test_export_optimizations",
+      "code": 0,
+      "tests": 2,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.11
+    },
+    {
+      "module": "tests.test_export_plan",
+      "code": 0,
+      "tests": 7,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.31
+    },
+    {
+      "module": "tests.test_export_session",
+      "code": 0,
+      "tests": 14,
+      "skipped": 6,
+      "failures": [],
+      "seconds": 1.49
+    },
+    {
+      "module": "tests.test_export_storage_service",
+      "code": 0,
+      "tests": 2,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.26
+    },
+    {
+      "module": "tests.test_export_timeline",
+      "code": 0,
+      "tests": 15,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.6
+    },
+    {
+      "module": "tests.test_export_validation_service",
+      "code": 0,
+      "tests": 3,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.38
+    },
+    {
+      "module": "tests.test_ffmpeg_process",
+      "code": 0,
+      "tests": 7,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.59
+    },
+    {
+      "module": "tests.test_ffmpeg_streaming_integration",
+      "code": 0,
+      "tests": 6,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 2.92
+    },
+    {
+      "module": "tests.test_frame_state",
+      "code": 0,
+      "tests": 16,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.38
+    },
+    {
+      "module": "tests.test_functional_regressions",
+      "code": 0,
+      "tests": 113,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 2.97
+    },
+    {
+      "module": "tests.test_gpu_preview_health",
+      "code": 0,
+      "tests": 3,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.26
+    },
+    {
+      "module": "tests.test_gpu_texture_surface",
+      "code": 0,
+      "tests": 11,
+      "skipped": 0,
+      "failures": [],
+      "evidence": "work/keyframe-gpu-parity-final.log"
+    },
+    {
+      "module": "tests.test_help_content",
+      "code": 0,
+      "tests": 9,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 2.45
+    },
+    {
+      "module": "tests.test_inspector_sections",
+      "code": 0,
+      "tests": 14,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.86
+    },
+    {
+      "module": "tests.test_keyframe_advanced",
+      "code": 0,
+      "tests": 13,
+      "skipped": 0,
+      "failures": [],
+      "evidence": "work/keyframe-gpu-parity-final.log"
+    },
+    {
+      "module": "tests.test_keyframe_rendering",
+      "code": 0,
+      "tests": 6,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.79
+    },
+    {
+      "module": "tests.test_keyframe_workspace",
+      "code": 0,
+      "tests": 9,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 9.51
+    },
+    {
+      "module": "tests.test_keyframes",
+      "code": 0,
+      "tests": 19,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.56
+    },
+    {
+      "module": "tests.test_language_packs",
+      "code": 0,
+      "tests": 8,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.0
+    },
+    {
+      "module": "tests.test_launch_splash",
+      "code": 0,
+      "tests": 1,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 2.43
+    },
+    {
+      "module": "tests.test_live_mix_media",
+      "code": 0,
+      "tests": 1,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.34
+    },
+    {
+      "module": "tests.test_live_mix_player",
+      "code": 0,
+      "tests": 8,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.66
+    },
+    {
+      "module": "tests.test_live_mix_preview",
+      "code": 0,
+      "tests": 3,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.64
+    },
+    {
+      "module": "tests.test_local_llm",
+      "code": 0,
+      "tests": 17,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.42
+    },
+    {
+      "module": "tests.test_local_translation",
+      "code": 0,
+      "tests": 17,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 3.14
+    },
+    {
+      "module": "tests.test_lrc_draft_service",
+      "code": 0,
+      "tests": 1,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.31
+    },
+    {
+      "module": "tests.test_lrclib_provider",
+      "code": 0,
+      "tests": 6,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.51
+    },
+    {
+      "module": "tests.test_lyrics_alignment",
+      "code": 0,
+      "tests": 13,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.0
+    },
+    {
+      "module": "tests.test_lyrics_continuous_strip",
+      "code": 0,
+      "tests": 8,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.73
+    },
+    {
+      "module": "tests.test_lyrics_customization",
+      "code": 0,
+      "tests": 14,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 2.06
+    },
+    {
+      "module": "tests.test_lyrics_first_cue",
+      "code": 0,
+      "tests": 5,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.59
+    },
+    {
+      "module": "tests.test_lyrics_formats",
+      "code": 0,
+      "tests": 3,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.28
+    },
+    {
+      "module": "tests.test_lyrics_intro",
+      "code": 0,
+      "tests": 15,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 2.4
+    },
+    {
+      "module": "tests.test_lyrics_karaoke",
+      "code": 0,
+      "tests": 15,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 3.74
+    },
+    {
+      "module": "tests.test_lyrics_overlap",
+      "code": 0,
+      "tests": 21,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.58
+    },
+    {
+      "module": "tests.test_lyrics_render_cache",
+      "code": 0,
+      "tests": 3,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.38
+    },
+    {
+      "module": "tests.test_lyrics_responsiveness",
+      "code": 0,
+      "tests": 11,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.65
+    },
+    {
+      "module": "tests.test_lyrics_search_dialog",
+      "code": 0,
+      "tests": 26,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.32
+    },
+    {
+      "module": "tests.test_lyrics_search_service",
+      "code": 0,
+      "tests": 20,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 2.06
+    },
+    {
+      "module": "tests.test_lyrics_selection_warnings",
+      "code": 0,
+      "tests": 5,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 5.29
+    },
+    {
+      "module": "tests.test_lyrics_short_intro",
+      "code": 0,
+      "tests": 6,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.68
+    },
+    {
+      "module": "tests.test_lyrics_sidecar",
+      "code": 0,
+      "tests": 4,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.26
+    },
+    {
+      "module": "tests.test_lyrics_spacing",
+      "code": 0,
+      "tests": 7,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.49
+    },
+    {
+      "module": "tests.test_lyrics_tail_scroll",
+      "code": 0,
+      "tests": 10,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.39
+    },
+    {
+      "module": "tests.test_lyrics_translation",
+      "code": 0,
+      "tests": 43,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 2.18
+    },
+    {
+      "module": "tests.test_lyrics_translation_prompt",
+      "code": 0,
+      "tests": 12,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.35
+    },
+    {
+      "module": "tests.test_lyrics_word_wrap",
+      "code": 0,
+      "tests": 11,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.84
+    },
+    {
+      "module": "tests.test_m3u_playlist",
+      "code": 0,
+      "tests": 4,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.63
+    },
+    {
+      "module": "tests.test_main_window",
+      "code": 0,
+      "tests": 86,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 77.17
+    },
+    {
+      "module": "tests.test_main_window_export",
+      "code": 0,
+      "tests": 55,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 44.96
+    },
+    {
+      "module": "tests.test_main_window_lyrics_search",
+      "code": 0,
+      "tests": 5,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 5.32
+    },
+    {
+      "module": "tests.test_main_window_playlist",
+      "code": 0,
+      "tests": 40,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 32.73
+    },
+    {
+      "module": "tests.test_main_window_preview",
+      "code": 0,
+      "tests": 79,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 68.0
+    },
+    {
+      "module": "tests.test_main_window_project",
+      "code": 0,
+      "tests": 64,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 49.78
+    },
+    {
+      "module": "tests.test_maintenance_service",
+      "code": 0,
+      "tests": 3,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.77
+    },
+    {
+      "module": "tests.test_media_export_formats",
+      "code": 0,
+      "tests": 9,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 5.6
+    },
+    {
+      "module": "tests.test_metadata_style_dialogs",
+      "code": 0,
+      "tests": 5,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.6
+    },
+    {
+      "module": "tests.test_mix_visual_transitions",
+      "code": 0,
+      "tests": 9,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.5
+    },
+    {
+      "module": "tests.test_motion_curves",
+      "code": 0,
+      "tests": 5,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.27
+    },
+    {
+      "module": "tests.test_openai_account",
+      "code": 0,
+      "tests": 4,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.03
+    },
+    {
+      "module": "tests.test_overlay_frame_cache",
+      "code": 0,
+      "tests": 3,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.25
+    },
+    {
+      "module": "tests.test_performance_monitor",
+      "code": 0,
+      "tests": 11,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 2.82
+    },
+    {
+      "module": "tests.test_performance_profile",
+      "code": 0,
+      "tests": 3,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.41
+    },
+    {
+      "module": "tests.test_png_frame_staging",
+      "code": 0,
+      "tests": 2,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.42
+    },
+    {
+      "module": "tests.test_preview_audio_controller",
+      "code": 0,
+      "tests": 12,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.72
+    },
+    {
+      "module": "tests.test_preview_large_playlist",
+      "code": 0,
+      "tests": 5,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.69
+    },
+    {
+      "module": "tests.test_preview_layout",
+      "code": 0,
+      "tests": 1,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.42
+    },
+    {
+      "module": "tests.test_preview_menu_access",
+      "code": 0,
+      "tests": 11,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 9.67
+    },
+    {
+      "module": "tests.test_preview_presentation",
+      "code": 0,
+      "tests": 18,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 4.45
+    },
+    {
+      "module": "tests.test_preview_proxy",
+      "code": 0,
+      "tests": 6,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.66
+    },
+    {
+      "module": "tests.test_preview_responsiveness",
+      "code": 0,
+      "tests": 10,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.95
+    },
+    {
+      "module": "tests.test_preview_worker_lifecycle",
+      "code": 0,
+      "tests": 2,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.53
+    },
+    {
+      "module": "tests.test_product_identity",
+      "code": 0,
+      "tests": 4,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.57
+    },
+    {
+      "module": "tests.test_progress_text",
+      "code": 0,
+      "tests": 3,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.25
+    },
+    {
+      "module": "tests.test_progressive_automix_controller",
+      "code": 0,
+      "tests": 15,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 14.32
+    },
+    {
+      "module": "tests.test_progressive_loudness",
+      "code": 0,
+      "tests": 2,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.74
+    },
+    {
+      "module": "tests.test_project_models",
+      "code": 0,
+      "tests": 24,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.32
+    },
+    {
+      "module": "tests.test_project_persistence_service",
+      "code": 0,
+      "tests": 3,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.25
+    },
+    {
+      "module": "tests.test_project_service",
+      "code": 0,
+      "tests": 17,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.36
+    },
+    {
+      "module": "tests.test_project_session",
+      "code": 0,
+      "tests": 6,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.44
+    },
+    {
+      "module": "tests.test_projectless_workspace",
+      "code": 0,
+      "tests": 5,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 5.28
+    },
+    {
+      "module": "tests.test_qt_worker_lifecycle",
+      "code": 0,
+      "tests": 5,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.56
+    },
+    {
+      "module": "tests.test_real_video_preview_performance",
+      "code": 0,
+      "tests": 5,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 9.06,
+      "evidence": [
+        "work/keyframe-native-cpu-final.log",
+        "work/keyframe-gpu-600s.log",
+        "work/keyframe-advanced-regression/tests.test_real_video_preview_performance.log"
+      ]
+    },
+    {
+      "module": "tests.test_release_contract",
+      "code": 0,
+      "tests": 17,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.33
+    },
+    {
+      "module": "tests.test_release_notes_html",
+      "code": 0,
+      "tests": 7,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.26
+    },
+    {
+      "module": "tests.test_render_plan",
+      "code": 0,
+      "tests": 19,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.29
+    },
+    {
+      "module": "tests.test_responsive_workspace",
+      "code": 0,
+      "tests": 6,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 6.18
+    },
+    {
+      "module": "tests.test_settings_layout",
+      "code": 0,
+      "tests": 2,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.13
+    },
+    {
+      "module": "tests.test_shape_rendering",
+      "code": 0,
+      "tests": 3,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.56
+    },
+    {
+      "module": "tests.test_shared_decoration",
+      "code": 0,
+      "tests": 11,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.79
+    },
+    {
+      "module": "tests.test_source_components",
+      "code": 0,
+      "tests": 10,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.24
+    },
+    {
+      "module": "tests.test_source_layout_controller",
+      "code": 0,
+      "tests": 2,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.15
+    },
+    {
+      "module": "tests.test_source_registry",
+      "code": 0,
+      "tests": 8,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.58
+    },
+    {
+      "module": "tests.test_speed_optimizations",
+      "code": 0,
+      "tests": 10,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 2.43
+    },
+    {
+      "module": "tests.test_startup_design",
+      "code": 0,
+      "tests": 2,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.58
+    },
+    {
+      "module": "tests.test_static_video_stream",
+      "code": 0,
+      "tests": 9,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.54
+    },
+    {
+      "module": "tests.test_studio_design",
+      "code": 0,
+      "tests": 2,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.31
+    },
+    {
+      "module": "tests.test_subprocess_utils",
+      "code": 0,
+      "tests": 2,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.28
+    },
+    {
+      "module": "tests.test_subtitle_export",
+      "code": 0,
+      "tests": 14,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 5.1
+    },
+    {
+      "module": "tests.test_system_audio_state",
+      "code": 0,
+      "tests": 7,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.36
+    },
+    {
+      "module": "tests.test_temp_cleanup",
+      "code": 0,
+      "tests": 1,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.28
+    },
+    {
+      "module": "tests.test_text_music_reaction",
+      "code": 0,
+      "tests": 8,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.97
+    },
+    {
+      "module": "tests.test_text_template_placeholders",
+      "code": 0,
+      "tests": 4,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.26
+    },
+    {
+      "module": "tests.test_time_format",
+      "code": 0,
+      "tests": 4,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.24
+    },
+    {
+      "module": "tests.test_timeline_models",
+      "code": 0,
+      "tests": 4,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.3
+    },
+    {
+      "module": "tests.test_track_analysis_panel",
+      "code": 0,
+      "tests": 3,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.51
+    },
+    {
+      "module": "tests.test_track_audio_settings",
+      "code": 0,
+      "tests": 7,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.08
+    },
+    {
+      "module": "tests.test_track_order_dialog",
+      "code": 0,
+      "tests": 9,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.87
+    },
+    {
+      "module": "tests.test_track_schedule",
+      "code": 0,
+      "tests": 5,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.26
+    },
+    {
+      "module": "tests.test_transition_inspector",
+      "code": 0,
+      "tests": 17,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.59
+    },
+    {
+      "module": "tests.test_translation_safety",
+      "code": 0,
+      "tests": 17,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 3.47
+    },
+    {
+      "module": "tests.test_translation_workspace",
+      "code": 0,
+      "tests": 12,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 2.28
+    },
+    {
+      "module": "tests.test_ttml_edit_workflow",
+      "code": 0,
+      "tests": 15,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 4.19
+    },
+    {
+      "module": "tests.test_ttml_lyrics",
+      "code": 0,
+      "tests": 16,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.81
+    },
+    {
+      "module": "tests.test_ui_responsiveness",
+      "code": 0,
+      "tests": 12,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 11.53
+    },
+    {
+      "module": "tests.test_update_service",
+      "code": 0,
+      "tests": 10,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.45
+    },
+    {
+      "module": "tests.test_ux_guidance",
+      "code": 0,
+      "tests": 13,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 11.04
+    },
+    {
+      "module": "tests.test_video_frame_filter",
+      "code": 0,
+      "tests": 27,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.32
+    },
+    {
+      "module": "tests.test_video_preview_decoder",
+      "code": 0,
+      "tests": 2,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.25
+    },
+    {
+      "module": "tests.test_video_timeline",
+      "code": 0,
+      "tests": 4,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.29
+    },
+    {
+      "module": "tests.test_visual_timeline",
+      "code": 0,
+      "tests": 5,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 1.51
+    },
+    {
+      "module": "tests.test_visualizer_streaming",
+      "code": 0,
+      "tests": 6,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 2.49
+    },
+    {
+      "module": "tests.test_word_lyrics_providers",
+      "code": 0,
+      "tests": 22,
+      "skipped": 0,
+      "failures": [],
+      "seconds": 0.96
+    }
+  ]
+}

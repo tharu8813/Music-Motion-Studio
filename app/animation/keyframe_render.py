@@ -3,7 +3,7 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 from math import ceil, hypot
 
-from app.animation.keyframes import evaluate
+from app.animation.keyframes import evaluate, property_value, PROPERTIES, BEZIER_ITERATIONS, curve_maximum
 
 
 def keyframe_windows(plan):
@@ -35,9 +35,13 @@ class KeyframeRenderBinding:
 
     def expression(self, name, clock="t"):
         source, animation = self.source, self.source.keyframes
-        base = f"{getattr(source, name):.12g}"
+        base = f"{property_value(source, name):.12g}"
+        spec = PROPERTIES[name]
+        def bounded(points, clock):
+            value = curve_expression(points, clock, base)
+            return f"clip({value},{spec.minimum:.12g},{spec.maximum:.12g})" if points else base
         if animation.mode == "global":
-            return curve_expression(animation.global_curves.get(name, []), clock, base)
+            return bounded(animation.global_curves.get(name, []), clock)
         result = base
         for window in reversed(self.windows):
             if animation.mode == "single_track" and window.track_id != animation.target_track_id:
@@ -46,7 +50,7 @@ class KeyframeRenderBinding:
             points = animation.curves(window.track_id).get(name, [])
             if not points:
                 continue
-            value = curve_expression(points, local, base)
+            value = bounded(points, local)
             result = f"if(gte({clock},{window.timeline_start:.12g})*lt({clock},{window.timeline_end:.12g}),{value},{result})"
         return result
 
@@ -65,11 +69,31 @@ def curve_expression(points, clock, base):
             weight = f"(1-pow(1-{t},3))"
         elif left.interpolation == "ease_in_out":
             weight = f"if(lt({t},0.5),4*pow({t},3),1-pow(-2*{t}+2,3)/2)"
+        elif left.interpolation == "bezier":
+            weight = bezier_expression(t, left.bezier)
         else:
             weight = t
         value = f"({left.value:.12g}+({right.value-left.value:.12g})*({weight}))"
         result = f"if(lt({clock},{right.time:.12g}),{value},{result})"
     return f"if(lt({clock},{points[0].time:.12g}),{points[0].value:.12g},{result})"
+
+
+def bezier_expression(progress, handles):
+    """The same bounded bisection as bezier_progress; registers 7–9 stay free."""
+    x1, y1, x2, y2 = handles
+    def coordinate(first, second):
+        return f"(3*pow(1-ld(3),2)*ld(3)*{first:.12g}+3*(1-ld(3))*pow(ld(3),2)*{second:.12g}+pow(ld(3),3))"
+    solve = (f"st(1,0);st(2,1);st(4,0);while(lt(ld(4),{BEZIER_ITERATIONS}),"
+             f"st(3,(ld(1)+ld(2))/2);if(lt({coordinate(x1,x2)},ld(0)),st(1,ld(3)),st(2,ld(3)));"
+             f"st(4,ld(4)+1));st(3,(ld(1)+ld(2))/2);{coordinate(y1,y2)}")
+    return f"(st(0,{progress});if(lte(ld(0),0),0,if(gte(ld(0),1),1,({solve}))))"
+
+
+def cached_frame_expression(expression, clock="T"):
+    # geq evaluates pixels independently. Solve time-only Bezier curves once
+    # per timestamp per expression/thread, including a correctly initialized t=0.
+    return (f"if(eq(ld(7),1)*eq(ld(8),{clock}),ld(9),"
+            f"(st(7,1);st(8,{clock});st(9,{expression})))")
 
 
 def ffmpeg_transform(graph, layer_input, binding, width, height, tag):
@@ -80,7 +104,7 @@ def ffmpeg_transform(graph, layer_input, binding, width, height, tag):
     animation = source.keyframes
     curves = ([animation.global_curves] if animation.mode == "global" else
               [animation.curves()] if animation.mode == "single_track" else list(animation.per_track_curves.values()))
-    max_scale = max([source.scale, *[p.value for curve in curves for p in curve.get("scale", [])]])
+    max_scale = min(PROPERTIES["scale"].maximum, max(source.scale, *[curve_maximum(curve.get("scale", [])) for curve in curves]))
     side = max(2, ceil(hypot(width, height) * max_scale / (source.scale or 1)) + 4)
     transformed = f"[kfgeometry{tag}]"
     angle = f"({binding.expression('rotation')})*PI/180"
@@ -88,7 +112,10 @@ def ffmpeg_transform(graph, layer_input, binding, width, height, tag):
                  f"rotate='{angle}':ow={side}:oh={side}:fillcolor=none{transformed}")
     color, alpha, masked, output = (f"[kf{part}{tag}]" for part in ("color", "alpha", "mask", "out"))
     graph.append(f"{transformed}format=gbrap,split=2{color}{alpha}")
-    graph.append(f"{alpha}alphaextract,geq=lum='lum(X,Y)*({binding.expression('opacity', 'T')})'{masked}")
+    opacity = binding.expression('opacity', 'T')
+    if "while(" in opacity:
+        opacity = cached_frame_expression(opacity)
+    graph.append(f"{alpha}alphaextract,geq=lum='lum(X,Y)*({opacity})'{masked}")
     graph.append(f"{color}{masked}alphamerge{output}")
     x = f"(({binding.expression('x')})+{source.width / 2:.12g})*{factor:.12g}-overlay_w/2"
     y = f"(({binding.expression('y')})+{source.height / 2:.12g})*{factor:.12g}-overlay_h/2"

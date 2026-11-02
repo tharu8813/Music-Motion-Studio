@@ -2,7 +2,18 @@
 from PySide6.QtCore import QSignalBlocker
 from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from app.animation.keyframes import MODES, PROPERTIES, point_at
+from app.animation.keyframes import MODES, PROPERTIES, point_at, property_value, supports_property
+
+
+INSPECTOR_FIELDS = {name: (name, f"{name}_spin") for name in PROPERTIES if "." not in name}
+INSPECTOR_FIELDS.update({
+    "border_radius": ("border_radius", "radius_spin"),
+    "outline_width": ("outline", "outline_spin"),
+    "shadow.opacity": ("shadow_opacity", "shadow_opacity_spin"),
+    "shadow.blur_radius": ("shadow_blur", "shadow_blur_spin"),
+    "shadow.offset_x": ("shadow_x", "shadow_x_spin"),
+    "shadow.offset_y": ("shadow_y", "shadow_y_spin"),
+})
 
 
 class InspectorKeyframeBinding:
@@ -12,8 +23,9 @@ class InspectorKeyframeBinding:
         self.buttons = {}
         for name in PROPERTIES:
             spec = PROPERTIES[name]
-            getattr(inspector, f"{name}_spin").setRange(spec.minimum, spec.maximum)
-            host = inspector._field_hosts[name]
+            field, attribute = INSPECTOR_FIELDS[name]
+            getattr(inspector, attribute).setRange(spec.minimum, spec.maximum)
+            host = inspector._field_hosts[field]
             parent_layout = next(form for form in inspector._content.findChildren(QFormLayout)
                                  if form.getWidgetPosition(host)[0] >= 0)
             # QFormLayout owns a row; preserve labels and field visibility.
@@ -31,7 +43,7 @@ class InspectorKeyframeBinding:
             button.clicked.connect(lambda _=False, key=name: controller.toggle(key))
             layout.addWidget(button)
             parent_layout.setWidget(row, role, wrapper)
-            inspector._field_hosts[name] = wrapper
+            inspector._field_hosts[field] = wrapper
             self.buttons[name] = button
         self.panel = QWidget()
         layout = QVBoxLayout(self.panel)
@@ -114,17 +126,19 @@ class InspectorKeyframeBinding:
             points = controller.curves().get(name, [])
             current = point_at(points, controller.time)
             button.setText("◆" if current else "◇")
-            button.setEnabled(controller.editable)
+            supported = bool(source and supports_property(source, name))
+            button.setVisible(supported)
+            button.setEnabled(controller.editable and supported)
             button.setStyleSheet("padding: 0px; min-width: 0px;" + ("color: #DEC18D;" if points else ""))
             description = (("현재 키프레임 삭제" if current else "현재 위치에 키프레임 추가") if korean else
                            ("Remove current keyframe" if current else "Add keyframe at playhead"))
             button.setAccessibleName(f"{PROPERTIES[name].labels[0 if korean else 1]}: {description}")
             button.setToolTip(description + (" · 애니메이션 있음" if korean else " · Animated") if points else description)
             if single:
-                spin = getattr(inspector, f"{name}_spin")
+                spin = getattr(inspector, INSPECTOR_FIELDS[name][1])
                 previous = inspector._updating
                 inspector._updating = True
                 try:
-                    spin.setValue(values.get(name, getattr(source, name)))
+                    spin.setValue(values.get(name, property_value(source, name)))
                 finally:
                     inspector._updating = previous

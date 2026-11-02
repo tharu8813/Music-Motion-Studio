@@ -230,6 +230,9 @@ class RealVideoPreviewPerformanceTests(unittest.TestCase):
             str(audio_path), "Long preview fixture",
             duration_seconds=timeline_seconds,
         )
+        if os.environ.get("PLAYLIST_CANVAS_PREVIEW_SOAK_KEYFRAMES") == "1":
+            from tests.keyframe_runtime_fixture import add_keyframe_runtime_fixture
+            add_keyframe_runtime_fixture(scene, store, source, timeline_seconds)
         # Duration probing remains separately covered; this test isolates
         # actual decode, scheduling and composition cost. The probe answers
         # with the fixture's length from before the dialog exists: its first
@@ -401,6 +404,12 @@ class RealVideoPreviewPerformanceTests(unittest.TestCase):
                     self.assertTrue(surface.ready, "The GPU soak must use a real OpenGL context.")
                     self.assertTrue(preview.gpu_preview_enabled)
                 gpu_start = asdict(surface.upload_stats) if surface else None
+                saved_sources = [source.to_dict() for source in preview.source_store.sources()]
+                print("PREVIEW_DEVICE " + json.dumps({
+                    "backend_info": asdict(surface.backend_info) if surface and surface.backend_info else None,
+                    "keyframe_fixture": os.environ.get("PLAYLIST_CANVAS_PREVIEW_SOAK_KEYFRAMES") == "1",
+                    "source_count": len(saved_sources),
+                }), flush=True)
                 start_timeline = preview.timeline.value()
                 baseline_rss = _resident_set_bytes()
                 peak_rss = baseline_rss
@@ -422,6 +431,8 @@ class RealVideoPreviewPerformanceTests(unittest.TestCase):
                     if monotonic() - last_progress_check >= 6.0:
                         frames = item.video_decoder_stats().accepted_frames
                         self.assertGreater(frames, last_frames, "Video stalled during a loop.")
+                        self.assertEqual(saved_sources, [source.to_dict() for source in preview.source_store.sources()],
+                                         "Rendering changed the saved keyframes or source properties.")
                         last_frames = frames
                         last_progress_check = monotonic()
 

@@ -6,7 +6,7 @@ from dataclasses import replace
 
 from PySide6.QtCore import QObject, Signal
 
-from app.animation.keyframes import Keyframe, MODES, PROPERTIES, evaluate, point_at, put_point
+from app.animation.keyframes import Keyframe, MODES, PROPERTIES, evaluate, point_at, put_point, property_value, supports_property
 
 
 class KeyframeController(QObject):
@@ -151,7 +151,7 @@ class KeyframeController(QObject):
             self.changed.emit()
 
     def toggle(self, name):
-        if not self.editable or name not in PROPERTIES:
+        if not self.editable or not supports_property(self.source, name):
             return
         animation = deepcopy(self.source.keyframes)
         curves = animation.curves(self.track_id, create=True)
@@ -159,7 +159,7 @@ class KeyframeController(QObject):
         if point:
             curves[name] = [entry for entry in curves[name] if entry != point]
         else:
-            put_point(curves, name, Keyframe(self.time, self.evaluated().get(name, getattr(self.source, name))))
+            put_point(curves, name, Keyframe(self.time, self.evaluated().get(name, property_value(self.source, name))))
         self._commit(animation)
 
     def edit_value(self, name, value) -> bool:
@@ -167,7 +167,7 @@ class KeyframeController(QObject):
 
         Return False to let the ordinary (including multi-selection) binding run.
         """
-        if not self.editable or not self.source.keyframes.enabled or name not in PROPERTIES:
+        if not self.editable or not self.source.keyframes.enabled or not supports_property(self.source, name):
             return False
         points = self.curves().get(name, [])
         point = point_at(points, self.time)
@@ -175,7 +175,7 @@ class KeyframeController(QObject):
             return False
         animation = deepcopy(self.source.keyframes)
         put_point(animation.curves(self.track_id, create=True), name,
-                  Keyframe(self.time, value, point.interpolation if point else "ease_in_out"))
+                  replace(point, value=value) if point else Keyframe(self.time, value))
         self._commit(animation)
         return True
 

@@ -4619,7 +4619,7 @@ class MainWindow(QMainWindow):
             from app.animation.keyframes import transform_positions
             source.keyframes = transform_positions(source.keyframes, x_ratio, y_ratio,
                 old_width * x_ratio / 2 - source.width / 2,
-                old_height * y_ratio / 2 - source.height / 2)
+                old_height * y_ratio / 2 - source.height / 2, size_scale=factor)
             for field in scalable_fields:
                 setattr(source, field, getattr(source, field) * factor)
             for line_style in source.subtitle_line_styles:

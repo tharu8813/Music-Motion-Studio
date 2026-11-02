@@ -1619,6 +1619,8 @@ class SourceInspector(QScrollArea):
     def _update_nested(self, container: str, field: str, value: object) -> None:
         if self._updating or not self._source_ids:
             return
+        if self.keyframe_binding and self.keyframe_binding.controller.edit_value(f"{container}.{field}", value):
+            return
         self._applying_batch = True
         try:
             for source in self._selected_sources():

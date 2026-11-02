@@ -133,3 +133,27 @@ class KeyframeWorkspaceTests(MainWindowTestCase):
         editor = self.window.timeline_panel.keyframe_editor
         self.assertLess(editor.view.geometry().bottom(), editor.property.geometry().top())
         self.assertLessEqual(self.window.width(), 960)
+
+    def test_bezier_graph_apply_is_one_undo_step_and_cancel_does_not_edit(self):
+        from PySide6.QtWidgets import QDialog
+        from app.timeline.bezier_editor import BezierEditor
+        from app.timeline.keyframe_editor import Diamond
+        source, controller = self.prepare()
+        controller.replace_points((), [("x", Keyframe(0, 100)), ("x", Keyframe(5, 300))])
+        editor = self.window.timeline_panel.keyframe_editor
+        for item in editor.scene.items():
+            if isinstance(item, Diamond) and item.point.time == 0:
+                item.setSelected(True)
+        saved = source.to_dict()
+        with patch.object(BezierEditor, "exec", return_value=QDialog.DialogCode.Rejected):
+            editor.edit_graph()
+        self.assertEqual(saved, source.to_dict())
+        handles = (.2, -.4, .7, 1.6)
+        with patch.object(BezierEditor, "exec", return_value=QDialog.DialogCode.Accepted), \
+             patch.object(BezierEditor, "handles", new=property(lambda _: handles)):
+            editor.edit_graph()
+        self.assertEqual(controller.curves()["x"][0].bezier, handles)
+        self.window._undo()
+        self.assertEqual(saved, controller.source.to_dict())
+        self.window._redo()
+        self.assertEqual(controller.curves()["x"][0].bezier, handles)

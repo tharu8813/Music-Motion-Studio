@@ -72,6 +72,13 @@ class KeyframeFfmpegTests(TestCase):
                 self.assertAlmostEqual(float(frame[0, 0, 0]), expected, delta=2, msg=f"{easing} frame {index}")
 
     def test_ffmpeg_geometry_and_alpha_match_canvas_keyframe_poses(self):
+        self._check_geometry_and_alpha("linear")
+
+    def test_custom_bezier_ffmpeg_geometry_alpha_and_overshoot_match_canvas(self):
+        self._check_geometry_and_alpha("bezier", (.2, -.6, .7, 1.7))
+        self._check_geometry_and_alpha("bezier", (.2, 3, .8, 3))
+
+    def _check_geometry_and_alpha(self, easing, handles=(.25, .1, .25, 1)):
         source = Source(SourceType.SHAPE, "Square", x=10, y=30, width=16, height=16, fill_color="#FFFFFF")
         source.keyframes.global_curves = {
             "x": [Keyframe(0, 10, "linear"), Keyframe(1, 110)],
@@ -79,6 +86,11 @@ class KeyframeFfmpegTests(TestCase):
             "rotation": [Keyframe(0, 0, "linear"), Keyframe(1, 90)],
             "opacity": [Keyframe(0, .25, "linear"), Keyframe(1, 1)],
         }
+        source.keyframes.global_curves = {name: [replace(points[0], interpolation=easing, bezier=handles), points[1]]
+                                         for name, points in source.keyframes.global_curves.items()}
+        if easing == "bezier":
+            # Keep even extreme positional overshoot inside the test artboard.
+            source.keyframes.global_curves["x"][1] = Keyframe(1, 50)
         track = PlaylistTrack("", "Track", duration_seconds=1)
         binding = KeyframeRenderBinding.build(source, compile_playlist([track]))
         graph = []
