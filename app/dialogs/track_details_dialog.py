@@ -110,6 +110,7 @@ class TrackDetailsDialog(QDialog):
             self, lambda dialog: ("track", _TAB_HELP_TOPICS[max(0, dialog.tabs.currentIndex())]), translator,
         )
         self.track = track
+        self.translation_style_callback = None
         # EQ preview: the player swaps to a copy of the track rendered with the
         # current volume/EQ (Qt Multimedia cannot filter audio itself).
         self.ffmpeg_executable = ffmpeg_executable
@@ -1037,7 +1038,8 @@ class TrackDetailsDialog(QDialog):
         from app.dialogs.lyrics_translation_dialog import LyricsTranslationDialog
         if not self.selected_lyrics:
             return
-        dialog = LyricsTranslationDialog(self.selected_lyrics, self.translator, self)
+        dialog = LyricsTranslationDialog(self.selected_lyrics, self.translator, self,
+            draft_key=self.track.id, style_callback=self.translation_style_callback)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.selected_lyrics = deepcopy(dialog.selected_cues)
             self._refresh_preview()

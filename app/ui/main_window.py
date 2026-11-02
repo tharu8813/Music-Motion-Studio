@@ -2599,6 +2599,7 @@ class MainWindow(QMainWindow):
             ffmpeg_executable=ffmpeg_executable,
         )
         controller = self.track_analysis_controller
+        dialog.translation_style_callback = self._edit_translation_style_from_review
         dialog.analysis_requested.connect(lambda: self._analyze_track(track_id, dialog))
         controller.track_step_changed.connect(dialog.analysis_step)
         controller.analyses_updated.connect(dialog.analyses_received)
@@ -2623,6 +2624,30 @@ class MainWindow(QMainWindow):
                 volume_db=dialog.selected_volume_db,
                 eq_db=dialog.selected_eq_db,
             )
+
+    def _edit_translation_style_from_review(self, parent) -> None:
+        """Translation text belongs to a track; its typography belongs to a canvas source."""
+        from PySide6.QtWidgets import QInputDialog
+        from app.dialogs.lyrics_translation_style_dialog import LyricsTranslationStyleDialog
+        sources = [source for source in self.store.sources() if source.source_type is SourceType.LYRICS]
+        korean = self.translator.is_korean
+        if not sources:
+            QMessageBox.information(parent, "번역문 스타일" if korean else "Translation style",
+                "캔버스에 가사 소스를 추가하면 번역문 표시와 스타일을 설정할 수 있습니다." if korean else
+                "Add a Lyrics source to the canvas to configure translation visibility and typography.")
+            return
+        source = sources[0]
+        if len(sources) > 1:
+            names = [f"{index + 1}. {item.name}" for index, item in enumerate(sources)]
+            name, accepted = QInputDialog.getItem(parent, "번역문 스타일" if korean else "Translation style",
+                "스타일을 바꿀 가사 소스" if korean else "Lyrics source to style", names, 0, False)
+            if not accepted:
+                return
+            source = sources[names.index(name)]
+        dialog = LyricsTranslationStyleDialog(source, self.translator, parent)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.store.update(source.id, **dialog.settings())
+        dialog.deleteLater()
 
     def _choose_audio_files(self) -> None:
         """Let the user select audio files or M3U8 playlists for the playlist."""

@@ -263,10 +263,18 @@ class LyricsTranslationService:
             raise TranslationError("번역할 가사가 없습니다. 먼저 원문 가사를 추가하세요. / Add original lyrics before translating.")
         return rows
 
-    def translate(self, cues: list[dict], config: TranslationConfig, cancel=None, progress=None, *, activity=None) -> list[str]:
+    def translate(self, cues: list[dict], config: TranslationConfig, cancel=None, progress=None, *, activity=None,
+                  selected_rows=None) -> list[str]:
         check_cancel(cancel)
         config.validate()
         rows = self.prepare(cues)
+        if selected_rows is not None:
+            selected = set(selected_rows)
+            if any(type(index) is not int or not 0 <= index < len(cues) for index in selected):
+                raise TranslationError("재번역할 행을 확인하세요. / Check rows selected for retranslation.")
+            rows = [(index, text) for index, text in rows if index in selected]
+            if not rows:
+                raise TranslationError("재번역할 가사 행이 없습니다. / No lyric rows selected for retranslation.")
         result = [""] * len(cues)
         if config.same_language:
             if activity:

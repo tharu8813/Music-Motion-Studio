@@ -298,7 +298,7 @@ class TranslationActivityTests(unittest.TestCase):
             dialog = LyricsTranslationDialog(cues, Translator(), settings=settings,
                 service=LyricsTranslationService(local_models=models, local_engine=engine))
             self.addCleanup(dialog.deleteLater)
-            confirm = patch("app.dialogs.lyrics_translation_dialog.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes)
+            confirm = patch("app.services.translation_workflow.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes)
             confirm.start()
             self.addCleanup(confirm.stop)
             dialog._translate()

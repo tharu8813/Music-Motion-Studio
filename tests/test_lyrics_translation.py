@@ -289,9 +289,8 @@ class TranslationUITests(unittest.TestCase):
         self.assertTrue(dialog.apply_button.isEnabled())
         self.assertEqual(dialog.selected_cues, self.cues)
         self.assertEqual(dialog.table.item(0, 3).text(), "안녕")
-        with patch.object(dialog, "_confirm_discard", return_value=True) as confirm:
-            dialog.reject()
-        confirm.assert_called_once()
+        dialog.reject()
+        self.assertTrue(self.settings.contains(dialog.draft.key))
         self.assertEqual(dialog.selected_cues, self.cues)
         self.assertEqual(self.cues[0]["text"], "Hello")
 
@@ -309,9 +308,9 @@ class TranslationUITests(unittest.TestCase):
     def test_unnecessary_result_stays_blank_and_removes_old_translation_only_after_apply(self):
         self.cues = apply_translations(self.cues, ["이전 번역"], TranslationConfig("google"))
         dialog = self.dialog()
-        dialog.service = LyricsTranslationService(lambda *args, **kwargs:
+        dialog.workflow.service = LyricsTranslationService(lambda *args, **kwargs:
             json.dumps({"translations": [{"id": 0, "text": "Hello"}]}))
-        with patch("app.dialogs.lyrics_translation_dialog.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
+        with patch("app.services.translation_workflow.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
             dialog._translate()
         self.wait(dialog)
         self.assertEqual(dialog.table.item(0, 3).text(), "")
@@ -394,6 +393,7 @@ class TranslationUITests(unittest.TestCase):
     def test_apply_commits_active_multiline_cell_editor(self):
         dialog = self.dialog()
         dialog.show()
+        dialog.review_panel.show()
         self.app.processEvents()
         dialog.table.editItem(dialog.table.item(0, 3))
         self.app.processEvents()

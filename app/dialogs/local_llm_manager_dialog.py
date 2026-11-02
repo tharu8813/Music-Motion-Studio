@@ -1,10 +1,11 @@
 """Manage local LLMs without requiring users to work in a terminal."""
 import json
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView, QInputDialog,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QPushButton,
-    QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
+    QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget, QScrollArea,
+    QGridLayout)
 
 from app.dialogs.help_dialog import install_help_shortcut
 from app.services.local_llm_service import LocalLLMService, MODEL_GUIDES, model_guide
@@ -12,15 +13,26 @@ from app.services.translation_worker import TranslationWorker
 
 
 class LocalLLMManagerDialog(QDialog):
+    busy_changed = Signal(bool)
+
     def __init__(self, translator, parent=None, *, service=None):
         super().__init__(parent)
         self.translator, self.service = translator, service or LocalLLMService()
         self.worker, self._closing, self.selected_model = None, False, ""
         self.models = []
+        self._discovered = False
         install_help_shortcut(self, ("lyrics_editor", "lyrics_translation"), translator=translator)
         self.setWindowTitle(self.tr_text("로컬 LLM 관리자", "Local LLM manager"))
-        self.resize(850, 760)
-        root = QVBoxLayout(self)
+        self.resize(1000, 760)
+        self.setMinimumSize(600, 420)
+        self.setObjectName("localLLMManagerDialog")
+        outer = QVBoxLayout(self)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        panel = QWidget()
+        scroll.setWidget(panel)
+        outer.addWidget(scroll)
+        root = QVBoxLayout(panel)
         root.setContentsMargins(22, 20, 22, 20)
         title = QLabel(self.windowTitle())
         title.setObjectName("dialogTitle")
@@ -36,11 +48,9 @@ class LocalLLMManagerDialog(QDialog):
             "LM Studio 서버를 켜세요. 모델 조회·다운로드·메모리 로드는 최신 REST API를 사용합니다. 파일 삭제와 프로그램 설치는 LM Studio에서 진행합니다.",
             "Start the LM Studio server. Listing, downloads and memory loading use its current REST API. Install LM Studio and delete files in LM Studio."))
         self.runtime_note.setWordWrap(True)
-        root.addWidget(self.runtime_note)
         links = QLabel('<a href="https://docs.ollama.com/windows">Ollama 설치 안내</a> · '
             '<a href="https://lmstudio.ai/docs/app">LM Studio 설치 안내</a>')
         links.setOpenExternalLinks(True)
-        root.addWidget(links)
         actions = QHBoxLayout()
         self.setup_button = QPushButton(self.tr_text("실행 구성요소 자동 설치·시작", "Automatic runtime setup / start"))
         self.setup_button.setVisible(self.service.provider == "ollama")
@@ -50,7 +60,14 @@ class LocalLLMManagerDialog(QDialog):
         actions.addStretch()
         root.addLayout(actions)
         self.tabs = QTabWidget()
-        installed_page, download_page = QWidget(), QWidget()
+        installed_page, download_page, advanced_page = QWidget(), QWidget(), QWidget()
+        advanced_layout = QVBoxLayout(advanced_page)
+        advanced_layout.addWidget(self.runtime_note)
+        advanced_layout.addWidget(links)
+        server = QLabel(self.tr_text("연결 중인 로컬 서버: ", "Local server: ") + str(getattr(self.service, "base", "")))
+        server.setWordWrap(True)
+        server.setTextFormat(Qt.TextFormat.PlainText)
+        advanced_layout.addWidget(server)
         installed_layout, download_layout = QVBoxLayout(installed_page), QVBoxLayout(download_page)
         self.search = QLineEdit()
         self.search.setPlaceholderText(self.tr_text("설치 모델 검색", "Search installed models"))
@@ -65,15 +82,21 @@ class LocalLLMManagerDialog(QDialog):
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().hide()
+        self.table.setMinimumHeight(180)
+        self.table.setAccessibleName(self.tr_text("설치된 로컬 LLM", "Installed local LLMs"))
         installed_layout.addWidget(self.table)
-        row_actions = QHBoxLayout()
+        row_actions = QGridLayout()
         self.load_button = QPushButton(self.tr_text("메모리에 로드", "Load into memory"))
         self.unload_button = QPushButton(self.tr_text("메모리 해제", "Unload from memory"))
         self.details_button = QPushButton(self.tr_text("상세 정보·라이선스", "Details / license"))
         self.alias_button = QPushButton(self.tr_text("별칭 만들기", "Create alias"))
         self.delete_button = QPushButton(self.tr_text("모델 삭제…", "Delete model…"))
-        for button in (self.load_button, self.unload_button, self.details_button, self.alias_button, self.delete_button):
-            row_actions.addWidget(button)
+        for index, button in enumerate((self.load_button, self.unload_button, self.details_button, self.delete_button)):
+            row_actions.addWidget(button, index // 2, index % 2)
+        advanced_layout.addWidget(self.alias_button)
+        self.metadata = QTextBrowser()
+        self.metadata.setMinimumHeight(180)
+        advanced_layout.addWidget(self.metadata, 1)
         self.alias_button.setVisible(self.service.provider == "ollama")
         self.delete_button.setVisible(self.service.provider == "ollama")
         installed_layout.addLayout(row_actions)
@@ -92,21 +115,23 @@ class LocalLLMManagerDialog(QDialog):
         download_layout.addWidget(self.download_button)
         self.tabs.addTab(installed_page, self.tr_text("설치된 모델", "Installed"))
         self.tabs.addTab(download_page, self.tr_text("다운로드·모델 비교", "Download / compare"))
+        self.tabs.addTab(advanced_page, self.tr_text("고급 관리", "Advanced management"))
         root.addWidget(self.tabs, 2)
         self.description = QTextBrowser()
-        self.description.setMinimumHeight(140)
+        self.description.setMinimumHeight(100)
+        self.description.setMaximumHeight(180)
         root.addWidget(self.description, 1)
         self.source_link = QLabel()
         self.source_link.setOpenExternalLinks(True)
         root.addWidget(self.source_link)
         self.progress = QProgressBar()
         self.progress.hide()
-        root.addWidget(self.progress)
+        outer.addWidget(self.progress)
         self.status = QLabel(self.tr_text("설치된 모델을 조회합니다. 모델이 없으면 다운로드 탭에서 준비하세요.",
             "Checking installed models. Use Download if none are installed."))
         self.status.setWordWrap(True)
         self.status.setTextFormat(Qt.TextFormat.PlainText)
-        root.addWidget(self.status)
+        outer.addWidget(self.status)
         footer = QHBoxLayout()
         self.cancel_button = QPushButton(self.tr_text("작업 취소", "Cancel operation"))
         self.cancel_button.hide()
@@ -118,7 +143,7 @@ class LocalLLMManagerDialog(QDialog):
         footer.addStretch()
         footer.addWidget(self.use_button)
         footer.addWidget(buttons)
-        root.addLayout(footer)
+        outer.addLayout(footer)
         self.setup_button.clicked.connect(lambda: self._start("setup", lambda cancel, progress: self.service.ensure_running(install=True, cancel=cancel, progress=progress)))
         self.refresh_button.clicked.connect(self._refresh)
         self.table.itemSelectionChanged.connect(self._selection)
@@ -236,6 +261,7 @@ class LocalLLMManagerDialog(QDialog):
         self.cancel_button.setEnabled(True)
         self.status.setText(self.tr_text("처리 중… 처음 다운로드는 오래 걸릴 수 있습니다.", "Working… the first download may take a while."))
         self.worker.start()
+        self.busy_changed.emit(True)
 
     def _progress(self, value, total):
         if total:
@@ -256,9 +282,11 @@ class LocalLLMManagerDialog(QDialog):
                 " LM Studio may continue downloading on the server; check LM Studio.") if self.service.provider == "lmstudio" and self.operation == "download" else ""))
         elif self.operation == "details":
             self._selection()
-            self.description.setPlainText(self.description.toPlainText() + "\n" + json.dumps(worker.value, ensure_ascii=False, indent=2))
+            self.metadata.setPlainText(json.dumps(worker.value, ensure_ascii=False, indent=2))
+            self.tabs.setCurrentIndex(2)
             self.status.setText(self.tr_text("서버가 제공한 모델 정보입니다.", "Model information returned by the local server."))
         else:
+            self._discovered = True
             previous = self._selected()
             self.models = worker.value or []
             self.table.setRowCount(len(self.models))
@@ -282,6 +310,7 @@ class LocalLLMManagerDialog(QDialog):
         if self.operation != "details":
             self._selection()
         worker.deleteLater()
+        self.busy_changed.emit(False)
         if self._closing:
             super().reject()
 

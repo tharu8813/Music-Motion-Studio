@@ -272,40 +272,30 @@ class TranslationSetupUITests(unittest.TestCase):
                 models.download_pair("ja", "ko")
             self.assertEqual(download.call_count, 1)
 
-    def test_close_with_edits_keeps_review_or_discards_but_apply_never_prompts(self):
+    def test_close_with_edits_saves_draft_and_apply_never_prompts(self):
         dialog = self.dialog()
         dialog.show()
         dialog.table.item(0, 3).setText("안녕")
-        with patch.object(dialog, "_confirm_discard", return_value=False) as confirm:
-            dialog.close()
-        confirm.assert_called_once()
-        self.assertTrue(dialog.isVisible())
-        with patch.object(dialog, "_confirm_discard", return_value=True):
-            dialog.reject()
+        dialog.close()
         self.assertFalse(dialog.isVisible())
         self.assertNotIn("translation", dialog.selected_cues[0])
-        dialog = self.dialog()
-        dialog.table.item(0, 3).setText("안녕")
-        with patch.object(dialog, "_confirm_discard") as confirm:
-            dialog._apply()
-        confirm.assert_not_called()
-        self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
-        self.assertEqual(dialog.selected_cues[0]["translation"]["text"], "안녕")
+        reopened = self.dialog()
+        self.assertEqual(reopened.table.item(0, 3).text(), "안녕")
+        reopened._apply()
+        self.assertEqual(reopened.result(), QDialog.DialogCode.Accepted)
+        self.assertEqual(reopened.selected_cues[0]["translation"]["text"], "안녕")
+        self.assertFalse(self.settings.contains(reopened.draft.key))
 
-    def test_warning_defaults_to_keep_reviewing_and_discard_is_explicit(self):
+    def test_settings_can_close_without_hiding_review_or_losing_edits(self):
         dialog = self.dialog()
-        def keep():
-            message = next(widget for widget in QApplication.topLevelWidgets() if isinstance(widget, QMessageBox))
-            self.assertIn("변경사항이 있습니다", message.text())
-            self.assertIn("계속 검토", message.defaultButton().text())
-            message.defaultButton().click()
-        QTimer.singleShot(0, keep)
-        self.assertFalse(dialog._confirm_discard())
-        def discard():
-            message = QApplication.activeModalWidget()
-            next(button for button in message.buttons() if message.buttonRole(button) == QMessageBox.ButtonRole.DestructiveRole).click()
-        QTimer.singleShot(0, discard)
-        self.assertTrue(dialog._confirm_discard())
+        dialog.show()
+        review = dialog.review_panel
+        review.table.item(0, 3).setText("검토 초안")
+        dialog._show_window(dialog.service_dialog)
+        dialog.service_dialog.close()
+        self.assertEqual(review.table.item(0, 3).text(), "검토 초안")
+        self.assertTrue(review.isVisible())
+        self.assertFalse(review.isWindow())
 
     def test_manager_shows_tradeoffs_downloads_and_selects_installed_model(self):
         service = Mock(provider="ollama")
