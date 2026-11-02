@@ -1,0 +1,60 @@
+{
+  "date": "2026-11-03",
+  "scope": "Consistent editor UI; one-sided context playback; property track activation and selection",
+  "modules": 5,
+  "tests": 50.0,
+  "skipped": 0.0,
+  "runs": [
+    {
+      "module": "tests.test_custom_motion",
+      "status": "pass",
+      "seconds": 3.8,
+      "returncode": 0,
+      "tests": 18,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_custom_motion_dialog",
+      "status": "pass",
+      "seconds": 6.89,
+      "returncode": 0,
+      "tests": 19,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_keyframe_rendering",
+      "status": "pass",
+      "seconds": 2.2,
+      "returncode": 0,
+      "tests": 6,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_motion_curves",
+      "status": "pass",
+      "seconds": 0.32,
+      "returncode": 0,
+      "tests": 5,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_studio_design",
+      "status": "pass",
+      "seconds": 0.28,
+      "returncode": 0,
+      "tests": 2,
+      "skipped": 0
+    }
+  ],
+  "english_150_percent": [
+    {
+      "module": "tests.test_custom_motion_dialog",
+      "status": "pass",
+      "seconds": 8.29,
+      "returncode": 0,
+      "tests": 19,
+      "skipped": 0
+    }
+  ],
+  "method": "Targeted native Qt/FFmpeg reruns, deduplicated by module; not a full-repository rerun."
+}

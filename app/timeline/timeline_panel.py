@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QStackedWidget,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -150,11 +151,18 @@ class TimelinePanel(QFrame):
         self.view_stack.addWidget(self.tabs)
         self.keyframe_controller = KeyframeController(sources, playlist.timeline_tracks, self)
         self.keyframe_editor = KeyframeEditor(self.keyframe_controller, translator, self)
-        self.view_stack.addWidget(self.keyframe_editor)
-        self.view_combo.addItem("")
+        self.keyframe_scroll = QScrollArea()
+        self.keyframe_scroll.setWidgetResizable(True)
+        self.keyframe_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.keyframe_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.keyframe_scroll.setMinimumHeight(100)
+        self.keyframe_scroll.setWidget(self.keyframe_editor)
+        self.view_stack.addWidget(self.keyframe_scroll)
         self.visual.position_changed.connect(self.keyframe_controller.seek_global)
         self.keyframe_controller.position_changed.connect(self._follow_keyframe_position)
         self.keyframe_controller.editor_requested.connect(lambda: self.view_combo.setCurrentIndex(2))
+        for signal in (sources.source_changed, sources.source_added, sources.source_removed, sources.sources_replaced):
+            signal.connect(self._sync_legacy_keyframe_view)
         playlist.playlist_changed.connect(self.keyframe_controller.changed.emit)
         self.visual_toolbar = QWidget()
         tools = QHBoxLayout(self.visual_toolbar)
@@ -215,6 +223,7 @@ class TimelinePanel(QFrame):
         self.refresh()
         self._change_view(0)
         self._follow_source_selection(sources.selected)
+        self._sync_legacy_keyframe_view()
 
     @staticmethod
     def _table_page(table: QTableWidget) -> QWidget:
@@ -248,7 +257,7 @@ class TimelinePanel(QFrame):
         self.visual.korean = korean
         self.view_combo.setItemText(0, "시각 편집" if korean else "Visual editor")
         self.view_combo.setItemText(1, "숫자 편집" if korean else "Numeric editor")
-        self.view_combo.setItemText(2, "키프레임 편집" if korean else "Keyframe editor")
+        self.view_combo.setItemText(2, "이전 키프레임 (호환)" if korean else "Legacy keyframes (compatibility)")
         self.snap_button.setText("스냅" if korean else "Snap")
         self.snap_button.setToolTip("곡·요소의 시작과 끝에 맞춥니다. Shift를 누르면 스냅을 임시로 반전합니다."
                                    if korean else "Snap to clip edges. Hold Shift to temporarily invert snapping.")
@@ -473,12 +482,27 @@ class TimelinePanel(QFrame):
     def _change_view(self, index: int) -> None:
         self.visual.cancel_drag()
         self.view_stack.setCurrentIndex(index)
-        self.setMinimumHeight(max(340, self.keyframe_editor.minimumSizeHint().height() + 70)
-                              if index == 2 else 250)
+        # The workspace may have less room than the editor's complete form.
+        # Keep its controls reachable by scrolling rather than clipping them
+        # below the main window or forcing the window beyond a laptop screen.
+        self.setMinimumHeight(180 if index == 2 else 250)
         self.visual_toolbar.setVisible(index == 0)
         self.visual_hint.setVisible(index == 0)
         self.up_button.setVisible(index == 1 and self.tabs.currentIndex() == 0)
         self.down_button.setVisible(index == 1 and self.tabs.currentIndex() == 0)
+
+    def _sync_legacy_keyframe_view(self, *_):
+        def has_data(source):
+            animation = source.keyframes
+            return any(animation.global_curves.values()) or any(any(curves.values()) for curves in
+                (*animation.single_track_curves.values(), *animation.per_track_curves.values()))
+        legacy = any(has_data(source) for source in self.sources.sources())
+        if legacy and self.view_combo.count() < 3:
+            self.view_combo.addItem("이전 키프레임 (호환)" if self.translator.is_korean else "Legacy keyframes (compatibility)")
+        elif not legacy and self.view_combo.count() > 2:
+            if self.view_combo.currentIndex() == 2:
+                self.view_combo.setCurrentIndex(0)
+            self.view_combo.removeItem(2)
 
     def _default_visual_hint(self) -> None:
         self.visual_hint.setText("막대 이동 · 요소 양끝으로 길이 조절 · Ctrl+휠 확대 · Shift+휠 가로 이동 · Esc 취소"

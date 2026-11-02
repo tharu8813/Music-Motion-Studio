@@ -301,6 +301,29 @@ class FFmpegRenderer:
     def __init__(self, executable: str | Path | None = None) -> None:
         self.executable = self.find_executable(executable)
         self._available_encoders: frozenset[str] | None = None
+        self._filter_script_option: str | None = None
+
+    def _filter_graph_arguments(self, graph: str, temporary: Path) -> list[str]:
+        """Keep long graphs off Windows' command line across FFmpeg versions."""
+        if len(graph) <= 8000:
+            return ["-filter_complex", graph]
+        graph_path = temporary / "video-filters.txt"
+        graph_path.write_text(graph, encoding="utf-8")
+        if self._filter_script_option is None:
+            # FFmpeg 9 removed -filter_complex_script. Probe the executable's
+            # own options so older installations retain their working syntax.
+            try:
+                help_result = subprocess.run(
+                    [str(self.executable), "-hide_banner", "-h", "full"],
+                    capture_output=True, text=True, encoding="utf-8", errors="replace",
+                    timeout=10, **hidden_process_kwargs(),
+                )
+                help_text = help_result.stdout + help_result.stderr
+                self._filter_script_option = ("-filter_complex_script" if "-filter_complex_script " in help_text
+                                              else "-/filter_complex")
+            except (OSError, subprocess.TimeoutExpired):
+                self._filter_script_option = "-filter_complex_script"
+        return [self._filter_script_option, str(graph_path)]
 
     @staticmethod
     def find_executable(configured_path: str | Path | None = None) -> Path:
@@ -822,12 +845,7 @@ class FFmpegRenderer:
                     video_clips=video_clips,
                     video_input_slots=video_input_slots,
                 )
-                graph_arguments = ["-filter_complex", graph]
-                if len(graph) > 8000:
-                    # Per-track fades can exceed Windows' command-line limit.
-                    graph_path = temporary / "video-filters.txt"
-                    graph_path.write_text(graph, encoding="utf-8")
-                    graph_arguments = ["-filter_complex_script", str(graph_path)]
+                graph_arguments = self._filter_graph_arguments(graph, temporary)
                 video_arguments.extend([
                     *graph_arguments,
                     "-map", "[vout]", "-map", "1:a",

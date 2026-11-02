@@ -32,6 +32,7 @@ class ExportFrameSample:
     animation_progress: float = 1.0
     animation_phase_duration: float = 0.0
     junction: MixJunction | None = None
+    keyframe_active: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,6 +186,7 @@ class ExportTimelinePlanner:
                             1.0 if gap_phase == "out" else 0.0
                         ),
                         animation_phase_duration=max(0.0, gap_phase_duration),
+                        keyframe_active=False,
                     )
 
             yield from ExportTimelinePlanner._animation_samples(
@@ -246,6 +248,7 @@ class ExportTimelinePlanner:
                         previous or ExportFrameSample(track, number, window_start, 0.0, source_in, point),
                         timeline_seconds=point, elapsed_seconds=plan.presentation.local_time(point),
                         duration_seconds=next_point - point,
+                        keyframe_active=False,
                     )
                     yield previous
 

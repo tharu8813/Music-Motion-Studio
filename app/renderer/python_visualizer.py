@@ -968,7 +968,6 @@ class PythonVisualizerRenderer:
         rect = QRectF(0, 0, width, height)
         mirror_content(painter, rect, overlay)
         color = QColor(str(getattr(overlay, "color", "#FFFFFF")))
-        color.setAlphaF(max(0.0, min(1.0, float(getattr(overlay, "opacity", 1.0)))))
         style = str(getattr(overlay, "style", "bars"))
         kind = str(getattr(overlay, "kind", "visualizer"))
         effect_style = str(getattr(overlay, "effect_style", style))
@@ -1005,9 +1004,6 @@ class PythonVisualizerRenderer:
                 (float(np.percentile(levels[::2], 80)), float(np.percentile(levels[1::2], 80)))
             )
             painter.save()
-            painter.setOpacity(max(
-                0.0, min(1.0, float(getattr(overlay, "opacity", 1.0)))
-            ))
             paint_level_meter(
                 painter,
                 rect,
@@ -1035,10 +1031,7 @@ class PythonVisualizerRenderer:
                 speed=float(getattr(overlay, "speed", 1.0)),
                 minimum_size=float(getattr(overlay, "particle_min_size", 1.0)),
                 maximum_size=float(getattr(overlay, "particle_max_size", 4.0)),
-                particle_opacity=(
-                    float(getattr(overlay, "particle_opacity", 0.62))
-                    * float(getattr(overlay, "opacity", 1.0))
-                ),
+                particle_opacity=float(getattr(overlay, "particle_opacity", 0.62)),
                 direction=float(getattr(overlay, "particle_direction", -90.0)),
                 drift=float(getattr(overlay, "particle_drift", 0.25)),
                 twinkle=float(getattr(overlay, "particle_twinkle", 0.25)),
@@ -1105,8 +1098,17 @@ class PythonVisualizerRenderer:
                     radius = draw_width / 2
                     painter.drawRoundedRect(QRectF(x + (bar_width - draw_width) / 2, rect.center().y() - bar_height / 2, draw_width, bar_height), radius, radius)
         painter.save()
-        painter.setOpacity(max(0.0, min(1.0, float(getattr(overlay, "opacity", 1.0)))))
         paint_frame(painter, rect, overlay)
         painter.restore()
+        # Source opacity belongs to the completed layer, not to each brush.
+        # Per-primitive alpha let spectrum ignore it, imposed minimum alpha on
+        # LED/arc/filled styles, and accumulated opacity at overlapping edges.
+        opacity = max(0.0, min(1.0, float(getattr(overlay, "opacity", 1.0))))
+        if opacity < 1:
+            painter.resetTransform()
+            painter.setClipping(False)
+            painter.setOpacity(1)
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationIn)
+            painter.fillRect(image.rect(), QColor(0, 0, 0, round(255 * opacity)))
         painter.end()
         return image

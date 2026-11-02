@@ -43,7 +43,7 @@ def output_scaling_filter(fps: int, output_width: int, output_height: int,
 def video_fade_expression(clip: "VideoClipOverlay") -> str:
     """Use the same cubic fade and absolute visual windows as Canvas."""
     clock = f"(T+{clip.timeline_start:.8f})"
-    result = "1" if clip.animation_out == "none" else "0"
+    result = "0" if clip.animation_out == "fade" else "1"
     for start, end, intro, outro in reversed(clip.animation_windows):
         if end <= clip.timeline_start or start >= clip.timeline_start + clip.duration_seconds:
             continue
@@ -306,10 +306,13 @@ def layered_filter_graph(visualizers: list["VisualizerOverlay"],
                               f"lt(Y,{edge:.4f})+gte(Y,H-{edge:.4f}))")
                     alpha_expression = f"if({outer}*{border},lum(X,Y),{alpha_expression})"
             filters.append("format=rgba")
-            if (clip.opacity < 1.0 or radius >= 0.5
-                    or clip.animation_in != "none" or clip.animation_out != "none"):
-                filters.append(f"colorchannelmixer=aa={max(0.0, min(1.0, clip.opacity)):.4f}")
-            if clip.animation_in != "none" or clip.animation_out != "none":
+            # Keyed layers receive the resolved source opacity exactly once in
+            # ffmpeg_transform. Their input alpha contains only media/mask/fade.
+            base_opacity = 1.0 if clip.keyframe_binding else clip.opacity
+            if (base_opacity < 1.0 or radius >= 0.5
+                    or clip.animation_in == "fade" or clip.animation_out == "fade"):
+                filters.append(f"colorchannelmixer=aa={max(0.0, min(1.0, base_opacity)):.4f}")
+            if clip.animation_in == "fade" or clip.animation_out == "fade":
                 opacity = video_fade_expression(clip)
                 alpha_expression = f"({alpha_expression})*({opacity})"
             timing = f"setpts=PTS+{max(0.0, clip.timeline_start):.8f}/TB{layer_input}"

@@ -30,6 +30,7 @@ from app.dialogs.help_content import (
     HELP_TAB_IDS, HelpTab, HelpTopic, help_tabs, help_topics, topic_images,
 )
 from app.ui.design_system import COLORS
+from app.dialogs.adaptive_dialog import AdaptiveDialog
 from app.utils.i18n import Translator
 
 __all__ = [
@@ -196,7 +197,7 @@ class _HelpBrowser(QTextBrowser):
         return super().loadResource(kind, name)
 
 
-class HelpDialog(QDialog):
+class HelpDialog(AdaptiveDialog):
     """Tabs per window, a tag filter and a search across every tab; works without a network."""
 
     def __init__(

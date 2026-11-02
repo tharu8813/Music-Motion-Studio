@@ -17,9 +17,10 @@ INSPECTOR_FIELDS.update({
 
 
 class InspectorKeyframeBinding:
-    def __init__(self, inspector, controller):
+    def __init__(self, inspector, controller, *, show_controls=True):
         self.inspector = inspector
         self.controller = controller
+        self.show_controls = show_controls
         self.buttons = {}
         for name in PROPERTIES:
             spec = PROPERTIES[name]
@@ -79,6 +80,7 @@ class InspectorKeyframeBinding:
         controller.position_changed.connect(self.refresh_values)
         inspector.translator.language_changed.connect(self.refresh)
         self.refresh()
+        self.panel.setVisible(show_controls)
 
     def refresh(self):
         inspector, controller = self.inspector, self.controller
@@ -121,13 +123,13 @@ class InspectorKeyframeBinding:
         source = controller.source
         korean = inspector.translator.is_korean
         single = bool(source and len(controller.store.selected_ids) == 1 and not source.locked)
-        values = controller.evaluated() if single else {}
+        values = controller.edit_values() if single else {}
         for name, button in self.buttons.items():
             points = controller.curves().get(name, [])
             current = point_at(points, controller.time)
             button.setText("◆" if current else "◇")
             supported = bool(source and supports_property(source, name))
-            button.setVisible(supported)
+            button.setVisible(supported and self.show_controls)
             button.setEnabled(controller.editable and supported)
             button.setStyleSheet("padding: 0px; min-width: 0px;" + ("color: #DEC18D;" if points else ""))
             description = (("현재 키프레임 삭제" if current else "현재 위치에 키프레임 추가") if korean else

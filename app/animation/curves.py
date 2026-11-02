@@ -69,6 +69,10 @@ ANIMATION_STYLES = (
     "swing", "flip",
 )
 
+# A custom motion requires its saved pose data; it is not a fixed preset that
+# animation_pose(style, progress) can evaluate without a source.
+ANIMATION_CHOICES = (*ANIMATION_STYLES, "custom")
+
 _SLIDE_STYLES = frozenset(
     {"slide_left", "slide_right", "slide_up", "slide_down"}
 )

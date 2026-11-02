@@ -6,7 +6,8 @@ from dataclasses import replace
 
 from PySide6.QtCore import QObject, Signal
 
-from app.animation.keyframes import Keyframe, MODES, PROPERTIES, evaluate, point_at, put_point, property_value, supports_property
+from app.animation.keyframes import (Keyframe, MODES, TIME_EPSILON, valid_edit_point,
+    evaluate, point_at, normalize_curves, property_value, supports_property)
 
 
 class KeyframeController(QObject):
@@ -26,6 +27,7 @@ class KeyframeController(QObject):
         self.auto_key = False
         self._clipboard = None
         self.plan = None
+        self.rejection_reason = ""
         self._keyframe_windows = ()
         store.selection_set_changed.connect(lambda *_: self.changed.emit())
         store.source_changed.connect(lambda *_: self.changed.emit())
@@ -37,7 +39,8 @@ class KeyframeController(QObject):
 
     @property
     def windows(self):
-        entries = list(self.tracks_provider())
+        entries = [(track, start, end) for track, start, end in self.tracks_provider()
+                   if track.enabled and end > start and track.duration_seconds > 0]
         if self.plan is None:
             return entries
         by_id = {track.id: track for track, _, _ in entries}
@@ -70,19 +73,30 @@ class KeyframeController(QObject):
         if source and source.keyframes.mode != "global":
             window = self.local_window(self.track_id)
             if window:
-                return min(self.duration, max(0, window.source_time_at_start + (self.global_seconds - window.timeline_start) * window.playback_rate))
+                return min(self.duration, max(self.minimum_time, window.source_time_at_start + (self.global_seconds - window.timeline_start) * window.playback_rate))
             return min(self.duration, max(0.0, self.global_seconds - self.window[1])) if self.window else 0.0
         return self.global_seconds
 
     @property
     def duration(self):
         if self.source and self.source.keyframes.mode != "global":
+            window = self.local_window(self.track_id)
+            if window and self.window:
+                return min(self.window[0].duration_seconds,
+                           window.source_time_at_start + (window.timeline_end - window.timeline_start) * window.playback_rate)
             return self.window[0].duration_seconds if self.window else 0.0
-        return max((end for _, _, end in self.windows), default=60.0)
+        return self.plan.duration_seconds if self.plan is not None else max((end for _, _, end in self.windows), default=0.0)
+
+    @property
+    def minimum_time(self):
+        window = self.local_window(self.track_id) if self.source and self.source.keyframes.mode != "global" else None
+        return window.source_time_at_start if window else 0.0
 
     @property
     def editable(self):
         return bool(self.source and not self.source.locked and len(self.store.selected_ids) == 1
+                    and self.source.animation_in != "custom" and self.source.animation_out != "custom"
+                    and self.duration > self.minimum_time
                     and (self.source.keyframes.mode == "global" or self.window))
 
     def curves(self):
@@ -97,7 +111,7 @@ class KeyframeController(QObject):
     def seek(self, seconds):
         window = self.local_window(self.track_id)
         if self.source and self.source.keyframes.mode != "global" and window:
-            local = min(self.duration, max(0.0, seconds))
+            local = min(self.duration, max(self.minimum_time, seconds))
             self.seek_global(window.timeline_start + (local - window.source_time_at_start) / window.playback_rate)
             return
         offset = self.window[1] if self.source and self.source.keyframes.mode != "global" and self.window else 0.0
@@ -114,6 +128,18 @@ class KeyframeController(QObject):
                  if window else self.global_seconds - active[1] if active else None)
         return evaluate(source, self.global_seconds, active[0].id if active else "",
                         local)
+
+    def edit_values(self):
+        """Values in the bank being edited, independently of the Canvas owner."""
+        if not self.source:
+            return {}
+        return evaluate(self.source, self.time, self.track_id, self.time)
+
+    def _reject(self, reason):
+        self.rejection_reason = reason
+        self.changed.emit()
+        self.edit_rejected.emit()
+        return False
 
     def _commit(self, animation):
         if not self.editable or animation == self.source.keyframes:
@@ -153,14 +179,11 @@ class KeyframeController(QObject):
     def toggle(self, name):
         if not self.editable or not supports_property(self.source, name):
             return
-        animation = deepcopy(self.source.keyframes)
-        curves = animation.curves(self.track_id, create=True)
-        point = point_at(curves.get(name, []), self.time)
+        point = point_at(self.curves().get(name, []), self.time)
         if point:
-            curves[name] = [entry for entry in curves[name] if entry != point]
+            self.replace_points({(name, point.time)})
         else:
-            put_point(curves, name, Keyframe(self.time, self.evaluated().get(name, property_value(self.source, name))))
-        self._commit(animation)
+            self.replace_points((), [(name, Keyframe(self.time, self.edit_values().get(name, property_value(self.source, name))))])
 
     def edit_value(self, name, value) -> bool:
         """Auto OFF: update an existing point, otherwise the base value.
@@ -173,10 +196,8 @@ class KeyframeController(QObject):
         point = point_at(points, self.time)
         if point is None and not self.auto_key:
             return False
-        animation = deepcopy(self.source.keyframes)
-        put_point(animation.curves(self.track_id, create=True), name,
-                  replace(point, value=value) if point else Keyframe(self.time, value))
-        self._commit(animation)
+        self.replace_points({(name, point.time)} if point else (), [(name,
+            replace(point, value=value) if point else Keyframe(self.time, value))])
         return True
 
     def navigate(self, direction, name=None):
@@ -188,20 +209,37 @@ class KeyframeController(QObject):
 
     def replace_points(self, selected, replacements=()):
         if not self.editable:
-            return
+            return False
+        selected, replacements = set(selected), list(replacements)
+        # Validate the entire operation before removing any point. File loading
+        # is forgiving; an interactive edit must never silently discard data.
+        normalized = []
+        for name, point in replacements:
+            if not supports_property(self.source, name):
+                return self._reject("unsupported")
+            if not valid_edit_point(name, point):
+                return self._reject("invalid")
+            point = normalize_curves({name: [point]})[name][0]
+            unchanged_time = any(key == name and abs(time - point.time) <= TIME_EPSILON
+                                 and point_at(self.curves().get(name, []), time) for key, time in selected)
+            if (point.time > self.duration + TIME_EPSILON or point.time < self.minimum_time - TIME_EPSILON) and not unchanged_time:
+                return self._reject("range")
+            normalized.append((name, point))
         animation = deepcopy(self.source.keyframes)
         curves = animation.curves(self.track_id, create=True)
         for name, time in selected:
             curves[name] = [p for p in curves.get(name, []) if abs(p.time - time) > 1e-6]
-        occupied = {(name, point.time) for name, points in curves.items() for point in points}
-        for name, point in replacements:
-            if any(key == name and abs(time - point.time) <= 1e-6 for key, time in occupied):
-                self.changed.emit()
-                self.edit_rejected.emit()
-                return
-            occupied.add((name, point.time))
-            put_point(curves, name, point)
+        names = {name for name, _ in normalized}
+        for name, point in normalized:
+            curves.setdefault(name, []).append(point)
+        for name in names:
+            points = sorted(curves[name], key=lambda point: point.time)
+            if any(right.time - left.time <= TIME_EPSILON for left, right in zip(points, points[1:])):
+                return self._reject("collision")
+            curves[name] = points
+        self.rejection_reason = ""
         self._commit(animation)
+        return True
 
     def copy(self, selected=None):
         self._clipboard = [(name, deepcopy(point)) for name, points in self.curves().items()

@@ -1775,7 +1775,9 @@ class MainWindow(QMainWindow):
         self.timeline_panel.preview_requested.connect(self.preview_controller.preview_at)
         from app.inspector.keyframe_binding import InspectorKeyframeBinding
         self.inspector.keyframe_binding = InspectorKeyframeBinding(
-            self.inspector, self.timeline_panel.keyframe_controller)
+            self.inspector, self.timeline_panel.keyframe_controller, show_controls=False)
+        from app.controllers.custom_motion_controller import CustomMotionController
+        self.custom_motion_controller = CustomMotionController(self)
         from app.animation.canvas_keyframes import CanvasKeyframeBinding
         self.canvas_keyframe_binding = CanvasKeyframeBinding(self.canvas, self.timeline_panel.keyframe_controller)
         self.timeline_panel.keyframe_controller.editor_requested.connect(lambda: self._show_bottom_panel(1))

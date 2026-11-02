@@ -24,7 +24,7 @@ from PySide6.QtWidgets import QSizePolicy
 try:
     from PySide6.QtOpenGL import (
         QOpenGLBuffer, QOpenGLShader, QOpenGLShaderProgram,
-        QOpenGLTexture, QOpenGLTextureBlitter,
+        QOpenGLTexture, QOpenGLTextureBlitter, QOpenGLVertexArrayObject,
     )
     from PySide6.QtOpenGLWidgets import QOpenGLWidget
 except ImportError:  # pragma: no cover - optional in some Qt deployments
@@ -147,6 +147,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
             self._blitter = None
             self._filter_program = None
             self._filter_buffer = None
+            self._filter_vao = None
             self._video_program = None
             self._functions = None
             self._ready = False
@@ -308,7 +309,10 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                     viewport.height() - self._active_canvas_size.height() * scale
                 ) / 2.0
                 self._functions.glEnable(0x0BE2)  # GL_BLEND
-                self._functions.glBlendFunc(0x0302, 0x0303)  # SRC_ALPHA, ONE_MINUS_SRC_ALPHA
+                # Source-over alpha is A + dstA*(1-A), not A*A + dstA*(1-A).
+                # The latter made framebuffer readback/composition brighter
+                # whenever a translucent animated layer crossed an opaque base.
+                self._functions.glBlendFuncSeparate(0x0302, 0x0303, 1, 0x0303)
                 self._blitter.bind()
                 try:
                     for layer in self._active_layers:
@@ -324,13 +328,14 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                         transform = QOpenGLTextureBlitter.targetTransform(
                             target, viewport,
                         )
-                        if layer.rotation:
-                            transform.rotate(layer.rotation, 0.0, 0.0, 1.0)
                         if entry.video_format in {"Format_NV12", "Format_NV21"}:
                             self._blitter.release()
                             self._draw_video_layer(entry, layer, target, viewport)
                             self._blitter.bind()
-                        elif layer.color_filter is not None and layer.color_filter.active:
+                        elif layer.rotation or (layer.color_filter is not None and layer.color_filter.active):
+                            # Rotate in canvas pixel coordinates before NDC
+                            # projection. Rotating the already-scaled blitter
+                            # matrix reverses Y and skews non-square layers.
                             self._blitter.release()
                             self._draw_filtered_layer(entry, layer, target, viewport)
                             self._blitter.bind()
@@ -682,6 +687,9 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                 if self._filter_buffer is not None:
                     self._filter_buffer.destroy()
                     self._filter_buffer = None
+                if self._filter_vao is not None:
+                    self._filter_vao.destroy()
+                    self._filter_vao = None
                 if self._filter_program is not None:
                     self._filter_program.removeAllShaders()
                     self._filter_program = None
@@ -749,6 +757,11 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                 raise RuntimeError("Could not create GPU filter vertex buffer.")
             self._filter_program = program
             self._filter_buffer = buffer
+            # The blitter owns its own vertex array. Custom draws must never
+            # overwrite that VAO's attribute pointers between consecutive frames.
+            self._filter_vao = QOpenGLVertexArrayObject(self)
+            if not self._filter_vao.create():
+                raise RuntimeError("Could not create the GPU layer vertex array.")
             video_program = QOpenGLShaderProgram(self)
             video_fragment_shader = """
                 #version 330 core
@@ -826,7 +839,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
         ) -> None:
             """Convert mapped NV12/NV21 planes in the fragment shader."""
             if (
-                self._video_program is None or self._filter_buffer is None
+                self._video_program is None or self._filter_buffer is None or self._filter_vao is None
                 or entry.aux_texture is None
             ):
                 raise RuntimeError("GPU video plane pipeline is not initialized.")
@@ -836,6 +849,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
             payload = array("f", vertices).tobytes()
             program = self._video_program
             buffer = self._filter_buffer
+            self._filter_vao.bind()
             if not program.bind() or not buffer.bind():
                 raise RuntimeError("Could not bind GPU video plane resources.")
             try:
@@ -852,23 +866,25 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                 )
                 range_name = getattr(surface_format.colorRange(), "name", "")
                 space_name = getattr(surface_format.colorSpace(), "name", "")
-                program.setUniformValue("yTexture", 0)
-                program.setUniformValue("uvTexture", 1)
-                program.setUniformValue("opacity", max(0.0, min(1.0, layer.opacity)))
-                program.setUniformValue("brightness", color_filter.brightness / 100.0)
-                program.setUniformValue("contrast", 1.0 + color_filter.contrast / 100.0)
-                program.setUniformValue(
-                    "saturation",
+                # Explicit GL scalar calls avoid PySide's ambiguous scalar/
+                # matrix setUniformValue overloads (which can leave zeros).
+                self._functions.glUniform1i(program.uniformLocation(b"yTexture"), 0)
+                self._functions.glUniform1i(program.uniformLocation(b"uvTexture"), 1)
+                self._functions.glUniform1f(program.uniformLocation(b"opacity"), max(0.0, min(1.0, layer.opacity)))
+                self._functions.glUniform1f(program.uniformLocation(b"brightness"), color_filter.brightness / 100.0)
+                self._functions.glUniform1f(program.uniformLocation(b"contrast"), 1.0 + color_filter.contrast / 100.0)
+                self._functions.glUniform1f(
+                    program.uniformLocation(b"saturation"),
                     0.0 if color_filter.grayscale else
                     max(0.0, min(3.0, color_filter.saturation)),
                 )
-                program.setUniformValue("fullRange", int(range_name == "ColorRange_Full"))
+                self._functions.glUniform1i(program.uniformLocation(b"fullRange"), int(range_name == "ColorRange_Full"))
                 color_matrix = (
                     1 if space_name == "ColorSpace_BT601" else
                     2 if space_name == "ColorSpace_BT2020" else 0
                 )
-                program.setUniformValue("colorMatrix", color_matrix)
-                program.setUniformValue("swapUv", int(entry.video_format == "Format_NV21"))
+                self._functions.glUniform1i(program.uniformLocation(b"colorMatrix"), color_matrix)
+                self._functions.glUniform1i(program.uniformLocation(b"swapUv"), int(entry.video_format == "Format_NV21"))
                 entry.texture.bind(0)
                 entry.aux_texture.bind(1)
                 self._functions.glDrawArrays(0x0005, 0, 4)
@@ -878,13 +894,14 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                 program.disableAttributeArray(1)
             finally:
                 buffer.release()
+                self._filter_vao.release()
                 program.release()
 
         def _draw_filtered_layer(
             self, entry: _TextureEntry, layer: GpuPreviewLayer,
             target: QRectF, viewport: QRect,
         ) -> None:
-            if self._filter_program is None or self._filter_buffer is None:
+            if self._filter_program is None or self._filter_buffer is None or self._filter_vao is None:
                 raise RuntimeError("GPU filter pipeline is not initialized.")
             vertices = self._filtered_quad_vertices(
                 target, viewport, layer.rotation,
@@ -892,6 +909,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
             payload = array("f", vertices).tobytes()
             program = self._filter_program
             buffer = self._filter_buffer
+            self._filter_vao.bind()
             if not program.bind() or not buffer.bind():
                 raise RuntimeError("Could not bind GPU filter resources.")
             try:
@@ -902,12 +920,13 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                 program.setAttributeBuffer(0, 0x1406, 0, 2, stride)  # GL_FLOAT
                 program.setAttributeBuffer(1, 0x1406, 2 * 4, 2, stride)
                 color_filter = layer.color_filter or GpuColorFilter()
-                program.setUniformValue("sourceTexture", 0)
-                program.setUniformValue("opacity", max(0.0, min(1.0, layer.opacity)))
-                program.setUniformValue("brightness", color_filter.brightness / 100.0)
-                program.setUniformValue("contrast", 1.0 + color_filter.contrast / 100.0)
-                program.setUniformValue(
-                    "saturation",
+                # See the video path: use explicit scalar uniform setters.
+                self._functions.glUniform1i(program.uniformLocation(b"sourceTexture"), 0)
+                self._functions.glUniform1f(program.uniformLocation(b"opacity"), max(0.0, min(1.0, layer.opacity)))
+                self._functions.glUniform1f(program.uniformLocation(b"brightness"), color_filter.brightness / 100.0)
+                self._functions.glUniform1f(program.uniformLocation(b"contrast"), 1.0 + color_filter.contrast / 100.0)
+                self._functions.glUniform1f(
+                    program.uniformLocation(b"saturation"),
                     0.0 if color_filter.grayscale else
                     max(0.0, min(3.0, color_filter.saturation)),
                 )
@@ -918,6 +937,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                 program.disableAttributeArray(1)
             finally:
                 buffer.release()
+                self._filter_vao.release()
                 program.release()
 
         @staticmethod

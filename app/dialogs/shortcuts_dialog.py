@@ -107,6 +107,15 @@ class ShortcutsDialog(QDialog):
                 ("Home / F / Ctrl+0", "캔버스 전체 맞춤" if korean else "Fit the complete Canvas"),
                 ("Ctrl++ / Ctrl+-", "캔버스 확대 / 축소" if korean else "Zoom Canvas in / out"),
             ]),
+            ("사용자 지정 키프레임 편집 창" if korean else "Custom keyframe editor window", [
+                ("Space / K / Delete", "재생·일시 정지 / 점 추가 / 점 삭제" if korean else "Play/pause / add key / delete key"),
+                ("1–5 / ↑ / ↓", "X·Y·크기·회전·투명도 트랙 선택" if korean else "Select X/Y/scale/rotation/opacity track"),
+                ("← / → · Shift+← / →", "0.01초 / 0.1초 탐색" if korean else "Seek 0.01 s / 0.1 s"),
+                ("Ctrl+← / →", "선택 트랙의 이전 / 다음 키프레임" if korean else "Previous / next key in selected track"),
+                ("B / P / E", "구간 곡선 / 프리셋 / 트랙 켜기·끄기" if korean else "Interval curve / presets / enable track"),
+                ("휠 · Space+드래그" if korean else "Wheel · Space+drag", "미리보기 확대·축소 / 화면 이동" if korean else "Zoom preview / pan"),
+                ("F1 / Shift+F1", "사용 도움말 / 편집 창의 전체 단축키" if korean else "Usage help / full editor shortcuts"),
+            ]),
         ]
         self.table.setRowCount(0)
         row = 0

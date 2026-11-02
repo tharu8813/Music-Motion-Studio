@@ -25,6 +25,10 @@ class Diamond(QGraphicsPolygonItem):
         self.setPen(QPen(QColor(COLORS["warning"])))
         self.setPos(editor.time_x(point.time), editor.row_y(row))
         self.setToolTip(f"{PROPERTIES[name].labels[0 if editor.korean else 1]} · {point.time:.3f}s · {point.value:g} · {point.interpolation}")
+        self.out_of_range = point.time > editor.controller.duration + 1e-6 or point.time < editor.controller.minimum_time - 1e-6
+        if self.out_of_range:
+            self.setToolTip(self.toolTip() + (" · 재생 범위 밖 (데이터 보존됨)" if editor.korean else " · Outside playable range (preserved)"))
+            self.setPen(QPen(QColor(COLORS["muted"]), 1, Qt.PenStyle.DashLine))
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange and self.scene():
@@ -32,35 +36,59 @@ class Diamond(QGraphicsPolygonItem):
         return super().itemChange(change, value)
 
     def paint(self, painter, option, widget=None):
-        painter.setBrush(QColor(COLORS["text"]) if self.isSelected() else QColor(COLORS["warning"]))
-        painter.setPen(QPen(QColor(COLORS["warning"]), 2 if self.isSelected() else 1))
+        color = QColor(COLORS["muted"] if self.out_of_range else COLORS["warning"])
+        painter.setBrush(QColor(COLORS["text"]) if self.isSelected() else color)
+        painter.setPen(QPen(color, 2 if self.isSelected() else 1,
+                            Qt.PenStyle.DashLine if self.out_of_range else Qt.PenStyle.SolidLine))
         painter.drawPolygon(self.polygon())
 
     def mousePressEvent(self, event):
         self.editor.dragging = True
         super().mousePressEvent(event)
+        self.editor.selected = self.editor.selection()
+        self._drag_start = event.scenePos().x()
+        self._drag_items = [(item, item.point) for item in self.scene().selectedItems() if isinstance(item, Diamond)]
+
+    def mouseMoveEvent(self, event):
+        if not self.editor.dragging:
+            return
+        delta = (event.scenePos().x() - self._drag_start) / self.editor.zoom
+        if self._drag_items:
+            low = self.editor.controller.minimum_time - min(point.time for _, point in self._drag_items)
+            high = self.editor.controller.duration - max(point.time for _, point in self._drag_items)
+            if low <= high:
+                delta = min(high, max(low, delta))
+                for item, point in self._drag_items:
+                    item.setPos(self.editor.time_x(point.time + delta), self.editor.row_y(item.row))
+        event.accept()
 
     def mouseReleaseEvent(self, event):
+        if not self.editor.dragging:
+            super().mouseReleaseEvent(event)
+            return
         super().mouseReleaseEvent(event)
         editor = self.editor
-        selected, replacements = [], []
-        for item in self.scene().selectedItems():
-            if not isinstance(item, Diamond):
-                continue
-            seconds = editor.x_time(item.pos().x())
-            if editor.snap.isChecked():
-                candidates = [round(seconds * editor.fps) / editor.fps]
-                candidates += [p.time for points in editor.controller.curves().values() for p in points
-                               if abs(p.time - item.point.time) > 1e-6]
-                nearest = min(candidates, key=lambda t: abs(t - seconds))
-                if abs(nearest - seconds) * editor.zoom <= 8:
-                    seconds = nearest
-            selected.append((item.name, item.point.time))
-            replacements.append((item.name, replace(item.point, time=round(seconds, 6))))
+        # Qt finalizes Ctrl-click selection on release, after press handling.
+        editor.selected = editor.selection()
+        items = getattr(self, "_drag_items", [])
+        selected = [(item.name, point.time) for item, point in items]
+        seconds = editor.x_time(self.pos().x())
+        if editor.snap.isChecked() and items:
+            candidates = [round(seconds * editor.fps) / editor.fps]
+            candidates += [p.time for name, points in editor.controller.curves().items() for p in points
+                           if (name, p.time) not in selected]
+            nearest = min(candidates, key=lambda t: abs(t - seconds))
+            if abs(nearest - seconds) * editor.zoom <= 8:
+                seconds = nearest
+        delta = seconds - self.point.time
+        if items:
+            low = editor.controller.minimum_time - min(point.time for _, point in items)
+            high = editor.controller.duration - max(point.time for _, point in items)
+            delta = min(high, max(low, delta)) if low <= high else 0
+        replacements = [(item.name, replace(point, time=round(point.time + delta, 6))) for item, point in items]
         editor.dragging = False
         if any(abs(point.time - old[1]) > 1e-6 for old, (_, point) in zip(selected, replacements)):
-            editor.selected = {(name, point.time) for name, point in replacements}
-            editor.controller.replace_points(selected, replacements)
+            editor.replace_selected(selected, replacements)
         else:
             editor.refresh()
 
@@ -87,19 +115,17 @@ class LaneView(QGraphicsView):
         elif event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             editor.controller.replace_points(editor.selection())
         elif event.key() == Qt.Key.Key_Escape:
-            self.scene().clearSelection()
-            editor.refresh()
+            editor.cancel_drag()
         elif event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
             direction = 1 if event.key() == Qt.Key.Key_Right else -1
             if event.modifiers() & Qt.KeyboardModifier.AltModifier:
                 editor.controller.navigate(direction)
             elif editor.selection():
                 delta = direction / editor.fps
-                replacements = [(item.name, replace(item.point, time=max(0, item.point.time + delta)))
+                replacements = [(item.name, replace(item.point, time=item.point.time + delta))
                                 for item in self.scene().selectedItems() if isinstance(item, Diamond)]
                 selected = editor.selection()
-                editor.selected = {(name, point.time) for name, point in replacements}
-                editor.controller.replace_points(selected, replacements)
+                editor.replace_selected(selected, replacements)
             else:
                 editor.controller.seek(editor.controller.time + direction / editor.fps)
         else:
@@ -123,6 +149,7 @@ class KeyframeEditor(QWidget):
         self.selected = set()
         self.dragging = self._refreshing = False
         self._context = None
+        self._scene_signature = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.source_combo, self.mode, self.track = QComboBox(), QComboBox(), QComboBox()
@@ -173,7 +200,7 @@ class KeyframeEditor(QWidget):
             self.property.addItem(name, name)
         self.time, self.value = QDoubleSpinBox(), QDoubleSpinBox()
         self.time.setRange(0, 8640000)
-        self.time.setDecimals(3)
+        self.time.setDecimals(6)
         self.time.setSuffix(" s")
         self.value.setDecimals(3)
         self.interpolation = QComboBox()
@@ -259,9 +286,7 @@ class KeyframeEditor(QWidget):
         self.scene.selectionChanged.connect(self.selection_changed)
         controller.changed.connect(self.refresh)
         controller.position_changed.connect(self.refresh_position)
-        controller.edit_rejected.connect(lambda: self.hint.setText(
-            "같은 속성·시간의 키프레임이 있어 이동하거나 붙여넣을 수 없습니다." if self.korean else
-            "A keyframe already exists at this property and time. Move or delete it before pasting."))
+        controller.edit_rejected.connect(self.show_rejection)
         controller.store.source_added.connect(lambda *_: self.refresh())
         controller.store.source_removed.connect(lambda *_: self.refresh())
         translator.language_changed.connect(self.refresh)
@@ -341,13 +366,40 @@ class KeyframeEditor(QWidget):
         self.value.setRange(spec.minimum, spec.maximum)
         self.value.setSingleStep(spec.step)
         if self.controller.source:
-            self.value.setValue(self.controller.evaluated().get(name, property_value(self.controller.source, name)))
+            self.value.setValue(self.controller.edit_values().get(name, property_value(self.controller.source, name)))
+
+    def show_rejection(self):
+        messages = {
+            "collision": ("같은 속성·시간의 키프레임이 있습니다. 기존 데이터는 보존되었습니다.", "A keyframe already exists at this property and time. Existing data was preserved."),
+            "range": ("재생 범위를 벗어나는 키프레임은 추가하거나 이동할 수 없습니다. 기존 데이터는 보존되었습니다.", "Cannot add or move keyframes outside the playable range. Existing data was preserved."),
+            "unsupported": ("이 요소가 지원하지 않는 속성이 포함되어 편집을 취소했습니다. 기존 데이터는 보존되었습니다.", "Edit cancelled: this source does not support all properties. Existing data was preserved."),
+            "invalid": ("시간 또는 속성값이 유효 범위를 벗어나 편집을 취소했습니다. 기존 데이터는 보존되었습니다.", "Edit cancelled: invalid time or property value. Existing data was preserved."),
+        }
+        labels = messages.get(self.controller.rejection_reason, messages["invalid"])
+        self.hint.setText(labels[0 if self.korean else 1])
+
+    def replace_selected(self, selected, replacements):
+        self.selected = {(name, point.time) for name, point in replacements}
+        if not self.controller.replace_points(selected, replacements):
+            self.selected = set(selected)
+            self.refresh()
+            self.show_rejection()
+
+    def cancel_drag(self):
+        self.dragging = False
+        grabber = self.scene.mouseGrabberItem()
+        if grabber:
+            grabber.ungrabMouse()
+        self.selected.clear()
+        self.scene.clearSelection()
+        self._scene_signature = None
+        self.refresh()
 
     def apply_selected(self):
         if len(self.selection()) == 1:
             name, time = next(iter(self.selection()))
             point = next(p for p in self.controller.curves()[name] if abs(p.time - time) <= 1e-6)
-            self.controller.replace_points(self.selection(), [(name, replace(point, time=self.time.value(), value=self.value.value(), interpolation=self.interpolation.currentData()))])
+            self.replace_selected(self.selection(), [(name, replace(point, time=self.time.value(), value=self.value.value(), interpolation=self.interpolation.currentData()))])
 
     def confirm_clear(self):
         if not self.controller.editable:
@@ -358,6 +410,11 @@ class KeyframeEditor(QWidget):
 
     def refresh(self, *_):
         if self.dragging:
+            source = self.controller.source
+            context = (source.id, source.keyframes.mode, self.controller.track_id) if source else None
+            if context == self._context:
+                return
+            self.cancel_drag()
             return
         self._refreshing = True
         controller, source, ko = self.controller, self.controller.source, self.korean
@@ -365,8 +422,6 @@ class KeyframeEditor(QWidget):
         if context != self._context:
             self.selected.clear()
             self._context = context
-        self.playhead_line = None
-        self.scene.clear()
         property_name = self.property.currentData()
         self.property.clear()
         visible_properties = properties_for(source)
@@ -387,6 +442,8 @@ class KeyframeEditor(QWidget):
         for track, _, _ in controller.windows:
             mapping = source.keyframes.single_track_curves if source and source.keyframes.mode == "single_track" else source.keyframes.per_track_curves if source else {}
             self.track.addItem(("◆ " if any(mapping.get(track.id, {}).values()) else "") + track.title, track.id)
+        if controller.track_id and self.track.findData(controller.track_id) < 0:
+            self.track.addItem("사용할 수 없는 곡" if ko else "Unavailable track", controller.track_id)
         self.track.setCurrentIndex(max(0, self.track.findData(controller.track_id)))
         if source:
             self.mode.setCurrentIndex(self.mode.findData(source.keyframes.mode))
@@ -413,6 +470,12 @@ class KeyframeEditor(QWidget):
             self.interpolation.setItemText(index, label)
         self.hint.setText("드래그로 시간 이동 · Ctrl/드래그로 다중 선택 · Ctrl+C/V · Delete · ←/→ 프레임 이동 · Alt+←/→ 키프레임 이동 · 자동 OFF는 기본값 수정"
                           if ko else "Drag time · Ctrl/rubber band selects · Ctrl+C/V · Delete · Arrows nudge frames · Alt+arrows navigate · Auto OFF edits base values")
+        outside = sum(not controller.minimum_time - 1e-6 <= p.time <= controller.duration + 1e-6
+                      for points in controller.curves().values() for p in points)
+        if outside:
+            self.hint.setText(self.hint.text() + (f" · 재생 범위 밖 {outside}개 (보존됨)" if ko else f" · {outside} keys outside playable range (preserved)"))
+        self.copy.setToolTip("선택한 점을 복사합니다. 선택이 없으면 현재 곡의 모든 점을 복사합니다." if ko else
+                             "Copy selected keys, or all keys in the current bank when none are selected.")
         for widget, label in ((self.time, "시간 / Time"), (self.value, "값 / Value"), (self.property, "속성 / Property"),
                               (self.interpolation, "구간 보간 / Segment interpolation"), (self.mode, "적용 시간 기준 / Time basis"),
                               (self.track, "편집할 곡 / Track"), (self.source_combo, "편집할 요소 / Source")):
@@ -423,6 +486,26 @@ class KeyframeEditor(QWidget):
         self.fill_value()
         self.time.setValue(controller.time)
         last = max((p.time for points in controller.curves().values() for p in points), default=0)
+        # Existing out-of-range keys remain selectable and editable at their
+        # saved timestamp; new edits are validated by the controller.
+        self.time.setMaximum(max(controller.duration, last))
+        first = min((p.time for points in controller.curves().values() for p in points), default=controller.minimum_time)
+        self.time.setMinimum(min(controller.minimum_time, first))
+        signature = (context, self.zoom, controller.minimum_time, controller.duration, last, self.korean,
+                     self.expanded.isChecked(), controller.editable, self.view.viewport().size().toTuple(),
+                     tuple(visible_properties), tuple((name, tuple(points)) for name, points in controller.curves().items()))
+        if signature == self._scene_signature:
+            for item in self.scene.items():
+                if isinstance(item, Diamond):
+                    item.setPos(self.time_x(item.point.time), self.row_y(item.row))
+                    item.setSelected((item.name, item.point.time) in self.selected)
+            self._refreshing = False
+            self.refresh_position()
+            self.selection_changed()
+            return
+        self._scene_signature = signature
+        self.playhead_line = None
+        self.scene.clear()
         width = max(self.view.viewport().width() - 4, self.time_x(max(controller.duration, last)) + 40)
         height = self.ROW * (len(visible_properties) + 2) if self.expanded.isChecked() else 60
         self.scene.setSceneRect(0, 0, width, height)

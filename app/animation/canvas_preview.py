@@ -14,6 +14,7 @@ from PySide6.QtGui import QTransform
 from app.canvas.source_item import SourceItem
 from app.models.source import Source, SourceType
 from app.animation.curves import AnimationPose, animation_pose, loop_pose, music_reactive_pose
+from app.animation.custom_motion import source_motion
 from app.renderer.python_visualizer import PythonVisualizerRenderer
 
 
@@ -51,26 +52,25 @@ class CanvasAnimationPreviewController(QObject):
         self._set_selected_without_signal(item, False)
 
         def milliseconds(seconds: float) -> int:
-            return max(100, min(3000, round(seconds * 1000)))
+            return max(100, min(10000, round(seconds * 1000)))
 
         width, height = source.width, source.height
+        rest = source_motion(source, 1, True) if source.animation_in == "custom" else AnimationPose()
         sequence = QSequentialAnimationGroup(self)
         if source.animation_in != "none":
-            self._apply(item, source, animation_pose(source.animation_in, 0.0, True, width, height))
+            self._apply(item, source, source_motion(source, 0.0, True))
             sequence.addAnimation(self._phase(
                 item, source, milliseconds(source.animation_in_duration),
-                lambda progress: animation_pose(
-                    source.animation_in, progress, True, width, height,
-                ),
+                lambda progress: source_motion(source, progress, True),
             ))
         if source.loop_motion != "none":
             loop_seconds = max(1.5, min(6.0, source.loop_motion_period * 2.0))
             sequence.addAnimation(self._phase(
                 item, source, round(loop_seconds * 1000),
-                lambda progress: loop_pose(
+                lambda progress: rest.combined(loop_pose(
                     source.loop_motion, progress * loop_seconds, source.loop_motion_period,
                     source.loop_motion_amount, width, height,
-                ),
+                )),
             ))
         if music_reactive:
             # This button demonstrates two sample hits; Full Preview uses real audio.
@@ -89,9 +89,9 @@ class CanvasAnimationPreviewController(QObject):
                 if source.source_type is SourceType.LYRICS:
                     item._music_reaction_level = level
                     item.update()
-                    return AnimationPose()
-                return music_reactive_pose(source.music_reactive_effect, level,
-                                           source.music_reactive_strength, source.font_size)
+                    return rest
+                return rest.combined(music_reactive_pose(source.music_reactive_effect, level,
+                                           source.music_reactive_strength, source.font_size))
 
             sequence.addAnimation(self._phase(
                 item, source, 4000, music_pose,
@@ -100,9 +100,8 @@ class CanvasAnimationPreviewController(QObject):
             sequence.addAnimation(QPauseAnimation(320))
             sequence.addAnimation(self._phase(
                 item, source, milliseconds(source.animation_out_duration),
-                lambda progress: animation_pose(
-                    source.animation_out, progress, False, width, height,
-                ),
+                lambda progress: source_motion(source, progress, False).combined(
+                    rest if source.animation_out != "custom" else AnimationPose()),
             ))
         sequence.finished.connect(self._restore)
         self._group = sequence

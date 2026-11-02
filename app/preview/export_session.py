@@ -226,6 +226,7 @@ class ExportSession:
             bass_fps=self._settings.fps,
             output_fps=self._settings.fps if plan.use_streamed_visuals or piped else None,
             instrumental_spans_by_track=instrumental_by_track,
+            compiled_plan=getattr(plan, "compiled_plan", None),
         )
         self._capturer = capturer
         self._invariant_stream_keys = capturer.invariant_stream_keys

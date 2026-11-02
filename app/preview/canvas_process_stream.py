@@ -102,6 +102,7 @@ def _render_band(jobs, replies, stop, status) -> None:
             output_scale=config['scale'], bass_envelopes=config['bass'],
             bass_fps=config['bass_fps'], output_fps=config['fps'],
             instrumental_spans_by_track=config['instrumental'],
+            compiled_plan=config.get('compiled_plan'),
         )
         ready = False
         while True:
@@ -167,6 +168,7 @@ class CanvasProcessStream:
                 'workspace_color', 'artboard_color', 'artboard_border_color',
             )}, fonts=application_font_paths(), sources=sources,
             tracks=capturer.tracks, duration=capturer.playlist_duration,
+            compiled_plan=getattr(capturer, 'compiled_plan', None),
             dynamic=capturer.dynamic_source_ids, bands=capturer.z_bands,
             scale=capturer.output_scale, bass=capturer.bass_envelopes, bass_fps=capturer.bass_fps,
             instrumental=(capturer.instrumental_spans_by_track

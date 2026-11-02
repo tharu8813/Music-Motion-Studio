@@ -1265,6 +1265,17 @@ class ExportPreviewDialog(QDialog):
         )
         return mix if mix[0] is not None else plain
 
+    def _keyframes_active_at(self, seconds):
+        """A held metadata owner in a silent gap does not own track keys."""
+        plan = getattr(self, "_compiled_plan", None)
+        if plan is None:
+            return True
+        cached = getattr(self, "_keyframe_windows_cache", None)
+        if cached is None or cached[0] is not plan:
+            from app.animation.keyframe_render import keyframe_windows
+            cached = self._keyframe_windows_cache = (plan, keyframe_windows(plan))
+        return any(window.timeline_start <= seconds < window.timeline_end for window in cached[1])
+
     def _track_start_seconds(self, target_index: int) -> float:
         if 0 <= target_index < len(self._track_schedule):
             return self._track_schedule[target_index][2]
@@ -1566,6 +1577,8 @@ class ExportPreviewDialog(QDialog):
                 phase, phase_progress, elapsed, audio_dynamic_ids,
                 self._playlist_duration(), self.tracks, self._active_render_scale,
                 timeline_seconds=self.timeline.value() / TIMELINE_SCALE,
+                keyframe_active=self._keyframes_active_at(self.timeline.value() / TIMELINE_SCALE),
+                compiled_plan=getattr(self, "_compiled_plan", None),
                 animation_phase_duration=phase_duration,
                 junction=junction,
                 bass_level=bass_level,
@@ -1588,6 +1601,8 @@ class ExportPreviewDialog(QDialog):
                     self._playlist_duration(), self.tracks, self._active_render_scale,
                 hide_source_ids=static_hidden_ids,
                     timeline_seconds=self.timeline.value() / TIMELINE_SCALE,
+                    keyframe_active=self._keyframes_active_at(self.timeline.value() / TIMELINE_SCALE),
+                    compiled_plan=getattr(self, "_compiled_plan", None),
                 )
                 self._base_track_id = track.id
                 self._base_elapsed = 0.0
@@ -1634,6 +1649,8 @@ class ExportPreviewDialog(QDialog):
                         image_buffer=buffer,
                         capture_rect=capture_rect,
                         timeline_seconds=playlist_seconds,
+                        keyframe_active=self._keyframes_active_at(playlist_seconds),
+                        compiled_plan=getattr(self, "_compiled_plan", None),
                         animation_phase_duration=phase_duration,
                         junction=junction,
                         bass_level=bass_level,
@@ -2409,6 +2426,8 @@ class ExportPreviewDialog(QDialog):
             output_scale=self._active_render_scale,
             hide_source_ids=hidden_source_ids,
             timeline_seconds=start,
+            keyframe_active=self._keyframes_active_at(start),
+            compiled_plan=getattr(self, "_compiled_plan", None),
         )
         first_min, first_max = z_bands[0]
         self._base_image = CanvasSnapshot.capture_track(
@@ -2552,7 +2571,7 @@ class ExportPreviewDialog(QDialog):
                         source.width, source.height,
                     ),
                 ) + 8.0
-            rect = (QRectF(self.scene.artboard_rect) if source.keyframes.animated else
+            rect = (QRectF(self.scene.artboard_rect) if source.keyframes.animated or source.animation_in == "custom" or source.animation_out == "custom" else
                     item.sceneBoundingRect().adjusted(-padding, -padding, padding, padding))
             rect = rect.intersected(self.scene.artboard_rect)
             if rect.isEmpty():
@@ -2679,7 +2698,12 @@ class ExportPreviewDialog(QDialog):
             if binding and not image.isNull():
                 plan = getattr(self, "_compiled_plan", None)
                 from app.animation.keyframe_render import keyframe_windows
-                binding = replace(binding, windows=keyframe_windows(plan)) if plan else binding
+                if plan:
+                    from app.animation.custom_motion_render import CustomMotionRenderBinding, motion_windows
+                    scene = getattr(self, "scene", None)
+                    sources = [item.source for item in scene.items() if isinstance(item, SourceItem)] if scene else ()
+                    windows = motion_windows(binding.source, plan, sources) if isinstance(binding, CustomMotionRenderBinding) else keyframe_windows(plan)
+                    binding = replace(binding, windows=windows)
                 values, source = binding.values(timeline_seconds), binding.source
                 ratio = values.get("scale", source.scale) / (source.scale or 1)
                 image = image.scaled(max(1, round(image.width() * ratio)), max(1, round(image.height() * ratio)),
@@ -2776,6 +2800,8 @@ class ExportPreviewDialog(QDialog):
             playlist_tracks=self.tracks,
             output_scale=self._active_render_scale,
             timeline_seconds=self.timeline.value() / TIMELINE_SCALE,
+            keyframe_active=self._keyframes_active_at(self.timeline.value() / TIMELINE_SCALE),
+            compiled_plan=getattr(self, "_compiled_plan", None),
             animation_phase_duration=phase_duration,
             junction=getattr(self, "_frame_junction", None),
             bass_level=self._bass_level(track, elapsed),
@@ -2907,6 +2933,8 @@ class ExportPreviewDialog(QDialog):
             playlist_tracks=self.tracks,
             output_scale=self._active_render_scale,
             timeline_seconds=self.timeline.value() / TIMELINE_SCALE,
+            keyframe_active=self._keyframes_active_at(self.timeline.value() / TIMELINE_SCALE),
+            compiled_plan=getattr(self, "_compiled_plan", None),
             animation_phase_duration=phase_duration,
             junction=junction,
             bass_level=self._bass_level(track, elapsed),

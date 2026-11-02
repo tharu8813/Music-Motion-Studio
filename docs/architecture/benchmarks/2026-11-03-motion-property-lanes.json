@@ -1,0 +1,95 @@
+{
+  "date": "2026-11-03",
+  "scope": "Independent X/Y/scale/rotation/opacity keyframes, interval curves and preset palette, read-only context playback",
+  "environment": "Windows; PySide6 6.12; FFmpeg 9.0.2; native Qt/OpenGL",
+  "regression": {
+    "modules": 8,
+    "tests": 97.0,
+    "skipped": 0.0,
+    "runs": [
+      {
+        "module": "tests.test_custom_motion",
+        "status": "pass",
+        "seconds": 3.57,
+        "returncode": 0,
+        "tests": 17,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_custom_motion_dialog",
+        "status": "pass",
+        "seconds": 7.25,
+        "returncode": 0,
+        "tests": 17,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_export_plan",
+        "status": "pass",
+        "seconds": 1.7,
+        "returncode": 0,
+        "tests": 7,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_export_timeline",
+        "status": "pass",
+        "seconds": 0.7,
+        "returncode": 0,
+        "tests": 15,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_keyframe_advanced",
+        "status": "pass",
+        "seconds": 3.33,
+        "returncode": 0,
+        "tests": 13,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_keyframe_rendering",
+        "status": "pass",
+        "seconds": 2.05,
+        "returncode": 0,
+        "tests": 6,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_motion_curves",
+        "status": "pass",
+        "seconds": 0.29,
+        "returncode": 0,
+        "tests": 5,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_project_service",
+        "status": "pass",
+        "seconds": 1.35,
+        "returncode": 0,
+        "tests": 17,
+        "skipped": 0
+      }
+    ]
+  },
+  "english_150_percent": {
+    "tests": 17.0,
+    "runs": [
+      {
+        "module": "tests.test_custom_motion_dialog",
+        "status": "pass",
+        "seconds": 7.38,
+        "returncode": 0,
+        "tests": 17,
+        "skipped": 0
+      }
+    ]
+  },
+  "notes": [
+    "Targeted regression after this change, not a new whole-repository run.",
+    "Do not add repeated GUI tests to the regression total.",
+    "Actual QTest gestures, native GPU and FFmpeg MP4 frame comparisons.",
+    "Independent curve roundtrip and old pose data compatibility verified."
+  ]
+}

@@ -171,6 +171,30 @@ if __name__ == "__main__":
 
 
 class RecentHelpCoverageTests(unittest.TestCase):
+    def test_motion_help_is_searchable_and_uses_current_inspector_names(self):
+        from app.utils.i18n import Translator, Language
+        for language, terms in ((Language.KOREAN, ("키프레임", "슬라이더", "앰비언트")),
+                (Language.ENGLISH, ("keyframes", "sliders", "ambient"))):
+            translator = Translator()
+            translator.set_language(language)
+            dialog = HelpDialog(translator, tab="canvas")
+            try:
+                for term, identifier in zip(terms, ("motion_shortcuts", "custom_motion", "background_effects")):
+                    dialog.search_edit.setText(term)
+                    self.assertIn(identifier, dialog.visible_topic_ids())
+                    dialog.select_topic(identifier)
+                    self.assertIn(dialog._topic(identifier).title, dialog.browser.toPlainText())
+                topics = {t.identifier: t for t in help_topics(language == Language.KOREAN)}
+                from app.inspector.navigation import CATEGORY_LABELS
+                for labels in CATEGORY_LABELS.values():
+                    self.assertIn(labels[0 if language == Language.KOREAN else 1], topics["properties"].body)
+                self.assertIn("50%", topics["custom_motion"].body)
+                self.assertIn("motion_shortcuts", topics["shortcuts"].body)
+                self.assertIn("custom_motion", topics["video_source"].body)
+            finally:
+                dialog.close()
+                dialog.deleteLater()
+
     def test_recent_topics_exist_in_both_languages(self):
         for korean in (True, False):
             topics = {topic.identifier: topic for topic in help_topics(korean)}

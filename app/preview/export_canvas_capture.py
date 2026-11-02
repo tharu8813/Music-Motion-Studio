@@ -50,8 +50,10 @@ class ExportCanvasCapturer:
         bass_fps: int = 30,
         output_fps: int | None = None,
         instrumental_spans_by_track: dict[str, dict[str, tuple]] | None = None,
+        compiled_plan=None,
     ) -> None:
         self.scene = scene
+        self.compiled_plan = compiled_plan
         self.tracks = list(tracks)
         self.playlist_duration = playlist_duration
         self.dynamic_source_ids = set(dynamic_source_ids)
@@ -86,6 +88,10 @@ class ExportCanvasCapturer:
             and item.isVisible()
             and item.source.visible
         ]
+        from app.animation.custom_motion_render import CustomMotionRenderBinding
+        project_sources = [item.source for item in visible_items]
+        self._custom_bindings = {source.id: CustomMotionRenderBinding.build(source, compiled_plan, sources=project_sources)
+            for source in project_sources if compiled_plan is not None and (source.animation_in == "custom" or source.animation_out == "custom")}
         self._stream_source_items: dict[str, list[SourceItem]] = {}
         for index, (z_min, z_max) in enumerate(self.z_bands):
             stream_key = "base" if index == 0 else f"layer:{index - 1}"
@@ -359,6 +365,9 @@ class ExportCanvasCapturer:
         if source.loop_motion != "none":
             # A looping motion changes every frame; key on the exact time.
             animation_state = (*animation_state, "loop", round(global_seconds, 4))
+        if source.animation_in == "custom" or source.animation_out == "custom":
+            binding = self._custom_bindings.get(source.id)
+            animation_state = (*animation_state, "custom", binding.pose(global_seconds) if binding else global_seconds)
         if source.uses_bass_reaction:
             animation_state = (*animation_state, "bass", round(global_seconds, 4))
         personal_color_state = (
@@ -373,7 +382,7 @@ class ExportCanvasCapturer:
             if source.uses_personal_color else None
         )
         keyframe_state = tuple(evaluate_keyframes(source, global_seconds, sample.track.id,
-            sample.elapsed_seconds if global_seconds >= sample.track_start_seconds and 0 <= sample.elapsed_seconds < sample.track.duration_seconds else None).items())
+            sample.elapsed_seconds if sample.keyframe_active and global_seconds >= sample.track_start_seconds and 0 <= sample.elapsed_seconds < sample.track.duration_seconds else None).items())
         return (source.id, content_state, personal_color_state, animation_state, keyframe_state)
 
     def _stream_parameters(
@@ -426,6 +435,8 @@ class ExportCanvasCapturer:
             "playlist_duration_seconds": self.playlist_duration,
             "playlist_tracks": self.tracks,
             "timeline_seconds": sample.timeline_seconds,
+            "keyframe_active": sample.keyframe_active,
+            "compiled_plan": self.compiled_plan,
             "junction": sample.junction,
             "bass_level": self._bass_level(sample),
             "music_levels": self._music_reaction_levels(sample, stream_key),

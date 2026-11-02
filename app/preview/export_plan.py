@@ -40,6 +40,7 @@ class ExportPlan:
     # Capture straight into the final encoder through pipes (no intermediate
     # video). The session falls back to the streamed/PNG paths when it fails.
     use_piped_visuals: bool = False
+    compiled_plan: CompiledRenderPlan | None = None
 
 
 def canvas_render_scale(scene: object, render_settings: RenderSettings) -> float:
@@ -158,4 +159,5 @@ def build_export_plan(
         playlist_duration=playlist_duration,
         canvas_render_scale=canvas_render_scale(scene, render_settings),
         use_piped_visuals=use_piped_visuals,
+        compiled_plan=compiled_plan,
     )

@@ -17,6 +17,7 @@ from PySide6.QtGui import QColor, QImage, QPainter, QPixmap, QTransform
 from app.canvas.live_canvas import CanvasScene
 from app.animation.lyrics import lyric_progress
 from app.animation.keyframes import evaluate as evaluate_keyframes
+from app.animation.custom_motion import source_motion, has_custom_motion
 from app.animation.canvas_keyframes import keyframe_source
 from app.canvas.source_item import SourceItem
 from app.canvas.renderers.lyrics_renderer import lyric_cue_extent, lyric_wrapped_rows
@@ -276,7 +277,7 @@ class CanvasSnapshot:
                 or (z_max is not None and source.z_index > z_max)
             ):
                 continue
-            if source.keyframes.animated:
+            if source.keyframes.animated or has_custom_motion(source):
                 # A fixed base-pose crop cannot bound arbitrary keyed transforms.
                 return None
             item_bounds = item.mapRectToScene(item.content_rect())
@@ -347,7 +348,7 @@ class CanvasSnapshot:
                 or (z_max is not None and source.z_index > z_max)
             ):
                 continue
-            if source.keyframes.animated:
+            if source.keyframes.animated or has_custom_motion(source):
                 return None
             item_bounds = item.mapRectToScene(item.content_rect())
             scale = max(1.0, abs(item.scale()))
@@ -679,6 +680,8 @@ class CanvasSnapshot:
                       image_buffer: QImage | None = None,
                       capture_rect: QRectF | None = None,
                       timeline_seconds: float | None = None,
+                      compiled_plan=None,
+                      keyframe_active: bool = True,
                       animation_phase_duration: float | None = None,
                       partial_render: bool = False,
                       render_metrics: dict[str, object] | None = None,
@@ -795,7 +798,7 @@ class CanvasSnapshot:
                 graphics_item.setScale(source.scale)
                 graphics_item.setRotation(source.rotation)
             key_values = evaluate_keyframes(source, global_seconds, track.id,
-                elapsed_seconds if global_seconds >= start_seconds and 0 <= elapsed_seconds < track.duration_seconds else None)
+                elapsed_seconds if keyframe_active and global_seconds >= start_seconds and 0 <= elapsed_seconds < track.duration_seconds else None)
             source = keyframe_context.enter_context(keyframe_source(graphics_item, key_values))
             if (source.source_type is SourceType.TIME
                     or (source.source_type is SourceType.TEXT and "%" in source.text)):
@@ -1326,11 +1329,14 @@ class CanvasSnapshot:
                     source.music_reactive_effect, music_level,
                     source.music_reactive_strength, source.font_size,
                 ))
-            if edge is not None and edge[1] != "none":
+            if has_custom_motion(source) and compiled_plan is not None:
+                from app.animation.custom_motion_render import CustomMotionRenderBinding, motion_windows
+                project_sources = [item.source for item in scene.items() if isinstance(item, SourceItem) and item.source.visible]
+                motion_binding = CustomMotionRenderBinding(source, motion_windows(source, compiled_plan, project_sources))
+                pose = motion_binding.pose(global_seconds).combined(pose)
+            if edge is not None and edge[1] != "none" and not (edge[1] == "custom" and compiled_plan is not None):
                 phase, style, local_progress = edge
-                pose = animation_pose(
-                    style, local_progress, phase == "in", source.width, source.height,
-                ).combined(pose)
+                pose = source_motion(source, local_progress, phase == "in").combined(pose)
             if not pose.is_identity or key_values:
                 original_transforms.append((
                     graphics_item, graphics_item.pos(), graphics_item.scale(),

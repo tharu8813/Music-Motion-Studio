@@ -365,6 +365,34 @@ QSlider::handle:horizontal:focus { border-color: @accent; }
 #visualTimeline:focus { border-color: @accent; }
 
 /* --- Preview stage -------------------------------------- */
+/* Short-motion editor uses the same surfaces and toolbar controls as Canvas. */
+#customMotionDialog QSplitter::handle { background: @window; width: 12px; }
+#customMotionDialog #motionIconButton {
+    background: transparent; border: 1px solid transparent; padding: 0;
+    min-width: 0; min-height: 0; border-radius: 4px;
+}
+#customMotionDialog #motionIconButton:hover { background: @hover; border-color: @border; }
+#customMotionDialog #motionIconButton:focus { border-color: @accent; }
+#customMotionDialog #motionIconButton:disabled { background: transparent; border-color: transparent; }
+#customMotionDialog #motionViewButton { background: transparent; border: 1px solid transparent; padding: 3px 6px; }
+#customMotionDialog #motionViewButton:hover { background: @hover; border-color: @border; }
+#customMotionDialog #motionViewButton:focus { border-color: @accent; }
+#customMotionDialog #motionPresetButton { background: transparent; border: 1px solid transparent; padding: 3px 8px; }
+#customMotionDialog #motionPresetButton:hover { background: @hover; border-color: @border; }
+#customMotionDialog #motionPresetButton:focus { border-color: @accent; }
+#customMotionDialog #motionPresetButton:disabled { color: @disabled_text; background: transparent; }
+#customMotionDialog #motionPlayButton { padding: 3px 10px; }
+#customMotionDialog #motionColumnHeading { color: @muted; font-size: 11px; padding: 3px 6px; }
+#customMotionDialog #motionLaneLabel { color: @muted; background: transparent; border: 1px solid transparent; text-align: left; padding: 3px 4px; }
+#customMotionDialog #motionLaneLabel:hover { color: @text; background: @hover; }
+#customMotionDialog #motionLaneLabel:focus { border-color: @accent; }
+#customMotionDialog #motionLaneLabel[active="true"] { color: @accent; font-weight: 600; }
+#customMotionDialog #motionLaneSide[active="true"] { background: @info_surface; }
+#customMotionDialog #motionClock { color: @text; font-family: "Consolas", "Segoe UI"; font-size: 12px; }
+#motionCurvePresetMenu QToolButton { background: transparent; border-color: transparent; padding: 8px; }
+#motionCurvePresetMenu QToolButton:hover { background: @hover; border-color: @border; }
+#motionCurvePresetMenu QToolButton:checked { background: @selection; border-color: @selection_border; }
+#motionCurvePresetMenu QToolButton:focus { border-color: @accent; }
 #fullscreenPreviewWindow { background: @stage; }
 #fullscreenPreviewControls { background: rgba(32, 34, 36, 235); border: 1px solid @border; border-radius: 8px; }
 #fullscreenPreviewControls > QFrame { background: transparent; border: 0; }

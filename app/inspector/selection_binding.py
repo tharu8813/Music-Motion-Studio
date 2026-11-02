@@ -1,5 +1,7 @@
 """Shared property access and batched edits, independent of inspector layout."""
 
+from dataclasses import replace
+
 
 def read_property(source, path):
     value = source
@@ -19,6 +21,13 @@ class SelectionPropertyBinding:
             if source is None or source.locked:
                 continue
             updates = dict(changes)
+            nested = {}
+            for path in list(updates):
+                if "." in path:
+                    container, field = path.split(".", 1)
+                    nested.setdefault(container, {})[field] = updates.pop(path)
+            for container, values in nested.items():
+                updates[container] = replace(getattr(source, container), **values)
             if source.source_type is SourceType.LYRICS and "text" in updates and updates["text"] != source.text:
                 updates["subtitle_fallback"] = updates["text"]
             self.store.update(identifier, **updates)

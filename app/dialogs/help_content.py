@@ -301,14 +301,11 @@ _CANVAS = (
 [[img:canvas_inspector]]
 <h2>속성 탭</h2>
 <ul>
-<li><b>요소 이름 탭</b>(예: 진행 바, 가사): 그 요소에만 있는 전용 설정</li>
-<li><b>배치</b>: 이름, X·Y 위치, 너비·높이, 회전, 크기(배율)</li>
-<li><b>텍스트</b>: 내용, 정렬, 줄바꿈 방식, 글꼴·굵기·크기, 글자색과 글자 테두리. <b>글꼴 추가</b>로 TTF/OTF를 등록합니다.</li>
-<li><b>모양</b>: 투명도와 그림자(색·투명도·흐림·X/Y 거리)</li>
-<li><b>채우기</b>: 채움 색, 모서리 반경, 윤곽선, 그라데이션(시작·끝 색, 각도)</li>
-<li><b>필터</b>: 이미지·영상의 흐림, 밝기, 대비</li>
-<li><b>애니메이션</b>: 곡 시작·종료 효과, 자막 전환, 텍스트·현재 자막의 <a href='topic:music_reaction'>음악 반응</a> — <a href='topic:animation'>애니메이션</a> 참고</li>
-<li><b>기타</b>: 레이어 순서(Z), 표시·잠금</li>
+<li><b>콘텐츠</b>: 요소별 설정, 텍스트 내용·정렬·줄바꿈·글꼴·굵기·색·테두리. <b>글꼴 추가</b>로 TTF/OTF를 등록합니다.</li>
+<li><b>배치 및 변형</b>: 이름, X·Y 위치, 너비·높이, 회전, 크기와 뒤집기</li>
+<li><b>디자인</b>: 투명도, 그림자, 채움·그라데이션, 윤곽선·모서리, 프레임, 이미지·영상 필터. 지원되는 항목만 표시합니다.</li>
+<li><b>애니메이션</b>: 시작·끝 프리셋과 <a href='topic:custom_motion'>사용자 지정 키프레임</a>, 자막 전환, <a href='topic:music_reaction'>음악 반응</a></li>
+<li><b>고급</b>: 레이어 순서(Z), 표시·잠금 등 추가 설정</li>
 </ul>
 <p>항목에 마우스를 올리면 설명과 값의 범위·조절 단위가 나옵니다. 머리글(▸)을 눌러 하위 묶음을 접고 펼 수 있습니다.</p>
 <p>회색으로 표시된 설정은 현재 변경할 수 없습니다. 자막의 특정 카테고리에 고급 모드를 켰다면 해당 기본 항목이 잠깁니다. <a href='topic:lyrics_transition'>자막 전환 설정</a>에서 수정하거나 그 카테고리의 고급 모드를 끄세요.</p>
@@ -320,14 +317,11 @@ _CANVAS = (
 [[img:canvas_inspector]]
 <h2>Inspector tabs</h2>
 <ul>
-<li><b>Source tab</b> (for example Progress bar, Lyrics): settings only that source type has</li>
-<li><b>Layout</b>: name, X/Y, width/height, rotation, scale</li>
-<li><b>Text</b>: content, alignment, overflow, font, weight and size, text color and outline. <b>Add font</b> registers a TTF/OTF.</li>
-<li><b>Appearance</b>: opacity and shadow (color, opacity, blur, X/Y offset)</li>
-<li><b>Fill</b>: fill color, corner radius, outline, gradient (start/end color, angle)</li>
-<li><b>Filters</b>: blur, brightness and contrast for images and video</li>
-<li><b>Animation</b>: track start/end effects, subtitle transitions and <a href='topic:music_reaction'>music reaction</a> for text and current subtitles — see <a href='topic:animation'>Animation</a></li>
-<li><b>More</b>: stacking order (Z), visibility and lock</li>
+<li><b>Content</b>: type-specific settings, text, alignment, overflow, font, weight, color and outline. <b>Add font</b> registers TTF/OTF files.</li>
+<li><b>Transform</b>: name, X/Y, width/height, rotation, scale and flipping</li>
+<li><b>Design</b>: opacity, shadow, fill/gradient, outline/corners, frames and image/video filters. Only supported settings appear.</li>
+<li><b>Animation</b>: entrance/exit presets and <a href='topic:custom_motion'>custom keyframes</a>, subtitle transitions and <a href='topic:music_reaction'>music reaction</a></li>
+<li><b>Advanced</b>: stacking order (Z), visibility, locking and additional settings</li>
 </ul>
 <p>Hover a field for its explanation, range and step. Click a heading (▸) to fold a group.</p>
 <p>Grayed-out settings cannot currently be edited. Enabling advanced mode for a subtitle category locks its matching basic controls. Edit them in <a href='topic:lyrics_transition'>Subtitle transition settings</a> or turn off advanced mode for that category.</p>
@@ -377,6 +371,7 @@ _CANVAS = (
 <li><b>어떻게 재생할까요?</b> 한 번만 재생 · 첫 번째 영상 계속 반복 · 여러 영상을 순서대로 반복 · 여러 영상을 무작위로 반복, 그리고 <b>끝날 때까지 반복</b> 또는 <b>반복 횟수</b></li>
 <li><b>속도와 화면 효과</b>: 재생 속도, 채도, 흑백으로 표시</li>
 </ol>
+<p>영상의 시작·끝 효과 출력은 없음·페이드·<a href='topic:custom_motion'>사용자 지정 키프레임</a>을 지원합니다. 그 외 프리셋과 반복 모션은 내보내기 전에 바꿔야 합니다. 사용자 지정 편집 창 안에서는 영상을 정지 화면으로 표시합니다.</p>
 <div class='note'>영상의 소리는 플레이리스트 음악과 섞이지 않도록 항상 사용하지 않습니다. 미리보기에서는 부드러운 재생을 위해 저화질 프록시를 자동으로 만들 수 있으며, 내보내기는 원본으로 렌더링합니다.</div>""",
        """<p>A <b>Video</b> source plays clips inside the canvas. Adding one, or its settings button in the inspector, opens <b>Video playback settings</b>.</p>
 <ol>
@@ -386,6 +381,7 @@ _CANVAS = (
 <li><b>How should they play?</b> Once · loop the first video · loop all in order · loop all shuffled, then <b>until the end</b> or a <b>number of cycles</b></li>
 <li><b>Speed and look</b>: playback speed, saturation, black and white</li>
 </ol>
+<p>Video entrance/exit export supports None, Fade and <a href='topic:custom_motion'>custom keyframes</a>. Change other presets and disable loop motion before exporting. The custom editor displays video as a still.</p>
 <div class='note'>Video sound is never used, so it cannot mix into the playlist music. Preview may build low-resolution proxies for smooth playback; Export always renders the originals.</div>""",
        ("track_videos", "sources"),
        ("영상 클립 반복 무작위 재생 속도 흑백 채도 프록시 동영상", "video clip loop shuffle playback speed black and white saturation proxy movie")),
@@ -431,6 +427,7 @@ _CANVAS = (
 <li><b>시작 효과 / 종료 효과</b>: 없음, 페이드, 왼쪽·오른쪽·위쪽·아래쪽 슬라이드, 줌, 줌 아웃, 팝, 통통 튀기, 떠오르기, 떨어지기, 회전, 스핀, 흔들며 등장, 뒤집기</li>
 <li><b>반복 모션</b>: 둥실 떠다니기·숨쉬기·맥박·흔들림·회전·떠돌기·출렁임·타원 궤도·좌우 떨림·끄덕이기·깜빡임. 반복 주기와 강도를 조절합니다. 영상 요소에서는 반복 모션을 지원하지 않습니다.</li>
 <li><b>시작 / 종료 시간</b>: 각 효과가 재생되는 길이(초)</li>
+<li><b>키프레임으로 만들기...</b>를 선택하고 <b>키프레임 편집...</b>으로 <a href='topic:custom_motion'>시각적 편집기</a>를 엽니다. 시작과 끝은 따로 저장합니다.</li>
 <li>크로스페이드나 AutoMix에서는 두 곡이 겹치는 구간의 가운데에서 화면이 다음 곡으로 넘어갑니다. 관련 옵션으로 종료 효과가 겹침 구간에 맞춰 재생되도록 할 수 있습니다.</li>
 </ul>
 <p><b>애니메이션 미리보기</b>를 누르면 선택한 요소의 효과가 캔버스에서 바로 재생됩니다. 재생 중에는 편집이 잠기고, 다른 동작을 하면 멈추며, 끝나면 위치와 선택이 원래대로 돌아옵니다.</p>
@@ -441,6 +438,7 @@ _CANVAS = (
 <li><b>Entrance / exit effect</b>: none, fade, slide left/right/up/down, zoom, zoom out, pop, bounce, float up, drop, rotate, spin, wobble in, flip</li>
 <li><b>Loop motion</b>: Float, Breathe, Pulse, Sway, Spin, Drift, Wobble, Orbit, Shake, Nod or Blink. Adjust the period and amount. Video sources do not support loop motion.</li>
 <li><b>Entrance / exit duration</b>: how long each effect plays (seconds)</li>
+<li>Choose <b>Create with keyframes...</b>, then <b>Edit keyframes...</b> to open the <a href='topic:custom_motion'>visual editor</a>. Entrance and exit are stored independently.</li>
 <li>With crossfade or AutoMix the screen switches to the next track in the middle of the overlap; an option lets the exit effect line up with that overlap.</li>
 </ul>
 <p><b>Preview animation</b> plays the selected source's effects right on the canvas. Editing is locked while it plays, any other action stops it, and position and selection are restored afterwards.</p>
@@ -571,7 +569,7 @@ _CANVAS = (
 
     _e("canvas", "lyrics_line_styles", ("가사 줄별 스타일", "Per-line lyric styles"),
        ("가사,텍스트,스타일", "lyrics,text,styles"),
-       """<p>가사 / 자막 요소의 <b>속성 → 가사 → 줄별 스타일</b>에서 한 가사 묶음 안의 원문·번역 등 텍스트 줄을 다르게 꾸밉니다. 시간순으로 2번째 가사를 고르는 기능이 아니라 <b>각 묶음의 2번째 텍스트 줄</b>에 반복 적용하는 기능입니다.</p>
+       """<p>가사 / 자막 요소의 <b>속성 → 콘텐츠 → 줄별 스타일</b>에서 한 가사 묶음 안의 원문·번역 등 텍스트 줄을 다르게 꾸밉니다. 시간순으로 2번째 가사를 고르는 기능이 아니라 <b>각 묶음의 2번째 텍스트 줄</b>에 반복 적용하는 기능입니다.</p>
 [[img:lyrics_line_styles]]
 <ol>
 <li>왼쪽에서 줄을 선택합니다. 1번 줄은 전체 텍스트 스타일을 따르며 목록에서 제외됩니다. 기본 목록은 2·3·4번 줄이고 <b>목록 펼치기</b>로 최대 12번 줄까지 볼 수 있습니다.</li>
@@ -580,7 +578,7 @@ _CANVAS = (
 <li>개별 설정을 끄면 전체 스타일을 따릅니다. <b>적용</b>으로 저장합니다.</li>
 </ol>
 <div class='note'>자막 전환의 <b>줄 스타일 고급 모드</b>를 켜도 이 창의 색상·굵기·기울임·크기는 잠기지 않습니다. 기본·줄별 크기에 고급 크기 배율을 곱하고 불투명도·블러를 함께 적용합니다.</div>""",
-       """<p>Use <b>Inspector → Lyrics → Per-line styles</b> to style original text, translations and other text lines inside each cue. This targets the <b>second text line of every cue</b>, not the second lyric in time.</p>
+       """<p>Use <b>Inspector → Content → Per-line styles</b> to style original text, translations and other text lines inside each cue. This targets the <b>second text line of every cue</b>, not the second lyric in time.</p>
 [[img:lyrics_line_styles]]
 <ol>
 <li>Select a line on the left. Line 1 uses the overall text style and is omitted. Lines 2, 3 and 4 appear initially; <b>Expand list</b> reveals lines through 12.</li>
@@ -1861,6 +1859,7 @@ Transitions shorten the video by the overlaps.</li>
 <li><b>콘텐츠</b>: <a href='topic:lyrics_files'>가사·자막 파일 자동 연결</a>, AutoMix 분석 캐시 크기와 <b>비우기</b></li>
 <li><b>알림</b>: 내보내기 진행 알림 사용, 표시 조건(포커스가 없을 때만 / 항상), 알림 단계</li>
 <li><b>유지 관리</b>: <a href='topic:maintenance'>무결성 검사, 강제 재설치, 프로그램 초기화</a></li>
+<li><b>계정</b>: 로그인 및 계정 관리 창에서 OpenAI·ChatGPT 로그인을 관리합니다. Windows 계정으로 암호화한 로그인은 재시작 후에도 유지되며 로그아웃으로 이 기기의 저장 정보를 지웁니다. <a href='topic:lyrics_translation'>가사 번역</a>에서 서비스·모델·요금을 별도로 확인하세요.</li>
 </ul>
 <p><b>저장</b>을 눌러야 적용됩니다.</p>""",
        """<p><b>Tools → Settings</b> holds the app-wide defaults.</p>
@@ -1872,6 +1871,7 @@ Transitions shorten the video by the overlaps.</li>
 <li><b>Content</b>: <a href='topic:lyrics_files'>attaching lyric and subtitle files</a>, AutoMix analysis cache size and <b>Clear</b></li>
 <li><b>Notifications</b>: export progress notifications, when to show them (only when the app is not focused / always) and which stages</li>
 <li><b>Maintenance</b>: <a href='topic:maintenance'>integrity check, forced reinstall and program reset</a></li>
+<li><b>Accounts</b>: open Sign-in and account management for OpenAI/ChatGPT. Credentials encrypted for your Windows account persist after restart; signing out removes this device's session. Check service/model requirements and costs under <a href='topic:lyrics_translation'>lyric translation</a>.</li>
 </ul>
 <p>Press <b>Save</b> to apply.</p>""",
        ("maintenance", "ffmpeg", "language_packs"),
@@ -1936,6 +1936,7 @@ Transitions shorten the video by the overlaps.</li>
 <li><a href='topic:preview_controls'>미리보기</a> — <code>Space</code>, <code>←</code>/<code>→</code>, <code>Shift+←</code>/<code>→</code>, <code>↑</code>/<code>↓</code></li>
 <li><a href='topic:lrc_shortcuts'>가사/자막 편집기</a> — <code>Space</code> 기록, <code>Ctrl+Space</code> 재생, <code>Shift+F1</code> 단축키 창</li>
 <li><a href='topic:automix_shortcuts'>AutoMix 편집기</a> — <code>Space</code>, <code>L</code>, <code>B</code>, <code>S</code>, <code>Shift+F1</code> 단축키 창</li>
+<li><a href='topic:motion_shortcuts'>사용자 지정 키프레임 편집기</a> — Space 재생, K 추가, 1~5 트랙 선택, 휠 확대·축소, Space+드래그 화면 이동</li>
 </ul>
 <p>텍스트나 숫자 입력칸에 커서가 있으면 일반 입력이 우선합니다.</p>""",
        """<p>Each window has its own keys, and <code>F1</code> in any window opens its help.</p>
@@ -1944,6 +1945,7 @@ Transitions shorten the video by the overlaps.</li>
 <li><a href='topic:preview_controls'>Preview</a> — <code>Space</code>, <code>←</code>/<code>→</code>, <code>Shift+←</code>/<code>→</code>, <code>↑</code>/<code>↓</code></li>
 <li><a href='topic:lrc_shortcuts'>Lyrics/Subtitle Editor</a> — <code>Space</code> records, <code>Ctrl+Space</code> plays, <code>Shift+F1</code> shortcut window</li>
 <li><a href='topic:automix_shortcuts'>AutoMix editor</a> — <code>Space</code>, <code>L</code>, <code>B</code>, <code>S</code>, <code>Shift+F1</code> shortcut window</li>
+<li><a href='topic:motion_shortcuts'>Custom keyframe editor</a> — Space playback, K add, 1–5 select track, wheel zoom and Space+drag pan</li>
 </ul>
 <p>While a text or number field has the cursor, typing wins.</p>""",
        ("canvas_shortcuts", "preview_controls", "lrc_shortcuts", "automix_shortcuts"),
@@ -2001,10 +2003,47 @@ _RECENT_FEATURES = (
 <p>Language choices persist across provider and method switches. Required settings and verified connections are reported separately. Review and edit live results side by side in the same window. Automatic scrolling is off by default; toggle <b>Follow active rows</b> to enable or disable it. Closing service settings keeps translation running. Double-click to edit; Ctrl+Enter finishes editing. Filter untranslated, failed/incomplete or edited rows. Highlight rows to retranslate; checkboxes choose rows to apply.</p>
 <p><b>Save draft</b> (Ctrl+S) or close to preserve work, then reopen the same track and original lyrics to resume. <b>Apply N selected rows</b> stages changes in track settings; Apply there, then save the project. Cancelling track settings retains the recovery draft when translation is reopened. Drafts do not expire automatically. <b>Delete draft…</b> explicitly removes this track's recovery copies and current edits. Unchecked rows keep existing translations; removing existing translations via blanks requires confirmation. <b>Translation style…</b> opens the canvas Lyrics source typography separately.</p>""",
        ('lyrics', 'track_lyrics', 'lyrics_transition')),
-    _e('canvas', 'lyrics_wrapping', ('가사 글꼴 크기와 자동 줄바꿈', 'Lyric font fitting and word wrap'), ('가사,줄바꿈,글꼴', 'lyrics,wrapping,font'), '<p>가사 / 자막 요소의 <b>속성 → 자막/가사 → 줄 배치</b>에서 설정합니다.</p><ul><li><b>글꼴 크기 자동 감소</b>: 요소보다 긴 줄의 크기를 줄입니다.</li><li><b>자동 줄바꿈</b>: 단어 사이에서 줄을 나누며 한 단어를 글자별로 쪼개지 않습니다. 자동 감소와 함께 사용할 수 있습니다.</li><li><b>줄바꿈 기준</b>: 요소 너비 또는 직접 지정을 선택합니다. 가로 이동에서는 각 가사의 표시 영역 너비를 사용합니다.</li><li><b>줄바꿈 너비</b>: 직접 지정 시 배율 적용 전 px로 입력합니다.</li></ul><p>길어서 자동으로 나뉜 행은 윗줄에 붙여 표시합니다. 원래 가사에 있던 줄바꿈은 기존 가사 줄 간격과 줄별 스타일을 유지합니다. 긴 단어가 잘리면 자동 감소를 켜거나 너비를 늘리세요. 줄바꿈은 원본 가사 시간과 단어 강조를 바꾸지 않습니다.</p>[[img:lyrics_wrapping]]', '<p>Select a Lyrics / subtitles source and open <b>Inspector → Lyrics/subtitles → Line layout</b>.</p><ul><li><b>Automatically reduce font size</b>: shrink lines wider than the element.</li><li><b>Automatic word wrap</b>: wrap between words without splitting a word. Both options can be enabled independently.</li><li><b>Wrap width basis</b>: element width or custom width. Horizontal flow uses the width of each cue slot.</li><li><b>Wrap width</b>: custom width in pixels before element scaling.</li></ul><p>Automatic continuation rows stay close together. Original lyric line breaks keep their normal lyric spacing and per-line styles. Enable shrinking or increase width if an unbroken word is clipped. Wrapping preserves original timing and word highlighting.</p><p>Upcoming lyrics start entering from outside before each cue changes, then continue from the same position. The None transition switches immediately.</p>[[img:lyrics_wrapping]]', ('lyrics', 'lyrics_line_styles')),
+    _e('canvas', 'lyrics_wrapping', ('가사 글꼴 크기와 자동 줄바꿈', 'Lyric font fitting and word wrap'), ('가사,줄바꿈,글꼴', 'lyrics,wrapping,font'), '<p>가사 / 자막 요소의 <b>속성 → 콘텐츠 → 줄 배치</b>에서 설정합니다.</p><ul><li><b>글꼴 크기 자동 감소</b>: 요소보다 긴 줄의 크기를 줄입니다.</li><li><b>자동 줄바꿈</b>: 단어 사이에서 줄을 나누며 한 단어를 글자별로 쪼개지 않습니다. 자동 감소와 함께 사용할 수 있습니다.</li><li><b>줄바꿈 기준</b>: 요소 너비 또는 직접 지정을 선택합니다. 가로 이동에서는 각 가사의 표시 영역 너비를 사용합니다.</li><li><b>줄바꿈 너비</b>: 직접 지정 시 배율 적용 전 px로 입력합니다.</li></ul><p>길어서 자동으로 나뉜 행은 윗줄에 붙여 표시합니다. 원래 가사에 있던 줄바꿈은 기존 가사 줄 간격과 줄별 스타일을 유지합니다. 긴 단어가 잘리면 자동 감소를 켜거나 너비를 늘리세요. 줄바꿈은 원본 가사 시간과 단어 강조를 바꾸지 않습니다.</p>[[img:lyrics_wrapping]]', '<p>Select a Lyrics / subtitles source and open <b>Inspector → Content → Line layout</b>.</p><ul><li><b>Automatically reduce font size</b>: shrink lines wider than the element.</li><li><b>Automatic word wrap</b>: wrap between words without splitting a word. Both options can be enabled independently.</li><li><b>Wrap width basis</b>: element width or custom width. Horizontal flow uses the width of each cue slot.</li><li><b>Wrap width</b>: custom width in pixels before element scaling.</li></ul><p>Automatic continuation rows stay close together. Original lyric line breaks keep their normal lyric spacing and per-line styles. Enable shrinking or increase width if an unbroken word is clipped. Wrapping preserves original timing and word highlighting.</p><p>Upcoming lyrics start entering from outside before each cue changes, then continue from the same position. The None transition switches immediately.</p>[[img:lyrics_wrapping]]', ('lyrics', 'lyrics_line_styles')),
     _e('lyrics_editor', 'lyrics_online_search', ('온라인 가사 검색과 선택 적용', 'Online lyric search and selective attachment'), ('검색,가사,플레이리스트', 'search,lyrics,playlist'), '<p><b>도구 → 가사 검색 및 가져오기</b> 또는 <b>곡 정보/설정 → 가사 설정 → 가져오기… → 온라인 가사 검색…</b>에서 곡 정보 → 검색 결과 → 가사 확인 순서로 진행합니다.</p>[[img:lyrics_search]]<p>플레이리스트에서 찾기와 직접 입력을 선택합니다. 음악 선택으로 정보를 채운 뒤 내용을 수정하면 직접 입력으로 전환됩니다. 제목은 필수이고 아티스트·앨범은 선택입니다. KuGou·AMLL TTML DB·LRCLIB 중 선택하거나 모두 검색합니다.</p><p>검색 결과에서 곡·아티스트·앨범·길이·제공자·<b>가사 타입</b>을 비교합니다. 선택 후 실제 동기화 정보를 확인합니다. <b>Ctrl+Shift+F</b>는 현재 결과를 필터링합니다. 결과를 선택하고 다음에서 내용을 확인하세요.</p><p>가사 표의 체크박스로 적용할 행을 고릅니다. 전체 선택·전체 해제와 선택 개수를 확인할 수 있습니다. 선택한 행만 곡에 적용하며 텍스트 복사에도 선택이 반영됩니다. 모두 해제하면 적용할 수 없습니다. <b>파일로 저장</b>은 선택한 행이 아니라 제공된 원본을 저장합니다. 시간 정보 없는 가사는 복사·TXT 저장만 가능합니다.</p><p>기존 가사가 있으면 비교 창에서 변경된 행과 단어 시간 포함 여부를 확인한 뒤 교체합니다. 원본 가사 파일은 변경하지 않습니다. 곡 설정에서 열었다면 마지막에 곡 설정의 <b>적용</b>을 눌러 확정하세요.</p>', '<p>Open <b>Tools → Search &amp; Import Lyrics</b>, then follow Song details → Search results → Review lyrics.</p>[[img:lyrics_search]]<p>Choose Find from playlist or Enter manually. Editing filled title, artist or album automatically switches to manual entry and disables music selection. Title is required. Search KuGou, AMLL TTML DB, LRCLIB or all providers.</p><p>Compare song, artist, album, length, provider and <b>Lyrics type</b>. Select a result to verify its timing, then continue to review. <b>Ctrl+Shift+F</b> filters existing results.</p><p>Check lyric rows to attach; Select all, Clear selection and a selection count are available. Attachment and text copying use checked rows. Attachment requires at least one row. <b>Save file</b> preserves the complete original, regardless of row selection. Untimed lyrics support copying and TXT saving only.</p><p>Compare existing and new lyrics before replacement, including changed rows and word timings. Original files are unchanged. When opened from track settings, press <b>Apply</b> there to confirm.</p>', ('lyrics_files', 'track_lyrics')),
     _e('canvas', 'source_decoration', ('요소 뒤집기와 프레임', 'Source flipping and frames'), ('요소,뒤집기,프레임', 'sources,flip,frame'), '<p>요소 속성에서 좌우·상하 뒤집기와 프레임 너비·색상·안쪽 여백을 조절할 수 있습니다. 프레임 디자인을 선택해 빠르게 꾸미거나 값을 직접 조절하세요. 프레임을 지워도 다른 외형 설정은 유지됩니다. 배율과 투명도는 프레임에도 적용됩니다.</p>', '<p>Source properties offer horizontal/vertical flipping and frame width, color and inset. Choose a frame design or adjust values directly. Clearing the frame preserves other appearance settings. Source scaling and opacity also apply to frames.</p>', ('properties',)),
     _e('other', 'status_warnings', ('상태 표시줄 경고 확인', 'Status bar warnings'), ('경고,가사,파일', 'warnings,lyrics,files'), '<p>상태 표시줄 왼쪽의 경고에 마우스를 올리면 상세 내용을 확인할 수 있습니다. 팝업을 고정해 내용을 읽고 문제를 해결하세요. 가사를 연결했지만 표시할 요소가 없거나, 단어 시간 가사가 있는데 실시간 가사 표시가 꺼진 경우 안내합니다. 원본 음악 파일 누락과 모든 곡 제외 상태도 확인합니다. 경고는 설정을 자동으로 변경하지 않으며 문제가 해결되면 사라집니다.</p>', '<p>Hover the warning at the left of the status bar to read details; pin the popup if needed. Warnings cover attached lyrics without a visible lyric source, word-timed lyrics with real-time display disabled, missing audio files and all tracks being excluded. Warnings do not change settings and disappear when resolved.</p>', ('lyrics', 'playlist')),
 )
 
-_ENTRIES: tuple[_Entry, ...] = _CANVAS + _PREVIEW + _LYRICS + _AUTOMIX + _TRACK + _OTHER + _RECENT_FEATURES
+_EDITOR_ADDITIONS = (
+    _e("canvas", "custom_motion", ("곡 시작·곡 끝 키프레임 만들기", "Custom entrance and exit keyframes"),
+       ("키프레임,애니메이션,베지어,시작 안내,슬라이더", "keyframes,animation,Bezier,getting started,sliders"),
+       """<p>요소 하나를 선택하고 <b>속성 → 애니메이션 → 곡 시작 또는 곡 끝 → 키프레임으로 만들기... → 키프레임 편집...</b>을 엽니다. 짧은 등장·퇴장 모션용이며 시작과 끝의 데이터는 독립적입니다.</p>[[img:motion_editor]]
+<h2>화면에서 조작하기</h2><p>실제 배경과 다른 요소를 보며 선택한 요소를 이동·크기·회전 핸들로 편집합니다. 휠은 커서 기준 확대·축소, 빈 곳/가운데 버튼 드래그 또는 Space+드래그는 화면 이동입니다. <b>맞춤</b>(F)과 <b>100%</b>(0)으로 보기 상태를 복원합니다. 원본 비교와 중앙선·안전 영역 가이드도 제공합니다.</p>
+<h2>속성별 키프레임과 곡선</h2><p>X·Y·크기·회전·투명도를 각각 편집합니다. 점이 없는 시점에 값을 바꾸면 해당 속성에만 점을 만듭니다. 행의 체크를 끄면 모션만 중지하고 점은 보존합니다. 선택한 행 전체가 강조됩니다. 두 점 사이를 선택해 구간 곡선과 그래프 아이콘 프리셋을 바꾸고, 직접 곡선을 편집하면 <b>사용자 지정...</b>으로 표시합니다.</p>
+<p><b>현재 시점의 값</b>은 슬라이더와 오른쪽 숫자가 동기화됩니다. 슬라이더 한 번 드래그는 Undo 한 번이며 숫자로 더 넓은 값을 입력해도 보존합니다. 초기화 버튼은 선택 속성의 현재 시점만 기본 상대값으로 바꿉니다.</p>
+<h2>시간과 안전한 적용</h2><p>이동·회전은 기본값에 더하고 크기·투명도는 곱합니다. 지속 시간은 0.1~10초이며 변경해도 점의 상대 간격은 같습니다. 효과 밖 구간은 효과 길이의 <b>50%</b>: 시작 효과 뒤, 끝 효과 앞에만 재생하며 편집은 잠깁니다. 예시 곡 선택은 커버·제목·아티스트만 바꾸고 같은 모션을 재사용합니다.</p>
+<p>적용 전에는 프로젝트·자동 저장을 바꾸지 않습니다. 취소하면 폐기하고 적용 후에는 프로젝트 Undo 한 번으로 복원합니다. 첫 실행에 안내가 나오며 상단 안내 아이콘으로 다시 볼 수 있습니다. <a href='topic:motion_shortcuts'>단축키</a>는 Shift+F1로 확인합니다.</p>
+<div class='note'>편집기의 영상은 현재 프레임/정지 화면이고 음악 반응은 예시입니다. 전체 음악을 재생하지 않습니다. 실제 짧은 곡·요소 노출 시간·믹스 맞춤은 출력 시 효과 길이에 영향을 줄 수 있습니다. 시작 마지막 자세와 끝 첫 자세는 자동 연결하지 않습니다. 기존 데이터는 <a href='topic:legacy_keyframes'>호환 정책</a>을 확인하세요.</div>""",
+       """<p>Select one source, then open <b>Inspector → Animation → track entrance or exit → Create with keyframes... → Edit keyframes...</b>. This editor makes short entrance/exit motions; the two edges store independent data.</p>[[img:motion_editor]]
+<h2>Edit on the canvas</h2><p>Move, resize or rotate the source against the real project background and other sources. Wheel zooms around the cursor. Drag empty space, middle-drag or Space+drag to pan. Fit (F), 100% (0), Original comparison and center/safe-area guides are available.</p>
+<h2>Independent tracks and curves</h2><p>Edit X, Y, scale, rotation and opacity separately. Editing between keys adds a key only to the changed property. Unchecking a track disables its motion but preserves keys. The selected row is highlighted. Select the interval between two keys to edit its curve or graph-thumbnail preset. Editing a curve marks it Custom...</p>
+<p>Sliders and numeric fields on their right stay synchronized. One slider drag is one Undo; larger numeric values are preserved. Reset changes only the selected property at the current time to its relative default.</p>
+<h2>Timing and safe application</h2><p>Position and rotation add to the base; scale and opacity multiply it. Duration is 0.1–10 seconds; key proportions survive duration changes. Read-only context lasts <b>50%</b> of the effect, after entrance or before exit only. Example-track selection changes cover/title/artist content, not the shared animation.</p>
+<p>Drafts do not change the project or autosave. Cancel discards edits; Apply is one project Undo. A first-use tour opens once and can be reopened from the guide icon. Shift+F1 opens <a href='topic:motion_shortcuts'>shortcuts</a>.</p>
+<div class='note'>Video uses its current frame/still and audio reaction is illustrative; this is not full music playback. Short tracks, source exposure windows and fit-to-mix can change actual effect timing. Entrance end and exit start poses are not automatically joined. See <a href='topic:legacy_keyframes'>legacy data compatibility</a>.</div>""",
+       ("animation", "motion_shortcuts", "legacy_keyframes")),
+    _e("canvas", "motion_shortcuts", ("키프레임 편집기 단축키와 화면 이동", "Keyframe shortcuts and canvas navigation"),
+       ("키프레임,단축키,확대,이동", "keyframes,shortcuts,zoom,pan"),
+       """<p>사용자 지정 편집 창에서만 적용됩니다. 텍스트·숫자·목록 입력이 우선하고, 슬라이더의 방향키는 값을 조절합니다.</p>
+<ul><li><b>Space</b> 재생/일시 정지 · <b>L</b> 반복</li><li><b>←/→</b> 0.01초, <b>Shift+←/→</b> 0.1초 이동</li><li><b>Home/End</b> 미리보기 처음/끝 · <b>Ctrl+Home/End</b> 효과 처음/끝</li><li><b>Ctrl+←/→</b> 선택 트랙의 이전/다음 점</li><li><b>1~5</b> X/Y/크기/회전/투명도 선택 · <b>↑/↓</b> 트랙 선택</li><li><b>K</b> 점 추가 · <b>Delete/Backspace</b> 현재 점 삭제(시작·끝 점 보호)</li><li><b>E</b> 트랙 켜기/끄기 · <b>Ctrl+Backspace</b> 선택 속성의 현재 값 초기화</li><li><b>B</b> 구간 곡선 · <b>P</b> 프리셋</li><li><b>Ctrl+Z</b> Undo · <b>Ctrl+Shift+Z / Ctrl+Y</b> Redo</li><li><b>G</b> 가이드 · <b>O</b> 원본 비교</li><li><b>F / Ctrl+0</b> 맞춤 · <b>0 / Ctrl+1</b> 100% · <b>+ / −</b> 확대/축소</li><li><b>휠</b> 커서 기준 확대/축소 · <b>빈 곳/가운데 버튼 드래그 / Space+드래그</b> 화면 이동</li><li><b>F1</b> 사용 도움말 · <b>Shift+F1</b> 이 단축키 목록 · <b>Esc</b> 화면 이동 중이면 이동 모드 종료, 그 외에는 취소</li></ul><p>Space를 드래그에 사용하면 재생은 전환하지 않습니다. 효과 밖·잠긴 요소·꺼진 트랙에서는 편집 단축키로도 값을 바꿀 수 없습니다.</p>""",
+       """<p>These keys apply only inside the custom editor. Text, numeric and combo inputs keep native behavior; slider arrows adjust its value.</p>
+<ul><li><b>Space</b> play/pause · <b>L</b> loop</li><li><b>Left/Right</b> seek 0.01 s; <b>Shift+Left/Right</b> 0.1 s</li><li><b>Home/End</b> preview bounds; <b>Ctrl+Home/End</b> effect bounds</li><li><b>Ctrl+Left/Right</b> previous/next key in selected track</li><li><b>1–5</b> X/Y/scale/rotation/opacity; <b>Up/Down</b> select track</li><li><b>K</b> add key; <b>Delete/Backspace</b> delete current key (endpoints protected)</li><li><b>E</b> enable/disable track; <b>Ctrl+Backspace</b> reset selected value at playhead</li><li><b>B</b> interval curve; <b>P</b> presets</li><li><b>Ctrl+Z</b> Undo; <b>Ctrl+Shift+Z / Ctrl+Y</b> Redo</li><li><b>G</b> guides; <b>O</b> Original</li><li><b>F / Ctrl+0</b> Fit; <b>0 / Ctrl+1</b> 100%; <b>+ / −</b> zoom</li><li><b>Wheel</b> cursor-anchored zoom; <b>empty-space drag / middle drag / Space+drag</b> pan</li><li><b>F1</b> usage help; <b>Shift+F1</b> this list; <b>Esc</b> cancels navigation if active, otherwise cancels the dialog</li></ul><p>Space used to pan does not toggle playback. Editing shortcuts respect read-only context, locked sources and disabled tracks.</p>""",
+       ("custom_motion", "canvas_shortcuts", "shortcuts")),
+    _e("canvas", "legacy_keyframes", ("이전 키프레임 프로젝트 호환", "Legacy keyframe project compatibility"),
+       ("키프레임,호환,저장", "keyframes,compatibility,storage"),
+       "<p>이전 전체 영상·특정 곡·곡별 곡선은 삭제하거나 자동 변환하지 않습니다. 저장 데이터가 있을 때만 하단에 <b>이전 키프레임 (호환)</b> 보기가 나타납니다. 사용자 지정 시작·끝 모션과 중복 재생하지 않습니다.</p><p>활성 이전 데이터가 있는 요소에서 새 편집기를 적용하려면 이전 재생을 중지하고 데이터를 보존한다는 확인이 필요합니다. 취소는 아무 데이터도 변경하지 않습니다. 새 모션을 편집하는 기본 경로는 <a href='topic:custom_motion'>애니메이션 속성</a>입니다.</p>",
+       "<p>Legacy global, single-track and per-track curves are preserved without automatic conversion. The bottom panel shows <b>Legacy keyframes (compatibility)</b> only when saved legacy data exists. It is not combined with custom entrance/exit playback.</p><p>Applying the new editor to a source with active legacy data requires acknowledgment that legacy playback stops while its data is kept. Cancel changes no data. Create new motion from <a href='topic:custom_motion'>Animation properties</a>.</p>",
+       ("custom_motion", "timeline", "projects")),
+    _e("canvas", "background_effects", ("배경·앨범 아트 앰비언트와 곡 전환", "Background, ambient album art and transitions"),
+       ("배경,앨범 커버,앰비언트,음악 반응", "background,album art,ambient,music reaction"),
+       "<p>배경 요소에서 단색·이미지·앨범 아트 기반 화면을 설정합니다. 앨범 아트를 쓰면 예시 곡의 실제 커버와 곡 변경을 함께 확인하세요. <b>앨범 커버 앰비언트 블러</b>는 커버 색상을 넓게 퍼뜨리는 배경이며 흐림과 흐름을 조절합니다.</p><p><b>베이스 반응 확대</b>와 강도로 음악 반응을 더하고 <b>곡 전환 시 배경 크로스페이드</b> 및 전환 길이로 이전/다음 배경을 연결합니다. 이 배경 전환은 요소 자체의 시작·끝 애니메이션과 별개입니다. 커버가 없는 곡도 확인하세요. 음악 반응과 흐르는 배경은 미리보기·출력 부하를 늘릴 수 있습니다.</p>",
+       "<p>Background sources use a solid color, image or album art. Check actual cover content across example tracks. <b>Album art ambient blur</b> spreads cover colors into an ambient field, with blur and flow controls.</p><p>Use <b>Bass-reactive zoom</b> and strength for music response, and <b>Cross-fade background on track change</b> with its duration to blend consecutive backgrounds. Background crossfade is separate from the source's entrance/exit animation. Check tracks without covers too. Flowing backgrounds and music reaction can increase preview/export work.</p>",
+       ("animation", "music_reaction", "performance")),
+)
+
+_ENTRIES: tuple[_Entry, ...] = _CANVAS + _PREVIEW + _LYRICS + _AUTOMIX + _TRACK + _OTHER + _RECENT_FEATURES + _EDITOR_ADDITIONS

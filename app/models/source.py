@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from app.models.source_components import LyricsComponent, VideoComponent
 from app.animation.keyframes import KeyframeAnimation
+from app.animation.custom_motion import CustomMotion
 
 
 SUBTITLE_ADVANCED_GROUPS = {
@@ -350,6 +351,8 @@ class Source:
     timeline_duration: float = 0.0
     id: str = field(default_factory=lambda: str(uuid4()))
     keyframes: KeyframeAnimation = field(default_factory=KeyframeAnimation)
+    custom_intro_keyframes: CustomMotion | None = None
+    custom_outro_keyframes: CustomMotion | None = None
 
     def __post_init__(self) -> None:
         """Honor the former single-duration constructor argument."""
@@ -362,6 +365,8 @@ class Source:
             self.animation_duration != 0.45
             and self.animation_in_duration == 0.45
             and self.animation_out_duration == 0.45
+            and self.animation_in != "custom" and self.animation_out != "custom"
+            and self.custom_intro_keyframes is None and self.custom_outro_keyframes is None
         ):
             self.animation_in_duration = self.animation_duration
             self.animation_out_duration = self.animation_duration
@@ -376,6 +381,9 @@ class Source:
         result = asdict(self)
         if self.keyframes == KeyframeAnimation():
             result.pop("keyframes")
+        for name in ("custom_intro_keyframes", "custom_outro_keyframes"):
+            if getattr(self, name) is None:
+                result.pop(name, None)
         result["source_type"] = self.source_type.value
         # Older project versions only understand one duration. The
         # longer phase is the least surprising compatibility fallback.
@@ -436,6 +444,9 @@ class Source:
             raise ValueError("Project sources must be objects.")
         source_data = data.copy()
         source_data["keyframes"] = KeyframeAnimation.from_dict(source_data.get("keyframes"))
+        for name, entering in (("custom_intro_keyframes", True), ("custom_outro_keyframes", False)):
+            if source_data.get(name) is not None:
+                source_data[name] = CustomMotion.from_dict(source_data[name], entering)
         # Retired model selector: keep projects saved with either choice readable.
         source_data.pop("subtitle_karaoke_analysis_model", None)
         source_data["source_type"] = SourceType(source_data["source_type"])

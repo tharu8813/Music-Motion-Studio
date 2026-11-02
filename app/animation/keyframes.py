@@ -143,6 +143,15 @@ def _number(value) -> bool:
         return False
 
 
+def valid_edit_point(name, point):
+    """Strict interactive validation; loading keeps its separate repair policy."""
+    spec = PROPERTIES.get(name)
+    return bool(spec and isinstance(point, Keyframe)
+                and _number(point.time) and 0 <= point.time <= 8640000
+                and _number(point.value) and spec.minimum <= point.value <= spec.maximum
+                and point.interpolation in INTERPOLATIONS)
+
+
 def normalize_curves(data) -> Curves:
     """Discard malformed points; the last point at a duplicate time wins."""
     if not isinstance(data, dict):
@@ -242,6 +251,10 @@ def evaluate_curve(points: list[Keyframe], seconds: float, default: float) -> fl
 def evaluate(source, global_seconds: float, track_id: str = "", local_seconds: float | None = None) -> dict[str, float]:
     """Inactive/missing tracks use base values; never combine two track curves."""
     animation = source.keyframes
+    # Legacy animation stays saved but is never implicitly layered onto the
+    # replacement entrance/exit system.
+    if getattr(source, "animation_in", "none") == "custom" or getattr(source, "animation_out", "none") == "custom":
+        return {}
     if not animation.enabled:
         return {}
     if animation.mode != "global" and (local_seconds is None or not track_id or

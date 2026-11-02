@@ -1,0 +1,65 @@
+{
+  "date": "2026-11-03",
+  "scope": "Shortcuts, zoom/pan, value sliders, first-use tour, half-duration context, help coverage",
+  "tests": 63.0,
+  "skipped": 0.0,
+  "runs": [
+    {
+      "module": "tests.test_custom_motion",
+      "status": "pass",
+      "seconds": 3.39,
+      "returncode": 0,
+      "tests": 18,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_custom_motion_dialog",
+      "status": "pass",
+      "seconds": 7.92,
+      "returncode": 0,
+      "tests": 27,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_help_content",
+      "status": "pass",
+      "seconds": 2.51,
+      "returncode": 0,
+      "tests": 10,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_keyframe_rendering",
+      "status": "pass",
+      "seconds": 1.7,
+      "returncode": 0,
+      "tests": 6,
+      "skipped": 0
+    },
+    {
+      "module": "tests.test_studio_design",
+      "status": "pass",
+      "seconds": 0.27,
+      "returncode": 0,
+      "tests": 2,
+      "skipped": 0
+    }
+  ],
+  "english_150_percent": [
+    {
+      "module": "tests.test_custom_motion_dialog",
+      "status": "pass",
+      "seconds": 8.44,
+      "returncode": 0,
+      "tests": 27,
+      "skipped": 0
+    }
+  ],
+  "help_topics_per_language": 70,
+  "help_tabs": 6,
+  "notes": [
+    "Targeted native Qt/FFmpeg regression, not a whole-repository rerun.",
+    "Do not add repeated GUI runs to the test total.",
+    "DPI monitor overflow corrected before the passing rerun."
+  ]
+}

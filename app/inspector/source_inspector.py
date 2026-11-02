@@ -50,7 +50,7 @@ from app.inspector.editors import (
 )
 from app.inspector.editors.audio_level_meter_editor import LevelMeterSection
 from app.inspector.editors.audio_visualizer_editor import VisualizerSection
-from app.animation.curves import ANIMATION_STYLES
+from app.animation.curves import ANIMATION_CHOICES
 from app.inspector.editors.base import MotionSection, TypographySection, shows_mask
 from app.inspector.editors.lyrics_editor import LyricsSection
 from app.inspector.editors.now_playing_editor import NowPlayingSection
@@ -121,6 +121,7 @@ class SourceInspector(QScrollArea):
     """Editable property panel with guarded, two-way SourceStore binding."""
 
     animation_preview_requested = Signal(str)
+    custom_motion_requested = Signal(str, str)
     lyrics_search_requested = Signal()
 
     _ANIMATION_LABELS = {
@@ -134,6 +135,7 @@ class SourceInspector(QScrollArea):
         "rise": ("떠오르기", "Rise"), "drop": ("떨어지기", "Drop"),
         "rotate": ("회전", "Rotate"), "spin": ("스핀", "Spin"),
         "swing": ("흔들며 등장", "Swing"), "flip": ("뒤집기", "Flip"),
+        "custom": ("키프레임으로 만들기...", "Create with keyframes..."),
     }
 
     IMAGE_BACKED_TYPES = {
@@ -494,11 +496,13 @@ class SourceInspector(QScrollArea):
         self._slider_spin_editor(self.shadow_blur_spin)
         self.animation_in_combo = QComboBox()
         self.animation_out_combo = QComboBox()
+        self.animation_in_edit_button = QPushButton()
+        self.animation_out_edit_button = QPushButton()
         for combo in (self.animation_in_combo, self.animation_out_combo):
-            for value in ANIMATION_STYLES:
+            for value in ANIMATION_CHOICES:
                 combo.addItem(self._ANIMATION_LABELS[value][1], value)
-        self.animation_in_duration_spin = self._spin(0.1, 3, 0.05)
-        self.animation_out_duration_spin = self._spin(0.1, 3, 0.05)
+        self.animation_in_duration_spin = self._spin(0.1, 10, 0.05)
+        self.animation_out_duration_spin = self._spin(0.1, 10, 0.05)
         # Crossfade/AutoMix only: stretch the entrance/exit over the audio mix
         # where the Canvas changes track (see preview.frame_state.mix_animation).
         self._mix_transitions_active = False
@@ -557,6 +561,10 @@ class SourceInspector(QScrollArea):
             ("animation_fit_mix", self.animation_fit_mix_check),
         ):
             self._add_labeled_row(animation_form, key, widget)
+            if key == "animation_in_duration":
+                animation_form.addRow("", self.animation_in_edit_button)
+            elif key == "animation_out_duration":
+                animation_form.addRow("", self.animation_out_edit_button)
         self.motion.add_rows(self._add_labeled_row, animation_form, MotionSection.LOOP_KEYS)
         self.motion.add_rows(self._add_labeled_row, animation_form, MotionSection.REACTIVE_KEYS)
         animation_form.addRow("", self.animation_preview_button)
@@ -1310,6 +1318,8 @@ class SourceInspector(QScrollArea):
             lambda value: self._update("animation_out_duration", value)
         )
         self.animation_preview_button.clicked.connect(self._request_animation_preview)
+        self.animation_in_edit_button.clicked.connect(lambda: self._request_custom_motion("in"))
+        self.animation_out_edit_button.clicked.connect(lambda: self._request_custom_motion("out"))
         for field, widget in (
             ("x", self.x_spin), ("y", self.y_spin), ("width", self.width_spin),
             ("height", self.height_spin), ("rotation", self.rotation_spin),
@@ -1621,14 +1631,7 @@ class SourceInspector(QScrollArea):
             return
         if self.keyframe_binding and self.keyframe_binding.controller.edit_value(f"{container}.{field}", value):
             return
-        self._applying_batch = True
-        try:
-            for source in self._selected_sources():
-                setattr(getattr(source, container), field, value)
-                self.store.source_changed.emit(source)
-        finally:
-            self._applying_batch = False
-        self._refresh_current_selection()
+        self._apply_updates({f"{container}.{field}": value})
 
     def _choose_shadow_color(self) -> None:
         source = self.store.get(self._source_id)
@@ -1653,19 +1656,11 @@ class SourceInspector(QScrollArea):
         """Apply color and personal-color policy as one Inspector edit."""
         color = self._serialized_color(dialog.selected_color)
         personal = dialog.personal_settings()
-        self._applying_batch = True
-        try:
-            for source in self._selected_sources():
-                if target == "source":
-                    setattr(source, field, color)
-                else:
-                    setattr(getattr(source, target), field, color)
-                for setting, value in personal.items():
-                    setattr(source.shadow if target == "shadow" else source, setting, value)
-                self.store.source_changed.emit(source)
-        finally:
-            self._applying_batch = False
-        self._refresh_current_selection()
+        path = field if target == "source" else f"{target}.{field}"
+        changes = {path: color}
+        changes.update({f"shadow.{setting}" if target == "shadow" else setting: value
+                        for setting, value in personal.items()})
+        self._apply_updates(changes)
 
     def _set_enabled(self, enabled: bool) -> None:
         for editor in self._editors:
@@ -1684,6 +1679,11 @@ class SourceInspector(QScrollArea):
 
     def _update_animation_preview_button(self, _value: object = None) -> None:
         source = self.store.get(self._source_id)
+        for edge, combo, button in (("in", self.animation_in_combo, self.animation_in_edit_button),
+                                     ("out", self.animation_out_combo, self.animation_out_edit_button)):
+            button.setText("키프레임 편집..." if self.translator.is_korean else "Edit keyframes...")
+            button.setVisible(combo.currentData() == "custom" and len(self._source_ids) == 1)
+            button.setEnabled(bool(source and not source.locked))
         has_animation = (
             self.animation_in_combo.currentData() != "none"
             or self.animation_out_combo.currentData() != "none"
@@ -1693,6 +1693,11 @@ class SourceInspector(QScrollArea):
         self.animation_preview_button.setEnabled(
             self._source_id is not None and has_animation
         )
+
+    def _request_custom_motion(self, edge):
+        source = self.store.get(self._source_id)
+        if source is not None and not source.locked and len(self._source_ids) == 1:
+            self.custom_motion_requested.emit(source.id, edge)
 
     def _request_animation_preview(self) -> None:
         if self._source_id and self.animation_preview_button.isEnabled():

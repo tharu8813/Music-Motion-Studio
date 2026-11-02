@@ -1778,7 +1778,7 @@ class ExportOrchestrator:
             overlay_y = round(source.y + (source.height - overlay_height) / 2.0)
             overlays.append(VisualizerOverlay(
                 keyframe_binding=KeyframeRenderBinding.build(
-                    source, compiled_plan or compile_playlist(active_tracks), render_scale),
+                    source, compiled_plan or compile_playlist(active_tracks), render_scale, sources=window.store.sources()),
                 x=round(overlay_x * render_scale),
                 y=round(overlay_y * render_scale),
                 width=max(8, round(overlay_width * render_scale)),
@@ -1799,7 +1799,7 @@ class ExportOrchestrator:
                     )
                     if source.personal_color_enabled else ()
                 ),
-                opacity=1.0 if source.keyframes.animated else source.opacity,
+                opacity=1.0 if source.keyframes.animated or source.animation_in == "custom" or source.animation_out == "custom" else source.opacity,
                 bar_count=source.visualizer_bars,
                 line_width=source.visualizer_line_width * render_scale,
                 sensitivity=source.visualizer_sensitivity,
@@ -1851,8 +1851,8 @@ class ExportOrchestrator:
                 z_index=source.z_index,
                 timeline_start=source.timeline_start,
                 timeline_duration=source.timeline_duration,
-                animation_in=source.animation_in,
-                animation_out=source.animation_out,
+                animation_in="none" if source.animation_in == "custom" else source.animation_in,
+                animation_out="none" if source.animation_out == "custom" else source.animation_out,
                 animation_in_duration=source.animation_in_duration,
                 animation_out_duration=source.animation_out_duration,
                 animation_fit_mix=source.animation_fit_mix,
@@ -1925,12 +1925,12 @@ class ExportOrchestrator:
         for source in window.store.sources():
             if source.source_type is not SourceType.VIDEO or not source.visible:
                 continue
-            if (source.animation_in not in {"none", "fade"}
-                    or source.animation_out not in {"none", "fade"} or source.loop_motion != "none"):
+            if (source.animation_in not in {"none", "fade", "custom"}
+                    or source.animation_out not in {"none", "fade", "custom"} or source.loop_motion != "none"):
                 raise RenderError(
-                    f"영상 요소 '{source.name}'는 없음·페이드 효과만 내보낼 수 있습니다. 속성에서 등장·퇴장 효과를 바꾸고 반복 모션을 꺼 주세요."
+                    f"영상 요소 '{source.name}'는 없음·페이드·사용자 지정 키프레임 효과를 내보낼 수 있습니다. 속성에서 효과를 바꾸고 반복 모션을 꺼 주세요."
                     if window.translator.is_korean else
-                    f"Video element '{source.name}' supports None and Fade for export. Choose these entrance/exit effects and turn off loop motion in Properties."
+                    f"Video element '{source.name}' supports None, Fade and custom keyframe motion for export. Choose these effects and turn off loop motion in Properties."
                 )
             raw_schedules: list[tuple[list[str], float, float]] = []
             if source.video_timing_mode == "track":
@@ -2015,7 +2015,7 @@ class ExportOrchestrator:
                     clip_x = round(source.x + (source.width - overlay_width) / 2.0)
                     clip_y = round(source.y + (source.height - overlay_height) / 2.0)
                     clips.append(VideoClipOverlay(
-                        keyframe_binding=KeyframeRenderBinding.build(source, plan, render_scale),
+                        keyframe_binding=KeyframeRenderBinding.build(source, plan, render_scale, sources=window.store.sources()),
                         path=Path(occurrence.path),
                         timeline_start=occurrence.timeline_start,
                         duration_seconds=occurrence.duration_seconds,
@@ -2037,8 +2037,8 @@ class ExportOrchestrator:
                         blur=source.blur * render_scale,
                         speed=source.video_speed,
                         loop_input=occurrence.loop_media,
-                        animation_in=source.animation_in,
-                        animation_out=source.animation_out,
+                        animation_in="none" if source.animation_in == "custom" else source.animation_in,
+                        animation_out="none" if source.animation_out == "custom" else source.animation_out,
                         animation_windows=animation_windows,
                         flip_horizontal=source.flip_horizontal,
                         flip_vertical=source.flip_vertical,

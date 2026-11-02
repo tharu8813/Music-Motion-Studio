@@ -25,7 +25,11 @@ class KeyframeRenderBinding:
     output_scale: float = 1.0
 
     @classmethod
-    def build(cls, source, plan, output_scale=1.0):
+    def build(cls, source, plan, output_scale=1.0, *, sources=()):
+        from app.animation.custom_motion import has_custom_motion
+        if has_custom_motion(source):
+            from app.animation.custom_motion_render import CustomMotionRenderBinding
+            return CustomMotionRenderBinding.build(source, plan, output_scale, sources)
         return cls(deepcopy(source), keyframe_windows(plan), output_scale) if source.keyframes.animated else None
 
     def values(self, seconds):
@@ -42,25 +46,33 @@ class KeyframeRenderBinding:
             return f"clip({value},{spec.minimum:.12g},{spec.maximum:.12g})" if points else base
         if animation.mode == "global":
             return bounded(animation.global_curves.get(name, []), clock)
-        result = base
-        for window in reversed(self.windows):
+        entries = []
+        for window in self.windows:
             if animation.mode == "single_track" and window.track_id != animation.target_track_id:
                 continue
-            local = f"({window.source_time_at_start:.12g}+({clock}-{window.timeline_start:.12g})*{window.playback_rate:.12g})"
+            local = f"({window.source_time_at_start:.17g}+({clock}-{window.timeline_start:.17g})*{window.playback_rate:.17g})"
             points = animation.curves(window.track_id).get(name, [])
             if not points:
                 continue
             value = bounded(points, local)
-            result = f"if(gte({clock},{window.timeline_start:.12g})*lt({clock},{window.timeline_end:.12g}),{value},{result})"
-        return result
+            entries.append((window, value))
+        def tree(low, high):
+            if low == high:
+                window, value = entries[low]
+                return f"if(gte({clock},{window.timeline_start:.17g})*lt({clock},{window.timeline_end:.17g}),{value},{base})"
+            middle = (low + high + 1) // 2
+            return f"if(lt({clock},{entries[middle][0].timeline_start:.17g}),{tree(low,middle-1)},{tree(middle,high)})"
+        return tree(0, len(entries) - 1) if entries else base
 
 
 def curve_expression(points, clock, base):
     if not points:
         return base
-    result = f"{points[-1].value:.12g}"
-    for left, right in reversed(list(zip(points, points[1:]))):
-        t = f"clip(({clock}-{left.time:.12g})/{right.time-left.time:.12g},0,1)"
+    def segment(index):
+        if index == len(points) - 1:
+            return f"{points[index].value:.17g}"
+        left, right = points[index], points[index + 1]
+        t = f"clip(({clock}-{left.time:.17g})/{right.time-left.time:.17g},0,1)"
         if left.interpolation == "hold":
             weight = "0"
         elif left.interpolation == "ease_in":
@@ -73,9 +85,15 @@ def curve_expression(points, clock, base):
             weight = bezier_expression(t, left.bezier)
         else:
             weight = t
-        value = f"({left.value:.12g}+({right.value-left.value:.12g})*({weight}))"
-        result = f"if(lt({clock},{right.time:.12g}),{value},{result})"
-    return f"if(lt({clock},{points[0].time:.12g}),{points[0].value:.12g},{result})"
+        return f"({left.value:.17g}+({right.value-left.value:.17g})*({weight}))"
+    def tree(low, high):
+        if low == high:
+            return segment(low)
+        middle = (low + high + 1) // 2
+        return f"if(lt({clock},{points[middle].time:.17g}),{tree(low,middle-1)},{tree(middle,high)})"
+    # FFmpeg bounds expression recursion. A linear chain of if() branches
+    # fails with a few hundred keys even when passed through a script file.
+    return f"if(lt({clock},{points[0].time:.17g}),{points[0].value:.17g},{tree(0,len(points)-1)})"
 
 
 def bezier_expression(progress, handles):
@@ -101,10 +119,12 @@ def ffmpeg_transform(graph, layer_input, binding, width, height, tag):
     source, factor = binding.source, binding.output_scale
     scale = binding.expression("scale")
     ratio = f"(({scale})/{source.scale or 1:.12g})"
-    animation = source.keyframes
-    curves = ([animation.global_curves] if animation.mode == "global" else
-              [animation.curves()] if animation.mode == "single_track" else list(animation.per_track_curves.values()))
-    max_scale = min(PROPERTIES["scale"].maximum, max(source.scale, *[curve_maximum(curve.get("scale", [])) for curve in curves]))
+    max_scale = getattr(binding, "maximum_scale", None)
+    if max_scale is None:
+        animation = source.keyframes
+        curves = ([animation.global_curves] if animation.mode == "global" else
+                  [animation.curves()] if animation.mode == "single_track" else list(animation.per_track_curves.values()))
+        max_scale = min(PROPERTIES["scale"].maximum, max([source.scale, *[curve_maximum(curve.get("scale", [])) for curve in curves]]))
     side = max(2, ceil(hypot(width, height) * max_scale / (source.scale or 1)) + 4)
     transformed = f"[kfgeometry{tag}]"
     angle = f"({binding.expression('rotation')})*PI/180"
