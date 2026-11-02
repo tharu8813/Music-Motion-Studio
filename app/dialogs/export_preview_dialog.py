@@ -2089,7 +2089,7 @@ class ExportPreviewDialog(QDialog):
                     ))
             if (source.source_type in dynamic_types
                     or source.source_type is SourceType.TIME
-                    or source.loop_motion != "none"
+                    or source.loop_motion != "none" or source.keyframes.animated
                     or source.timeline_start > 0.0
                     or source.timeline_duration > 0.0
                     or any(token in source.text.lower() for token in time_tokens)):
@@ -2292,6 +2292,7 @@ class ExportPreviewDialog(QDialog):
                 and source.blur <= 0.0
                 and source.animation_in == "none"
                 and source.animation_out == "none"
+                and not source.keyframes.animated
             )
             item.set_video_direct_gpu_frame(direct_frame_enabled)
             enabled = direct_frame_enabled and effects_active
@@ -2347,6 +2348,7 @@ class ExportPreviewDialog(QDialog):
                 and not source.shadow.enabled
                 and source.animation_in == "none"
                 and source.animation_out == "none"
+                and not source.keyframes.animated
             )
             if (
                 source.id not in dynamic_ids
@@ -2550,7 +2552,8 @@ class ExportPreviewDialog(QDialog):
                         source.width, source.height,
                     ),
                 ) + 8.0
-            rect = item.sceneBoundingRect().adjusted(-padding, -padding, padding, padding)
+            rect = (QRectF(self.scene.artboard_rect) if source.keyframes.animated else
+                    item.sceneBoundingRect().adjusted(-padding, -padding, padding, padding))
             rect = rect.intersected(self.scene.artboard_rect)
             if rect.isEmpty():
                 continue
@@ -2665,9 +2668,39 @@ class ExportPreviewDialog(QDialog):
         # positions cannot be paired with the wrong image.
         if len(images) != len(active_overlays):
             return [], ()
-        return active_overlays, self._animated_overlay_images(
-            active_overlays, images, timeline_seconds,
-        )
+        images = self._animated_overlay_images(active_overlays, images, timeline_seconds)
+        return self._apply_overlay_keyframes(active_overlays, images, timeline_seconds)
+
+    def _apply_overlay_keyframes(self, active_overlays, images, timeline_seconds):
+        """Shared keyed geometry/alpha for both CPU and GPU composition."""
+        result_overlays, result_images = [], []
+        for overlay, image in zip(active_overlays, images, strict=True):
+            binding = overlay.keyframe_binding
+            if binding and not image.isNull():
+                plan = getattr(self, "_compiled_plan", None)
+                from app.animation.keyframe_render import keyframe_windows
+                binding = replace(binding, windows=keyframe_windows(plan)) if plan else binding
+                values, source = binding.values(timeline_seconds), binding.source
+                ratio = values.get("scale", source.scale) / (source.scale or 1)
+                image = image.scaled(max(1, round(image.width() * ratio)), max(1, round(image.height() * ratio)),
+                                     Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                opacity = values.get("opacity", source.opacity)
+                if opacity < 1:
+                    faded = QImage(image.size(), QImage.Format.Format_RGBA8888)
+                    faded.fill(0)
+                    painter = QPainter(faded)
+                    painter.setOpacity(opacity)
+                    painter.drawImage(0, 0, image)
+                    painter.end()
+                    image = faded
+                new_width, new_height = overlay.width * ratio, overlay.height * ratio
+                overlay = replace(overlay, width=round(new_width), height=round(new_height),
+                    x=round((values.get("x", source.x) + source.width / 2) * binding.output_scale - new_width / 2),
+                    y=round((values.get("y", source.y) + source.height / 2) * binding.output_scale - new_height / 2),
+                    rotation=values.get("rotation", source.rotation))
+            result_overlays.append(overlay)
+            result_images.append(image)
+        return result_overlays, tuple(result_images)
 
     def _animated_overlay_images(
         self, overlays: list[VisualizerOverlay], images: tuple[QImage, ...],
@@ -2812,6 +2845,7 @@ class ExportPreviewDialog(QDialog):
             if not layers:
                 return
             layers = self._animated_overlay_images(active_overlays, layers, timeline_seconds)
+            active_overlays, layers = self._apply_overlay_keyframes(active_overlays, layers, timeline_seconds)
             if self._requires_z_band_composition(active_overlays):
                 if self._composite_overlays_in_canvas_order(
                     track, elapsed, active_overlays, layers,

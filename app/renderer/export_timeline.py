@@ -149,6 +149,8 @@ class ExportTimelinePlanner:
                     flow_steps = max(1, round(gap * AMBIENT_FLOW_HZ))
                     flow_points = ExportTimelinePlanner._sample_range(cursor, gap, flow_steps)
                 gap_phase = "out" if previous_track is not None else "in"
+                if any(source.keyframes.animated and source.keyframes.mode == "global" for source in sources):
+                    flow_points = ExportTimelinePlanner._sample_range(cursor, gap, max(1, ceil(gap * animation_fps)))
                 if previous_track is not None:
                     previous_intro, gap_phase_duration = (
                         ExportTimelinePlanner._animation_durations(
@@ -483,7 +485,7 @@ class ExportTimelinePlanner:
             bass_steps = max(1, round(stable * animation_fps))
             ranges.append(ExportTimelinePlanner._sample_range(intro, stable, bass_steps))
 
-        if any(source.loop_motion != "none" for source in sources):
+        if any(source.loop_motion != "none" or source.keyframes.animated for source in sources):
             # Looping idle motion never rests, so sample it at the output rate.
             loop_steps = max(1, round(stable * animation_fps))
             ranges.append(ExportTimelinePlanner._sample_range(intro, stable, loop_steps))

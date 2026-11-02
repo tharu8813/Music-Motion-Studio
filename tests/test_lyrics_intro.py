@@ -378,8 +378,13 @@ class LyricsIntroTests(unittest.TestCase):
             _, marker, _ = self.capture(source, 5)
             self.assertFalse(marker)
         self.assertEqual(len({intro_exit_pose(kind, .5) for kind in INTRO_EXIT_LABELS}), len(INTRO_EXIT_LABELS))
-        frames = [bytes(self.capture(self.source(subtitle_intro_exit=kind,
-                       subtitle_animation_duration=1), 4.5)[2].constBits()) for kind in INTRO_EXIT_LABELS]
+        # constBits() exposes borrowed memory; retain the QImage until bytes()
+        # has copied it, instead of dereferencing a destroyed temporary image.
+        frames = []
+        for kind in INTRO_EXIT_LABELS:
+            frame = self.capture(self.source(subtitle_intro_exit=kind,
+                subtitle_animation_duration=1), 4.5)[2]
+            frames.append(bytes(frame.constBits()))
         self.assertEqual(len(set(frames)), len(INTRO_EXIT_LABELS))
 
     def test_exit_choice_is_saved_and_scoped_to_the_intro_category(self):

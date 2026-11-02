@@ -679,8 +679,8 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
         inspector = self.window.inspector
         expected = {
             "subtitle_animation": "라이즈",
-            "subtitle_context_lines": "줄 간격에 맞춰",
-            "subtitle_next_lines": "줄 간격에 맞춰",
+            "subtitle_context_lines": "줄 간격·묶음 간격에 맞춰",
+            "subtitle_next_lines": "줄 간격·묶음 간격에 맞춰",
             "text": "%video_total_time%",
             "track_list_count": "표시 곡 수가 바뀝니다",
             "visualizer_min_level": "0으로 설정",
@@ -2120,12 +2120,12 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
 
         inspector = self.window.inspector
         expected_categories = {
-            "name": "layout", "opacity": "shape", "fill_color": "fill",
-            "blur": "filter", "animation_in": "animation", "layer": "other",
+            "name": "layout", "opacity": "layout", "fill_color": "shape",
+            "blur": "shape", "animation_in": "animation", "layer": "other",
         }
         for field, category in expected_categories.items():
             self.assertEqual(inspector._field_categories[field], category)
-        filter_index = inspector._tab_indices["filter"]
+        filter_index = inspector._tab_indices["shape"]
         inspector.property_tabs.setCurrentIndex(inspector._tab_indices["layout"])
         inspector.property_tabs.setCurrentIndex(filter_index)
         self.application.processEvents()

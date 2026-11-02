@@ -16,6 +16,7 @@ from PySide6.QtGui import QColor, QImage, QPainter, QPixmap, QTransform
 
 from app.canvas.live_canvas import CanvasScene
 from app.animation.lyrics import lyric_progress
+from app.animation.keyframes import evaluate as evaluate_keyframes
 from app.canvas.source_item import SourceItem
 from app.canvas.renderers.lyrics_renderer import lyric_cue_extent, lyric_wrapped_rows
 from app.animation.curves import (
@@ -274,6 +275,9 @@ class CanvasSnapshot:
                 or (z_max is not None and source.z_index > z_max)
             ):
                 continue
+            if source.keyframes.animated:
+                # A fixed base-pose crop cannot bound arbitrary keyed transforms.
+                return None
             item_bounds = item.mapRectToScene(item.content_rect())
             # SourceItem paints a few effects beyond its nominal content.  The
             # item transform already includes current animation movement,
@@ -342,6 +346,8 @@ class CanvasSnapshot:
                 or (z_max is not None and source.z_index > z_max)
             ):
                 continue
+            if source.keyframes.animated:
+                return None
             item_bounds = item.mapRectToScene(item.content_rect())
             scale = max(1.0, abs(item.scale()))
             shadow_padding = 0.0
@@ -465,7 +471,7 @@ class CanvasSnapshot:
         positive could freeze a time-dependent element in the final video.
         """
         if (source.animation_in != "none" or source.animation_out != "none"
-                or source.loop_motion != "none" or source.uses_bass_reaction):
+                or source.loop_motion != "none" or source.uses_bass_reaction or source.keyframes.animated):
             return False
         if source.uses_personal_color:
             return False
@@ -694,6 +700,8 @@ class CanvasSnapshot:
             else elapsed_seconds
         )
         original_text: list[tuple[SourceItem, str]] = []
+        original_keyframe_opacity = []
+        original_editor_poses = []
         original_music_levels: list[tuple[SourceItem, float, int | None]] = []
         original_transforms: list[
             tuple[SourceItem, object, float, float, float, QTransform]
@@ -727,6 +735,7 @@ class CanvasSnapshot:
             and (z_max is None or item.source.z_index <= z_max)
         ]
         hidden_source_ids = set(hide_visualizers or ()) | set(hide_source_ids or ())
+        original_sync_flags = {item: item._suppress_position_sync for item in source_items}
         global_seconds = (
             max(0.0, timeline_seconds)
             if timeline_seconds is not None
@@ -768,6 +777,15 @@ class CanvasSnapshot:
                 # not also expand templates, recreate cover backgrounds, or
                 # mutate its animation state only to restore it immediately.
                 continue
+            if getattr(graphics_item, "_editor_keyframe_pose", False):
+                original_transforms.append((graphics_item, graphics_item.pos(), graphics_item.scale(),
+                    graphics_item.rotation(), graphics_item.opacity(), graphics_item.transform()))
+                original_editor_poses.append((graphics_item, graphics_item._editor_keyframe_opacity))
+                del graphics_item._editor_keyframe_opacity
+                graphics_item._suppress_position_sync = True
+                graphics_item.setPos(source.x, source.y)
+                graphics_item.setScale(source.scale)
+                graphics_item.setRotation(source.rotation)
             if (source.source_type is SourceType.TIME
                     or (source.source_type is SourceType.TEXT and "%" in source.text)):
                 original_text.append((graphics_item, source.text))
@@ -1302,7 +1320,9 @@ class CanvasSnapshot:
                 pose = animation_pose(
                     style, local_progress, phase == "in", source.width, source.height,
                 ).combined(pose)
-            if not pose.is_identity:
+            key_values = evaluate_keyframes(source, global_seconds, track.id,
+                elapsed_seconds if global_seconds >= start_seconds and 0 <= elapsed_seconds < track.duration_seconds else None)
+            if not pose.is_identity or key_values:
                 original_transforms.append((
                     graphics_item, graphics_item.pos(), graphics_item.scale(),
                     graphics_item.rotation(), graphics_item.opacity(),
@@ -1317,6 +1337,16 @@ class CanvasSnapshot:
                 graphics_item.setPos(
                     graphics_item.pos().x() + pose.dx, graphics_item.pos().y() + pose.dy,
                 )
+                if key_values:
+                    graphics_item.setPos(graphics_item.x() + key_values.get("x", source.x) - source.x,
+                                         graphics_item.y() + key_values.get("y", source.y) - source.y)
+                    if "scale" in key_values:
+                        graphics_item.setScale(graphics_item.scale() * key_values["scale"] / source.scale
+                                               if source.scale else key_values["scale"] * pose.scale)
+                    graphics_item.setRotation(graphics_item.rotation() + key_values.get("rotation", source.rotation) - source.rotation)
+                    if "opacity" in key_values:
+                        original_keyframe_opacity.append((source, source.opacity))
+                        source.opacity = key_values["opacity"]
                 if pose.scale_x != 1.0:
                     center_x = source.width / 2.0
                     graphics_item.setTransform(
@@ -1356,6 +1386,10 @@ class CanvasSnapshot:
                 render_metrics["capture_rect"] = effective_capture_rect
             return captured
         finally:
+            for item, opacity in original_editor_poses:
+                item._editor_keyframe_opacity = opacity
+            for source, opacity in original_keyframe_opacity:
+                source.opacity = opacity
             for graphics_item, color in original_shadow_colors:
                 graphics_item.source.shadow.color = color
                 graphics_item.update()
@@ -1439,4 +1473,5 @@ class CanvasSnapshot:
                 graphics_item.setRotation(rotation)
                 graphics_item.setOpacity(opacity)
                 graphics_item.setTransform(transform)
-                graphics_item._suppress_position_sync = False
+            for item, suppressed in original_sync_flags.items():
+                item._suppress_position_sync = suppressed

@@ -11,6 +11,7 @@ unchanged.
 from __future__ import annotations
 
 import os
+from app.animation.keyframe_render import ffmpeg_transform
 from math import cos, radians, sin
 from typing import TYPE_CHECKING
 
@@ -75,7 +76,11 @@ def python_visualizer_filter_graph(visualizers: list["VisualizerOverlay"], fps: 
         layer_input = f"[{index + 2}:v]"
         rotation = float(overlay.rotation) % 360.0
         x, y = overlay.x, overlay.y
-        if rotation:
+        if overlay.keyframe_binding:
+            layer_input, x, y = ffmpeg_transform(graph, layer_input, overlay.keyframe_binding,
+                                                overlay.width, overlay.height, f"p{index}")
+            x, y = f"'{x}'", f"'{y}'"
+        elif rotation:
             radians_value = radians(rotation)
             rotated_width = abs(overlay.width * cos(radians_value)) + abs(overlay.height * sin(radians_value))
             rotated_height = abs(overlay.width * sin(radians_value)) + abs(overlay.height * cos(radians_value))
@@ -205,7 +210,11 @@ def layered_filter_graph(visualizers: list["VisualizerOverlay"],
             layer_input = f"[{index + 2}:v]"
             rotation = float(overlay.rotation) % 360.0
             x, y = overlay.x, overlay.y
-            if rotation:
+            if overlay.keyframe_binding:
+                layer_input, x, y = ffmpeg_transform(graph, layer_input, overlay.keyframe_binding,
+                                                    overlay.width, overlay.height, f"z{order}")
+                x, y = f"'{x}'", f"'{y}'"
+            elif rotation:
                 angle = radians(rotation)
                 rotated_width = abs(overlay.width * cos(angle)) + abs(overlay.height * sin(angle))
                 rotated_height = abs(overlay.width * sin(angle)) + abs(overlay.height * cos(angle))
@@ -314,7 +323,11 @@ def layered_filter_graph(visualizers: list["VisualizerOverlay"],
                 graph.append(",".join([*filters, timing]))
             rotation = float(clip.rotation) % 360.0
             x, y = clip.x, clip.y
-            if rotation:
+            if clip.keyframe_binding:
+                layer_input, x, y = ffmpeg_transform(graph, layer_input, clip.keyframe_binding,
+                                                    clip.width, clip.height, f"v{order}")
+                x, y = f"'{x}'", f"'{y}'"
+            elif rotation:
                 angle = radians(rotation)
                 rotated_width = (
                     abs(clip.width * cos(angle))

@@ -11,6 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.models.source_components import LyricsComponent, VideoComponent
+from app.animation.keyframes import KeyframeAnimation
 
 
 SUBTITLE_ADVANCED_GROUPS = {
@@ -348,6 +349,7 @@ class Source:
     timeline_start: float = 0.0
     timeline_duration: float = 0.0
     id: str = field(default_factory=lambda: str(uuid4()))
+    keyframes: KeyframeAnimation = field(default_factory=KeyframeAnimation)
 
     def __post_init__(self) -> None:
         """Honor the former single-duration constructor argument."""
@@ -372,6 +374,8 @@ class Source:
     def to_dict(self) -> dict[str, Any]:
         """Convert the model to JSON-compatible data."""
         result = asdict(self)
+        if self.keyframes == KeyframeAnimation():
+            result.pop("keyframes")
         result["source_type"] = self.source_type.value
         # Older project versions only understand one duration. The
         # longer phase is the least surprising compatibility fallback.
@@ -431,6 +435,7 @@ class Source:
         if not isinstance(data, dict):
             raise ValueError("Project sources must be objects.")
         source_data = data.copy()
+        source_data["keyframes"] = KeyframeAnimation.from_dict(source_data.get("keyframes"))
         # Retired model selector: keep projects saved with either choice readable.
         source_data.pop("subtitle_karaoke_analysis_model", None)
         source_data["source_type"] = SourceType(source_data["source_type"])

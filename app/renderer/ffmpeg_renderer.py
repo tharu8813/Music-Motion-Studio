@@ -245,6 +245,7 @@ class VisualizerOverlay:
     frame_width: float = 0.0
     frame_color: str = "#FFFFFF"
     frame_inset: float = 0.0
+    keyframe_binding: object | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,6 +282,7 @@ class VideoClipOverlay:
     frame_width: float = 0.0
     frame_color: str = "#FFFFFF"
     frame_inset: float = 0.0
+    keyframe_binding: object | None = None
 
 
 @dataclass(frozen=True, slots=True)

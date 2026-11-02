@@ -41,6 +41,7 @@ from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox, QProgress
 from app.automix.settings import automix_settings_for
 from app.models.source import Source, SourceType
 from app.timeline.render_plan import visual_segments
+from app.animation.keyframe_render import KeyframeRenderBinding
 from app.preview.album_art import (
     adjust_personal_color, extract_track_cover, extract_track_personal_color,
 )
@@ -1139,7 +1140,7 @@ class ExportOrchestrator:
             window._export_dialog.set_export_details(
                 len(active_tracks), playlist_duration, settings_summary, output,
             )
-            visualizers = window._export_visualizers(active_tracks, render_scale)
+            visualizers = window._export_visualizers(active_tracks, render_scale, compiled_plan)
             video_clips = (
                 self.video_clips(active_tracks, playlist_duration, render_settings.work_mode,
                                 render_scale, compiled_plan)
@@ -1732,7 +1733,7 @@ class ExportOrchestrator:
         return warnings
 
     def visualizers(
-        self, tracks: list | None = None, render_scale: float = 1.0,
+        self, tracks: list | None = None, render_scale: float = 1.0, compiled_plan=None,
     ) -> list[VisualizerOverlay]:
         """Translate visible, axis-aligned Canvas visualizers into Python-rendered overlays.
 
@@ -1776,6 +1777,8 @@ class ExportOrchestrator:
             overlay_x = round(source.x + (source.width - overlay_width) / 2.0)
             overlay_y = round(source.y + (source.height - overlay_height) / 2.0)
             overlays.append(VisualizerOverlay(
+                keyframe_binding=KeyframeRenderBinding.build(
+                    source, compiled_plan or compile_playlist(active_tracks), render_scale),
                 x=round(overlay_x * render_scale),
                 y=round(overlay_y * render_scale),
                 width=max(8, round(overlay_width * render_scale)),
@@ -1796,7 +1799,7 @@ class ExportOrchestrator:
                     )
                     if source.personal_color_enabled else ()
                 ),
-                opacity=source.opacity,
+                opacity=1.0 if source.keyframes.animated else source.opacity,
                 bar_count=source.visualizer_bars,
                 line_width=source.visualizer_line_width * render_scale,
                 sensitivity=source.visualizer_sensitivity,
@@ -2012,6 +2015,7 @@ class ExportOrchestrator:
                     clip_x = round(source.x + (source.width - overlay_width) / 2.0)
                     clip_y = round(source.y + (source.height - overlay_height) / 2.0)
                     clips.append(VideoClipOverlay(
+                        keyframe_binding=KeyframeRenderBinding.build(source, plan, render_scale),
                         path=Path(occurrence.path),
                         timeline_start=occurrence.timeline_start,
                         duration_seconds=occurrence.duration_seconds,
@@ -2022,7 +2026,7 @@ class ExportOrchestrator:
                         height=max(8, round(overlay_height * render_scale)),
                         z_index=source.z_index,
                         rotation=source.rotation,
-                        opacity=source.opacity,
+                        opacity=1.0 if source.keyframes.animated else source.opacity,
                         fit_mode=source.image_fit_mode,
                         fill_color=source.fill_color,
                         border_radius=source.border_radius * source.scale * render_scale,

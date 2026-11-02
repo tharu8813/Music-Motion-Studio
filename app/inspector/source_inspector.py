@@ -64,6 +64,8 @@ from app.dialogs.lyrics_animation_dialog import LyricsAnimationDialog
 from app.dialogs.text_editor_dialog import TextEditorDialog
 from app.dialogs.video_source_dialog import VideoSourceDialog
 from app.services.source_store import SourceStore
+from app.inspector.selection_binding import SelectionPropertyBinding, read_property
+from app.inspector.navigation import CATEGORY_LABELS, CATEGORY_OWNER, consolidate_pages
 from app.utils.font_loader import load_application_font
 from app.utils.i18n import Translator
 from app.widgets.token_text_editor import TokenLineEdit
@@ -148,6 +150,8 @@ class SourceInspector(QScrollArea):
                  tracks_provider: Callable[[], list] | None = None) -> None:
         super().__init__(parent)
         self.store = store
+        self.property_binding = SelectionPropertyBinding(store)
+        self.keyframe_binding = None
         self.translator = translator
         self._tracks_provider = tracks_provider
         self._updating = False
@@ -232,13 +236,11 @@ class SourceInspector(QScrollArea):
         self.filter_group, filter_form = property_page("filter")
         self.animation_group, animation_form = property_page("animation")
         self.other_group, other_form = property_page("other")
+        consolidate_pages(self)
         self._category_pages = {
             "special": self.content_group,
             "layout": self.transform_group,
-            "text": self.text_group,
             "shape": self.appearance_group,
-            "fill": self.fill_group,
-            "filter": self.filter_group,
             "animation": self.animation_group,
             "other": self.other_group,
         }
@@ -444,6 +446,7 @@ class SourceInspector(QScrollArea):
         self.outline_spin = self._spin(0, 40, 1)
         self.font_size_spin = self._spin(8, 120, 1)
         self._slider_spin_editor(self.opacity_spin)
+        self._add_labeled_row(transform, "opacity", self.opacity_spin)
         self._slider_spin_editor(self.radius_spin, slider_maximum=100)
         self._slider_spin_editor(self.font_size_spin)
         self.font_weight_combo = QComboBox()
@@ -516,7 +519,6 @@ class SourceInspector(QScrollArea):
             self._add_labeled_row(text_form, key, widget)
         self.typography.add_rows(self._add_labeled_row, text_form, TypographySection.TEXT_KEYS)
         for key, widget in (
-            ("opacity", self.opacity_spin),
             ("shadow", self.shadow_check), ("shadow_color", self.shadow_color_button),
             ("shadow_opacity", self.shadow_opacity_spin), ("shadow_blur", self.shadow_blur_spin),
             ("shadow_x", self.shadow_x_spin), ("shadow_y", self.shadow_y_spin),
@@ -651,8 +653,8 @@ class SourceInspector(QScrollArea):
         category = None
         for cat, category_layout in getattr(self, "_category_forms", {}).items():
             if layout is category_layout:
-                category = cat
-                self._field_categories[key] = cat
+                category = CATEGORY_OWNER.get(cat, cat)
+                self._field_categories[key] = category
                 break
         if section and category:
             group = self._sections.get((category, section))
@@ -907,7 +909,7 @@ class SourceInspector(QScrollArea):
         special_type = next(iter(source_types)) if len(source_types) == 1 else None
         self.property_tabs.setTabText(
             self._tab_indices["special"],
-            self._source_type_display_name(special_type),
+            CATEGORY_LABELS["special"][0 if self.translator.is_korean else 1],
         )
         label = self._form_labels["text"]
         label.setText(
@@ -1386,6 +1388,8 @@ class SourceInspector(QScrollArea):
     def _update(self, field: str, value: object) -> None:
         if self._updating or not self._source_ids or field in self._lyrics_locked_fields:
             return
+        if self.keyframe_binding and self.keyframe_binding.controller.edit_value(field, value):
+            return
         self._apply_updates({field: value})
 
     def _update_line(self, field: str, editor: QLineEdit) -> None:
@@ -1437,17 +1441,7 @@ class SourceInspector(QScrollArea):
             return
         self._applying_batch = True
         try:
-            for source_id in source_ids:
-                source_changes = changes
-                source = self.store.get(source_id)
-                if (
-                    source is not None and source.source_type is SourceType.LYRICS
-                    and "text" in changes and changes["text"] != source.text
-                ):
-                    # An explicit edit changes both legacy fallback locations.
-                    # This also lets an empty value actually hide the message.
-                    source_changes = {**changes, "subtitle_fallback": changes["text"]}
-                self.store.update(source_id, **source_changes)
+            self.property_binding.apply(source_ids, changes)
         finally:
             self._applying_batch = False
         self._refresh_current_selection()
@@ -1825,15 +1819,7 @@ class SourceInspector(QScrollArea):
         korean = self.translator.is_korean
         for key, label in self._form_labels.items():
             label.setText(labels[key][0 if korean else 1])
-        tab_labels = {
-            "layout": ("배치", "Layout"),
-            "text": ("텍스트", "Text"),
-            "shape": ("모양", "Appearance"),
-            "fill": ("채우기", "Fill"),
-            "filter": ("필터", "Filters"),
-            "animation": ("애니메이션", "Animation"),
-            "other": ("기타", "Other"),
-        }
+        tab_labels = CATEGORY_LABELS
         for category, pair in tab_labels.items():
             self.property_tabs.setTabText(
                 self._tab_indices[category], pair[0 if korean else 1],
@@ -2177,10 +2163,7 @@ class SourceInspector(QScrollArea):
 
     @staticmethod
     def _read_path(source: Source, path: str) -> object:
-        value: object = source
-        for part in path.split("."):
-            value = getattr(value, part)
-        return value
+        return read_property(source, path)
 
     def _set_mixed_widget(self, widget: QWidget, kind: str) -> None:
         if kind == "line" and isinstance(widget, QLineEdit):

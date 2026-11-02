@@ -858,13 +858,13 @@ class MainWindowProjectTests(MainWindowTestCase):
         self.assertFalse(inspector._field_visibility["outline_color"])
         self.assertEqual(inspector._form_labels["text_color"].text(), "텍스트 색상")
         self.assertEqual(inspector.text_color_button.text(), "#A1B2C3")
-        self.assertEqual(inspector._field_categories["font_weight"], "text")
+        self.assertEqual(inspector._field_categories["font_weight"], "special")
         inspector.font_weight_combo.setCurrentIndex(
             inspector.font_weight_combo.findData(700)
         )
         self.assertEqual(source.font_weight, 700)
         special = inspector._tab_indices["special"]
-        self.assertEqual(inspector.property_tabs.tabText(special), "자막/가사")
+        self.assertEqual(inspector.property_tabs.tabText(special), "콘텐츠")
         self.assertTrue(inspector.property_tabs.isTabVisible(special))
 
     def test_canvas_drag_defers_model_notifications_until_release(self) -> None:

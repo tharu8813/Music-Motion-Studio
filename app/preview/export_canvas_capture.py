@@ -12,6 +12,7 @@ from PySide6.QtCore import QRectF
 from PySide6.QtGui import QImage
 
 from app.animation.curves import ease_in_out_cubic
+from app.animation.keyframes import evaluate as evaluate_keyframes
 from app.canvas.live_canvas import CanvasScene
 from app.canvas.source_item import SourceItem
 from app.models.playlist import PlaylistTrack
@@ -371,7 +372,9 @@ class ExportCanvasCapturer:
             )
             if source.uses_personal_color else None
         )
-        return (source.id, content_state, personal_color_state, animation_state)
+        keyframe_state = tuple(evaluate_keyframes(source, global_seconds, sample.track.id,
+            sample.elapsed_seconds if global_seconds >= sample.track_start_seconds and 0 <= sample.elapsed_seconds < sample.track.duration_seconds else None).items())
+        return (source.id, content_state, personal_color_state, animation_state, keyframe_state)
 
     def _stream_parameters(
         self, stream_key: str,

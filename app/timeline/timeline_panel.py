@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal, QSignalBlocker
 from PySide6.QtGui import QValidator
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -26,6 +26,8 @@ from PySide6.QtWidgets import (
 
 from app.models.source import Source
 from app.timeline.visual_timeline import VisualTimeline, clock
+from app.controllers.keyframe_controller import KeyframeController
+from app.timeline.keyframe_editor import KeyframeEditor
 from app.services.playlist_service import PlaylistService
 from app.services.source_store import SourceStore
 from app.utils.i18n import Translator
@@ -146,6 +148,14 @@ class TimelinePanel(QFrame):
         self.view_stack = QStackedWidget()
         self.view_stack.addWidget(self.visual)
         self.view_stack.addWidget(self.tabs)
+        self.keyframe_controller = KeyframeController(sources, playlist.timeline_tracks, self)
+        self.keyframe_editor = KeyframeEditor(self.keyframe_controller, translator, self)
+        self.view_stack.addWidget(self.keyframe_editor)
+        self.view_combo.addItem("")
+        self.visual.position_changed.connect(self.keyframe_controller.seek_global)
+        self.keyframe_controller.position_changed.connect(self._follow_keyframe_position)
+        self.keyframe_controller.editor_requested.connect(lambda: self.view_combo.setCurrentIndex(2))
+        playlist.playlist_changed.connect(self.keyframe_controller.changed.emit)
         self.visual_toolbar = QWidget()
         tools = QHBoxLayout(self.visual_toolbar)
         tools.setContentsMargins(0, 0, 0, 0)
@@ -238,6 +248,7 @@ class TimelinePanel(QFrame):
         self.visual.korean = korean
         self.view_combo.setItemText(0, "시각 편집" if korean else "Visual editor")
         self.view_combo.setItemText(1, "숫자 편집" if korean else "Numeric editor")
+        self.view_combo.setItemText(2, "키프레임 편집" if korean else "Keyframe editor")
         self.snap_button.setText("스냅" if korean else "Snap")
         self.snap_button.setToolTip("곡·요소의 시작과 끝에 맞춥니다. Shift를 누르면 스냅을 임시로 반전합니다."
                                    if korean else "Snap to clip edges. Hold Shift to temporarily invert snapping.")
@@ -462,6 +473,8 @@ class TimelinePanel(QFrame):
     def _change_view(self, index: int) -> None:
         self.visual.cancel_drag()
         self.view_stack.setCurrentIndex(index)
+        self.setMinimumHeight(max(340, self.keyframe_editor.minimumSizeHint().height() + 70)
+                              if index == 2 else 250)
         self.visual_toolbar.setVisible(index == 0)
         self.visual_hint.setVisible(index == 0)
         self.up_button.setVisible(index == 1 and self.tabs.currentIndex() == 0)
@@ -477,6 +490,13 @@ class TimelinePanel(QFrame):
         self.position_editor.setMaximum(max(self.visual.duration, value))
         self.position_editor.setValue(value)
         self.position_editor.blockSignals(False)
+
+    def _follow_keyframe_position(self, value: float) -> None:
+        # The legacy exposure view may be shorter than a tempo-adjusted mix.
+        # Its visual clamp must not seek the keyframe editor back in time.
+        with QSignalBlocker(self.visual):
+            self.visual.set_playhead(value)
+        self._show_position(value)
 
     def _select_visual_block(self, kind: str, identifier: str) -> None:
         table = self.track_table if kind == "track" else self.source_table

@@ -285,6 +285,26 @@ class MainWindow(QMainWindow):
         automix_editor_action = getattr(self, "automix_editor_action", None)
         if automix_editor_action is not None:
             automix_editor_action.setEnabled(settings.transition_mode == "automix")
+        self._refresh_keyframe_timing()
+
+    def _refresh_keyframe_timing(self) -> None:
+        panel = getattr(self, "timeline_panel", None)
+        if panel is None:
+            return
+        from app.timeline.compiler import compile_playlist
+        from app.timeline.crossfade import compile_crossfade
+        from app.automix.planner import compile_automix
+        from app.automix.settings import automix_settings_for
+        tracks = [track for track in self.playlist_service.tracks if track.enabled]
+        settings = self.project_settings
+        if settings.transition_mode == "crossfade":
+            plan = compile_crossfade(tracks, settings.crossfade_seconds)
+        elif settings.transition_mode == "automix":
+            plan = compile_automix(tracks, self.automix_analyses, automix_settings_for(settings),
+                                   self.automix_structures, log_diagnostics=False)
+        else:
+            plan = compile_playlist(tracks)
+        panel.keyframe_controller.set_plan(plan)
 
     def __init__(self) -> None:
         super().__init__()
@@ -897,6 +917,11 @@ class MainWindow(QMainWindow):
             self.cut_action.setEnabled(canvas_scope)
             self.copy_action.setEnabled(canvas_scope)
             self.paste_action.setEnabled(canvas_scope)
+            panel = getattr(self, "timeline_panel", None)
+            if panel is not None and current is not None and panel.keyframe_editor.isAncestorOf(current):
+                # Let the lane view handle these keys instead of deleting Canvas sources.
+                for action in (self.delete_action, self.select_all_action, self.duplicate_action):
+                    action.setEnabled(False)
 
     def _canvas_shortcut_scope_active(self, focus: QWidget | None = None) -> bool:
         """Return whether keyboard focus belongs to Canvas editing UI."""
@@ -1748,6 +1773,16 @@ class MainWindow(QMainWindow):
             self.playlist_service, self.store, self.translator
         )
         self.timeline_panel.preview_requested.connect(self.preview_controller.preview_at)
+        from app.inspector.keyframe_binding import InspectorKeyframeBinding
+        self.inspector.keyframe_binding = InspectorKeyframeBinding(
+            self.inspector, self.timeline_panel.keyframe_controller)
+        from app.animation.canvas_keyframes import CanvasKeyframeBinding
+        self.canvas_keyframe_binding = CanvasKeyframeBinding(self.canvas, self.timeline_panel.keyframe_controller)
+        self.timeline_panel.keyframe_controller.editor_requested.connect(lambda: self._show_bottom_panel(1))
+        self.timeline_panel.keyframe_controller.edit_started.connect(self.history_controller.flush_pending)
+        self.timeline_panel.keyframe_controller.edit_finished.connect(self.history_controller.flush_pending)
+        self.playlist_service.playlist_changed.connect(self._refresh_keyframe_timing)
+        self._refresh_keyframe_timing()
         self.bottom_tabs.addTab(self.timeline_panel, "")
         self.preview_tab_page = QFrame()
         self.preview_tab_page.setObjectName("previewWorkspaceTab")
@@ -2502,6 +2537,7 @@ class MainWindow(QMainWindow):
         """Merge a completed background analysis pass into the session cache."""
         self.automix_analyses.update(analyses)
         self.playlist_editor.set_analyses(dict(self.automix_analyses))
+        self._refresh_keyframe_timing()
 
     def _automix_structures_received(self, structures: dict[str, TrackStructureAnalysis]) -> None:
         """Merge a completed background structure-analysis pass into the session cache.
@@ -2511,6 +2547,7 @@ class MainWindow(QMainWindow):
         somewhere to find it without re-running analysis.
         """
         self.automix_structures.update(structures)
+        self._refresh_keyframe_timing()
 
     TRACK_ANALYSIS_ACTIVITY = "track_analysis"
 
@@ -3536,9 +3573,9 @@ class MainWindow(QMainWindow):
         )
 
     def _export_visualizers(
-        self, tracks: list | None = None, render_scale: float = 1.0,
+        self, tracks: list | None = None, render_scale: float = 1.0, compiled_plan=None,
     ) -> list[VisualizerOverlay]:
-        return self.export_orchestrator.visualizers(tracks, render_scale)
+        return self.export_orchestrator.visualizers(tracks, render_scale, compiled_plan)
 
     @staticmethod
     def _export_layer_worker_count(
@@ -4562,6 +4599,7 @@ class MainWindow(QMainWindow):
             "particle_min_size", "particle_max_size",
         )
         for source in adapted:
+            old_width, old_height = source.width, source.height
             if source.source_type is SourceType.BACKGROUND:
                 source.x = 0.0
                 source.y = 0.0
@@ -4578,6 +4616,10 @@ class MainWindow(QMainWindow):
                 source.y = max(
                     0.0, min(target_height - source.height, center_y - source.height / 2.0)
                 )
+            from app.animation.keyframes import transform_positions
+            source.keyframes = transform_positions(source.keyframes, x_ratio, y_ratio,
+                old_width * x_ratio / 2 - source.width / 2,
+                old_height * y_ratio / 2 - source.height / 2)
             for field in scalable_fields:
                 setattr(source, field, getattr(source, field) * factor)
             for line_style in source.subtitle_line_styles:

@@ -25,7 +25,7 @@ from PySide6.QtCore import QEvent, QSettings, Qt, QTimer
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMessageBox, QWidget
 
-from app.dialogs.export_preview_dialog import ExportPreviewDialog
+from app.dialogs.export_preview_dialog import ExportPreviewDialog, TIMELINE_SCALE
 from app.dialogs.preview_loading_dialog import PreviewLoadingDialog
 from app.renderer.ffmpeg_renderer import FFmpegNotFoundError, FFmpegRenderer
 
@@ -235,6 +235,17 @@ class PreviewController:
             blended_audio_temp_dir=blended_audio_temp_dir,
             automix_settings=automix_settings,
         )
+        keyframes = window.timeline_panel.keyframe_controller
+
+        def follow_preview(value: int) -> None:
+            plan = getattr(preview, "_compiled_plan", None)
+            if plan is not None and keyframes.plan is not plan:
+                keyframes.set_plan(plan)
+            keyframes.seek_global(value / TIMELINE_SCALE)
+
+        preview_timeline = getattr(preview, "timeline", None)
+        if preview_timeline is not None:
+            preview_timeline.valueChanged.connect(follow_preview)
         controls_page = preview.build_embedded_controls_page()
         loading.advance(loading.current + 1)
         window._inline_preview = preview
