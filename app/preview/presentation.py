@@ -325,10 +325,14 @@ class PreviewPresentationController(QObject):
         """Clear any blank cursor on Alt+Tab; re-arm idle only after refocus."""
         if not self.is_fullscreen:
             return
+        was_active = self._window_active
         self._window_active = active
         self.preview._fullscreen_gpu_focus_changed(active)
         if active:
-            self.show_controls()
+            # showFullScreen() queues its first activation notification. An
+            # already-active window must keep any subsequent idle hide intact.
+            if not was_active:
+                self.show_controls()
             self.pointer_timer.start()
         else:
             self.idle_timer.stop()

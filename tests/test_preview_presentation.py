@@ -221,6 +221,8 @@ class PreviewPresentationTests(unittest.TestCase):
         self.app.processEvents()
         self.assertTrue(preview.error_banner.isVisible())
         self.assertIs(preview.error_banner.window(), controller.window)
+        self.assertFalse(controller._controls_shown)
+        self.assertTrue(controller.controls.isHidden())
         hit = preview.preview_stack_host.childAt(preview.performance_monitor.mapTo(
             preview.preview_stack_host, QPoint(50, 250),
         ))
@@ -228,6 +230,27 @@ class PreviewPresentationTests(unittest.TestCase):
         controller.exit_fullscreen()
         self.assertTrue(preview.performance_action.isChecked())
         self.assertTrue(preview.error_banner.isVisible())
+
+    def test_initial_activation_preserves_controls_hidden_before_events_settle(self):
+        preview, controller = self.make_preview()
+        controller.enter_fullscreen()
+        controller.hide_controls()
+        controller.controls_animation.setCurrentTime(controller.controls_animation.duration())
+        self.app.processEvents()
+        # Initial activation can be queued by the platform. Repeated active
+        # notifications are not a real return from another application.
+        self.app.sendEvent(controller.window, QEvent(QEvent.Type.WindowActivate))
+        self.assertFalse(controller._controls_shown)
+        self.assertTrue(controller.controls.isHidden())
+        self.assertEqual(QApplication.overrideCursor().shape(), Qt.CursorShape.BlankCursor)
+        self.assertTrue(controller.pointer_timer.isActive())
+
+        self.app.sendEvent(controller.window, QEvent(QEvent.Type.WindowDeactivate))
+        self.assertFalse(controller._window_active)
+        self.app.sendEvent(controller.window, QEvent(QEvent.Type.WindowActivate))
+        self.assertTrue(controller._controls_shown)
+        self.assertEqual(controller.window.cursor().shape(), Qt.CursorShape.ArrowCursor)
+        self.assertIsNone(QApplication.overrideCursor())
 
     def test_pointer_motion_restores_cursor_even_without_widget_mouse_move_events(self):
         preview, controller = self.make_preview()

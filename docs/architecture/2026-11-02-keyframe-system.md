@@ -156,7 +156,7 @@ UI는 실제 Qt 위젯으로 한국어/영어, 960px/1280px 구성과 125%·150%
 - 고해상도 영상/시각화의 큰 확대는 기존보다 큰 알파 합성 버퍼와 더 많은 출력 계산을 요구할 수 있다.
 - 실제 모니터와 GPU에서의 입력·접근성 검증 및 장시간 대형 프로젝트 부하 검사는 수행하지 않았다.
 
-### 최종 검증 결과 (2026-11-03)
+### 키프레임 전체 검증 결과 (2026-11-03)
 
 전체 178개 테스트 모듈을 실행했다. 병렬 실행의 시간 제한에 걸린 작업공간·미리보기 모듈과 수정한 경로는 별도로 재실행했다. 원본 로그는 남겨 두고, 중복 실행을 더하지 않는 최종 집계를 `work/keyframe-regression-final/consolidated-results.json`에 저장했다.
 
@@ -171,7 +171,7 @@ UI는 실제 Qt 위젯으로 한국어/영어, 960px/1280px 구성과 125%·150%
 
 건너뛴 항목은 명시적 선택이 필요한 PyTorch Beat This! 3개와 Sonara 2개, Windows에서 실행하지 않는 POSIX FIFO 6개, OpenGL 컨텍스트가 없어 실행하지 못한 GPU 텍스처 3개, 장시간 실제 영상 부하 검사 2개다.
 
-남은 실패는 `tests.test_preview_presentation.PreviewPresentationTests.test_monitor_and_composed_frame_survive_fullscreen_and_auto_hide`의 전체화면 오류 배너 표시 후 성능 모니터 히트 검사다. 변경 전 HEAD의 미리보기 모듈을 읽어 재실행해도 같은 실패가 발생했다. 해당 경로가 정상이라고 주장하지 않으며, 키프레임과 별도의 기존 미리보기 문제로 남긴다. 근거 로그는 `work/keyframe-presentation-baseline.log`, `work/keyframe-presentation-baseline-diagnostic.log`, `work/keyframe-presentation-rerun.log`다.
+위 최초 집계에서 남은 실패는 `tests.test_preview_presentation.PreviewPresentationTests.test_monitor_and_composed_frame_survive_fullscreen_and_auto_hide`의 전체화면 오류 배너 표시 후 성능 모니터 히트 검사였다. 키프레임 변경 전 미리보기 모듈에서도 재현됐으며, 아래 후속 안정화에서 해결했다. 최초 재현 로그는 `work/keyframe-presentation-baseline.log`, `work/keyframe-presentation-baseline-diagnostic.log`, `work/keyframe-presentation-rerun.log`에 보존한다.
 
 추가로 `compileall`과 `git diff --check`를 통과했다. 실제 FFmpeg 검사는 이 환경의 FFmpeg 9.0.2로 수행했다. 작업 시작 전에 존재하던 가사 번역 관련 수정은 변경하지 않았다.
 
@@ -183,3 +183,13 @@ UI는 실제 Qt 위젯으로 한국어/영어, 960px/1280px 구성과 125%·150%
 - `work/keyframe-ui-after-short-1.png`: 최소 960×520 구성에서 레인과 도구의 겹침 방지 확인.
 
 캡처는 전체 제품 창의 수동 사용 검증이 아니라 실제 Qt 위젯을 조합한 검증 화면이다.
+
+### 전체화면 후속 안정화 (2026-11-03)
+
+전체화면 전환 직후 늦게 전달되는 최초 `WindowActivate` 알림이 이미 숨긴 조작 패널을 다시 띄웠다. 레이아웃이 아직 이전 크기에서 전환 중이면 이 패널이 성능 모니터 위에 놓여 기존 검사가 실패했다. GPU 실패 시 CPU 모드로 복귀하는 동안 이벤트를 처리하면 같은 문제가 재현됐다.
+
+`PreviewPresentationController`는 창이 비활성에서 활성으로 실제 전환할 때 조작 패널을 표시하도록 수정했다. 이미 활성 상태일 때의 중복 활성화 알림은 숨김 상태를 유지한다. GPU 포커스 상태 전달과 포인터 추적은 계속 수행하며, Alt+Tab 복귀 때는 패널과 정상 커서를 복구한다.
+
+기존 실패 검사에 패널의 숨김 상태 검증을 추가하고, 지연된 최초 활성화·중복 알림·실제 Alt+Tab 복귀를 구분하는 회귀 테스트를 추가했다. 전체화면 테스트 **18개**, 성능 모니터·GPU 상태·작업자 수명·미리보기 반응성·레이아웃·믹스 전환·키프레임 작업공간 테스트 **44개**가 모두 통과했다. 로그는 `work/fullscreen-monitor-fixed-tests.log`, `work/fullscreen-monitor-regressions.log`다.
+
+이전 전체 실행 결과의 관련 모듈을 최신 재실행 결과로 교체한 집계는 **2,286개 중 2,270개 통과, 16개 건너뜀, 실패 0개**다. 이는 전체 테스트를 다시 실행한 수치가 아니라 원본 전체 실행과 후속 검증을 합친 집계이며, `work/fullscreen-monitor-validation.json`에 근거를 저장한다. 실제 GPU 드라이버와 물리 모니터에서의 수동 검증은 여전히 수행하지 않았다.
