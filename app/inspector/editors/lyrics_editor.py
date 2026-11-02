@@ -32,7 +32,7 @@ class LyricsSection(FieldSection):
     TRANSITION_KEYS = ("subtitle_animation", "subtitle_animation_duration")
     ADVANCED_BASIC_FIELDS = {
         "motion": TRANSITION_KEYS,
-        "layout": ("subtitle_context_lines", "subtitle_next_lines", "subtitle_line_spacing", "text_alignment"),
+        "layout": ("subtitle_context_lines", "subtitle_next_lines", "subtitle_line_spacing", "subtitle_cue_spacing", "text_alignment"),
         "styles": ("subtitle_previous_opacity", "subtitle_previous_blur", "subtitle_current_scale"),
         "intro": (),
     }
@@ -47,6 +47,7 @@ class LyricsSection(FieldSection):
         ("subtitle_context_lines", "sub_layout"),
         ("subtitle_next_lines", "sub_layout"),
         ("subtitle_line_spacing", "sub_layout"),
+        ("subtitle_cue_spacing", "sub_layout"),
         ("subtitle_previous_opacity", "sub_prev"),
         ("subtitle_previous_blur", "sub_prev"),
         ("subtitle_current_scale", "sub_current"),
@@ -70,7 +71,8 @@ class LyricsSection(FieldSection):
         "subtitle_animation_duration": ("전환 시간", "Transition duration"),
         "subtitle_context_lines": ("이전 가사 줄", "Previous lyric lines"),
         "subtitle_next_lines": ("다음 가사 줄", "Next lyric lines"),
-        "subtitle_line_spacing": ("가사 줄 간격", "Lyric line spacing"),
+        "subtitle_line_spacing": ("묶음 안 줄 간격", "Lines within a cue"),
+        "subtitle_cue_spacing": ("가사 묶음 간격", "Between lyric cues"),
         "subtitle_previous_opacity": ("이전 가사 불투명도", "Previous lyric opacity"),
         "subtitle_previous_blur": ("이전 가사 블러", "Previous lyric blur"),
         "subtitle_timing_offset": ("전체 가사 시간 보정 (초)", "All lyric timing offset (s)"),
@@ -84,6 +86,7 @@ class LyricsSection(FieldSection):
         "subtitle_karaoke_pending_color": ("부르기 전 색", "Pending lyric color"),
         "subtitle_karaoke_pending_brightness": ("부르기 전 밝기", "Pending brightness"),
         "subtitle_line_styles": ("줄별 스타일", "Per-line styles"),
+        "subtitle_translation_style": ("번역 가사 스타일", "Translation lyric style"),
     }
 
     SECTION_TITLES = {
@@ -103,7 +106,8 @@ class LyricsSection(FieldSection):
         "animation_duration": ("자막 전환 효과가 재생되는 시간입니다. 효과를 없음으로 선택하면 즉시 전환됩니다.", "Duration of each subtitle transition. None switches cues immediately."),
         "context_lines": ("현재 가사와 함께 표시할 이전 가사 수입니다. 위치는 이동 방향을 따릅니다.", "Previous cues shown alongside the current cue. Their position follows the flow direction."),
         "next_lines": ("미리 표시할 다음 가사 수입니다. 위치는 이동 방향을 따릅니다.", "Upcoming cues shown in advance. Their position follows the flow direction."),
-        "line_spacing": ("가사 줄 사이 간격입니다. 가로 이동에서는 가사 영역 사이의 여백에도 적용됩니다.", "Spacing between lyric lines; also controls the gap between horizontal cue slots."),
+        "line_spacing": ("같은 시간의 가사 묶음 안에서 원래 줄바꿈 사이의 여백입니다. 원문과 자동 번역문 사이는 이 값보다 조금 좁게 표시하며, 자동 줄바꿈은 추가 여백을 넣지 않습니다.", "Gap between original lines within one timed cue. Automatic translations sit slightly closer; wrapped continuations have no extra gap."),
+        "cue_spacing": ("이전·현재·다음 가사 묶음 사이의 여백입니다. 묶음 안 줄 간격과 별도로 조절하며, 가로 이동에서는 가사 영역 사이의 여백입니다.", "Gap between previous, current and next cue groups, independent of inner line spacing. In horizontal flow, this is the gap between cue columns."),
         "previous_opacity": ("지나간 가사 줄을 얼마나 흐리게 표시할지 정합니다.", "Controls how faint previous lyric lines appear."),
         "previous_blur": ("지나간 가사 줄에 적용할 흐림 정도입니다.", "Blur applied to previous lyric lines."),
         "timing_offset": ("모든 곡의 가사를 초 단위로 앞당기거나 늦추는 공통 보정입니다. 곡별 보정값과 합산됩니다.", "Global timing adjustment for lyrics on every track. It is added to each track's individual offset."),
@@ -157,6 +161,7 @@ class LyricsSection(FieldSection):
             "subtitle_context_lines": context_lines,
             "subtitle_next_lines": next_lines,
             "subtitle_line_spacing": spin(0, 120, 1),
+            "subtitle_cue_spacing": spin(0, 120, 1),
             "subtitle_previous_opacity": spin(0.05, 0.9, 0.05),
             "subtitle_previous_blur": spin(0, 8, 0.5),
             "subtitle_current_scale": spin(1.0, 2.0, 0.02),
@@ -221,6 +226,8 @@ class LyricsSection(FieldSection):
         basis.setItemText(0, "요소 너비" if korean else "Element width")
         basis.setItemText(1, "직접 지정" if korean else "Custom width")
         self.widgets["subtitle_wrap_width"].setSuffix(" px")
+        self.widgets["subtitle_line_spacing"].setSuffix(" px")
+        self.widgets["subtitle_cue_spacing"].setSuffix(" px")
         self.widgets["subtitle_animation_duration"].setSuffix(" 초" if korean else " s")
         self.widgets["subtitle_accent_enabled"].setText("사용" if korean else "Enabled")
         self.widgets["subtitle_karaoke_enabled"].setText("사용" if korean else "Enabled")
@@ -237,9 +244,9 @@ class LyricsSection(FieldSection):
 
     def notes(self, korean: bool) -> dict[str, str]:
         automatic = (
-            "자동은 세로 이동에서 요소 높이와 글자 크기·줄 간격에 맞춰 표시합니다. 가로 이동에서는 앞뒤 한 가사씩 표시합니다."
+            "자동은 세로 이동에서 요소 높이와 글자 크기·줄 간격·묶음 간격에 맞춰 표시합니다. 가로 이동에서는 앞뒤 한 가사씩 표시합니다."
             if korean else
-            "Auto fits vertical context to the source height, font size and line spacing. Horizontal flow shows one cue on each side."
+            "Auto fits vertical context to the source height, font size, inner line spacing and cue spacing. Horizontal flow shows one cue on each side."
         )
         return {
             "subtitle_animation": (
@@ -260,6 +267,7 @@ _OWN_FIELD_KEYS = (
     "text", "font_size", "font_weight", "font_family",
     "text_stroke_color", "text_stroke_width", "text_alignment",
     "subtitle_line_styles",
+    "subtitle_translation_style",
     *MotionSection.REACTIVE_KEYS,
     *(key for key, _section in LyricsSection.ROWS),
 )

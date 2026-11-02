@@ -116,6 +116,9 @@ class PlaylistTrack:
         for cue in track.lyrics:
             if not isinstance(cue, dict) or not isinstance(cue.get("text", ""), str):
                 raise ValueError(f"Track '{track.title}' contains an invalid lyric cue.")
+            if "translation" in cue:
+                from app.services.lyrics_translation_service import validate_translation
+                validate_translation(cue["translation"])
             for key in ("start", "end"):
                 value = cue.get(key)
                 if (not isinstance(value, (int, float)) or isinstance(value, bool)

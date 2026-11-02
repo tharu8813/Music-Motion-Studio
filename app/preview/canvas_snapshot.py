@@ -41,6 +41,7 @@ from app.preview.text_template import (
     expand_track_template,
 )
 from app.services.lyrics_service import LyricsService
+from app.services.lyrics_translation_service import display_cue
 from app.services.lyrics_intro_service import instrumental_spans
 
 # Text template tokens whose resolved value changes during an export: every
@@ -841,7 +842,8 @@ class CanvasSnapshot:
                     whole_lines=source.subtitle_karaoke_enabled,
                 )
                 active_cue_index = cue_state.active_cue_index
-                display_cues, cue_index = lyrics_display_groups(track, cue_state)
+                display_cues, cue_index = lyrics_display_groups(
+                    track, cue_state, translations=source.subtitle_translation_enabled)
                 lyric_cue = display_cues[cue_index] if cue_index is not None else None
                 graphics_item._subtitle_gap_unblurred = cue_state.gap_unblurred
                 graphics_item._subtitle_before_first = cue_state.before_first
@@ -936,8 +938,11 @@ class CanvasSnapshot:
                         for display_index in range(first, last):
                             original_indices = display_cues[display_index].get("display_cue_indices", (display_index,))
                             for original_index in original_indices:
+                                original_cue = track.lyrics[original_index]
+                                if source.subtitle_translation_enabled:
+                                    original_cue = display_cue(original_cue)
                                 rows = max(1, len([line for line in LyricsService.decode_line_breaks(
-                                    track.lyrics[original_index].get("text", "")).strip().splitlines() if line.strip()]))
+                                    original_cue.get("text", "")).strip().splitlines() if line.strip()]))
                                 if original_index in cue_state.blur_restore_cue_indices:
                                     restored_rows.update(range(row_offset, row_offset + rows))
                                 row_offset += rows

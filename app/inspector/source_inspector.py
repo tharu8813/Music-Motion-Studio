@@ -351,6 +351,8 @@ class SourceInspector(QScrollArea):
         self.now_playing = NowPlayingSection(self._spin)
         self.lyrics = LyricsSection(self._spin, self._color_button)
         self.lyrics_line_styles_button = QPushButton()
+        self.lyrics_translation_style_button = QPushButton()
+        self.lyrics_translation_style_button.clicked.connect(self._open_lyrics_translation_style)
         self.lyrics_transition_button = QPushButton()
         self.lyrics_animation_button = QPushButton()
         self.typography = TypographySection(self._spin)
@@ -416,6 +418,8 @@ class SourceInspector(QScrollArea):
             content_form, "subtitle_line_styles", self.lyrics_line_styles_button,
             section="sub_layout",
         )
+        self._add_labeled_row(content_form, "subtitle_translation_style",
+                              self.lyrics_translation_style_button, section="sub_layout")
         self._add_labeled_row(content_form, "waveform_style", self.waveform_style_combo)
         self.level_meter.add_rows(self._add_labeled_row, content_form)
         self.particle.add_rows(self._add_labeled_row, content_form)
@@ -1062,6 +1066,7 @@ class SourceInspector(QScrollArea):
         self._set_field_visible(
             "subtitle_line_styles", source_type is SourceType.LYRICS,
         )
+        self._set_field_visible("subtitle_translation_style", source_type is SourceType.LYRICS)
         self._set_field_visible("waveform_style", source_type is SourceType.AUDIO_WAVEFORM)
         for key in (
             "level_meter_mode", "level_meter_style", "level_meter_orientation",
@@ -1409,6 +1414,15 @@ class SourceInspector(QScrollArea):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._apply_updates(dialog.settings())
 
+    def _open_lyrics_translation_style(self) -> None:
+        from app.dialogs.lyrics_translation_style_dialog import LyricsTranslationStyleDialog
+        source = self.store.get(self._source_id)
+        if source is None or source.source_type is not SourceType.LYRICS:
+            return
+        dialog = LyricsTranslationStyleDialog(source, self.translator, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._apply_updates(dialog.settings())
+
     def _open_lyrics_line_styles(self) -> None:
         source = self.store.get(self._source_id)
         if source is None or source.source_type is not SourceType.LYRICS:
@@ -1743,6 +1757,8 @@ class SourceInspector(QScrollArea):
         self._update_property_navigation()
 
     def retranslate(self) -> None:
+        self.lyrics_translation_style_button.setText(
+            "번역문 표시·스타일 설정…" if self.translator.is_korean else "Translation visibility && style…")
         self.category_selector.setAccessibleName(
             "속성 범주" if self.translator.is_korean else "Property category"
         )

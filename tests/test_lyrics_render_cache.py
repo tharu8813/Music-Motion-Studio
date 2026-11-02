@@ -11,10 +11,13 @@ from app.models.playlist import PlaylistTrack
 from app.preview.canvas_snapshot import CanvasSnapshot
 from app.dialogs.lyrics_animation_dialog import LyricsAnimationDialog
 from app.utils.i18n import Translator
+from app.services.lyrics_translation_service import TranslationConfig, apply_translations
 
 
-def uncached_font(item, size, weight, italic):
+def uncached_font(item, size, weight, italic, family=""):
     font = item.text_font(size, weight)
+    if family:
+        font.setFamily(family)
     font.setItalic(italic)
     return font
 
@@ -22,7 +25,15 @@ def uncached_font(item, size, weight, italic):
 def uncached_height(item):
     regular = QFontMetricsF(item._lyric_fonts['regular'])
     current = QFontMetricsF(item._lyric_fonts['current'])
-    return max(16.0, max(regular.height(), current.height()) + max(0.0, float(item.source.subtitle_line_spacing))
+    height = max(regular.height(), current.height())
+    if item.source.subtitle_translation_enabled:
+        style = item.source.subtitle_translation_style
+        size = float(style.get('font_size', item.source.font_size + float(style.get('font_size_offset', 0))))
+        font = uncached_font(item, round(max(8, min(120, size)) * item.source.subtitle_current_scale),
+            int(style.get('font_weight', item.source.font_weight)), bool(style.get('italic', False)),
+            str(style.get('font_family', '')))
+        height = max(height, QFontMetricsF(font).height())
+    return max(16.0, height + max(0.0, float(item.source.subtitle_line_spacing))
                + max(2.0, max(regular.descent(), current.descent()) * 0.35))
 
 
@@ -66,6 +77,8 @@ class LyricsRenderCacheTests(unittest.TestCase):
         source = Source(SourceType.LYRICS, 'Lyrics', width=620, height=340, font_size=22,
                         subtitle_karaoke_enabled=True, subtitle_animation='glow',
                         subtitle_previous_blur=3, subtitle_line_spacing=8,
+                        subtitle_translation_style={'font_family': 'Malgun Gothic', 'font_size': 26,
+                                                    'font_weight': 400, 'color': '#B8C4D4'},
                         subtitle_line_styles=[{'font_size': 28, 'italic': True}])
         item = SourceItem(source)
         scene.addItem(item)
@@ -73,6 +86,7 @@ class LyricsRenderCacheTests(unittest.TestCase):
             {'start': i*2, 'end': i*2+1.8, 'text': '안녕 world 🌙\nSecond line', 'format': 'ttml',
              'words': [{'start': i*2, 'end': i*2+1.7, 'text': '안녕 world 🌙', 'offset': 0}]}
             for i in range(3)])
+        track.lyrics = apply_translations(track.lyrics, ['번역 가사\n둘째 줄'] * 3, TranslationConfig('google'))
         try:
             for scale in (0.5, 1.5):
                 for seconds in (0.4, 2.05, 2.4, 5.0):

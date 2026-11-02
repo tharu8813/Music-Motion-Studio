@@ -35,6 +35,7 @@ numpy_datas, numpy_binaries, numpy_hiddenimports = collect_all("numpy", filter_s
 import importlib.util
 
 AUTOMIX_PACKAGES = ("librosa", "numba", "llvmlite", "scipy", "sklearn", "soundfile", "sonara")
+TRANSLATION_PACKAGES = ("ctranslate2", "sentencepiece")
 HEAVY_ANALYZER_PACKAGES = (
     "torch", "torchaudio", "beat_this", "rotary_embedding_torch", "demucs", "julius",
 )
@@ -43,7 +44,7 @@ AUTOMIX_MODEL_FILES = (
     "beat_this_final0_int8.onnx", "BEAT_THIS_LICENSE.txt", "umxhq_vocals_int8.onnx", "OPEN_UNMIX_LICENSE.txt",
     "yamnet.onnx", "yamnet_class_map.csv", "YAMNET_LICENSE.txt", "YAMNET_NOTICE.md",
 )
-_missing = [name for name in (*AUTOMIX_PACKAGES, "onnxruntime") if importlib.util.find_spec(name) is None]
+_missing = [name for name in (*AUTOMIX_PACKAGES, *TRANSLATION_PACKAGES, "onnxruntime") if importlib.util.find_spec(name) is None]
 _missing += [name for name in AUTOMIX_MODEL_FILES if not (AUTOMIX_MODEL_DIRECTORY / name).is_file()]
 if _missing:
     raise SystemExit(
@@ -54,7 +55,7 @@ if _missing:
 automix_datas: list = []
 automix_binaries: list = []
 automix_hiddenimports: list = []
-for _package in AUTOMIX_PACKAGES:
+for _package in (*AUTOMIX_PACKAGES, *TRANSLATION_PACKAGES):
     _datas, _binaries, _hiddenimports = collect_all(_package, filter_submodules=runtime_submodule)
     automix_datas += _datas
     automix_binaries += _binaries

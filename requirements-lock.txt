@@ -7,6 +7,8 @@ certifi==2026.10.23
 cffi==2.1.1
 charset-normalizer==3.5.2
 cloudpickle==3.1.2
+cryptography==50.0.2
+ctranslate2==4.8.4
 decorator==5.3.1
 flatbuffers==25.12.19
 idna==3.20
@@ -21,6 +23,8 @@ numba==0.67.0
 numpy==2.5.1
 onnxruntime==1.30.0
 packaging==26.3
+PyJWT==2.15.1
+PyYAML==6.0.3
 pefile==2024.8.26
 platformdirs==4.11.11
 pooch==1.9.0
@@ -36,6 +40,7 @@ requests==2.34.2
 scikit-learn==1.9.1
 scipy==1.18.1
 setuptools==84.0.0
+sentencepiece==0.2.2
 shiboken6==6.11.1
 soundfile==0.14.0
 sonara==0.3.6

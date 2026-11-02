@@ -17,7 +17,7 @@ SUBTITLE_ADVANCED_GROUPS = {
     "motion": ("subtitle_animation", "subtitle_animation_duration", "subtitle_flow_direction",
                "subtitle_motion_easing", "subtitle_motion_distance", "subtitle_stagger",
                "subtitle_stagger_order", "subtitle_zoom_amount", "subtitle_glow_strength", "subtitle_glow_radius"),
-    "layout": ("subtitle_context_lines", "subtitle_next_lines", "subtitle_line_spacing", "subtitle_anchor", "text_alignment"),
+    "layout": ("subtitle_context_lines", "subtitle_next_lines", "subtitle_line_spacing", "subtitle_cue_spacing", "subtitle_anchor", "text_alignment"),
     "styles": ("subtitle_role_styles", "subtitle_previous_distance_fade", "subtitle_next_distance_fade"),
     "intro": ("subtitle_intro_enabled", "subtitle_intro_midtrack", "subtitle_intro_style", "subtitle_intro_exit",
               "subtitle_intro_gap", "subtitle_intro_period", "subtitle_intro_scale"),
@@ -229,6 +229,8 @@ class Source:
     subtitle_context_lines: int = 1
     subtitle_next_lines: int = 1
     subtitle_line_spacing: float = 14.0
+    # Resolve omitted legacy values once, then keep cue and inner gaps independent.
+    subtitle_cue_spacing: float | None = None
     subtitle_previous_opacity: float = 0.34
     subtitle_previous_blur: float = 1.5
     subtitle_previous_distance_fade: float = 1.0
@@ -257,6 +259,11 @@ class Source:
     # Optional overrides by physical line position inside each multi-line cue.
     # Empty entries inherit the source's shared typography.
     subtitle_line_styles: list[dict[str, object]] = field(default_factory=list)
+    # Generated translations have their own style, unrelated to physical line overrides.
+    subtitle_translation_enabled: bool = True
+    subtitle_translation_style: dict[str, object] = field(default_factory=lambda: {
+        "color": "#B8C4D4", "font_size_offset": -4.0, "font_weight": 400,
+    })
     track_list_count: int = 5
     track_list_style: str = "compact"
     track_list_window: str = "centered"
@@ -344,6 +351,11 @@ class Source:
 
     def __post_init__(self) -> None:
         """Honor the former single-duration constructor argument."""
+        if self.subtitle_cue_spacing is None:
+            self.subtitle_cue_spacing = self.subtitle_line_spacing
+        advanced = self.subtitle_advanced_settings
+        if isinstance(advanced, dict) and "subtitle_line_spacing" in advanced and "subtitle_cue_spacing" not in advanced:
+            self.subtitle_advanced_settings = {**advanced, "subtitle_cue_spacing": advanced["subtitle_line_spacing"]}
         if (
             self.animation_duration != 0.45
             and self.animation_in_duration == 0.45
@@ -516,6 +528,15 @@ class Source:
         # Flat legacy documents retain inactive video fields for round trips.
         VideoComponent.from_source(source).validate(source.name)
         LyricsComponent.validate_styles(source.subtitle_line_styles, source.subtitle_role_styles, source.name)
+        if not isinstance(source.subtitle_translation_enabled, bool):
+            raise ValueError("Invalid translation visibility.")
+        if not isinstance(source.subtitle_translation_style, dict):
+            raise ValueError("Invalid translation style.")
+        translation_style = dict(source.subtitle_translation_style)
+        family = translation_style.pop("font_family", "")
+        if not isinstance(family, str) or len(family) > 256:
+            raise ValueError("Invalid translation font family.")
+        LyricsComponent.validate_styles([translation_style], {}, source.name)
         if not 0.0 <= float(source.text_stroke_width) <= 12.0:
             raise ValueError(
                 f"Source '{source.name}' text stroke width must be between 0 and 12."
@@ -549,12 +570,16 @@ class Source:
                      "subtitle_auto_shrink", "subtitle_auto_wrap", "subtitle_wrap_to_source"):
             if not isinstance(getattr(source, name), bool):
                 raise ValueError(f"Source '{source.name}' has an invalid {name}.")
+        if (not isinstance(source.subtitle_cue_spacing, (int, float)) or isinstance(source.subtitle_cue_spacing, bool)
+                or not isfinite(float(source.subtitle_cue_spacing)) or not 0 <= source.subtitle_cue_spacing <= 120):
+            raise ValueError(f"Source '{source.name}' has invalid lyric cue spacing (0–120 px).")
         for name, (minimum, maximum) in {
             "frame_width": (0.0, 80.0),
             "frame_inset": (0.0, 200.0),
             "text_letter_spacing": (-10.0, 60.0),
             "text_line_gap": (-40.0, 200.0),
             "subtitle_current_scale": (1.0, 2.0),
+            "subtitle_line_spacing": (0.0, 120.0),
             "subtitle_wrap_width": (16.0, 100_000.0),
             "subtitle_karaoke_pending_brightness": (0.0, 1.0),
             "subtitle_karaoke_offset": (-5.0, 5.0),

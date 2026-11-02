@@ -1029,12 +1029,14 @@ class SourceItem(QGraphicsObject):
         self._lyric_height_cache = None
         self._lyric_resource_key = resource_key
 
-    def _lyric_font(self, size: int, weight: int, italic: bool) -> QFont:
+    def _lyric_font(self, size: int, weight: int, italic: bool, family: str = "") -> QFont:
         """Return a detached font; painting must not mutate a cached instance."""
-        key = (self.source.font_family, size, weight, italic, self._typography_key())
+        key = (family or self.source.font_family, size, weight, italic, self._typography_key())
         font = self._lyric_font_cache.pop(key, None)
         if font is None:
             font = self.text_font(size, weight)
+            if family:
+                font.setFamily(family)
             font.setItalic(italic)
             if len(self._lyric_font_cache) >= 64:
                 self._lyric_font_cache.pop(next(iter(self._lyric_font_cache)))
@@ -1175,12 +1177,20 @@ class SourceItem(QGraphicsObject):
     def _lyric_line_height(self) -> float:
         """Return a font-metric row that preserves Latin/Korean descenders."""
         key = (self._lyric_fonts["regular"].key(), self._lyric_fonts["current"].key(),
-               float(self.source.subtitle_line_spacing))
+               float(self.source.subtitle_line_spacing), self.source.subtitle_translation_enabled,
+               tuple(sorted(self.source.subtitle_translation_style.items())))
         if self._lyric_height_cache is not None and self._lyric_height_cache[0] == key:
             return self._lyric_height_cache[1]
         regular = QFontMetricsF(self._lyric_fonts["regular"])
         current = QFontMetricsF(self._lyric_fonts["current"])
         glyph_height = max(regular.height(), current.height())
+        if self.source.subtitle_translation_enabled:
+            style = self.source.subtitle_translation_style
+            size = float(style.get("font_size", self.source.font_size + float(style.get("font_size_offset", 0))))
+            font = self._lyric_font(round(max(8, min(120, size)) * self.source.subtitle_current_scale),
+                int(style.get("font_weight", self.source.font_weight)), bool(style.get("italic", False)),
+                str(style.get("font_family", "")))
+            glyph_height = max(glyph_height, QFontMetricsF(font).height())
         # Qt's aligned text rectangle can otherwise land the last antialiased
         # row directly on its lower edge. Keep a small guard proportional to
         # the real font descent for g, j, p, q and y, plus configured spacing.

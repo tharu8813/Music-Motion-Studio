@@ -18,7 +18,8 @@ class DistributionVerificationTests(unittest.TestCase):
             required = set(verify_distribution.REQUIRED_FILES)
             required.update(path.relative_to(root) for path in (root / "app/resources/help").glob("*/*.png"))
             required.update((Path("numpy/_core/_multiarray_umath.test.pyd"),
-                             Path("onnxruntime/capi/onnxruntime_pybind11_state.test.pyd")))
+                             Path("onnxruntime/capi/onnxruntime_pybind11_state.test.pyd"),
+                             Path("ctranslate2/_ext.test.pyd"), Path("sentencepiece/_sentencepiece.test.pyd")))
             (distribution / "Music Motion Studio.exe").touch()
             for path in required:
                 target = distribution / "_internal" / path
@@ -31,6 +32,7 @@ class DistributionVerificationTests(unittest.TestCase):
                 for missing in ("app/automix/analysis/models/yamnet.onnx",
                                 "app/resources/help/ko/lyrics_transition.png",
                                 "python314.dll",
+                                "ctranslate2/_ext.test.pyd", "sentencepiece/_sentencepiece.test.pyd",
                                 "assets/icons/spin_up_disabled.svg"):
                     target = distribution / "_internal" / missing
                     target.unlink()

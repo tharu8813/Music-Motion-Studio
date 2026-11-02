@@ -22,6 +22,7 @@ from app.animation.lyrics import lyric_progress
 from app.models.playlist import PlaylistTrack
 from app.models.source import Source
 from app.services.lyrics_service import LyricsService
+from app.services.lyrics_translation_service import approved_translation, display_cue
 
 
 def lyric_instrumental_windows(track: PlaylistTrack, source: Source) -> tuple[tuple[float, float], ...]:
@@ -245,6 +246,19 @@ def resolve_lyrics_cue_state(
     )
 
 
+class _TranslatedCues(Sequence):
+    def __init__(self, cues):
+        self.cues = cues
+
+    def __len__(self):
+        return len(self.cues)
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return tuple(self[position] for position in range(*index.indices(len(self))))
+        return display_cue(self.cues[index])
+
+
 class _LyricDisplayGroups(Sequence):
     """Prepare text only for the small context window actually being painted."""
 
@@ -267,28 +281,30 @@ class _LyricDisplayGroups(Sequence):
             self.prepared[index] = {
                 "display_cue_indices": indices,
                 "text": "\n".join(LyricsService.decode_line_breaks(cue.get("text", "")).strip() for cue in parts),
-                "display_line_positions": tuple(position for cue in parts for position, _line in enumerate(
-                    line for line in LyricsService.decode_line_breaks(cue.get("text", "")).strip().splitlines() if line.strip())),
+                "display_line_positions": tuple(position for cue in parts for position in cue.get(
+                    "display_line_positions", tuple(range(len([line for line in
+                        LyricsService.decode_line_breaks(cue.get("text", "")).strip().splitlines() if line.strip()]))))),
             }
         return self.prepared[index]
 
 
-def lyrics_display_groups(track: PlaylistTrack, state: LyricsCueState):
+def lyrics_display_groups(track: PlaylistTrack, state: LyricsCueState, *, translations=False):
     """Treat all current TTML cues as one centered block in the visual window.
 
     Ended cues between two active intervals belong to history, never to the
     current block. This does not rewrite or merge the track's timing data.
     """
+    cues = _TranslatedCues(track.lyrics) if translations else track.lyrics
     if not state.active_cue_indices and not state.held_cue_indices:
-        return track.lyrics, state.cue_index
+        return cues, state.cue_index
     displayed = state.active_cue_indices or state.held_cue_indices or (state.cue_index,)
     if displayed == (state.latest_started_cue_index,):
-        return track.lyrics, state.cue_index  # Most frames have one ordinary active interval.
+        return cues, state.cue_index  # Most frames have one ordinary active interval.
     active = set(displayed)
     last = state.latest_started_cue_index
     previous = [(index,) for index in range(last + 1) if index not in active]
     groups = previous + [displayed] + [(index,) for index in range(last + 1, len(track.lyrics))]
-    return _LyricDisplayGroups(track.lyrics, groups), len(previous)
+    return _LyricDisplayGroups(cues, groups), len(previous)
 
 
 def resolve_lyrics_word_reveal(
@@ -307,9 +323,13 @@ def resolve_lyrics_word_reveal(
             cue.get("text", "")).strip().splitlines() if line.strip())
     clock = max(0.0, elapsed + track.lyrics_timing_offset_seconds
                 + source.subtitle_timing_offset + source.subtitle_karaoke_offset)
-    return tuple(value for index in (cue_state.active_cue_indices or cue_state.held_cue_indices or (cue_state.cue_index,))
-                 for value in LyricsService.word_reveal(track.lyrics[index], clock,
-                     line_positions=tuple(source.subtitle_karaoke_lines)))
+    values = []
+    for index in (cue_state.active_cue_indices or cue_state.held_cue_indices or (cue_state.cue_index,)):
+        values.extend(LyricsService.word_reveal(track.lyrics[index], clock,
+                      line_positions=tuple(source.subtitle_karaoke_lines)))
+        if source.subtitle_translation_enabled:
+            values.extend(float(len(line)) for line in approved_translation(track.lyrics[index]).splitlines() if line.strip())
+    return tuple(values)
 
 
 @dataclass(slots=True, frozen=True)

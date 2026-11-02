@@ -65,8 +65,8 @@ from app.renderer.ffmpeg_renderer import (
 from app.services.export_validation_service import EXPORT_FPS_OPTIONS
 
 
-_TAB_HELP_TOPICS = ("settings", "export", "ffmpeg", "lyrics_files", "export_process", "maintenance")
-"""F1 opens the help topic of the tab being shown (General, Export, FFmpeg, Content, Notifications, Maintenance)."""
+_TAB_HELP_TOPICS = ("settings", "export", "ffmpeg", "lyrics_files", "export_process", "maintenance", "settings")
+"""F1 opens the help topic of the active settings tab, including Accounts."""
 
 
 class SettingsDialog(QDialog):
@@ -521,12 +521,28 @@ class SettingsDialog(QDialog):
         self.content_page = self._scroll_page(content_group)
         self.notifications_page = self._scroll_page(notification_group)
         self.maintenance_page = self._scroll_page(maintenance_group)
+        self.account_group = QGroupBox()
+        account_layout = QVBoxLayout(self.account_group)
+        self.openai_account_summary = QLabel()
+        self.openai_account_summary.setTextFormat(Qt.TextFormat.PlainText)
+        self.openai_account_summary.setWordWrap(True)
+        account_layout.addWidget(self.openai_account_summary)
+        self.openai_account_hint = QLabel()
+        self.openai_account_hint.setWordWrap(True)
+        self.openai_account_hint.setObjectName("mutedLabel")
+        account_layout.addWidget(self.openai_account_hint)
+        self.openai_account_button = QPushButton()
+        self.openai_account_button.setAutoDefault(False)
+        self.openai_account_button.clicked.connect(self._open_openai_account)
+        account_layout.addWidget(self.openai_account_button)
+        self.accounts_page = self._scroll_page(self.account_group)
         self.tabs.addTab(self.general_page, "")
         self.tabs.addTab(self.export_page, "")
         self.tabs.addTab(self.ffmpeg_page, "")
         self.tabs.addTab(self.content_page, "")
         self.tabs.addTab(self.notifications_page, "")
         self.tabs.addTab(self.maintenance_page, "")
+        self.tabs.addTab(self.accounts_page, "")
         self.tabs.currentChanged.connect(self._settings_tab_changed)
 
         layout = QVBoxLayout(self)
@@ -663,8 +679,24 @@ class SettingsDialog(QDialog):
         self._refresh_ffmpeg_status()
 
     def _settings_tab_changed(self, _index: int) -> None:
+        if self.tabs.currentWidget() is self.accounts_page:
+            self._refresh_openai_account()
         if self.tabs.currentWidget() is self.ffmpeg_page:
             self.request_ffmpeg_catalog()
+
+    def _refresh_openai_account(self):
+        from app.services.translation_credentials import TranslationCredentials
+        profile = TranslationCredentials().load("chatgpt")
+        korean = self.translator.is_korean
+        self.openai_account_summary.setText((profile.get("email") or ("연결된 ChatGPT 계정" if korean else "Connected ChatGPT account"))
+            if profile else ("로그인된 OpenAI 계정이 없습니다." if korean else "No OpenAI account is signed in."))
+
+    def _open_openai_account(self):
+        from app.dialogs.openai_account_dialog import OpenAIAccountDialog
+        dialog = OpenAIAccountDialog(self.translator, self)
+        dialog.exec()
+        self._refresh_openai_account()
+        dialog.deleteLater()
 
     def _update_ffmpeg_release_info(self, _index: int = -1) -> None:
         release = self.selected_ffmpeg_release
@@ -1029,9 +1061,9 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("설정" if korean else "Settings")
         self.title_label.setText("애플리케이션 설정" if korean else "Application settings")
         self.subtitle_label.setText(
-            "화면 표시, 기본 출력 품질과 FFmpeg 설치를 관리합니다."
+            "화면 표시, 출력 품질, FFmpeg와 계정을 관리합니다."
             if korean else
-            "Manage appearance, default export quality, and the FFmpeg installation."
+            "Manage appearance, export quality, FFmpeg, and accounts."
         )
         self.tabs.setTabText(0, "일반" if korean else "General")
         self.tabs.setTabText(1, "내보내기" if korean else "Export")
@@ -1039,6 +1071,12 @@ class SettingsDialog(QDialog):
         self.tabs.setTabText(3, "콘텐츠" if korean else "Content")
         self.tabs.setTabText(4, "알림" if korean else "Notifications")
         self.tabs.setTabText(5, "유지 관리" if korean else "Maintenance")
+        self.tabs.setTabText(6, "계정" if korean else "Accounts")
+        self.account_group.setTitle("OpenAI · ChatGPT")
+        self.openai_account_button.setText("로그인 및 계정 관리…" if korean else "Sign-in and account management…")
+        self.openai_account_hint.setText("로그인은 별도 창에서 관리합니다. 인증 정보는 Windows 계정으로 암호화해 저장하고, 앱 종료 후에도 유지합니다. 로그아웃하면 이 기기의 로그인 정보가 삭제됩니다."
+            if korean else "Manage sign-in in a separate window. Credentials are encrypted for your Windows account and kept after restart. Signing out removes the saved session.")
+        self._refresh_openai_account()
         self.maintenance_group.setTitle("프로그램 관리" if korean else "Program maintenance")
         self.integrity_label.setText("무결성 검사" if korean else "Integrity check")
         self.integrity_hint.setText(

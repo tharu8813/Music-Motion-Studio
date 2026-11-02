@@ -5,7 +5,7 @@ import re
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPen, QTextLayout, QTextOption
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QTextLayout, QTextOption
 
 from app.animation.lyrics import context_style_at_distance, cue_effect_pose, intro_exit_pose, role_style, stagger_progress
 from app.animation.curves import music_reactive_pose
@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 _ALIGNMENTS = {"left": Qt.AlignmentFlag.AlignLeft, "right": Qt.AlignmentFlag.AlignRight}
 _VISIBLE = 0.004
 _MIN_FIT = 0.55
+_TRANSLATION_GAP_RATIO = 0.6
 
 
 def render(item: "SourceItem", painter: QPainter, option: object, widget: object | None = None) -> None:
@@ -48,6 +49,21 @@ def _line_style(source, role: str, line: dict, karaoke_line=True) -> dict:
     return style
 
 
+def lyric_line_overrides(source, style_index: int) -> dict:
+    if style_index < 0:
+        return source.subtitle_translation_style
+    return source.subtitle_line_styles[style_index] if 0 <= style_index < len(source.subtitle_line_styles) else {}
+
+
+def _display_line_style(source, role, overrides, style_index, karaoke=True):
+    style = _line_style(source, role, overrides, karaoke)
+    if style_index < 0:
+        # Role motion/opacity still follows the cue, but source-line accent and
+        # word highlighting must never override the translation's own typography.
+        style["color"] = overrides.get("color", source.outline_color)
+    return style
+
+
 def pending_color(source) -> QColor:
     """Dim RGB channels, keeping opacity and the completed lyric's hue unchanged."""
     if source.subtitle_karaoke_pending_mode == "custom":
@@ -65,7 +81,7 @@ def lyric_wrap_width(source) -> float:
         # Include the current cue as well as the previous/upcoming cues.
         slots = ((source.subtitle_context_lines if source.subtitle_context_lines >= 0 else 1)
                  + (source.subtitle_next_lines if source.subtitle_next_lines >= 0 else 1) + 1)
-        return max(16.0, source.width / slots - source.subtitle_line_spacing)
+        return max(16.0, source.width / slots - source.subtitle_cue_spacing)
     return max(16.0, source.width - 24)
 
 
@@ -79,10 +95,10 @@ def lyric_wrapped_rows(item, text: str, style_index: int = 0) -> tuple[tuple[str
     if not source.subtitle_auto_wrap:
         return ((text, 0),)
     width = lyric_wrap_width(source)
-    overrides = source.subtitle_line_styles[style_index] if style_index < len(source.subtitle_line_styles) else {}
-    styles = [_line_style(source, role, overrides) for role in ("previous", "current", "next")]
+    overrides = lyric_line_overrides(source, style_index)
+    styles = [_display_line_style(source, role, overrides, style_index) for role in ("previous", "current", "next")]
     fonts = [item._lyric_font(max(8, round(float(style["size"]))), int(style["font_weight"]),
-                              bool(style["italic"])) for style in styles]
+                              bool(style["italic"]), str(overrides.get("font_family", ""))) for style in styles]
     key = (text, width, tuple(font.key() for font in fonts))
     cache = item._lyric_wrap_cache
     if key in cache:
@@ -105,27 +121,38 @@ def lyric_wrapped_rows(item, text: str, style_index: int = 0) -> tuple[tuple[str
     return result
 
 
-def _wrapped_row_layout(original_layout, origins, height, line_spacing):
-    """Only continuations of the same source line omit the lyric row gap.
+def _wrapped_row_layout(original_layout, origins, height, line_spacing, style_indices=(), cue_spacing=None):
+    """Compact wraps and original-to-translation gaps within the same cue.
 
     Positions use normal lyric-row units, including fractional units for
     compact continuations. Cue centers and motion then share the same geometry.
     """
     continuation_step = max(1.0, height - max(0.0, line_spacing)) / height
-    positions = [0.0]
+    cue_spacing = line_spacing if cue_spacing is None else cue_spacing
+    # Half the inter-cue gap belongs to each block. Including that padding in
+    # extents keeps automatic context, anchoring and transition scroll aligned.
+    padding = (cue_spacing - line_spacing) / (2 * height)
+    positions = [padding]
     for index in range(1, len(origins)):
-        positions.append(positions[-1] + (
-            continuation_step if origins[index] == origins[index - 1] else 1.0))
+        previous, current = origins[index - 1], origins[index]
+        step = continuation_step if current == previous else 1.0
+        if original_layout[current][0] != original_layout[previous][0]:
+            step = 1 + 2 * padding
+        elif (current != previous
+                and current < len(style_indices) and previous < len(style_indices)
+                and style_indices[previous] >= 0 and style_indices[current] < 0):
+            step = (height - max(0.0, line_spacing) * (1 - _TRANSLATION_GAP_RATIO)) / height
+        positions.append(positions[-1] + step)
     starts, ends = {}, {}
     for origin, position in zip(origins, positions):
         slot = original_layout[origin][0]
-        starts.setdefault(slot, position)
-        ends[slot] = position + 1.0
+        starts.setdefault(slot, position - padding)
+        ends[slot] = position + 1.0 + padding
     layout = tuple((original_layout[origin][0], position - starts[original_layout[origin][0]],
                     ends[original_layout[origin][0]] - starts[original_layout[origin][0]])
                    for origin, position in zip(origins, positions))
     centers = {slot: (starts[slot] + end) / 2 for slot, end in ends.items()}
-    return layout, centers, positions[-1] + 1.0
+    return layout, centers, positions[-1] + 1.0 + padding
 
 
 def lyric_cue_extent(item, cue) -> float:
@@ -133,16 +160,39 @@ def lyric_cue_extent(item, cue) -> float:
     from app.services.lyrics_service import LyricsService
 
     lines = [line for line in LyricsService.decode_line_breaks(cue.get("text", "")).splitlines() if line.strip()]
-    if not item.source.subtitle_auto_wrap:
+    positions = cue.get("display_line_positions", tuple(range(len(lines))))
+    source = item.source
+    cue_spacing = source.subtitle_line_spacing if source.subtitle_flow_direction in {"left", "right"} else source.subtitle_cue_spacing
+    if (not source.subtitle_auto_wrap and not any(index < 0 for index in positions)
+            and cue_spacing == source.subtitle_line_spacing):
         return float(max(1, len(lines)))
     height = item._lyric_line_height()
-    continuation = max(1.0, height - max(0.0, item.source.subtitle_line_spacing)) / height
-    positions = cue.get("display_line_positions", tuple(range(len(lines))))
-    return max(1.0, sum(1 + (len(lyric_wrapped_rows(item, line, positions[index])) - 1) * continuation
-                        for index, line in enumerate(lines)))
+    origins = [index for index, line in enumerate(lines)
+               for _part in lyric_wrapped_rows(item, line, positions[index])]
+    layout = tuple((0, index, len(lines)) for index in range(len(lines)))
+    return _wrapped_row_layout(layout, origins, height, source.subtitle_line_spacing, positions, cue_spacing)[2]
 
 
 def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
+    # Text-only media cannot carry a clickable logo. Keep the documented
+    # Papago text attribution visible with its translated result in both
+    # preview and export; interactive review screens also provide the link.
+    attribution = -2 in item._subtitle_line_style_indices
+    content = rect.adjusted(0, 0, 0, -20) if attribution and rect.height() > 40 else rect
+    _paint_lines(item, painter, content)
+    if attribution:
+        painter.save()
+        painter.setClipRect(rect, Qt.ClipOperation.IntersectClip)
+        font = QFont()
+        font.setPixelSize(11)
+        painter.setFont(font)
+        painter.setPen(QColor("#B8C4D4"))
+        painter.drawText(QRectF(rect.left() + 8, rect.bottom() - 18, max(0, rect.width() - 16), 16),
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, "Translated by Papago")
+        painter.restore()
+
+
+def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
     source = item.source
     painter.save()
     painter.setClipRect(rect, Qt.ClipOperation.IntersectClip)
@@ -173,14 +223,16 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
     slots = max(1, (source.subtitle_context_lines if source.subtitle_context_lines >= 0 else 1)
                 + (source.subtitle_next_lines if source.subtitle_next_lines >= 0 else 1) + 1)
     step = rect.width() / slots if horizontal else height
-    width = max(16.0, step - source.subtitle_line_spacing) if horizontal else max(16.0, rect.width() - 24)
+    width = max(16.0, step - source.subtitle_cue_spacing) if horizontal else max(16.0, rect.width() - 24)
     # Expand display rows without changing the cue data or its original indices.
     origins = list(range(len(lines)))
     offsets = [0] * len(lines)
     original_layout = layout
     original_style_indices = item._subtitle_line_style_indices
+    compact_layout = (source.subtitle_auto_wrap or any(index < 0 for index in original_style_indices)
+        or not horizontal and source.subtitle_cue_spacing != source.subtitle_line_spacing)
     block_extent = float(len(lines))
-    if source.subtitle_auto_wrap and lines:
+    if compact_layout and lines:
         expanded, origins, offsets, boundaries = [], [], [], [0]
         for index, line in enumerate(lines):
             style_index = original_style_indices[index] if index < len(original_style_indices) else index
@@ -190,7 +242,8 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
                 offsets.append(offset)
             boundaries.append(len(expanded))
         wrapped_layout, centers, block_extent = _wrapped_row_layout(
-            original_layout, origins, height, source.subtitle_line_spacing)
+            original_layout, origins, height, source.subtitle_line_spacing, original_style_indices,
+            source.subtitle_line_spacing if horizontal else source.subtitle_cue_spacing)
         if has_current:
             count = boundaries[min(len(lines), current + count)] - boundaries[current]
             current = boundaries[current]
@@ -203,7 +256,7 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         boundaries = list(range(len(lines) + 1))
     axis = rect.width() if horizontal else rect.height()
     anchor_extent = layout[anchor][2] if anchored else (
-        layout[current][2] if source.subtitle_auto_wrap and has_current else anchor_count)
+        layout[current][2] if compact_layout and has_current else anchor_count)
     def anchor_at(extent):
         guard = min(axis / 2, step / 2 if horizontal else height * extent / 2)
         return max(guard, min(axis - guard, axis * source.subtitle_anchor))
@@ -218,7 +271,7 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
     visible_end = len(original_layout) - item._subtitle_prefetch_line_count
     prepared_end = visible_end + item._subtitle_prefetch_entry_line_count
     entering = visible_end - item._subtitle_entering_line_count if transitioning else visible_end
-    if source.subtitle_auto_wrap:
+    if compact_layout:
         old_boundary = origins[boundary] if boundary >= 0 else -1
         if previous_count and old_boundary >= 0:
             previous_count = boundaries[old_boundary] - boundaries[max(0, old_boundary - previous_count)]
@@ -302,8 +355,8 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         ) else t
         original_index = origins[index]
         line_index = original_style_indices[original_index] if original_index < len(original_style_indices) else original_index
-        overrides = source.subtitle_line_styles[line_index] if line_index < len(source.subtitle_line_styles) else {}
-        karaoke_line = not source.subtitle_karaoke_lines or line_index in source.subtitle_karaoke_lines
+        overrides = lyric_line_overrides(source, line_index)
+        karaoke_line = line_index >= 0 and (not source.subtitle_karaoke_lines or line_index in source.subtitle_karaoke_lines)
         if untimed:
             # A fallback message has no cue role. Keep subtitle-role blur,
             # opacity and typography from treating it as an upcoming lyric.
@@ -313,9 +366,9 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
                 "scale": 1.0, "opacity": 1.0, "blur": 0.0,
             }
         else:
-            previous = _line_style(source, "previous", overrides, karaoke_line)
-            active = _line_style(source, "current", overrides, karaoke_line)
-            upcoming = _line_style(source, "next", overrides, karaoke_line)
+            previous = _display_line_style(source, "previous", overrides, line_index, karaoke_line)
+            active = _display_line_style(source, "current", overrides, line_index, karaoke_line)
+            upcoming = _display_line_style(source, "next", overrides, line_index, karaoke_line)
         if slot < anchor_slot:
             span = source.subtitle_context_lines if source.subtitle_context_lines >= 0 else anchor_slot - bool(leaving)
             distance = anchor_slot - slot - (1.0 - t if previous_count else 0.0)
@@ -378,7 +431,7 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
             else:
                 span = source.subtitle_context_lines + 1 if source.subtitle_context_lines >= 0 else held_slot + 1
             waiting = context_style_at_distance(
-                _line_style(source, role, overrides, karaoke_line), active, distance, span,
+                _display_line_style(source, role, overrides, line_index, karaoke_line), active, distance, span,
                 source.subtitle_next_distance_fade if role == "next" else source.subtitle_previous_distance_fade,
             )
             amount = intro.opacity
@@ -417,7 +470,7 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
             continue
 
         scroll = source.subtitle_scroll_offset
-        if source.subtitle_auto_wrap and transitioning and not horizontal:
+        if compact_layout and transitioning and not horizontal:
             scroll = (previous_extent + anchor_extent) / 2 * height * (1 - t) if previous_count else 0.0
         if transitioning and effect == "cascade":
             scroll = (previous_extent + anchor_extent) / 2 * height * (1.0 - p) if previous_count else 0.0
@@ -461,7 +514,8 @@ def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         # A stable glyph size lets the role scale interpolate without rebuilding
         # the same blur raster for every intermediate font size.
         font_size = max(float(previous["size"]), float(active["size"]), float(upcoming["size"]))
-        font = item._lyric_font(max(8, round(font_size)), weight, italic)
+        font = item._lyric_font(max(8, round(font_size)), weight, italic,
+                                str(overrides.get("font_family", "")))
         painter.setFont(font)
         advance = item._lyric_text_advance(font, line) + 2
         fit = min(1.0, width / max(1.0, advance * size / font_size)) if source.subtitle_auto_shrink else 1.0

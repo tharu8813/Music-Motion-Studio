@@ -4532,7 +4532,7 @@ class MainWindow(QMainWindow):
         scalable_fields = (
             "border_radius", "outline_width", "font_size",
             "visualizer_line_width", "track_list_row_spacing",
-            "track_list_item_padding", "subtitle_line_spacing",
+            "track_list_item_padding", "subtitle_line_spacing", "subtitle_cue_spacing",
             "subtitle_previous_blur", "level_meter_gap",
             "particle_min_size", "particle_max_size",
         )

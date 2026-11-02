@@ -38,7 +38,8 @@ class LyricsAnimationDialog(QDialog):
         "text_alignment": ("각 가사 영역 안에서 글자를 정렬합니다. 줄이 이동하는 방향과는 별개입니다.", "Text alignment inside each cue area, independent of flow direction."),
         "subtitle_context_lines": ("현재 가사 앞에 표시할 이전 가사 묶음 수입니다. 자동은 요소 크기에 맞추고 0은 숨깁니다. 한 묶음에 여러 줄이 있을 수 있습니다.", "Previous cue groups to display. Auto fits the source; zero hides them. A group may contain multiple text lines."),
         "subtitle_next_lines": ("미리 보여 줄 다음 가사 묶음 수입니다. 자동은 요소 크기에 맞추고 0은 숨깁니다.", "Upcoming cue groups shown in advance. Auto fits the source; zero hides them."),
-        "subtitle_line_spacing": ("세로 이동에서는 가사 줄 간격, 가로 이동에서는 가사 영역 사이의 여백입니다.", "Gap between text rows in vertical flow and between cue columns in horizontal flow."),
+        "subtitle_line_spacing": ("같은 시간의 가사 묶음 안에서 원래 줄바꿈 사이의 여백입니다. 원문과 자동 번역문 사이는 조금 좁게 표시하며, 자동 줄바꿈에는 추가 여백을 넣지 않습니다.", "Gap between original lines within one cue. Automatic translations sit slightly closer; wrapped continuations have no extra gap."),
+        "subtitle_cue_spacing": ("이전·현재·다음 가사 묶음 사이의 여백입니다. 묶음 안 줄 간격과 별개이며, 가로 이동에서는 가사 영역 사이의 여백입니다.", "Gap between timed cue groups, independent of inner line spacing. In horizontal flow, this is the gap between cue columns."),
         "subtitle_previous_distance_fade": ("이전 가사가 현재 위치에 가까울수록 블러를 약하게 하고 불투명하게 표시합니다. 0은 동일, 1은 거리별로 적용합니다.", "Make nearby previous cues clearer and more opaque. Zero is uniform; one applies full distance falloff."),
         "subtitle_next_distance_fade": ("다음 가사가 현재 위치에 가까울수록 블러를 약하게 하고 불투명하게 표시합니다. 이전 가사와 별도로 적용합니다.", "Make nearby upcoming cues clearer and more opaque, independently of previous cues."),
         "subtitle_intro_enabled": ("첫 가사가 시작되기 전 임시 대기 줄을 표시합니다. 첫 가사 전환과 함께 사라집니다.", "Show a temporary waiting row before the first lyric; it exits with the first cue transition."),
@@ -57,7 +58,7 @@ class LyricsAnimationDialog(QDialog):
         "subtitle_motion_easing", "subtitle_motion_distance", "subtitle_stagger",
         "subtitle_stagger_order", "subtitle_anchor", "subtitle_zoom_amount",
         "subtitle_glow_strength", "subtitle_glow_radius", "subtitle_context_lines",
-        "subtitle_next_lines", "subtitle_line_spacing", "text_alignment", "subtitle_role_styles",
+        "subtitle_next_lines", "subtitle_line_spacing", "subtitle_cue_spacing", "text_alignment", "subtitle_role_styles",
         "subtitle_previous_distance_fade", "subtitle_next_distance_fade",
         "subtitle_intro_enabled", "subtitle_intro_midtrack", "subtitle_intro_style", "subtitle_intro_exit",
         "subtitle_intro_gap", "subtitle_intro_period", "subtitle_intro_scale",
@@ -70,7 +71,7 @@ class LyricsAnimationDialog(QDialog):
         self._korean = translator.is_korean
         self._loading = True
         self._basic = Source.from_dict(source.to_dict())
-        self._draft = Source.from_dict(source.to_dict() | source.subtitle_advanced_settings | {
+        self._draft = Source.from_dict(self._basic.to_dict() | self._basic.subtitle_advanced_settings | {
             "subtitle_advanced_categories": [], "subtitle_advanced_settings": {},
         })
         self._styles = {role: {key: value for key, value in role_style(self._draft, role).items()
@@ -149,7 +150,13 @@ class LyricsAnimationDialog(QDialog):
             self.controls[key] = spin
             layout_form.addRow(self._tr(ko, en), spin)
             self._help(layout_form, key, spin)
-        self._spin(layout_form, "subtitle_line_spacing", "줄 간격", "Line spacing", 0, 120, 1, " px")
+        self._spin(layout_form, "subtitle_line_spacing", "묶음 안 줄 간격", "Lines within a cue", 0, 120, 1, " px")
+        self._spin(layout_form, "subtitle_cue_spacing", "가사 묶음 간격", "Between lyric cues", 0, 120, 1, " px")
+        spacing_hint = QLabel(self._tr("같은 시간의 여러 줄은 한 묶음입니다. 묶음 안은 가깝게, 묶음 사이는 넓게 조절하면 가사를 구분하기 쉽습니다.",
+            "Lines with the same timing form one cue. Keep lines close and increase the gap between cues to separate them."))
+        spacing_hint.setObjectName("mutedLabel")
+        spacing_hint.setWordWrap(True)
+        layout_form.addRow(spacing_hint)
 
         role_page = self._page(tabs, "styles", "줄 스타일", "Role styles")
         role_form = self._group(role_page, "스타일 편집 대상", "Style target")
@@ -272,6 +279,12 @@ class LyricsAnimationDialog(QDialog):
         playback = QHBoxLayout()
         playback.addWidget(replay)
         playback.addWidget(self.pause)
+        self.preview_multiline = QCheckBox(self._tr("여러 줄 예시", "Multi-line sample"))
+        self.preview_multiline.setChecked(True)
+        self.preview_multiline.setToolTip(self._tr("미리보기 예시에만 두 번째 줄을 추가해 두 간격을 비교합니다. 실제 가사는 변경하지 않습니다.",
+            "Add a second sample line to compare inner and cue gaps. Actual lyrics are unchanged."))
+        self.preview_multiline.toggled.connect(self._changed)
+        playback.addWidget(self.preview_multiline)
         playback.addStretch()
         preview_column.addLayout(playback)
         body.addLayout(preview_column, 1)
@@ -464,7 +477,9 @@ class LyricsAnimationDialog(QDialog):
         horizontal = self._preview_source.subtitle_flow_direction in {"left", "right"}
         self._preview_source.width = max(680, (2 * max(previous, upcoming) + 1) * 220) if horizontal else 680
         self._item.apply_source()
-        self._preview_source.height = max(300, (2 * max(previous, upcoming) + 1) * self._item._lyric_line_height() + 24) if not horizontal else 300
+        cue_height = self._item._lyric_line_height() * (2 if self.preview_multiline.isChecked() else 1)
+        cue_height += self._preview_source.subtitle_cue_spacing - self._preview_source.subtitle_line_spacing
+        self._preview_source.height = max(300, (2 * max(previous, upcoming) + 1) * cue_height + 24) if not horizontal else 300
         self._item.apply_source()
         self._scene.set_artboard_size(self._preview_source.width, self._preview_source.height)
         self._load_role()
@@ -542,6 +557,8 @@ class LyricsAnimationDialog(QDialog):
             return
         interval = max(1.8, self._preview_source.subtitle_animation_duration + 0.5)
         texts = self._preview_texts
+        if self.preview_multiline.isChecked():
+            texts = [text + "\n" + self._tr("같은 묶음의 두 번째 줄", "Second line in the same cue") for text in texts]
         track = PlaylistTrack("", "Preview", duration_seconds=interval * len(texts), lyrics=[
             {"start": index * interval, "end": (index + 1) * interval, "text": text}
             for index, text in enumerate(texts)

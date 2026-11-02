@@ -52,6 +52,9 @@ def main() -> int:
         missing.append("_internal/numpy/_core/_multiarray_umath*.pyd")
     if not list((internal / "onnxruntime" / "capi").glob("onnxruntime_pybind11_state*.pyd")):
         missing.append("_internal/onnxruntime/capi/onnxruntime_pybind11_state*.pyd")
+    for package, pattern in (("ctranslate2", "_ext*.pyd"), ("sentencepiece", "_sentencepiece*.pyd")):
+        if not list((internal / package).glob(pattern)):
+            missing.append(f"_internal/{package}/{pattern}")
     if missing:
         print("Missing distribution files:")
         print("\n".join(f"- {path}" for path in missing))

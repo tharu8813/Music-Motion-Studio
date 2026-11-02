@@ -154,6 +154,7 @@ class LyricsComponent(TextComponent):
     context_lines: int = _legacy("subtitle_context_lines")
     next_lines: int = _legacy("subtitle_next_lines")
     line_spacing: float = _legacy("subtitle_line_spacing")
+    cue_spacing: float = _legacy("subtitle_cue_spacing")
     previous_opacity: float = _legacy("subtitle_previous_opacity")
     previous_blur: float = _legacy("subtitle_previous_blur")
     previous_distance_fade: float = _legacy("subtitle_previous_distance_fade")
@@ -179,6 +180,8 @@ class LyricsComponent(TextComponent):
     karaoke_pending_brightness: float = _legacy("subtitle_karaoke_pending_brightness")
     karaoke_lines: list[int] = _legacy("subtitle_karaoke_lines")
     line_styles: list[dict[str, object]] = _legacy("subtitle_line_styles")
+    translation_enabled: bool = _legacy("subtitle_translation_enabled")
+    translation_style: dict[str, object] = _legacy("subtitle_translation_style")
 
     @staticmethod
     def validate_styles(line_styles: object, role_styles: object, name: str) -> None:

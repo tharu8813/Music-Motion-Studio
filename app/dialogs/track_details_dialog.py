@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from copy import deepcopy
+from app.services.lyrics_translation_service import approved_translation, display_cue
 from tempfile import TemporaryDirectory
 
 import subprocess
@@ -297,9 +298,15 @@ class TrackDetailsDialog(QDialog):
         self.more_lyrics_button.setMenu(self.more_lyrics_menu)
         lyrics_action_row.addWidget(self.import_lyrics_button)
         lyrics_action_row.addWidget(self.edit_lrc_button)
+        self.translate_lyrics_button = QPushButton()
+        self.translate_lyrics_button.clicked.connect(self._translate_lyrics)
+        lyrics_action_row.addWidget(self.translate_lyrics_button)
         lyrics_action_row.addWidget(self.more_lyrics_button)
         lyrics_action_row.addStretch(1)
         lyrics_layout.addLayout(lyrics_action_row)
+        self.translation_attribution = QLabel('<a href="https://papago.naver.com/">Translated by Papago</a>')
+        self.translation_attribution.setOpenExternalLinks(True)
+        lyrics_layout.addWidget(self.translation_attribution)
 
         timing_form = QFormLayout()
         self.timing_label = QLabel()
@@ -1026,6 +1033,16 @@ class TrackDetailsDialog(QDialog):
         dialog.exec()
         dialog.deleteLater()
 
+    def _translate_lyrics(self) -> None:
+        from app.dialogs.lyrics_translation_dialog import LyricsTranslationDialog
+        if not self.selected_lyrics:
+            return
+        dialog = LyricsTranslationDialog(self.selected_lyrics, self.translator, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.selected_lyrics = deepcopy(dialog.selected_cues)
+            self._refresh_preview()
+        dialog.deleteLater()
+
     def _clear_lyrics(self) -> None:
         self.selected_lyrics_path = ""
         self.selected_lyrics = []
@@ -1283,7 +1300,7 @@ class TrackDetailsDialog(QDialog):
                 f"첫 가사 대기 · {timestamp}" if korean else f"Waiting for first lyric · {timestamp}"
             )
             self.next_lyric.setText(LyricsService.decode_line_breaks(
-                self.selected_lyrics[cue_index].get("text", "")
+                display_cue(self.selected_lyrics[cue_index]).get("text", "")
             ).strip())
             return
         latest_started = cue_index
@@ -1296,7 +1313,7 @@ class TrackDetailsDialog(QDialog):
 
         def cue_text(index: int) -> str:
             return LyricsService.decode_line_breaks(
-                self.selected_lyrics[index].get("text", "")
+                display_cue(self.selected_lyrics[index]).get("text", "")
             ).strip()
 
         current_indices = active or (cue_index,)
@@ -1329,6 +1346,14 @@ class TrackDetailsDialog(QDialog):
         )
         self.clear_button.setEnabled(bool(self.selected_lyrics_path or self.selected_lyrics))
         self.edit_lrc_button.setEnabled(self._audio_available or bool(self.selected_lyrics))
+        self.translate_lyrics_button.setEnabled(any(str(cue.get("text", "")).strip() for cue in self.selected_lyrics))
+        translated_count = sum(bool(approved_translation(cue)) for cue in self.selected_lyrics)
+        stale_count = sum(bool(cue.get("translation")) and not approved_translation(cue) for cue in self.selected_lyrics)
+        self.translate_lyrics_button.setToolTip(
+            "번역문을 검토·수정하거나 새로 번역합니다. 원문과 시간 정보는 유지됩니다."
+            if korean else "Review, edit or translate lyrics. Original text and timing are preserved.")
+        self.translation_attribution.setVisible(any(approved_translation(cue)
+            and cue["translation"]["provider"] == "papago" for cue in self.selected_lyrics))
         self.export_lrc_button.setEnabled(bool(self.selected_lyrics))
         self.export_lyrics_action.setEnabled(bool(self.selected_lyrics))
         self.detach_lyrics_action.setEnabled(bool(self.selected_lyrics_path or self.selected_lyrics))
@@ -1337,6 +1362,12 @@ class TrackDetailsDialog(QDialog):
             f"{count}개 타임코드 · 보정 적용 미리보기"
             if korean else f"{count} timed cues · adjusted preview"
         )
+        if translated_count:
+            self.cue_summary.setText(self.cue_summary.text() + (
+                f" · 번역 {translated_count}줄" if korean else f" · {translated_count} translated rows"))
+        if stale_count:
+            self.cue_summary.setText(self.cue_summary.text() + (
+                f" · 번역 재검토 {stale_count}줄" if korean else f" · {stale_count} translations need review"))
         self._update_live_lyrics()
         self._refresh_header()
         if not self.selected_lyrics:
@@ -1354,6 +1385,9 @@ class TrackDetailsDialog(QDialog):
                 cue.get("text", "")
             ).replace("\n", " / ").strip()
             lines.append(f"[{self._timestamp(start)}]  {text}")
+            translated = approved_translation(cue)
+            if translated:
+                lines.append("    ↳ " + translated.replace("\n", " / "))
         if count > 120:
             lines.append(f"… +{count - 120}")
         self.preview.setPlainText("\n".join(lines))
@@ -1407,6 +1441,7 @@ class TrackDetailsDialog(QDialog):
         super().done(result)
 
     def retranslate(self) -> None:
+        self.translate_lyrics_button.setText("가사 번역…" if self.translator.is_korean else "Translate lyrics…")
         korean = self.translator.is_korean
         self.setWindowTitle("곡 정보/설정" if korean else "Track information/settings")
         self.tabs.setTabText(0, "곡 정보" if korean else "Track information")

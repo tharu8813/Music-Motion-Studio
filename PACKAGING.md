@@ -8,6 +8,10 @@ Playlist Canvas에서 제품 이름을 변경했습니다. `setup.iss`의 기존
 
 > 저장소 루트의 `ffmpeg` 폴더는 개발 및 로컬 렌더링 테스트용입니다. PyInstaller 배포본에는 포함되지 않습니다. 배포 폴더에 이 디렉터리를 수동으로 복사하지 마세요.
 
+로컬 가사 번역용 CTranslate2·SentencePiece 런타임은 앱에 포함합니다. PyTorch·Stanza를 실행에 사용하지 않으며, Argos 언어별 모델은 번역 창에서 원문·번역 언어를 선택한 뒤 **이 언어 모델 자동 설치**로 준비해 `%LOCALAPPDATA%\PlaylistCanvas\translation-models`에 저장합니다. 개발용 `work`의 모델 파일은 배포본에 포함하지 않습니다. 배포 검사에서는 두 번역 런타임의 네이티브 확장도 확인합니다.
+
+로컬 LLM의 Ollama 실행 구성요소와 가중치는 설치 파일에 포함하지 않습니다. 사용자가 로컬 LLM 관리자에서 자동 설치를 실행하면 공식 GitHub 릴리즈 ZIP의 SHA-256을 검증한 뒤 `%LOCALAPPDATA%\PlaylistCanvas\local-llm`에 설치합니다. Windows x64를 지원하며 GPU 드라이버·AMD 추가 패키지는 자동 설치하지 않습니다. 모델·런타임의 라이선스 파일은 유지합니다. 이미 사용자가 실행한 Ollama/LM Studio 서버는 재사용하며 해당 서버의 파일은 임의로 이동하지 않습니다.
+
 ## 1. 빌드 환경 준비
 
 공식 개발·배포 기준은 **Python 3.14.10, Windows x64 일반 빌드(GIL 사용)**입니다. 버전은 `.python-version`에 고정하며 Windows CI도 이 파일을 읽습니다. Python 3.15는 ONNX Runtime의 Windows 패키지가 아직 없어 전체 AutoMix 기능을 제공하는 배포 기준에서 제외합니다.
