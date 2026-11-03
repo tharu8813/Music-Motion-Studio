@@ -1,0 +1,231 @@
+{
+  "date": "2026-11-04",
+  "runs": [
+    {
+      "name": "visual-only-first",
+      "modules": [
+        {
+          "module": "tests.test_custom_motion_dialog",
+          "status": "pass",
+          "seconds": 8.46,
+          "returncode": 0,
+          "tests": 41,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_keyframe_workspace",
+          "status": "pass",
+          "seconds": 5.63,
+          "returncode": 0,
+          "tests": 6,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_timeline_models",
+          "status": "pass",
+          "seconds": 0.29,
+          "returncode": 0,
+          "tests": 4,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_visual_timeline",
+          "status": "pass",
+          "seconds": 1.47,
+          "returncode": 0,
+          "tests": 8,
+          "skipped": 0
+        }
+      ]
+    },
+    {
+      "name": "visual-only-regression",
+      "modules": [
+        {
+          "module": "tests.test_help_content",
+          "status": "pass",
+          "seconds": 2.47,
+          "returncode": 0,
+          "tests": 10,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_keyframe_workspace",
+          "status": "pass",
+          "seconds": 5.7,
+          "returncode": 0,
+          "tests": 6,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_main_window",
+          "status": "fail",
+          "seconds": 57.27,
+          "returncode": 1,
+          "tests": 86,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_main_window_export",
+          "status": "pass",
+          "seconds": 33.54,
+          "returncode": 0,
+          "tests": 55,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_main_window_lyrics_search",
+          "status": "pass",
+          "seconds": 4.39,
+          "returncode": 0,
+          "tests": 5,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_main_window_playlist",
+          "status": "pass",
+          "seconds": 24.37,
+          "returncode": 0,
+          "tests": 40,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_main_window_preview",
+          "status": "pass",
+          "seconds": 126.14,
+          "returncode": 0,
+          "tests": 79,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_main_window_project",
+          "status": "pass",
+          "seconds": 87.11,
+          "returncode": 0,
+          "tests": 64,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_responsive_workspace",
+          "status": "pass",
+          "seconds": 11.39,
+          "returncode": 0,
+          "tests": 6,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_timeline_models",
+          "status": "pass",
+          "seconds": 0.34,
+          "returncode": 0,
+          "tests": 4,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_visual_timeline",
+          "status": "timeout",
+          "seconds": 180.01
+        }
+      ]
+    },
+    {
+      "name": "visual-only-native-final",
+      "modules": [
+        {
+          "module": "tests.test_custom_motion_dialog",
+          "status": "pass",
+          "seconds": 26.64,
+          "returncode": 0,
+          "tests": 41,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_help_content",
+          "status": "pass",
+          "seconds": 4.66,
+          "returncode": 0,
+          "tests": 10,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_keyframe_workspace",
+          "status": "pass",
+          "seconds": 17.46,
+          "returncode": 0,
+          "tests": 6,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_timeline_models",
+          "status": "pass",
+          "seconds": 0.48,
+          "returncode": 0,
+          "tests": 4,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_visual_timeline",
+          "status": "pass",
+          "seconds": 3.84,
+          "returncode": 0,
+          "tests": 10,
+          "skipped": 0
+        }
+      ]
+    },
+    {
+      "name": "visual-only-en-150",
+      "modules": [
+        {
+          "module": "tests.test_visual_timeline",
+          "status": "pass",
+          "seconds": 3.55,
+          "returncode": 0,
+          "tests": 10,
+          "skipped": 0
+        }
+      ]
+    }
+  ],
+  "final_native": {
+    "tests": 71,
+    "passed": 71,
+    "skipped": 0
+  },
+  "english_150_percent": {
+    "tests": 10,
+    "passed": 10,
+    "skipped": 0
+  },
+  "main_window_selection_recheck": {
+    "test": "tests.test_main_window.MainWindowWorkspaceTests.test_timeline_move_buttons_follow_the_selection_and_empty_state_explains",
+    "passed": true
+  },
+  "initial_regression_followup": {
+    "main_window": "Updated the removed-table fixture to check music rows separately from default source rows; the corrected test passed in native Windows.",
+    "visual_timeline": "A modal-menu test mock timed out; replaced the blocking native menu mock with an action-menu harness, then reran all 10 visual tests successfully."
+  },
+  "display_checks": {
+    "languages": [
+      "ko",
+      "en"
+    ],
+    "dpi": [
+      "100%",
+      "150%"
+    ],
+    "panel_sizes": [
+      [
+        1000,
+        460
+      ],
+      [
+        680,
+        340
+      ]
+    ],
+    "timing_data_preserved": true,
+    "screenshots": "work/visual-only-timeline and work/visual-only-timeline-150"
+  },
+  "scope": "Current-task tests only. Repeated tests and DPI runs are not a unique-test total."
+}

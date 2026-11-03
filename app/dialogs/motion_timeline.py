@@ -29,6 +29,7 @@ class MotionTimeline(QWidget):
         self.editable = True
         self.active = False
         self.enabled_track = True
+        self.editable_times = None
         self.setAccessibleName("애니메이션 키프레임 / Animation keyframes")
 
     def point_x(self, progress):
@@ -53,7 +54,8 @@ class MotionTimeline(QWidget):
         painter.drawLine(QPointF(12, 19), QPointF(self.width()-12, 19))
         for point in self.points:
             x = self.point_x(point.time)
-            color = "disabled_text" if not self.enabled_track else "accent" if abs(point.time-self.selected) < 1e-6 else "muted"
+            enabled = self.enabled_track and (self.editable_times is None or point.time in self.editable_times)
+            color = "disabled_text" if not enabled else "accent" if abs(point.time-self.selected) < 1e-6 else "muted"
             painter.setBrush(QColor(COLORS[color]))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawPolygon(QPolygonF([QPointF(x, 11), QPointF(x+6, 19), QPointF(x, 27), QPointF(x-6, 19)]))
@@ -75,7 +77,7 @@ class MotionTimeline(QWidget):
             self.segment_selected.emit(value)
             self.seek_requested.emit(value)
         else:
-            self.dragged = point if self.editable else None
+            self.dragged = point if self.editable and (self.editable_times is None or point in self.editable_times) else None
             self.point_selected.emit(point)
             if self.dragged is not None:
                 self.gesture_started.emit()
@@ -108,7 +110,8 @@ class MotionTimeline(QWidget):
         add = menu.addAction("여기에 키프레임 추가" if self.korean else "Add keyframe here")
         add.setEnabled(self.editable and 0 <= progress <= 1)
         delete = menu.addAction("키프레임 삭제" if self.korean else "Delete keyframe")
-        delete.setEnabled(self.editable and hit is not None and hit not in (0, 1))
+        delete.setEnabled(self.editable and hit is not None and hit not in (0, 1)
+            and (self.editable_times is None or hit in self.editable_times))
         chosen = menu.exec(event.globalPos())
         if chosen is add:
             self.add_requested.emit(progress)

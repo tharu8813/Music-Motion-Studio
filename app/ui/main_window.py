@@ -5526,8 +5526,7 @@ class MainWindow(QMainWindow):
                 Qt.FocusReason.ShortcutFocusReason
             )
         elif selected == 1:
-            (self.timeline_panel.visual if self.timeline_panel.view_combo.currentIndex() == 0
-             else self.timeline_panel.track_table).setFocus(
+            self.timeline_panel.visual.setFocus(
                 Qt.FocusReason.ShortcutFocusReason
             )
 

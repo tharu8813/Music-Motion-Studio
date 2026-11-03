@@ -39,8 +39,10 @@ class KeyframeWorkspaceTests(MainWindowTestCase):
         controller.choose_track(self.window.playlist_service.tracks[0].id)
         controller.toggle("scale")
         saved = source.to_dict()
-        for index in (0, 1, 0):
-            self.window.timeline_panel.view_combo.setCurrentIndex(index)
+        visual = self.window.timeline_panel.visual
+        visual.set_selected("source", source.id)
+        visual.focus_selected()
+        visual.fit_all()
         self.assertEqual(source.to_dict(), saved)
 
     def test_saved_banks_never_reintroduce_the_retired_editor(self):
@@ -59,11 +61,11 @@ class KeyframeWorkspaceTests(MainWindowTestCase):
             for language in (Language.ENGLISH, Language.KOREAN):
                 self.window.translator.set_language(language)
                 self.application.processEvents()
-                self.assertEqual(panel.view_combo.count(), 2)
-                self.assertEqual(panel.view_stack.count(), 2)
-                for index in (1, 0):
-                    panel.view_combo.setCurrentIndex(index)
-                    self.assertEqual(panel.view_stack.currentIndex(), index)
+                self.assertFalse(hasattr(panel, "view_combo"))
+                self.assertFalse(hasattr(panel, "track_table"))
+                panel.visual.set_selected("source", source.id)
+                panel.visual.focus_selected()
+                panel.visual.fit_all()
             self.assertEqual(source.keyframes.global_curves, saved.global_curves)
         self.assertEqual(source.keyframes.single_track_curves[track.id]["rotation"], [Keyframe(0, 30)])
         self.assertEqual(source.keyframes.per_track_curves[track.id]["scale"], [Keyframe(0, 2)])

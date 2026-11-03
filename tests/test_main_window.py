@@ -1846,18 +1846,19 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
         panel = self.window.timeline_panel
         self.window.playlist_service.replace([])
         panel.refresh()
-        self.assertFalse(panel.track_empty_label.isHidden())
+        self.assertFalse(any(block.kind == "track" for block in panel.visual.blocks))
+        self.assertFalse(panel.preview_button.isEnabled())
         self.assertFalse(panel.up_button.isEnabled())
         tracks = [PlaylistTrack(f"{name}.wav", name, duration_seconds=10.0) for name in "abc"]
         self.window.playlist_service.replace(tracks)
         panel.refresh()
-        self.assertTrue(panel.track_empty_label.isHidden())
+        self.assertEqual(sum(block.kind == "track" for block in panel.visual.blocks), 3)
         self.assertFalse(panel.up_button.isEnabled())
         self.assertFalse(panel.down_button.isEnabled())
-        panel.track_table.selectRow(0)
+        panel._select_visual_block("track", tracks[0].id)
         self.assertFalse(panel.up_button.isEnabled())
         self.assertTrue(panel.down_button.isEnabled())
-        panel.track_table.selectRow(2)
+        panel._select_visual_block("track", tracks[2].id)
         self.assertTrue(panel.up_button.isEnabled())
         self.assertFalse(panel.down_button.isEnabled())
 
@@ -2003,8 +2004,6 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
         other_item_views = (
             self.window.layer_panel.tree,
             self.window.playlist_editor.list_widget,
-            self.window.timeline_panel.track_table,
-            self.window.timeline_panel.source_table,
         )
         for view in other_item_views:
             service._prepare_scroll_area(view)
@@ -2377,7 +2376,11 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
             self.assertEqual(dialog.tag_combo.currentData(), "단축키")
             for index, tab in enumerate(("canvas", "preview", "lyrics_editor", "automix_editor")):
                 dialog.select_tab(tab)
-                self.assertTrue(dialog.tab_bar.tabText(index).endswith("1"), dialog.tab_bar.tabText(index))
+                # The custom motion shortcuts topic also belongs to Canvas.
+                # The badge must count every matching topic, not assume one.
+                visible = dialog.visible_topic_ids()
+                self.assertTrue(visible)
+                self.assertTrue(dialog.tab_bar.tabText(index).endswith(str(len(visible))), dialog.tab_bar.tabText(index))
                 self.assertTrue(all(
                     "단축키" in dialog._topic(identifier).tags for identifier in dialog.visible_topic_ids()
                 ))

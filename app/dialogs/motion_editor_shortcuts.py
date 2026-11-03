@@ -24,7 +24,8 @@ class MotionEditorShortcuts(QObject):
         K, M = Qt.Key, Qt.KeyboardModifier
         if modifiers == M.ControlModifier:
             return {K.Key_Z: d.undo_stack.undo, K.Key_Y: d.undo_stack.redo,
-                K.Key_Left: lambda: d.navigate(-1), K.Key_Right: lambda: d.navigate(1),
+                K.Key_Left: lambda: d.navigate(-1) if d.advanced else d.navigate_common(-1),
+                K.Key_Right: lambda: d.navigate(1) if d.advanced else d.navigate_common(1),
                 K.Key_Home: lambda: d.seek(0), K.Key_End: lambda: d.seek(1),
                 K.Key_0: d.canvas.fit_canvas, K.Key_1: d.canvas.zoom,
                 K.Key_Backspace: d.reset_active_value}.get(key)
@@ -47,8 +48,9 @@ class MotionEditorShortcuts(QObject):
             K.Key_Home: lambda: d.seek(d.play_minimum), K.Key_End: lambda: d.seek(d.play_maximum),
             K.Key_Left: lambda: d.seek(d.progress-.01/d.durations[d.edge]),
             K.Key_Right: lambda: d.seek(d.progress+.01/d.durations[d.edge]),
-            K.Key_K: lambda: d.add_point(d.progress), K.Key_Delete: lambda: d.delete_point(d.progress),
-            K.Key_Backspace: lambda: d.delete_point(d.progress),
+            K.Key_K: lambda: d.add_point(d.progress) if d.advanced else d.add_common_point(d.progress),
+            K.Key_Delete: lambda: d.delete_point(d.progress) if d.advanced else d.delete_common_point(d.progress),
+            K.Key_Backspace: lambda: d.delete_point(d.progress) if d.advanced else d.delete_common_point(d.progress),
             K.Key_E: lambda: d.toggle_field(d.active_field, not d.motion.field_enabled(d.active_field)),
             K.Key_B: d.edit_graph, K.Key_P: lambda: d.open_presets(d.active_field),
             K.Key_L: lambda: d.loop.setChecked(not d.loop.isChecked()),

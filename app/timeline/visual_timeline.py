@@ -42,7 +42,8 @@ class VisualTimeline(QAbstractScrollArea):
     zoom_changed = Signal(int)
     hint_changed = Signal(str)
     reset_requested = Signal(str, str)
-    numeric_edit_requested = Signal(str, str)
+    preview_requested = Signal()
+    reorder_requested = Signal(str, int)
 
     LABEL = 176
     RULER = 32
@@ -71,6 +72,7 @@ class VisualTimeline(QAbstractScrollArea):
         self._pan = None
         self._last_point = QPointF()
         self._snap_guide = None
+        self._hovered = None
         self._auto_scroll = QTimer(self)
         self._auto_scroll.setInterval(40)
         self._auto_scroll.timeout.connect(self._scroll_drag)
@@ -123,6 +125,32 @@ class VisualTimeline(QAbstractScrollArea):
                 scroll.setValue(top + self.ROW - visible)
         self.viewport().update()
 
+    def selected_block(self):
+        return next((b for b in self.blocks if (b.kind, b.identifier) == self.selected), None)
+
+    def focus_selected(self):
+        block = self.selected_block()
+        if block is None:
+            return
+        self.cancel_drag()
+        self._fit_mode = False
+        span = max(.5, block.end-block.start)
+        available = max(1, self.viewport().width()-self.LABEL-48)
+        self.pixels_per_second = max(self._fit_scale(), min(2000, available/(span*1.2)))
+        self._update_scrollbars()
+        self.horizontalScrollBar().setValue(round((block.start+block.end)/2*self.pixels_per_second
+            -(self.viewport().width()-self.LABEL)/2))
+        self._show_hint(block)
+
+    def seek_selected(self, end=False):
+        block = self.selected_block()
+        if block is not None:
+            self.set_playhead(block.end if end else block.start)
+            x = self.x_at(self.playhead)
+            if x < self.LABEL+16 or x > self.viewport().width()-16:
+                self.horizontalScrollBar().setValue(round(self.playhead*self.pixels_per_second
+                    -(self.viewport().width()-self.LABEL)/2))
+
     def set_playhead(self, seconds: float) -> None:
         self.playhead = max(0.0, min(self.duration, seconds))
         self.position_changed.emit(self.playhead)
@@ -140,7 +168,7 @@ class VisualTimeline(QAbstractScrollArea):
         anchor_x = self.LABEL + (self.viewport().width() - self.LABEL) / 2 if anchor_x is None else anchor_x
         anchor_time = self.time_at(anchor_x)
         self._fit_mode = False
-        self.pixels_per_second = max(self._fit_scale(), min(200.0, self.pixels_per_second * factor))
+        self.pixels_per_second = max(self._fit_scale(), min(2000.0, self.pixels_per_second * factor))
         self._update_scrollbars()
         self.horizontalScrollBar().setValue(round(anchor_time * self.pixels_per_second - anchor_x + self.LABEL))
 
@@ -230,10 +258,28 @@ class VisualTimeline(QAbstractScrollArea):
             detail = ("곡 끝까지" if self.korean else "To playlist end") if block.full else clock(block.end - block.start)
             painter.drawText(text_rect.adjusted(0, 20, 0, -1), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, detail)
             painter.restore()
-            if selected and block.kind == "source" and not block.locked:
-                painter.setPen(QPen(QColor(COLORS["accent"]), 2))
+            if (selected or self._hovered == (block.kind, block.identifier)) and block.kind == "source" and not block.locked:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor(COLORS["accent"]))
                 for x in (rect.left() + 5, rect.right() - 5):
-                    painter.drawLine(QPointF(x, rect.center().y() - 6), QPointF(x, rect.center().y() + 6))
+                    painter.drawRoundedRect(QRectF(x-3, rect.center().y()-9, 6, 18), 2, 2)
+        if not self.tracks and self.sources:
+            painter.setPen(QColor(COLORS["muted"]))
+            painter.drawText(QRectF(self.LABEL+16, self.RULER-self.verticalScrollBar().value(),
+                max(1, width-self.LABEL-32), self.ROW), Qt.AlignmentFlag.AlignVCenter,
+                "플레이리스트에서 음악을 추가하세요." if self.korean else "Add music in the Playlist tab.")
+        if self._draft:
+            block, start_time, duration = self._draft
+            text = f"{clock(start_time)} → " + (("곡 끝까지" if self.korean else "Playlist end") if duration == 0 else
+                f"{clock(start_time+duration)}  ·  {clock(duration)}")
+            text_width = painter.fontMetrics().horizontalAdvance(text)+20
+            box = QRectF(max(self.LABEL+4, min(self.viewport().width()-text_width-4, self._last_point.x()-text_width/2)),
+                         max(self.RULER+2, self.block_rect(block).top()-27), text_width, 24)
+            painter.setPen(QPen(QColor(COLORS["accent"])))
+            painter.setBrush(QColor(COLORS["panel"]))
+            painter.drawRoundedRect(box, 4, 4)
+            painter.setPen(QColor(COLORS["text"]))
+            painter.drawText(box, Qt.AlignmentFlag.AlignCenter, text)
         if self._snap_guide is not None:
             painter.setPen(QPen(QColor(COLORS["text"]), 1, Qt.PenStyle.DashLine))
             painter.drawLine(QPointF(self.x_at(self._snap_guide), self.RULER), QPointF(self.x_at(self._snap_guide), height))
@@ -247,6 +293,10 @@ class VisualTimeline(QAbstractScrollArea):
             if y < self.RULER or y >= height:
                 continue
             lane = QRectF(12, y, self.LABEL - 24, self.ROW)
+            selected_block = self.selected_block()
+            if selected_block is not None and selected_block.row == row:
+                painter.fillRect(QRectF(0, y, self.LABEL, self.ROW), QColor(COLORS["selection"]))
+                painter.fillRect(QRectF(0, y, 3, self.ROW), QColor(COLORS["accent"]))
             painter.setPen(QColor(COLORS["text"]))
             if row == 0:
                 label = "음악" if self.korean else "Music"
@@ -313,6 +363,17 @@ class VisualTimeline(QAbstractScrollArea):
             return
         if event.button() != Qt.MouseButton.LeftButton:
             return super().mousePressEvent(event)
+        if point.x() < self.LABEL and point.y() >= self.RULER:
+            row = int((point.y()-self.RULER+self.verticalScrollBar().value())/self.ROW)
+            block = next((b for b in self.blocks if b.row == row and
+                (row != 0 or b.start <= self.playhead < b.end)), None)
+            if block is None and row == 0:
+                block = next((b for b in self.blocks if b.kind == "track"), None)
+            if block is not None:
+                self.set_selected(block.kind, block.identifier)
+                self.selection_changed.emit(block.kind, block.identifier)
+                self._show_hint(block)
+            return
         hit = self._hit(point)
         if hit:
             block, mode = hit
@@ -321,10 +382,8 @@ class VisualTimeline(QAbstractScrollArea):
             self._show_hint(block)
             if block.locked:
                 return
-            self._fit_mode = False
             self._drag = (block, mode, point.x(), self.horizontalScrollBar().value())
             self._last_point = point
-            self._auto_scroll.start()
         elif point.x() >= self.LABEL:
             self.set_playhead(self.time_at(point.x()))
             self._pan = ("seek", 0)
@@ -350,6 +409,11 @@ class VisualTimeline(QAbstractScrollArea):
     def _update_draft(self, point: QPointF, modifiers=Qt.KeyboardModifier.NoModifier) -> None:
         block, mode, press_x, press_scroll = self._drag
         delta = (point.x() - press_x + self.horizontalScrollBar().value() - press_scroll) / self.pixels_per_second
+        if self._draft is None and abs(delta)*self.pixels_per_second < 3:
+            return  # A click or a tiny hand movement only selects the block.
+        self._fit_mode = False
+        if not self._auto_scroll.isActive():
+            self._auto_scroll.start()
         start, end = block.start, block.end
         invert = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
         if mode == "move":
@@ -380,6 +444,10 @@ class VisualTimeline(QAbstractScrollArea):
                 self.horizontalScrollBar().setValue(round(self._pan[1] - point.x() + self._pan[0]))
             return
         hit = self._hit(point)
+        hovered = (hit[0].kind, hit[0].identifier) if hit else None
+        if self._hovered != hovered:
+            self._hovered = hovered
+            self.viewport().update()
         cursor = Qt.CursorShape.ArrowCursor
         if hit:
             block, mode = hit
@@ -389,6 +457,30 @@ class VisualTimeline(QAbstractScrollArea):
         elif point.x() >= self.LABEL:
             cursor = Qt.CursorShape.CrossCursor
         self.viewport().setCursor(cursor)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            hit = self._hit(event.position())
+            if hit:
+                block, _ = hit
+                self.set_selected(block.kind, block.identifier)
+                self.selection_changed.emit(block.kind, block.identifier)
+                self.focus_selected()
+                event.accept()
+                return
+        super().mouseDoubleClickEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = None
+        if not self._drag:
+            self.viewport().unsetCursor()
+        self.viewport().update()
+        super().leaveEvent(event)
+
+    def hideEvent(self, event):
+        self.cancel_drag()
+        self.viewport().unsetCursor()
+        super().hideEvent(event)
 
     def _scroll_drag(self) -> None:
         if not self._drag:
@@ -413,6 +505,7 @@ class VisualTimeline(QAbstractScrollArea):
     def cancel_drag(self) -> None:
         self._auto_scroll.stop()
         self._drag = self._draft = None
+        self._pan = None
         self._snap_guide = None
         self.viewport().update()
 
@@ -427,6 +520,9 @@ class VisualTimeline(QAbstractScrollArea):
         self.viewport().setToolTip(hint)
 
     def wheelEvent(self, event) -> None:
+        if self._drag:
+            event.accept()
+            return
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             self.zoom(1.25 if event.angleDelta().y() > 0 else .8, max(self.LABEL, event.position().x()))
             event.accept()
@@ -439,12 +535,29 @@ class VisualTimeline(QAbstractScrollArea):
 
     def keyPressEvent(self, event) -> None:
         key = event.key()
+        if self._drag and key != Qt.Key.Key_Escape:
+            event.accept()
+            return
         if key == Qt.Key.Key_Escape:
             self.cancel_drag(); self._pan = None
         elif key in {Qt.Key.Key_Plus, Qt.Key.Key_Equal, Qt.Key.Key_Minus}:
             self.zoom(.8 if key == Qt.Key.Key_Minus else 1.25)
         elif key == Qt.Key.Key_Home:
             self.set_playhead(0)
+        elif key == Qt.Key.Key_End:
+            self.set_playhead(self.duration)
+        elif key == Qt.Key.Key_F:
+            self.fit_all()
+        elif key == Qt.Key.Key_BracketLeft:
+            self.seek_selected(False)
+        elif key == Qt.Key.Key_BracketRight:
+            self.seek_selected(True)
+        elif key in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
+            self.preview_requested.emit()
+        elif key in {Qt.Key.Key_Up, Qt.Key.Key_Down} and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            block = self.selected_block()
+            if block and block.kind == "track":
+                self.reorder_requested.emit(block.identifier, -1 if key == Qt.Key.Key_Up else 1)
         elif key in {Qt.Key.Key_Up, Qt.Key.Key_Down} and self.blocks:
             index = next((i for i, b in enumerate(self.blocks) if (b.kind, b.identifier) == self.selected), -1)
             block = self.blocks[max(0, min(len(self.blocks) - 1, index + (-1 if key == Qt.Key.Key_Up else 1)))]
@@ -471,12 +584,24 @@ class VisualTimeline(QAbstractScrollArea):
         self.set_selected(block.kind, block.identifier)
         self.selection_changed.emit(block.kind, block.identifier)
         menu = QMenu(self)
-        numeric = menu.addAction("숫자로 편집…" if self.korean else "Edit numerically…")
+        focus = menu.addAction("선택 구간 확대" if self.korean else "Focus selection")
+        start = menu.addAction("시작으로 이동" if self.korean else "Seek start")
+        end = menu.addAction("끝으로 이동" if self.korean else "Seek end")
+        preview = menu.addAction("여기서 미리보기" if self.korean else "Preview here")
+        preview.setEnabled(bool(self.tracks))
+        menu.addSeparator()
         reset = menu.addAction(("곡 끝까지 표시" if self.korean else "Show to playlist end") if block.kind == "source"
                                else ("자동 이어붙이기" if self.korean else "Sequence automatically"))
         reset.setEnabled(not block.locked)
         chosen = menu.exec(event.globalPos())
-        if chosen is numeric:
-            self.numeric_edit_requested.emit(block.kind, block.identifier)
+        if chosen is focus:
+            self.focus_selected()
+        elif chosen is start:
+            self.seek_selected(False)
+        elif chosen is end:
+            self.seek_selected(True)
+        elif chosen is preview:
+            self.set_playhead(self.time_at(event.pos().x()))
+            self.preview_requested.emit()
         elif chosen is reset:
             self.reset_requested.emit(block.kind, block.identifier)

@@ -36,9 +36,9 @@ MOTION_GUIDE = (
         ("요소를 끌어 이동하고 핸들로 크기·회전을 조절하세요. <b>휠</b>로 확대·축소하고 빈 곳 또는 가운데 버튼을 드래그해 화면을 이동합니다. <b>Space+드래그</b>도 가능합니다.",
          "Drag the source or its resize/rotation handles. <b>Wheel</b> zooms; drag empty space or use the middle button to pan. <b>Space+drag</b> also pans."), motion_art),
     GuidePage(("속성별 시간과 곡선", "Independent timing and curves"),
-        ("X·Y·크기·회전·투명도를 따로 편집합니다. 점 사이를 선택해 곡선·프리셋을 바꾸세요. 오른쪽 <b>슬라이더</b>와 숫자 입력은 함께 움직입니다. 트랙을 꺼도 키프레임은 남습니다.",
-         "Edit X, Y, scale, rotation and opacity independently. Select an interval for its curve or preset. <b>Sliders</b> and numeric fields stay in sync. Disabling a track preserves its keys."), motion_art),
+        ("처음에는 <b>간단 모드</b>의 공통 시간축을 사용합니다. 값을 바꾸면 해당 속성에만 점을 만듭니다. <b>고급 모드</b>에서 X·Y·크기·회전·투명도의 트랙과 구간 곡선을 따로 조절하세요. 모드를 전환해도 점과 베지어 곡선은 보존됩니다.",
+         "Start with the shared timeline in <b>Simple mode</b>. Value edits key only changed properties. Use <b>Advanced mode</b> for independent X, Y, scale, rotation and opacity tracks and interval curves. Switching modes preserves keys and Bezier curves."), motion_art),
     GuidePage(("짧게 재생하고 안전하게 적용", "Preview, then apply"),
-        ("<b>Space</b>로 재생·일시 정지, <b>K</b>로 점 추가, <b>Ctrl+Z</b>로 되돌립니다. 시작 효과 뒤/끝 효과 앞에는 효과 길이의 <b>절반</b>만 미리보기 전용 구간을 둡니다. <b>적용</b> 전에는 프로젝트가 바뀌지 않습니다. 상단 안내 버튼으로 다시 볼 수 있습니다.",
-         "<b>Space</b> plays/pauses, <b>K</b> adds a key and <b>Ctrl+Z</b> undoes. Read-only context lasts <b>half</b> the effect: after entrance, before exit. The project changes only on <b>Apply</b>. Reopen this tour with the guide button."), motion_art),
+        ("<b>Space</b>로 재생, <b>K</b>로 자세 추가, <b>Ctrl+Z</b>로 되돌립니다. 시작 마지막 자세와 종료 첫 자세가 다르면 안내합니다. 원할 때만 <b>시작 애니메이션의 마지막 자세 가져오기</b>를 누르세요. <b>적용</b> 전에는 프로젝트가 바뀌지 않습니다.",
+         "<b>Space</b> plays, <b>K</b> adds a pose and <b>Ctrl+Z</b> undoes. A notice flags differences between the entrance's final pose and the exit's first pose. Choose <b>Use entrance's final pose</b> to join them. The project changes only on <b>Apply</b>."), motion_art),
 )

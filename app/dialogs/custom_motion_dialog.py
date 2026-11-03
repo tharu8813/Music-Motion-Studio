@@ -6,9 +6,10 @@ from types import SimpleNamespace
 from PySide6.QtCore import QElapsedTimer, QSignalBlocker, QSize, QTimer, Qt
 from PySide6.QtGui import QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
-    QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSlider, QSplitter, QStyle, QToolButton, QVBoxLayout, QWidget)
+    QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QPushButton, QScrollArea, QSlider, QSplitter, QStyle, QToolButton, QVBoxLayout, QWidget)
 
-from app.animation.custom_motion import CustomMotion, MOTION_FIELDS
+from app.animation.custom_motion import CustomMotion, MOTION_FIELDS, exit_pose_differences, resting_pose
+from app.animation.keyframes import Keyframe
 from app.dialogs.adaptive_dialog import AdaptiveDialog
 from app.dialogs.motion_canvas import MotionCanvas
 from app.dialogs.motion_timeline import MotionTimeline, MotionRuler
@@ -30,13 +31,18 @@ class DraftCommand(QUndoCommand):
 
 
 class CustomMotionDialog(AdaptiveDialog):
-    def __init__(self, source, project_scene, tracks, translator, edge="in", parent=None):
+    def __init__(self, source, project_scene, tracks, translator, edge="in", parent=None, *, compiled_plan=None):
         super().__init__(parent)
         self.source = deepcopy(source)
         self.translator = translator
+        self.compiled_plan = compiled_plan
+        self._clock_windows = None
+        from app.timeline.render_plan import visual_segments
+        self._segments = {segment.track_id: segment for segment in visual_segments(compiled_plan)} if compiled_plan else {}
         self.edge = edge
         self.progress = 0.0
         self.active_field = "dx"
+        self.advanced = False
         self._filling = self._closed = False
         self._gesture_before = None
         self._resume_after_gesture = False
@@ -54,7 +60,7 @@ class CustomMotionDialog(AdaptiveDialog):
         self.resize(1180, 880)
         self.setMinimumSize(840, 600 if self.compact else 720)
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(*(16, 12, 16, 12) if self.compact else (24, 20, 24, 20))
+        outer.setContentsMargins(*(16, 8, 16, 8) if self.compact else (24, 20, 24, 20))
         outer.setSpacing(8 if self.compact else 12)
         header = QHBoxLayout()
         heading = QVBoxLayout()
@@ -90,6 +96,17 @@ class CustomMotionDialog(AdaptiveDialog):
         self.instructions.setWordWrap(True)
         outer.addWidget(self.instructions)
         self.instructions.setVisible(not self.compact)
+        self.connection_host = QWidget()
+        connection = QHBoxLayout(self.connection_host)
+        connection.setContentsMargins(0, 0, 0, 0)
+        self.connection_notice = QLabel()
+        self.connection_notice.setWordWrap(True)
+        connection.addWidget(self.connection_notice, 1)
+        self.connect_pose = QPushButton("시작 애니메이션의 마지막 자세 가져오기" if self.korean else "Use entrance's final pose")
+        self.connect_pose.setToolTip("종료 모션의 첫 키프레임만 맞춥니다. 필요한 경우 꺼진 속성을 켭니다. 다른 점과 곡선은 보존합니다."
+            if self.korean else "Match only the exit's first keys. Enable differing disabled properties if needed. Keep other keys and curves.")
+        connection.addWidget(self.connect_pose)
+        outer.addWidget(self.connection_host)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
         canvas_host = QFrame()
@@ -105,8 +122,8 @@ class CustomMotionDialog(AdaptiveDialog):
         self.track = QComboBox()
         self.track.setMaximumWidth(190)
         self.track.setAccessibleName("예시 콘텐츠 곡 / Example content track")
-        self.track.setToolTip("콘텐츠만 바뀝니다. 모든 곡에서 같은 애니메이션을 사용합니다." if self.korean else
-                              "Changes preview content only. The animation is shared across tracks.")
+        self.track.setToolTip("선택한 곡의 콘텐츠와 영상 시간을 표시합니다. 모든 곡에서 같은 애니메이션을 사용합니다." if self.korean else
+                              "Shows the selected track's content and video time. The animation is shared across tracks.")
         for item in self.tracks:
             self.track.addItem(item.title, item.id)
         view_tools.addWidget(self.track)
@@ -125,20 +142,39 @@ class CustomMotionDialog(AdaptiveDialog):
         for button in (self.fit, self.actual, self.zoom_out, self.zoom_in):
             button.setObjectName("motionViewButton")
             view_tools.addWidget(button)
+        self.view_buttons = (self.fit, self.actual, self.zoom_out, self.zoom_in)
+        self.view_menu_button = QToolButton()
+        self.view_menu_button.setText("보기" if self.korean else "View")
+        self.view_menu_button.setToolTip("맞춤·100%·확대·축소" if self.korean else "Fit, 100%, zoom in/out")
+        self.view_menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        view_menu = QMenu(self.view_menu_button)
+        for text, button in (("맞춤" if self.korean else "Fit", self.fit), ("100%", self.actual),
+                ("확대" if self.korean else "Zoom in", self.zoom_in), ("축소" if self.korean else "Zoom out", self.zoom_out)):
+            view_menu.addAction(text, button.click)
+        self.view_menu_button.setMenu(view_menu)
+        view_tools.addWidget(self.view_menu_button)
+        self.view_menu_button.setVisible(self.compact)
+        for button in self.view_buttons:
+            button.setVisible(not self.compact)
         canvas_layout.addLayout(view_tools)
         self.canvas = MotionCanvas(project_scene, source, self.korean, self)
+        self.video_sync = QCheckBox("영상 동기화" if self.korean else "Sync video")
+        self.video_sync.setChecked(True)
+        self.video_sync.setVisible(self.canvas.video_stills)
+        self.video_sync.setToolTip("재생 위치에 맞춰 기존 디코더로 갱신합니다. 끄면 마지막 정지 화면을 유지합니다."
+            if self.korean else "Update with the existing decoder at the playhead. Turn off to keep the last still.")
         if self.compact:
             self.canvas.setMinimumHeight(204)
         canvas_layout.addWidget(self.canvas, 1)
         self.limitations = QLabel()
         self.limitations.setWordWrap(True)
         self.limitations.setObjectName("mutedLabel")
-        if self.canvas.video_stills or any("audio" in str(s.source.source_type.value) or s.source.source_type.value == "particle_overlay"
-                                        for s in self.canvas.project_scene.items() if hasattr(s, "source")):
-            self.limitations.setText("영상은 현재 프레임 또는 정지 화면, 음악 반응은 예시로 표시됩니다. 모션은 최종 출력과 같은 계산을 사용합니다."
-                if self.korean else "Video uses its current frame or a still; audio reaction is illustrative. Motion uses the same evaluation as export.")
-        canvas_layout.addWidget(self.limitations)
-        self.limitations.setVisible(bool(self.limitations.text()) and not self.compact)
+        self.preview_title = preview_title
+        media_status = QHBoxLayout()
+        media_status.addWidget(self.video_sync)
+        media_status.addWidget(self.limitations, 1)
+        canvas_layout.addLayout(media_status)
+        self.limitations.setVisible(bool(self.limitations.text()))
         preview_title.setToolTip(self.limitations.text())
         splitter.addWidget(canvas_host)
         properties = QFrame()
@@ -214,6 +250,8 @@ class CustomMotionDialog(AdaptiveDialog):
         self.relative_note = note
         note.setVisible(not self.compact)
         property_scroll = QScrollArea()
+        self.property_scroll = property_scroll
+        property_scroll.setMinimumWidth(340)
         property_scroll.setWidgetResizable(True)
         property_scroll.setFrameShape(QFrame.Shape.NoFrame)
         property_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -232,7 +270,12 @@ class CustomMotionDialog(AdaptiveDialog):
         lane_title = QLabel("키프레임" if self.korean else "Keyframes")
         lane_title.setObjectName("panelTitle")
         lane_heading.addWidget(lane_title)
-        lane_hint = QLabel("두 점 사이를 선택해 곡선을 편집하세요." if self.korean else "Select an interval to edit its curve.")
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem("간단 모드" if self.korean else "Simple mode", False)
+        self.mode_combo.addItem("고급 모드" if self.korean else "Advanced mode", True)
+        lane_heading.addWidget(self.mode_combo)
+        lane_hint = QLabel()
+        self.lane_hint = lane_hint
         lane_hint.setObjectName("mutedLabel")
         lane_heading.addWidget(lane_hint)
         lane_heading.addStretch()
@@ -240,6 +283,40 @@ class CustomMotionDialog(AdaptiveDialog):
         lane_heading.addWidget(self.redo)
         lane_layout.addLayout(lane_heading)
         self.timeline_layout = lane_layout
+        self.simple_host = QWidget()
+        simple_layout = QGridLayout(self.simple_host)
+        simple_layout.setContentsMargins(0, 0, 0, 0)
+        simple_layout.setSpacing(0)
+        self.simple_ruler = MotionRuler()
+        self.simple_ruler.seek_requested.connect(self.seek)
+        simple_layout.addWidget(self.simple_ruler, 0, 0)
+        simple_layout.setColumnStretch(0, 1)
+        simple_row = QHBoxLayout()
+        self.simple_timeline = MotionTimeline()
+        self.simple_timeline.korean = self.korean
+        self.simple_timeline.setAccessibleName("공통 키프레임 시간축" if self.korean else "Shared keyframe timeline")
+        self.simple_timeline.point_selected.connect(self.seek)
+        self.simple_timeline.seek_requested.connect(self.seek)
+        self.simple_timeline.add_requested.connect(self.add_common_point)
+        self.simple_timeline.delete_requested.connect(self.delete_common_point)
+        self.simple_timeline.point_moved.connect(self.move_common_point)
+        self.simple_timeline.gesture_started.connect(self.begin_gesture)
+        self.simple_timeline.gesture_finished.connect(self.end_gesture)
+        simple_layout.addWidget(self.simple_timeline, 1, 0)
+        self.simple_add = self.icon_button("keyframe_add", "현재 자세 추가 (K)" if self.korean else "Add current pose (K)")
+        self.simple_delete = self.icon_button("keyframe_remove", "현재 시점의 키프레임 삭제" if self.korean else "Delete keys at playhead")
+        self.simple_previous = self.icon_button(QStyle.StandardPixmap.SP_MediaSkipBackward, "이전 자세" if self.korean else "Previous pose")
+        self.simple_next = self.icon_button(QStyle.StandardPixmap.SP_MediaSkipForward, "다음 자세" if self.korean else "Next pose")
+        self.simple_add.clicked.connect(lambda: self.add_common_point(self.progress))
+        self.simple_delete.clicked.connect(lambda: self.delete_common_point(self.progress))
+        self.simple_previous.clicked.connect(lambda: self.navigate_common(-1))
+        self.simple_next.clicked.connect(lambda: self.navigate_common(1))
+        for button in (self.simple_add, self.simple_delete, self.simple_previous, self.simple_next):
+            simple_row.addWidget(button)
+        simple_layout.addLayout(simple_row, 1, 1)
+        self.simple_host.setToolTip("값 입력·화면 조작은 바꾼 속성에만 점을 만듭니다. 자세 추가는 켜진 모든 속성, 삭제·이동은 해당 시점의 켜진 점에 적용합니다."
+            if self.korean else "Values and canvas edits key only changed properties. Add pose keys all enabled properties; delete/move affects enabled keys at that time.")
+        lane_layout.addWidget(self.simple_host)
         lanes_grid = QGridLayout()
         lanes_grid.setContentsMargins(0, 0, 0, 0)
         lanes_grid.setSpacing(0)
@@ -321,7 +398,7 @@ class CustomMotionDialog(AdaptiveDialog):
         self.lane_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.lane_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.lane_scroll.setWidget(grid_host)
-        self.lane_scroll.setFixedHeight(108 if self.compact else 214)
+        self.lane_scroll.setFixedHeight(84 if self.compact else 214)
         lane_layout.addWidget(self.lane_scroll)
         outer.addWidget(lanes_host)
         self.activate_field("dx")
@@ -359,6 +436,21 @@ class CustomMotionDialog(AdaptiveDialog):
         self.legacy_ack = QCheckBox("이 요소의 이전 키프레임 재생을 중지하고 데이터를 보존합니다." if self.korean else
                                     "Stop legacy keyframe playback for this source and preserve its data.")
         self.legacy_ack.setVisible(self.has_legacy and legacy.enabled)
+        self.legacy_info = QLabel()
+        self.legacy_info.setWordWrap(True)
+        if self.has_legacy:
+            scopes = []
+            if any(legacy.global_curves.values()):
+                scopes.append("전체 영상" if self.korean else "whole video")
+            if any(any(c.values()) for c in legacy.single_track_curves.values()):
+                scopes.append("특정 곡" if self.korean else "selected track")
+            if any(any(c.values()) for c in legacy.per_track_curves.values()):
+                scopes.append("곡별" if self.korean else "per track")
+            self.legacy_info.setText(("이전 키프레임: " if self.korean else "Legacy keys: ") + ", ".join(scopes) +
+                (" · 데이터는 저장 시 보존됩니다. 시간 구조가 달라 자동 변환하지 않습니다." if self.korean else
+                 " · Data stays in saved projects. Different time models prevent automatic conversion."))
+        self.legacy_info.setVisible(self.has_legacy)
+        outer.addWidget(self.legacy_info)
         outer.addWidget(self.legacy_ack)
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Apply | QDialogButtonBox.StandardButton.Cancel)
         self.apply_button = self.buttons.button(QDialogButtonBox.StandardButton.Apply)
@@ -377,16 +469,19 @@ class CustomMotionDialog(AdaptiveDialog):
         self.render_timer.timeout.connect(self.render_now)
         self.timer.timeout.connect(self.tick)
         self.edge_combo.currentIndexChanged.connect(self.change_edge)
+        self.mode_combo.currentIndexChanged.connect(lambda: self.set_advanced(self.mode_combo.currentData()))
+        self.connect_pose.clicked.connect(self.link_exit_pose)
         self.duration.valueChanged.connect(self.change_duration)
         self.track.currentIndexChanged.connect(self.request_render)
         self.original.toggled.connect(self.request_render)
         self.original.toggled.connect(self.refresh_values)
+        self.video_sync.toggled.connect(self.request_render)
         self.guides.toggled.connect(self.set_guides)
         self.fit.clicked.connect(self.canvas.fit_canvas)
         self.actual.clicked.connect(lambda: self.canvas.zoom())
         self.zoom_in.clicked.connect(lambda: self.canvas.zoom(1.25))
         self.zoom_out.clicked.connect(lambda: self.canvas.zoom(.8))
-        self.canvas.pose_changed.connect(lambda changes: self.edit_pose(**changes))
+        self.canvas.pose_changed.connect(self.edit_canvas_pose)
         self.canvas.gesture_started.connect(self.begin_gesture)
         self.canvas.gesture_finished.connect(self.end_gesture)
         self.canvas.render_requested.connect(self.request_render)
@@ -404,6 +499,7 @@ class CustomMotionDialog(AdaptiveDialog):
         self.reset_value_button.clicked.connect(self.reset_active_value)
         from app.dialogs.motion_editor_shortcuts import MotionEditorShortcuts
         self.shortcuts = MotionEditorShortcuts(self)
+        self.set_advanced(False)
         self.refresh_values()
         self.request_render()
         available = self.screen().availableGeometry()
@@ -451,17 +547,130 @@ class CustomMotionDialog(AdaptiveDialog):
         # reported before show(), so adapt to the actual window's screen.
         self.compact = self.screen().availableGeometry().height() < 800
         root = self.layout()
-        margins = (16, 12, 16, 12) if self.compact else (24, 20, 24, 20)
+        margins = (16, 8, 16, 8) if self.compact else (24, 20, 24, 20)
         root.setContentsMargins(*margins)
         root.setSpacing(8 if self.compact else 12)
         self.setMinimumHeight(600 if self.compact else 720)
         self.canvas.setMinimumHeight(204 if self.compact else 240)
-        self.lane_scroll.setFixedHeight(108 if self.compact else 214)
+        self.lane_scroll.setFixedHeight(84 if self.compact else 214)
         self.instructions.setVisible(not self.compact)
         self.relative_note.setVisible(not self.compact)
-        self.limitations.setVisible(bool(self.limitations.text()) and not self.compact)
+        self.limitations.setVisible(bool(self.limitations.text()))
+        self.view_menu_button.setVisible(self.compact)
+        for button in self.view_buttons:
+            button.setVisible(not self.compact)
         root.activate()
         self.fit_to_screen()
+
+    def set_advanced(self, advanced):
+        if self._gesture_before is not None:
+            return
+        self.advanced = bool(advanced)
+        with QSignalBlocker(self.mode_combo):
+            self.mode_combo.setCurrentIndex(int(self.advanced))
+        self.lane_scroll.setVisible(self.advanced)
+        self.simple_host.setVisible(not self.advanced)
+        self.lane_hint.setText(("구간을 선택해 곡선을 편집하세요." if self.korean else "Select an interval to edit its curve.") if self.advanced else
+            ("시간 선택 → 화면에서 조작 → 재생" if self.korean else "Choose time → arrange → play"))
+        self.instructions.setText(("화면에서 요소를 조작하고, 아래 트랙에서 속성별 타이밍과 곡선을 조절하세요."
+            if self.korean else "Arrange the source, then refine each property's timing and curves below.") if self.advanced else
+            ("시간을 선택하고 화면에서 요소를 움직여 보세요. 바꾼 속성에만 키프레임이 생깁니다."
+            if self.korean else "Choose a time and arrange the source. Only changed properties receive keyframes."))
+        self.refresh_values()
+
+    def draft_source(self):
+        updates = {}
+        for edge in self.touched:
+            updates[f"animation_{edge}"] = "custom"
+            updates[f"animation_{edge}_duration"] = self.durations[edge]
+            updates["custom_intro_keyframes" if edge == "in" else "custom_outro_keyframes"] = self.drafts[edge]
+        return replace(self.source, **updates)
+
+    def preview_clock(self, track, index):
+        self._media_clock_rate = 1
+        track_start = sum(t.duration_seconds for t in self.tracks[:index])
+        entering, duration = self.edge == "in", self.durations[self.edge]
+        segment = self._segments.get(track.id)
+        if segment is None:
+            local, global_time = self.canvas.frame_times(entering, duration, self.progress, track, track_start)
+            return local, global_time, track_start
+        window = self.compiled_plan.presentation.windows[segment.window_index]
+        if self.source.timeline_start > 0 or self.source.timeline_duration > 0:
+            _, global_time = self.canvas.frame_times(entering, duration, self.progress, track, window.timeline_start)
+        else:
+            key = tuple(self.durations.items()), frozenset(self.touched)
+            if self._clock_windows is None or self._clock_windows[0] != key:
+                from app.animation.custom_motion_render import motion_windows
+                source = self.draft_source()
+                sources = [source if item.source.id == source.id else item.source for item in self.canvas.project_scene.items()
+                    if hasattr(item, "source")]
+                self._clock_windows = key, motion_windows(source, self.compiled_plan, sources)
+            start, end, intro, outro = self._clock_windows[1][segment.window_index]
+            global_time = start+self.progress*intro if entering else end-outro+self.progress*outro
+            self._media_clock_rate = (intro if entering else outro)/duration
+        local = window.source_time_at_start+(global_time-window.timeline_start)*window.playback_rate
+        return local, global_time, window.timeline_start
+
+    def refresh_connection(self):
+        source = self.draft_source()
+        differences = exit_pose_differences(source)
+        self.connection_host.setVisible(bool(differences))
+        self.connection_notice.setText("시작 마지막 자세와 종료 첫 자세가 다릅니다." if self.korean else
+            "The entrance's final pose differs from the exit's first pose.")
+        self.connection_notice.setToolTip(", ".join(self.fields[name].accessibleName() for name in differences))
+        self.connect_pose.setEnabled(bool(differences) and not self.source.locked and not self.original.isChecked())
+
+    def link_exit_pose(self):
+        if not self.connect_pose.isEnabled() or self._gesture_before is not None:
+            return
+        before = self.state()
+        source = self.draft_source()
+        self.drafts["out"] = self.drafts["out"].with_start_pose(resting_pose(source))
+        self.touched.add("out")
+        self.edge, self.progress = "out", 0.0
+        with QSignalBlocker(self.edge_combo):
+            self.edge_combo.setCurrentIndex(1)
+        self.record(before)
+
+    def add_common_point(self, progress):
+        if not self.can_edit or not 0 <= progress <= 1:
+            return
+        self.seek(progress)
+        self.edit_pose(**{name: getattr(self.motion.at(progress), name) for name in MOTION_FIELDS
+            if self.motion.field_enabled(name) and not any(abs(k.time-progress) < 1e-6 for k in self.motion.keys(name))})
+
+    def delete_common_point(self, progress):
+        if not self.can_edit or progress in (0, 1):
+            return
+        before = self.state()
+        motion = self.motion
+        for name in MOTION_FIELDS:
+            if motion.field_enabled(name):
+                motion = motion.without_key(name, progress)
+        if motion != self.motion:
+            self.drafts[self.edge] = motion
+            self.touched.add(self.edge)
+            self.record(before)
+
+    def move_common_point(self, old, new):
+        if not self.can_edit or old in (0, 1) or not 0 < new < 1:
+            return
+        fields = [name for name in MOTION_FIELDS if self.motion.field_enabled(name) and any(k.time == old for k in self.motion.keys(name))]
+        if not fields or any(abs(t-new) <= 1e-6 and t != old for t in self.motion.key_times()):
+            return
+        before = self.state()
+        motion = self.motion
+        for name in fields:
+            motion = motion.move_key(name, old, new)
+        self.drafts[self.edge] = motion
+        self.progress = new
+        self.touched.add(self.edge)
+        self.record(before)
+
+    def navigate_common(self, direction):
+        times = [t for t in self.motion.key_times() if (t-self.progress)*direction > 1e-6]
+        if times:
+            self.seek(min(times) if direction > 0 else max(times))
 
     def maybe_show_guide(self):
         from app.dialogs.motion_editor_guide import MOTION_GUIDE_KEY
@@ -547,6 +756,8 @@ class CustomMotionDialog(AdaptiveDialog):
         self._resume_after_gesture = self.timer.isActive()
         if self._resume_after_gesture:
             self.timer.stop()
+            self.canvas.playing = False
+            self.canvas.media.pause()
 
     def end_gesture(self):
         before, self._gesture_before = self._gesture_before, None
@@ -574,6 +785,10 @@ class CustomMotionDialog(AdaptiveDialog):
         if created:
             self.notice.setText("현재 시점에 새 키프레임을 만들었습니다." if self.korean else "Created a new keyframe at the current time.")
         self.record(before)
+
+    def edit_canvas_pose(self, changes):
+        current = self.motion.at(self.progress)
+        self.edit_pose(**{name: value for name, value in changes.items() if abs(value-getattr(current, name)) > 1e-9})
 
     def add_point(self, progress, name=None):
         if not self.can_edit or not 0 <= progress <= 1 or not self.motion.field_enabled(name or self.active_field):
@@ -637,6 +852,8 @@ class CustomMotionDialog(AdaptiveDialog):
             self.lanes[name].title.text(), self.korean, self)
         resume = self.timer.isActive()
         self.timer.stop()
+        self.canvas.playing = False
+        self.canvas.media.pause()
         self.lanes[name].preset.setText("사용자 지정..." if self.korean else "Custom...")
         if dialog.exec() == QDialog.DialogCode.Accepted:
             before = self.state()
@@ -789,13 +1006,32 @@ class CustomMotionDialog(AdaptiveDialog):
             self.ruler.minimum, self.ruler.maximum = self.play_minimum, self.play_maximum
             self.ruler.duration = self.durations[self.edge]
             self.ruler.update()
+            common = self.simple_timeline
+            common.points = tuple(Keyframe(t, 0) for t in self.motion.key_times())
+            common.progress = common.selected = self.progress
+            common.minimum, common.maximum = self.play_minimum, self.play_maximum
+            common.editable = self.can_edit and any(self.motion.field_enabled(n) for n in MOTION_FIELDS)
+            common.editable_times = {k.time for n in MOTION_FIELDS if self.motion.field_enabled(n) for k in self.motion.keys(n)}
+            common.active = True
+            common.update()
+            self.simple_ruler.minimum, self.simple_ruler.maximum = self.play_minimum, self.play_maximum
+            self.simple_ruler.duration = self.durations[self.edge]
+            self.simple_ruler.update()
+            self.simple_add.setEnabled(common.editable)
+            self.simple_delete.setEnabled(common.editable and self.progress not in (0, 1) and any(
+                self.motion.field_enabled(n) and any(abs(k.time-self.progress) < 1e-6 for k in self.motion.keys(n)) for n in MOTION_FIELDS))
+            self.simple_previous.setEnabled(any(t < self.progress-1e-6 for t in self.motion.key_times()))
+            self.simple_next.setEnabled(any(t > self.progress+1e-6 for t in self.motion.key_times()))
             self.clock.setText(f"{self.progress * self.durations[self.edge]:.3f} / {self.durations[self.edge]:.3f} s")
             self.play.setText(("일시 정지" if self.korean else "Pause") if self.timer.isActive() else ("재생" if self.korean else "Play"))
             self.play.setIcon(self._play_icons[self.timer.isActive()])
             self.play.setAccessibleName(self.play.text())
             state = (("꺼짐" if self.korean else "Disabled") if not self.motion.field_enabled(self.active_field) else
                 ("편집 가능" if self.korean else "Editable") if self.can_edit else ("미리보기 전용" if self.korean else "Preview only"))
-            self.edit_state.setText(f"{self.lanes[self.active_field].title.text()} · {state}")
+            self.edit_state.setText(f"{self.lanes[self.active_field].title.text()} · {state}" if self.advanced else
+                (("현재 자세 · " if self.korean else "Current pose · ") + f"{self.progress*self.durations[self.edge]:.3f} s"))
+            self.reset_value_button.setVisible(self.advanced)
+            self.refresh_connection()
             self.context_label.setText(("효과 후 미리보기" if self.edge == "in" else "효과 전 미리보기") if self.korean else
                                        ("After effect" if self.edge == "in" else "Before effect"))
             self.context.setToolTip(self.context_label.text() + (" · 읽기 전용" if self.korean else " · Preview only"))
@@ -803,11 +1039,15 @@ class CustomMotionDialog(AdaptiveDialog):
             self.reset_value_button.setEnabled(self.can_edit and self.motion.field_enabled(self.active_field))
             self.undo.setEnabled(self.undo_stack.canUndo())
             self.redo.setEnabled(self.undo_stack.canRedo())
+            self.canvas.playing = self.timer.isActive()
+            if not self.canvas.playing:
+                self.canvas.media.pause()
             self.apply_button.setEnabled(not self.source.locked and (not (self.has_legacy and self.source.keyframes.enabled) or self.legacy_ack.isChecked()))
             if not 0 <= self.progress <= 1:
                 self.notice.setText("효과 밖 미리보기 · 이 구간은 편집할 수 없습니다." if self.korean else "Outside the effect · Preview only, editing disabled.")
             elif self.notice.text() in ("효과 밖 미리보기 · 이 구간은 편집할 수 없습니다.", "Outside the effect · Preview only, editing disabled."):
                 self.notice.clear()
+            self.notice.setVisible(bool(self.notice.text()))
         finally:
             self._filling = False
 
@@ -819,12 +1059,61 @@ class CustomMotionDialog(AdaptiveDialog):
         if self._closed:
             return None
         index = max(0, self.track.currentIndex())
+        track = self.tracks[index]
+        local, global_time, track_start = self.preview_clock(track, index)
+        bass, levels, reaction_notice = self.reaction_preview(track, local)
+        messages = []
+        if self.canvas.video_stills:
+            messages.append(("영상: 재생 위치 동기화 (비동기, 미지원 파일은 정지 화면)" if self.korean else
+                "Video: playhead sync (asynchronous; still fallback for unsupported files)") if self.video_sync.isChecked() else
+                ("영상: 정지 화면" if self.korean else "Video: still frame"))
+        if reaction_notice:
+            messages.append(reaction_notice)
+        text = " · ".join(messages)
+        if self.limitations.text() != text:
+            self.limitations.setText(text)
+            self.preview_title.setToolTip(text)
+            self.limitations.setVisible(bool(text))
+        self.canvas.video_sync = self.video_sync.isChecked()
         image = self.canvas.render_frame(self.motion, self.edge == "in", self.durations[self.edge], self.progress,
-            self.tracks[index], index, len(self.tracks), original=self.original.isChecked(), full_size=full_size)
+            track, index, len(self.tracks), original=self.original.isChecked(), full_size=full_size,
+            held_pose=resting_pose(self.draft_source()), track_start=track_start,
+            bass_level=bass, music_levels=levels, playlist_tracks=self.tracks,
+            clock=(local, global_time), compiled_plan=self.compiled_plan, segment=self._segments.get(track.id),
+            context_source=self.draft_source(), clock_rate=self._media_clock_rate)
         self.canvas.handles.editable = self.can_edit
         self.canvas.handles.enabled_fields = {name for name in MOTION_FIELDS if self.motion.field_enabled(name)}
         self.canvas.handles.update()
         return image
+
+    def reaction_preview(self, track, local):
+        from app.preview.audio_reaction_cache import REACTION_CACHE
+        from app.renderer.python_visualizer import PythonVisualizerRenderer
+        cached = REACTION_CACHE.get(track)
+        real = sample = False
+        bass, levels = .5, {}
+        fps, envelope, envelopes = cached if cached is not None else (30, None, {})
+        for item in self.canvas.project_scene.items():
+            source = getattr(item, "source", None)
+            if source is None or not source.visible:
+                continue
+            if source.uses_bass_reaction:
+                if source.source_type.value == "background":
+                    available = envelope is not None and len(envelope) > 0
+                    if available:
+                        bass = float(envelope[min(max(0, round(local*fps)), len(envelope)-1)])
+                else:
+                    data = envelopes.get(source.music_reaction_profile)
+                    available = data is not None and len(data) > 0
+                    levels[source.id] = PythonVisualizerRenderer.music_reaction_level(data, fps, local, source.music_reactive_offset) if available else .5
+                real |= available
+                sample |= not available
+            if source.source_type.value in {"audio_visualizer", "audio_waveform", "audio_level_meter", "particle_overlay"}:
+                sample = True
+        notice = (("음악 반응: 실제 분석 + 예시 (시각화·미분석 효과)" if self.korean else "Audio reaction: cached data + samples (visualizers/uncached effects)") if real and sample else
+                  ("음악 반응: 저장된 실제 분석" if self.korean else "Audio reaction: cached real analysis") if real else
+                  ("음악 반응·파티클: 예시 (이 창에서는 분석하지 않음)" if self.korean else "Audio reaction/particles: samples (no analysis in this editor)") if sample else "")
+        return bass, levels, notice
 
     def apply_changes(self):
         if not self.apply_button.isEnabled():
@@ -834,6 +1123,7 @@ class CustomMotionDialog(AdaptiveDialog):
             motion = self.drafts[edge]
             if CustomMotion.from_dict(asdict(motion), edge == "in") != motion:
                 self.notice.setText("키프레임 값이 유효하지 않습니다." if self.korean else "Invalid keyframe values.")
+                self.notice.show()
                 return
             changes[f"animation_{edge}"] = "custom"
             changes[f"animation_{edge}_duration"] = self.durations[edge]
@@ -844,6 +1134,8 @@ class CustomMotionDialog(AdaptiveDialog):
         self.accept()
 
     def done(self, result):
+        if self._closed:
+            return
         self._closed = True
         self.shortcuts.close()
         self.timer.stop()

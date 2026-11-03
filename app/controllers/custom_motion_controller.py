@@ -17,7 +17,8 @@ class CustomMotionController(QObject):
         window.animation_preview_controller.cancel()
         from app.dialogs.custom_motion_dialog import CustomMotionDialog
         dialog = CustomMotionDialog(source, window.canvas.scene_model, window.playlist_service.tracks,
-                                    window.translator, edge, window)
+                                    window.translator, edge, window,
+                                    compiled_plan=window.timeline_panel.keyframe_controller.plan)
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.changes:
             current = window.store.get(identifier)
             if current is not None and not current.locked:

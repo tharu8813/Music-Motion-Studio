@@ -754,6 +754,7 @@ class SourceItem(QGraphicsObject):
 
     def set_video_preview_position(
         self, path: str | None, seconds: float = 0.0, *, force_seek: bool = False,
+        playback_rate: float | None = None,
     ) -> None:
         """Seek the editor decoder to a scheduler-selected video frame."""
         if self.source.source_type is not SourceType.VIDEO:
@@ -796,7 +797,7 @@ class SourceItem(QGraphicsObject):
         self._video_editor_poster_pending = False
         self._ensure_video_decoder()
         self._set_video_loops(QMediaPlayer.Loops.Infinite)
-        self._set_video_playback_rate(self.source.video_speed)
+        self._set_video_playback_rate(self.source.video_speed if playback_rate is None else playback_rate)
         target = max(0, round(seconds * 1000))
         request_time = monotonic()
         previous_target = self._video_last_requested_target_ms
@@ -825,7 +826,7 @@ class SourceItem(QGraphicsObject):
         current_position = self._video_player.position()
         seek_applied = False
         if not self._video_should_play:
-            if video_position_needs_seek(
+            if force_seek or video_position_needs_seek(
                 current_position, target, self._video_preview_fps,
             ):
                 self._apply_video_seek(target, request_time=request_time)

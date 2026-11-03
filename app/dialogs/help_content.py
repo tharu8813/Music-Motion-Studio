@@ -371,7 +371,7 @@ _CANVAS = (
 <li><b>어떻게 재생할까요?</b> 한 번만 재생 · 첫 번째 영상 계속 반복 · 여러 영상을 순서대로 반복 · 여러 영상을 무작위로 반복, 그리고 <b>끝날 때까지 반복</b> 또는 <b>반복 횟수</b></li>
 <li><b>속도와 화면 효과</b>: 재생 속도, 채도, 흑백으로 표시</li>
 </ol>
-<p>영상의 시작·끝 효과 출력은 없음·페이드·<a href='topic:custom_motion'>사용자 지정 키프레임</a>을 지원합니다. 그 외 프리셋과 반복 모션은 내보내기 전에 바꿔야 합니다. 사용자 지정 편집 창 안에서는 영상을 정지 화면으로 표시합니다.</p>
+<p>영상의 시작·끝 효과 출력은 없음·페이드·<a href='topic:custom_motion'>사용자 지정 키프레임</a>을 지원합니다. 그 외 프리셋과 반복 모션은 내보내기 전에 바꿔야 합니다. 사용자 지정 편집 창의 <b>영상 동기화</b>는 재생 위치에 맞춰 영상을 갱신합니다. 끄면 정지 화면을 유지합니다.</p>
 <div class='note'>영상의 소리는 플레이리스트 음악과 섞이지 않도록 항상 사용하지 않습니다. 미리보기에서는 부드러운 재생을 위해 저화질 프록시를 자동으로 만들 수 있으며, 내보내기는 원본으로 렌더링합니다.</div>""",
        """<p>A <b>Video</b> source plays clips inside the canvas. Adding one, or its settings button in the inspector, opens <b>Video playback settings</b>.</p>
 <ol>
@@ -381,7 +381,7 @@ _CANVAS = (
 <li><b>How should they play?</b> Once · loop the first video · loop all in order · loop all shuffled, then <b>until the end</b> or a <b>number of cycles</b></li>
 <li><b>Speed and look</b>: playback speed, saturation, black and white</li>
 </ol>
-<p>Video entrance/exit export supports None, Fade and <a href='topic:custom_motion'>custom keyframes</a>. Change other presets and disable loop motion before exporting. The custom editor displays video as a still.</p>
+<p>Video entrance/exit export supports None, Fade and <a href='topic:custom_motion'>custom keyframes</a>. Change other presets and disable loop motion before exporting. The custom editor's <b>Sync video</b> updates frames at the playhead. Turn it off to keep a still.</p>
 <div class='note'>Video sound is never used, so it cannot mix into the playlist music. Preview may build low-resolution proxies for smooth playback; Export always renders the originals.</div>""",
        ("track_videos", "sources"),
        ("영상 클립 반복 무작위 재생 속도 흑백 채도 프록시 동영상", "video clip loop shuffle playback speed black and white saturation proxy movie")),
@@ -630,13 +630,13 @@ _CANVAS = (
        ("음악 추가 곡 순서 m3u8 m3u 가져오기 내보내기 검색 복제 삭제 포함 제외 순서 편집 드래그",
         "add music track order m3u8 m3u import export search duplicate delete include exclude reorder drag")),
 
-    _e("canvas", "timeline", ("시각 타임라인과 숫자 편집", "Visual timeline and numeric editing"),
+    _e("canvas", "timeline", ("시각 타임라인 편집", "Visual timeline editing"),
        ("타임라인,플레이리스트,애니메이션", "timeline,playlist,animation"),
        """<p>하단 <b>타임라인</b> 탭은 곡이 전체 영상의 어디에 놓이는지와 요소가 보이는 시간을 보여 줍니다.</p>
 [[img:canvas_timeline]]
 <h2>막대로 직접 편집하기</h2>
 <ol>
-<li>상단에서 <b>시각 편집</b>을 선택합니다. 음악 행에는 곡들이, 그 아래에는 요소마다 한 행씩 표시됩니다.</li>
+<li>음악 행에는 곡들이, 그 아래에는 요소마다 한 행씩 표시됩니다. 요소 이름을 눌러 선택할 수도 있습니다.</li>
 <li>음악 막대의 몸통을 끌어 시작 위치를 바꿉니다. 곡 길이는 유지되고 뒤 곡은 새 위치에 맞춰 배치됩니다. 앞 곡 종료 전으로는 옮길 수 없습니다.</li>
 <li>요소 막대를 선택하면 캔버스와 속성 패널도 같은 요소를 선택합니다. 몸통을 끌면 시작 위치, 양끝 손잡이를 끌면 시작·종료를 조절합니다. 잠긴 요소는 이동할 수 없습니다.</li>
 <li>마우스를 놓으면 변경이 반영됩니다. 드래그 중 <code>Esc</code>는 취소하고, 반영 후 <code>Ctrl+Z</code>로 실행 취소합니다.</li>
@@ -645,17 +645,17 @@ _CANVAS = (
 <ul>
 <li><b>스냅</b>: 다른 막대의 시작·끝, 재생 커서와 시간 눈금에 붙입니다. <code>Shift</code>를 누르는 동안 스냅 상태가 반대로 바뀝니다.</li>
 <li><b>전체 보기</b>, <b>− / +</b>, <code>Ctrl+휠</code>: 전체 길이에 맞추거나 확대합니다. <code>Shift+휠</code> 또는 마우스 가운데 버튼으로 가로 이동하고, 일반 휠로 요소 목록을 세로 이동합니다.</li>
-<li>눈금이나 빈 곳을 누르거나 시간 칸에 값을 넣어 재생 커서를 옮긴 뒤 <b>이 위치 미리보기</b>로 메인 재생 화면에서 확인합니다. 시간은 <code>분:초.소수</code>로 표시됩니다.</li>
+<li>눈금이나 빈 곳을 클릭·드래그해 재생 커서를 옮긴 뒤 <b>이 위치 미리보기</b>로 메인 재생 화면에서 확인합니다. 시간은 <code>분:초.소수</code>로 표시됩니다.</li>
 <li>선택한 막대는 <code>← / →</code>로 1초씩, <code>Shift+← / →</code>로 0.1초씩 이동합니다. <code>↑ / ↓</code>로 막대를 선택하고 <code>Home</code>으로 커서를 처음으로 옮깁니다.</li>
 </ul>
-<h2>숫자 편집과 자동 길이</h2>
-<p><b>숫자 편집</b>으로 바꾸면 기존 음악 타임라인·소스 타이밍 표에서 시작·지속 시간을 직접 입력할 수 있습니다. 요소의 지속 시간 0은 <b>곡 끝까지</b>, 즉 전체 플레이리스트가 끝날 때까지 표시한다는 뜻입니다. 막대 우클릭에서도 자동 길이로 복원하거나 숫자 편집으로 전환할 수 있습니다.</p>
+<h2>선택 구간과 자동 길이</h2>
+<p>막대를 두 번 클릭하거나 <b>선택 확대</b>를 누르면 짧은 구간도 크게 조절할 수 있습니다. 시작·끝 이동 버튼 또는 <code>[ / ]</code>로 선택 경계에 커서를 맞춥니다. <b>곡 끝까지 표시</b>로 자동 길이를 복원하고, 음악은 <b>자동 이어붙이기</b>로 빈 간격을 없앱니다. 선택한 곡의 ↑/↓ 버튼이나 <code>Ctrl+↑ / ↓</code>로 곡 순서를 바꿉니다. <code>F</code>는 전체 보기, <code>Enter</code>는 현재 위치 미리보기입니다. 시간은 읽기 전용이며 타이밍 변경은 막대와 손잡이로 합니다.</p>
 <div class='note'>크로스페이드·AutoMix를 쓰면 곡이 겹치는 만큼 전체 길이가 줄어듭니다. 실제 전환 위치는 <a href='topic:preview_mix'>미리보기</a>의 타임라인에서 확인하세요.</div>""",
        """<p>The <b>Timeline</b> tab shows where each track sits in the video and when sources are visible.</p>
 [[img:canvas_timeline]]
 <h2>Edit directly with blocks</h2>
 <ol>
-<li>Select <b>Visual edit</b>. Music occupies one row, followed by one row per source.</li>
+<li>Music occupies one row, followed by one row per source. Click a source name to select its lane.</li>
 <li>Drag a music block to change its start. Its length stays fixed and following tracks adjust to the new position. It cannot start before the previous track ends.</li>
 <li>Select a source block to select the same source on the canvas and in the inspector. Drag its body to move it or its edge handles to change its start/end. Locked sources cannot move.</li>
 <li>Release the mouse to commit. Press <code>Esc</code> during a drag to cancel, or <code>Ctrl+Z</code> after committing to undo.</li>
@@ -664,15 +664,15 @@ _CANVAS = (
 <ul>
 <li><b>Snap</b>: aligns to block edges, the playhead and time ticks. Hold <code>Shift</code> to temporarily invert snapping.</li>
 <li><b>Fit all</b>, <b>− / +</b>, <code>Ctrl+wheel</code>: fit the whole duration or zoom. <code>Shift+wheel</code> or middle-button dragging pans horizontally; ordinary wheel scrolling moves through source rows.</li>
-<li>Click the ruler or blank space, or enter a time, to position the playhead; use <b>Preview here</b> to open the main player at that time. Times display as <code>minutes:seconds.fraction</code>.</li>
+<li>Click or drag the ruler or blank space to position the playhead; use <b>Preview here</b> to open the main player at that time. Times display as <code>minutes:seconds.fraction</code>.</li>
 <li><code>Left / Right</code> nudges the selected block by one second; hold <code>Shift</code> for 0.1 s. <code>Up / Down</code> selects blocks; <code>Home</code> resets the playhead.</li>
 </ul>
-<h2>Numeric editing and automatic duration</h2>
-<p>Choose <b>Numeric edit</b> for the existing Music timeline and Source timing tables. Source duration zero means <b>Playlist end</b>. Right-click a block to restore automatic timing or switch to numeric editing.</p>
+<h2>Selection tools and automatic duration</h2>
+<p>Double-click a block or use <b>Focus selection</b> to enlarge short ranges. Use the boundary buttons or <code>[ / ]</code> to seek the selection start/end. <b>Show to playlist end</b> restores automatic duration; <b>Sequence automatically</b> removes a music gap. Reorder selected tracks with ↑/↓ buttons or <code>Ctrl+Up / Down</code>. <code>F</code> fits all; <code>Enter</code> opens Preview at the playhead. Times are read only; drag blocks and edge handles to change timing.</p>
 <div class='note'>Crossfade and AutoMix shorten the video by the overlaps. See the real transition points on the <a href='topic:preview_mix'>Preview</a> timeline.</div>""",
        ("playlist", "animation"),
-       ("시각 편집 숫자 편집 드래그 막대 손잡이 스냅 확대 여기서 미리보기 시작 시간 지속 시간 소스 타이밍",
-        "visual edit numeric edit drag block handles snap zoom preview here start time duration source timing")),
+       ("시각 편집 드래그 막대 손잡이 스냅 선택 확대 여기서 미리보기 시작 시간 지속 시간 소스 타이밍",
+        "visual edit drag block handles snap focus zoom preview here start time duration source timing")),
 
     _e("canvas", "project_content", ("프로젝트 콘텐츠", "Project content"),
        ("콘텐츠,미디어", "content,media"),
@@ -2014,25 +2014,29 @@ _EDITOR_ADDITIONS = (
        ("키프레임,애니메이션,베지어,시작 안내,슬라이더", "keyframes,animation,Bezier,getting started,sliders"),
        """<p>요소 하나를 선택하고 <b>속성 → 애니메이션 → 곡 시작 또는 곡 끝 → 키프레임으로 만들기... → 키프레임 편집...</b>을 엽니다. 짧은 등장·퇴장 모션용이며 시작과 끝의 데이터는 독립적입니다.</p>[[img:motion_editor]]
 <h2>화면에서 조작하기</h2><p>실제 배경과 다른 요소를 보며 선택한 요소를 이동·크기·회전 핸들로 편집합니다. 휠은 커서 기준 확대·축소, 빈 곳/가운데 버튼 드래그 또는 Space+드래그는 화면 이동입니다. <b>맞춤</b>(F)과 <b>100%</b>(0)으로 보기 상태를 복원합니다. 원본 비교와 중앙선·안전 영역 가이드도 제공합니다.</p>
-<h2>속성별 키프레임과 곡선</h2><p>X·Y·크기·회전·투명도를 각각 편집합니다. 점이 없는 시점에 값을 바꾸면 해당 속성에만 점을 만듭니다. 행의 체크를 끄면 모션만 중지하고 점은 보존합니다. 선택한 행 전체가 강조됩니다. 두 점 사이를 선택해 구간 곡선과 그래프 아이콘 프리셋을 바꾸고, 직접 곡선을 편집하면 <b>사용자 지정...</b>으로 표시합니다.</p>
+<h2>간단 모드와 고급 모드</h2><p>기본 <b>간단 모드</b>에서 시간을 선택하고 화면이나 값 입력으로 자세를 바꾸세요. 바꾼 속성에만 점을 만듭니다. 공통 시간축에는 모든 속성의 점 시각을 표시합니다. <b>현재 자세 추가</b>는 켜진 모든 속성에 점을 만들고, 삭제·이동은 해당 시점의 켜진 점에만 적용합니다. 꺼진 속성의 점은 보존합니다.</p>
+<p><b>고급 모드</b>에서는 X·Y·크기·회전·투명도 트랙과 켜기/끄기, 구간 곡선·베지어·프리셋을 편집합니다. 모드 전환은 점의 시각이나 곡선을 바꾸지 않습니다. 두 점 사이를 선택해 구간 곡선을 편집하세요.</p>
+<h2>시작·끝 자세 연결</h2><p>시작 모션의 마지막 자세는 유지됩니다. 종료 프리셋은 그 자세에 더해지고, 종료 사용자 지정 모션은 별도 자세를 사용합니다. 차이가 있으면 안내합니다. <b>시작 애니메이션의 마지막 자세 가져오기</b>를 누르면 종료의 첫 키프레임 값만 맞춥니다. 필요한 경우 꺼진 속성을 켜며 다른 점과 보간은 보존합니다. 자동으로 수정하지 않으며 Undo로 되돌릴 수 있습니다.</p>
 <p><b>현재 시점의 값</b>은 슬라이더와 오른쪽 숫자가 동기화됩니다. 슬라이더 한 번 드래그는 Undo 한 번이며 숫자로 더 넓은 값을 입력해도 보존합니다. 초기화 버튼은 선택 속성의 현재 시점만 기본 상대값으로 바꿉니다.</p>
-<h2>시간과 안전한 적용</h2><p>이동·회전은 기본값에 더하고 크기·투명도는 곱합니다. 지속 시간은 0.1~10초이며 변경해도 점의 상대 간격은 같습니다. 효과 밖 구간은 효과 길이의 <b>50%</b>: 시작 효과 뒤, 끝 효과 앞에만 재생하며 편집은 잠깁니다. 예시 곡 선택은 커버·제목·아티스트만 바꾸고 같은 모션을 재사용합니다.</p>
+<h2>시간과 안전한 적용</h2><p>이동·회전은 기본값에 더하고 크기·투명도는 곱합니다. 지속 시간은 0.1~10초이며 변경해도 점의 상대 간격은 같습니다. 효과 밖 구간은 효과 길이의 <b>50%</b>: 시작 효과 뒤, 끝 효과 앞에만 재생하며 편집은 잠깁니다. 미리보기 곡을 바꾸면 콘텐츠와 영상·음악 반응의 시점이 바뀌며 같은 모션을 재사용합니다.</p>
 <p>적용 전에는 프로젝트·자동 저장을 바꾸지 않습니다. 취소하면 폐기하고 적용 후에는 프로젝트 Undo 한 번으로 복원합니다. 첫 실행에 안내가 나오며 상단 안내 아이콘으로 다시 볼 수 있습니다. <a href='topic:motion_shortcuts'>단축키</a>는 Shift+F1로 확인합니다.</p>
-<div class='note'>편집기의 영상은 현재 프레임/정지 화면이고 음악 반응은 예시입니다. 전체 음악을 재생하지 않습니다. 실제 짧은 곡·요소 노출 시간·믹스 맞춤은 출력 시 효과 길이에 영향을 줄 수 있습니다. 시작 마지막 자세와 끝 첫 자세는 자동 연결하지 않습니다. 기존 데이터는 <a href='topic:legacy_keyframes'>호환 정책</a>을 확인하세요.</div>""",
+<div class='note'><b>영상 동기화</b>는 기존 디코더로 재생 위치·속도·반복을 반영하며 프레임 도착은 비동기입니다. 끄면 마지막 정지 화면을 유지합니다. 음악 반응은 일반 미리보기에서 완료한 분석이 있으면 텍스트·자막·배경에 재사용합니다. 분석이 없는 효과와 시각화·파티클은 예시임을 표시합니다. 전체 음악 재생이나 새 분석은 시작하지 않습니다. 실제 짧은 곡·요소 노출 시간·믹스 맞춤은 출력 시 효과 길이에 영향을 줄 수 있습니다. 기존 데이터는 <a href='topic:legacy_keyframes'>호환 정책</a>을 확인하세요.</div>""",
        """<p>Select one source, then open <b>Inspector → Animation → track entrance or exit → Create with keyframes... → Edit keyframes...</b>. This editor makes short entrance/exit motions; the two edges store independent data.</p>[[img:motion_editor]]
 <h2>Edit on the canvas</h2><p>Move, resize or rotate the source against the real project background and other sources. Wheel zooms around the cursor. Drag empty space, middle-drag or Space+drag to pan. Fit (F), 100% (0), Original comparison and center/safe-area guides are available.</p>
-<h2>Independent tracks and curves</h2><p>Edit X, Y, scale, rotation and opacity separately. Editing between keys adds a key only to the changed property. Unchecking a track disables its motion but preserves keys. The selected row is highlighted. Select the interval between two keys to edit its curve or graph-thumbnail preset. Editing a curve marks it Custom...</p>
+<h2>Simple and Advanced modes</h2><p>Start in <b>Simple mode</b>: choose a time and arrange the source on canvas or change its values. Only changed properties receive keys. The shared timeline shows the union of all key times. <b>Add current pose</b> keys all enabled properties; delete/move affects enabled keys at that time. Disabled keys stay intact.</p>
+<p><b>Advanced mode</b> exposes independent X/Y/scale/rotation/opacity tracks, enable toggles, interval curves, Bezier graphs and presets. Switching modes preserves every key time and curve.</p>
+<h2>Join entrance and exit poses</h2><p>The final entrance pose holds. Exit presets compose with it; a custom exit uses its own pose. A notice flags differences. <b>Use entrance's final pose</b> changes only the exit's first key values, enabling differing disabled properties if needed. Other keys and interpolation stay intact. Nothing is changed automatically, and Undo restores the original.</p>
 <p>Sliders and numeric fields on their right stay synchronized. One slider drag is one Undo; larger numeric values are preserved. Reset changes only the selected property at the current time to its relative default.</p>
-<h2>Timing and safe application</h2><p>Position and rotation add to the base; scale and opacity multiply it. Duration is 0.1–10 seconds; key proportions survive duration changes. Read-only context lasts <b>50%</b> of the effect, after entrance or before exit only. Example-track selection changes cover/title/artist content, not the shared animation.</p>
+<h2>Timing and safe application</h2><p>Position and rotation add to the base; scale and opacity multiply it. Duration is 0.1–10 seconds; key proportions survive duration changes. Read-only context lasts <b>50%</b> of the effect, after entrance or before exit only. Track selection changes preview content and video/audio-reaction time while reusing the same animation.</p>
 <p>Drafts do not change the project or autosave. Cancel discards edits; Apply is one project Undo. A first-use tour opens once and can be reopened from the guide icon. Shift+F1 opens <a href='topic:motion_shortcuts'>shortcuts</a>.</p>
-<div class='note'>Video uses its current frame/still and audio reaction is illustrative; this is not full music playback. Short tracks, source exposure windows and fit-to-mix can change actual effect timing. Entrance end and exit start poses are not automatically joined. See <a href='topic:legacy_keyframes'>legacy data compatibility</a>.</div>""",
+<div class='note'><b>Sync video</b> uses the existing decoder with playhead, rate and repeat rules; frames arrive asynchronously. Turn it off to hold the last still. Completed playback-preview analysis is reused for text, lyrics and background reactions. Uncached effects, visualizers and particles are labeled as samples. This editor starts no music playback or new analysis. Short tracks, source exposure windows and fit-to-mix can change actual effect timing. See <a href='topic:legacy_keyframes'>legacy data compatibility</a>.</div>""",
        ("animation", "motion_shortcuts", "legacy_keyframes")),
     _e("canvas", "motion_shortcuts", ("키프레임 편집기 단축키와 화면 이동", "Keyframe shortcuts and canvas navigation"),
        ("키프레임,단축키,확대,이동", "keyframes,shortcuts,zoom,pan"),
        """<p>사용자 지정 편집 창에서만 적용됩니다. 텍스트·숫자·목록 입력이 우선하고, 슬라이더의 방향키는 값을 조절합니다.</p>
-<ul><li><b>Space</b> 재생/일시 정지 · <b>L</b> 반복</li><li><b>←/→</b> 0.01초, <b>Shift+←/→</b> 0.1초 이동</li><li><b>Home/End</b> 미리보기 처음/끝 · <b>Ctrl+Home/End</b> 효과 처음/끝</li><li><b>Ctrl+←/→</b> 선택 트랙의 이전/다음 점</li><li><b>1~5</b> X/Y/크기/회전/투명도 선택 · <b>↑/↓</b> 트랙 선택</li><li><b>K</b> 점 추가 · <b>Delete/Backspace</b> 현재 점 삭제(시작·끝 점 보호)</li><li><b>E</b> 트랙 켜기/끄기 · <b>Ctrl+Backspace</b> 선택 속성의 현재 값 초기화</li><li><b>B</b> 구간 곡선 · <b>P</b> 프리셋</li><li><b>Ctrl+Z</b> Undo · <b>Ctrl+Shift+Z / Ctrl+Y</b> Redo</li><li><b>G</b> 가이드 · <b>O</b> 원본 비교</li><li><b>F / Ctrl+0</b> 맞춤 · <b>0 / Ctrl+1</b> 100% · <b>+ / −</b> 확대/축소</li><li><b>휠</b> 커서 기준 확대/축소 · <b>빈 곳/가운데 버튼 드래그 / Space+드래그</b> 화면 이동</li><li><b>F1</b> 사용 도움말 · <b>Shift+F1</b> 이 단축키 목록 · <b>Esc</b> 화면 이동 중이면 이동 모드 종료, 그 외에는 취소</li></ul><p>Space를 드래그에 사용하면 재생은 전환하지 않습니다. 효과 밖·잠긴 요소·꺼진 트랙에서는 편집 단축키로도 값을 바꿀 수 없습니다.</p>""",
+<ul><li><b>Space</b> 재생/일시 정지 · <b>L</b> 반복</li><li><b>←/→</b> 0.01초, <b>Shift+←/→</b> 0.1초 이동</li><li><b>Home/End</b> 미리보기 처음/끝 · <b>Ctrl+Home/End</b> 효과 처음/끝</li><li><b>Ctrl+←/→</b> 이전/다음 점 (간단: 공통 시간축, 고급: 선택 트랙)</li><li><b>1~5</b> X/Y/크기/회전/투명도 선택 · <b>↑/↓</b> 트랙 선택</li><li><b>K</b> 자세/점 추가 · <b>Delete/Backspace</b> 현재 점 삭제(간단 모드는 켜진 속성 전체, 시작·끝 점 보호)</li><li><b>E</b> 트랙 켜기/끄기 · <b>Ctrl+Backspace</b> 선택 속성의 현재 값 초기화</li><li><b>B</b> 구간 곡선 · <b>P</b> 프리셋</li><li><b>Ctrl+Z</b> Undo · <b>Ctrl+Shift+Z / Ctrl+Y</b> Redo</li><li><b>G</b> 가이드 · <b>O</b> 원본 비교</li><li><b>F / Ctrl+0</b> 맞춤 · <b>0 / Ctrl+1</b> 100% · <b>+ / −</b> 확대/축소</li><li><b>휠</b> 커서 기준 확대/축소 · <b>빈 곳/가운데 버튼 드래그 / Space+드래그</b> 화면 이동</li><li><b>F1</b> 사용 도움말 · <b>Shift+F1</b> 이 단축키 목록 · <b>Esc</b> 화면 이동 중이면 이동 모드 종료, 그 외에는 취소</li></ul><p>Space를 드래그에 사용하면 재생은 전환하지 않습니다. 효과 밖·잠긴 요소·꺼진 트랙에서는 편집 단축키로도 값을 바꿀 수 없습니다.</p>""",
        """<p>These keys apply only inside the custom editor. Text, numeric and combo inputs keep native behavior; slider arrows adjust its value.</p>
-<ul><li><b>Space</b> play/pause · <b>L</b> loop</li><li><b>Left/Right</b> seek 0.01 s; <b>Shift+Left/Right</b> 0.1 s</li><li><b>Home/End</b> preview bounds; <b>Ctrl+Home/End</b> effect bounds</li><li><b>Ctrl+Left/Right</b> previous/next key in selected track</li><li><b>1–5</b> X/Y/scale/rotation/opacity; <b>Up/Down</b> select track</li><li><b>K</b> add key; <b>Delete/Backspace</b> delete current key (endpoints protected)</li><li><b>E</b> enable/disable track; <b>Ctrl+Backspace</b> reset selected value at playhead</li><li><b>B</b> interval curve; <b>P</b> presets</li><li><b>Ctrl+Z</b> Undo; <b>Ctrl+Shift+Z / Ctrl+Y</b> Redo</li><li><b>G</b> guides; <b>O</b> Original</li><li><b>F / Ctrl+0</b> Fit; <b>0 / Ctrl+1</b> 100%; <b>+ / −</b> zoom</li><li><b>Wheel</b> cursor-anchored zoom; <b>empty-space drag / middle drag / Space+drag</b> pan</li><li><b>F1</b> usage help; <b>Shift+F1</b> this list; <b>Esc</b> cancels navigation if active, otherwise cancels the dialog</li></ul><p>Space used to pan does not toggle playback. Editing shortcuts respect read-only context, locked sources and disabled tracks.</p>""",
+<ul><li><b>Space</b> play/pause · <b>L</b> loop</li><li><b>Left/Right</b> seek 0.01 s; <b>Shift+Left/Right</b> 0.1 s</li><li><b>Home/End</b> preview bounds; <b>Ctrl+Home/End</b> effect bounds</li><li><b>Ctrl+Left/Right</b> previous/next key (Simple: shared timeline; Advanced: selected track)</li><li><b>1–5</b> X/Y/scale/rotation/opacity; <b>Up/Down</b> select track</li><li><b>K</b> add pose/key; <b>Delete/Backspace</b> delete current keys (Simple: all enabled properties; endpoints protected)</li><li><b>E</b> enable/disable track; <b>Ctrl+Backspace</b> reset selected value at playhead</li><li><b>B</b> interval curve; <b>P</b> presets</li><li><b>Ctrl+Z</b> Undo; <b>Ctrl+Shift+Z / Ctrl+Y</b> Redo</li><li><b>G</b> guides; <b>O</b> Original</li><li><b>F / Ctrl+0</b> Fit; <b>0 / Ctrl+1</b> 100%; <b>+ / −</b> zoom</li><li><b>Wheel</b> cursor-anchored zoom; <b>empty-space drag / middle drag / Space+drag</b> pan</li><li><b>F1</b> usage help; <b>Shift+F1</b> this list; <b>Esc</b> cancels navigation if active, otherwise cancels the dialog</li></ul><p>Space used to pan does not toggle playback. Editing shortcuts respect read-only context, locked sources and disabled tracks.</p>""",
        ("custom_motion", "canvas_shortcuts", "shortcuts")),
     _e("canvas", "legacy_keyframes", ("이전 키프레임 프로젝트 호환", "Legacy keyframe project compatibility"),
        ("키프레임,호환,저장", "keyframes,compatibility,storage"),

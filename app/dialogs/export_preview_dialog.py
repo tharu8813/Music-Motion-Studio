@@ -3213,6 +3213,10 @@ class ExportPreviewDialog(QDialog):
         """Receive full-track FFT levels and refresh the current preview image."""
         if fps != self.preview_fps:
             return
+        from app.preview.audio_reaction_cache import REACTION_CACHE
+        track = next((track for track in self.tracks if track.id == track_id), None)
+        if track is not None:
+            REACTION_CACHE.store(track, fps, levels)
         # Full-track FFT arrays are sizeable.  Retain only the two most recently
         # used tracks so long playlists cannot steadily exhaust memory.
         self._track_levels.pop(track_id, None)

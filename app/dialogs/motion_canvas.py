@@ -4,10 +4,10 @@ from dataclasses import replace
 from math import atan2, degrees, hypot
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsView
 
-from app.animation.curves import loop_pose
+from app.animation.curves import AnimationPose, loop_pose, music_reactive_pose
 from app.canvas.live_canvas import CanvasScene
 from app.canvas.source_item import SourceItem
 from app.models.source import SourceType
@@ -54,6 +54,8 @@ class MotionHandleItem(SourceItem):
         self.setPos(self.source.x + total.dx, self.source.y + total.dy)
         self.setScale(self.source.scale * total.scale)
         self.setRotation(self.source.rotation + total.rotation)
+        center = self.source.width/2
+        self.setTransform(QTransform().translate(center, 0).scale(total.scale_x, 1).translate(-center, 0))
 
     def mousePressEvent(self, event):
         if not self.editable or event.button() != Qt.MouseButton.LeftButton:
@@ -121,25 +123,44 @@ class MotionCanvas(QGraphicsView):
                 setattr(self.project_scene, name, QColor(getattr(project_scene, name)))
         self.target = None
         self.video_stills = False
+        video_items, durations = [], {}
         for original in reversed(project_scene.items()):
-            if not isinstance(original, SourceItem):
+            if not isinstance(original, SourceItem) or not original.isVisible():
                 continue
             model = deepcopy(getattr(original, "_editor_keyframe_base", original.source))
             frame = None
             if model.source_type is SourceType.VIDEO:
                 self.video_stills = True
                 frame = original.video_preview_frame()
-                model = replace(model, source_type=SourceType.IMAGE, content_path="")
-            item = SourceItem(model)
+                player = original._video_player
+                if player is not None and player.duration() > 0 and original._video_preview_path:
+                    durations[original._video_preview_path] = player.duration()/1000
+            # Avoid opening poster decoders until the editor selects a clock.
+            item = SourceItem(replace(model, source_type=SourceType.IMAGE, content_path="")
+                if model.source_type is SourceType.VIDEO else model)
+            item.source = model
+            if model.source_type is SourceType.VIDEO:
+                video_items.append(item)
             if frame is not None and not frame.isNull():
                 item._raw_pixmap = item._pixmap = QPixmap.fromImage(frame)
             self.project_scene.addItem(item)
             if model.id == source.id:
                 self.target = item
         if self.target is None:
-            self.target = SourceItem(deepcopy(source))
+            model = deepcopy(source)
+            self.target = SourceItem(replace(model, source_type=SourceType.IMAGE, content_path="")
+                if source.source_type is SourceType.VIDEO else model)
+            self.target.source = model
+            if source.source_type is SourceType.VIDEO:
+                video_items.append(self.target)
+                self.video_stills = True
             self.project_scene.addItem(self.target)
         self.base = deepcopy(source)
+        from app.dialogs.motion_preview_media import MotionPreviewMedia
+        self.media = MotionPreviewMedia(video_items, durations, self)
+        self.media.changed.connect(self.render_requested)
+        self.video_sync = True
+        self.playing = False
         self.background = display.addPixmap(QPixmap())
         self.handles = MotionHandleItem(source)
         display.addItem(self.handles)
@@ -164,42 +185,78 @@ class MotionCanvas(QGraphicsView):
                         "Wheel: zoom · Drag empty space, middle-drag or Space+drag: pan")
         self.setAccessibleName("프로젝트 Canvas 미리보기 / Project Canvas preview")
 
-    def render_frame(self, motion, entering, duration, progress, track, track_index, track_total, *, original=False, full_size=False):
+    def render_frame(self, motion, entering, duration, progress, track, track_index, track_total, *, original=False, full_size=False,
+                     held_pose=None, track_start=0, bass_level=0, music_levels=None, playlist_tracks=None,
+                     clock=None, compiled_plan=None, segment=None, context_source=None, clock_rate=1):
         target = self.target.source
         # Only the private clone changes. SourceStore, history and autosave
         # never receive a draft or a playback event.
-        target.animation_in = "custom" if entering and not original else "none"
-        target.animation_out = "custom" if not entering and not original else "none"
-        target.animation_in_duration = target.animation_out_duration = duration
+        context_source = context_source or self.base
+        target.animation_in = "custom" if entering else context_source.animation_in
+        target.animation_out = "custom" if not entering else context_source.animation_out
+        target.animation_in_duration = duration if entering else context_source.animation_in_duration
+        target.animation_out_duration = duration if not entering else context_source.animation_out_duration
         target.loop_motion = "none" if original else self.base.loop_motion
-        target.custom_intro_keyframes = motion if entering else target.custom_intro_keyframes
-        target.custom_outro_keyframes = motion if not entering else target.custom_outro_keyframes
+        target.custom_intro_keyframes = motion if entering else context_source.custom_intro_keyframes
+        target.custom_outro_keyframes = motion if not entering else context_source.custom_outro_keyframes
         target.keyframes.enabled = False
-        local = progress * duration if entering else max(0, track.duration_seconds - duration) + progress * duration
-        global_time = local
-        if self.base.timeline_start > 0 or self.base.timeline_duration > 0:
-            global_time = self.base.timeline_start + (progress * duration if entering else
-                max(0, (self.base.timeline_duration or track.duration_seconds) - duration) + progress * duration)
+        local, global_time = clock if clock is not None else self.frame_times(entering, duration, progress, track, track_start)
         # Author the complete effect even if the selected project's exposure
         # is shorter than it. Other sources keep their real visibility windows.
         target.timeline_start = target.timeline_duration = 0
         scale = 1 if full_size else min(2, max(.25, self.transform().m11()*self.devicePixelRatioF(),
             self.viewport().width()*self.devicePixelRatioF()/max(1, self.project_scene.artboard_rect.width())))
+        # Use the original exposure window for video scheduling; the target's
+        # motion exposure is expanded only to author the complete effect.
+        video_window = target.timeline_start, target.timeline_duration
+        target.timeline_start, target.timeline_duration = self.base.timeline_start, self.base.timeline_duration
+        try:
+            self.media.sync(track, local, global_time, track_start, playing=self.playing, enabled=self.video_sync, scale=scale, clock_rate=clock_rate)
+        finally:
+            target.timeline_start, target.timeline_duration = video_window
+        pose = held_pose if not entering and progress < 0 and held_pose is not None else motion.at(progress)
+        phase, phase_duration, junction = ("in" if entering else "out") if progress >= 0 else None, None, None
+        if compiled_plan is not None and segment is not None:
+            from app.preview.frame_state import segment_junction
+            from app.renderer.export_timeline import ExportTimelinePlanner
+            sources = [item.source for item in self.project_scene.items() if isinstance(item, SourceItem) and item.source.visible]
+            intro, outro = ExportTimelinePlanner._animation_durations(track, sources)
+            phase = "in" if local < intro else "out" if local >= track.duration_seconds-outro else None
+            phase_duration = intro if phase == "in" else outro if phase == "out" else None
+            junction = segment_junction(segment, global_time)
         image = CanvasSnapshot.capture_track(self.project_scene, track, track_index + 1, track_total, 0,
-            elapsed_seconds=local, timeline_seconds=global_time, animation_phase="in" if entering else "out",
-            animation_progress=progress, output_scale=scale)
+            elapsed_seconds=local, timeline_seconds=global_time, animation_phase=phase,
+            animation_progress=progress, output_scale=scale, bass_level=bass_level, music_levels=music_levels,
+            playlist_tracks=playlist_tracks, compiled_plan=compiled_plan, animation_phase_duration=phase_duration, junction=junction,
+            motion_pose_overrides={target.id: AnimationPose() if original else pose})
         if not full_size:
             self.background.setPixmap(QPixmap.fromImage(image))
             self.background.setScale(1 / scale)
-            pose = motion.at(progress)
             loop = loop_pose(target.loop_motion, global_time, target.loop_motion_period,
                              target.loop_motion_amount, target.width, target.height)
-            self.handles.set_pose(pose, pose.combined(loop))
+            total = pose.combined(loop)
+            if target.source_type is SourceType.BACKGROUND and target.background_bass_reactive:
+                bass_scale = 1 + max(0, min(1, bass_level))*target.background_bass_strength
+                total = total.combined(AnimationPose(dx=-target.width*(bass_scale-1)/2, dy=-target.height*(bass_scale-1)/2, scale=bass_scale))
+            elif target.source_type is SourceType.TEXT and target.uses_bass_reaction:
+                level = music_levels.get(target.id, 0) if music_levels is not None else bass_level
+                total = total.combined(music_reactive_pose(target.music_reactive_effect, level,
+                    target.music_reactive_strength, target.font_size))
+            self.handles.set_pose(pose, total)
             self.handles.editable = not original and not self.base.locked
             self.handles.update()
             if self.fit_mode:
                 self.fit_canvas()
         return image
+
+    def frame_times(self, entering, duration, progress, track, track_start=0):
+        local = progress*duration if entering else max(0, track.duration_seconds-duration)+progress*duration
+        global_time = track_start+local
+        if self.base.timeline_start > 0 or self.base.timeline_duration > 0:
+            global_time = self.base.timeline_start + (progress*duration if entering else
+                max(0, (self.base.timeline_duration or track.duration_seconds)-duration)+progress*duration)
+            local = global_time-track_start
+        return local, global_time
 
     def fit_canvas(self):
         self.fit_mode = True
@@ -312,7 +369,8 @@ class MotionCanvas(QGraphicsView):
 
     def close_resources(self):
         self.cancel_navigation()
+        self.media.close()
         for item in self.project_scene.items():
             if isinstance(item, SourceItem):
-                item.suspend_video_preview()
+                item.release_video_decoder()
         self.project_scene.clear()

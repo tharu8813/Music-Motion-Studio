@@ -11,6 +11,28 @@ from app.animation.keyframes import DEFAULT_BEZIER, INTERPOLATIONS, Keyframe, ev
 MOTION_FIELDS = {"dx": (-100000, 100000, 0), "dy": (-100000, 100000, 0),
                  "scale": (.01, 10, 1), "rotation": (-36000, 36000, 0), "opacity": (0, 1, 1)}
 
+# Relative pose tolerances: subpixel travel, a tenth of a degree, and 0.1%.
+POSE_TOLERANCES = dict(dx=.1, dy=.1, scale=.001, rotation=.1, opacity=.001)
+
+
+def pose_differences(first, second):
+    """Compare evaluated poses, including disabled tracks' identity values."""
+    def distance(name):
+        delta = getattr(first, name)-getattr(second, name)
+        return abs((delta+180) % 360-180) if name == "rotation" else abs(delta)
+    return tuple(name for name, tolerance in POSE_TOLERANCES.items()
+                 if distance(name) > tolerance + 1e-9)
+
+
+def resting_pose(source):
+    """Only a custom entrance holds a nonidentity pose after its duration."""
+    return source_motion(source, 1, True) if source.animation_in == "custom" else AnimationPose()
+
+
+def exit_pose_differences(source):
+    # Preset exits compose on top of the held entrance; no exit keeps it.
+    return pose_differences(resting_pose(source), source_motion(source, 0, False)) if source.animation_out == "custom" else ()
+
 
 @dataclass(frozen=True, slots=True)
 class MotionPoint:
@@ -116,7 +138,10 @@ class CustomMotion:
         return motion
 
     def keys(self, name):
-        return next((c.keys for c in self.curves if c.field == name), motion_curves(self)[name])
+        for curve in self.curves:
+            if curve.field == name:
+                return curve.keys
+        return motion_curves(self)[name]
 
     def field_enabled(self, name):
         return next((c.enabled for c in self.curves if c.field == name), True)
@@ -149,6 +174,23 @@ class CustomMotion:
         marks = next((c.custom_segments for c in self.curves if c.field == name), ())
         return self.with_curve(name, [k for k in self.keys(name) if k.time != progress], [t for t in marks if t != progress])
 
+    def with_start_pose(self, pose):
+        """Explicit link operation: alter only differing first keys.
+
+        A disabled differing track must be enabled to apply the requested pose.
+        Its other keys, easing, handles and custom segment marks stay intact.
+        """
+        result = self
+        for name in pose_differences(self.at(0), pose):
+            result = result.with_key(name, 0, value=getattr(pose, name))
+            if not result.field_enabled(name):
+                result = result.set_field_enabled(name, True)
+        return result
+
+    def key_times(self):
+        """Union for the simple timeline; never resample property curves."""
+        return tuple(sorted({key.time for name in MOTION_FIELDS for key in self.keys(name)}))
+
     def move_key(self, name, old, new):
         if old in (0, 1) or not 0 < new < 1 or any(abs(k.time-new) <= 1e-6 for k in self.keys(name)):
             return self
@@ -166,9 +208,9 @@ class CustomMotion:
         return (keys[-2], keys[-1]) if len(keys) >= 2 else None
 
     def at(self, progress):
+        curves = motion_curves(self)
         values = {name: min(high, max(low, evaluate_curve(curves[name], progress, default)))
-                  for name, (low, high, default) in MOTION_FIELDS.items()
-                  for curves in (motion_curves(self),)}
+                  for name, (low, high, default) in MOTION_FIELDS.items()}
         return AnimationPose(**values)
 
     def with_point(self, progress, **changes):

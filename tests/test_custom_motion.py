@@ -22,6 +22,51 @@ from tests import test_keyframe_rendering as render_tests
 
 
 class MotionModelTests(TestCase):
+    def test_continuity_uses_applied_tracks_tolerances_and_keeps_intentional_difference(self):
+        from app.animation.custom_motion import exit_pose_differences, pose_differences
+        from app.animation.curves import AnimationPose
+        intro = CustomMotion.default().with_key("dx", 1, value=100).with_key("scale", 1, value=1.2)
+        outro = CustomMotion.default(False).with_key("dx", 0, value=800).set_field_enabled("dx", False)
+        source = Source(SourceType.SHAPE, "Link", animation_in="custom", animation_out="custom",
+            custom_intro_keyframes=intro, custom_outro_keyframes=outro)
+        saved = deepcopy(source.to_dict())
+        self.assertEqual(exit_pose_differences(source), ("dx", "scale"))
+        self.assertEqual(source.to_dict(), saved)
+        self.assertEqual(pose_differences(AnimationPose(), AnimationPose(dx=.1, rotation=.1, scale=1.001, opacity=.999)), ())
+        self.assertEqual(pose_differences(AnimationPose(), AnimationPose(rotation=360)), ())
+        self.assertEqual(pose_differences(AnimationPose(), AnimationPose(rotation=359.8)), ("rotation",))
+        source.custom_intro_keyframes = intro.set_field_enabled("dx", False).set_field_enabled("scale", False)
+        self.assertEqual(exit_pose_differences(source), ())
+
+    def test_explicit_link_changes_only_first_values_and_enables_necessary_tracks(self):
+        from app.animation.curves import AnimationPose
+        outro = CustomMotion.default(False).with_key("dx", .6, value=80, interpolation="bezier", bezier=(.1, -.2, .8, 1.3), custom=True)
+        outro = outro.with_key("dx", 0, interpolation="hold").set_field_enabled("dx", False)
+        linked = outro.with_start_pose(AnimationPose(dx=100, scale=1.2, rotation=15, opacity=.7))
+        self.assertEqual(linked.at(0), AnimationPose(dx=100, scale=1.2, rotation=15, opacity=.7))
+        self.assertTrue(linked.field_enabled("dx"))
+        self.assertEqual(linked.points, outro.points)
+        for name in ("dx", "scale", "rotation", "opacity"):
+            self.assertEqual(linked.keys(name)[1:], outro.keys(name)[1:])
+            self.assertEqual(linked.keys(name)[0].interpolation, outro.keys(name)[0].interpolation)
+            self.assertEqual(linked.keys(name)[0].bezier, outro.keys(name)[0].bezier)
+        self.assertEqual(linked.curves[0].custom_segments, (.6,))
+        self.assertEqual(linked.keys("dy"), outro.keys("dy"))
+        self.assertFalse(outro.field_enabled("dx"))
+
+    def test_resting_policy_for_custom_preset_and_missing_edges(self):
+        from app.animation.custom_motion import exit_pose_differences, resting_pose
+        from app.animation.curves import AnimationPose
+        intro = CustomMotion.default().with_key("dx", 1, value=50)
+        for entrance in ("custom", "fade", "none"):
+            for exit in ("custom", "fade", "none"):
+                source = Source(SourceType.SHAPE, "Policy", animation_in=entrance, animation_out=exit,
+                    custom_intro_keyframes=intro, custom_outro_keyframes=CustomMotion.default(False))
+                self.assertEqual(resting_pose(source).dx, 50 if entrance == "custom" else 0)
+                self.assertEqual(exit_pose_differences(source), ("dx",) if entrance == "custom" and exit == "custom" else ())
+                if entrance != "custom":
+                    self.assertEqual(resting_pose(source), AnimationPose())
+
     def test_disabled_track_preserves_saved_keys_and_uses_identity_in_output(self):
         from dataclasses import asdict
         motion = CustomMotion.default().with_key("dx", .4, value=90).with_key("scale", .7, value=2)
@@ -130,6 +175,63 @@ class MotionRenderTests(TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def test_linked_boundary_in_actual_mp4_matches_canvas_without_alpha_reset(self):
+        from app.canvas.live_canvas import CanvasScene
+        from app.canvas.source_item import SourceItem
+        from app.preview.canvas_snapshot import CanvasSnapshot
+        intro = CustomMotion.default().with_key("dx", 1, value=40).with_key("scale", 1, value=1.2)
+        intro = intro.with_key("rotation", 1, value=15).with_key("opacity", 1, value=.7)
+        outro = CustomMotion.default(False).with_start_pose(intro.at(1))
+        source = Source(SourceType.SHAPE, "Linked", x=35, y=35, width=24, height=24, opacity=.4,
+            fill_color="#FFFFFF", animation_in="custom", animation_out="custom", animation_in_duration=1,
+            animation_out_duration=1, custom_intro_keyframes=intro, custom_outro_keyframes=outro)
+        track = PlaylistTrack("", "A", duration_seconds=3)
+        plan = compile_playlist([track])
+        binding = KeyframeRenderBinding.build(source, plan)
+        graph = []
+        layer, x, y = ffmpeg_transform(graph, "[1:v]", binding, 24, 24, "link")
+        graph.append(f"[0:v]{layer}overlay=x='{x}':y='{y}':format=rgb[out]")
+        frames = self.ffmpeg(["color=black:s=160x100:r=10:d=3", "color=white:s=24x24:r=10:d=3,format=rgba"],
+            ";".join(graph), width=160, height=100, duration=3, encode=True)
+        scene = CanvasScene()
+        scene.set_artboard_size(160, 100)
+        scene.artboard_color = scene.artboard_border_color = QColor("black")
+        scene.addItem(SourceItem(source))
+        self.assertEqual(binding.pose(2-1e-8), binding.pose(2))
+        for i in (0, 5, 10, 19, 20, 21, 25, 29):
+            image = CanvasSnapshot.capture_track(scene, track, 1, 1, 0, elapsed_seconds=i/10,
+                timeline_seconds=i/10, compiled_plan=plan)
+            self.assertAlmostEqual(float(frames[i].max()), binding.values(i/10)["opacity"]*255, delta=3)
+            if i not in (0, 29):
+                ys, xs = np.nonzero(frames[i, :, :, 0] > 5)
+                qt = image.convertToFormat(QImage.Format.Format_RGB888)
+                pixels = np.frombuffer(qt.constBits(), dtype=np.uint8).reshape(100, qt.bytesPerLine())[:, :480].reshape(100, 160, 3)
+                qy, qx = np.nonzero(pixels[:, :, 0] > 5)
+                self.assertAlmostEqual(xs.mean(), qx.mean(), delta=1.5)
+                self.assertAlmostEqual(ys.mean(), qy.mean(), delta=1.5)
+
+    def test_isolated_and_compiled_canvas_hold_custom_entrance_under_preset_exit(self):
+        from app.canvas.live_canvas import CanvasScene
+        from app.canvas.source_item import SourceItem
+        from app.preview.canvas_snapshot import CanvasSnapshot
+        motion = CustomMotion.default().with_key("dx", 1, value=30).with_key("opacity", 1, value=.6)
+        track = PlaylistTrack("", "A", duration_seconds=4)
+        plan = compile_playlist([track])
+        for style in ("none", "fade", "slide_left", "rotate", "zoom"):
+            source = Source(SourceType.SHAPE, "Held", x=50, y=30, width=24, height=24, fill_color="#FFFFFF",
+                opacity=.5, animation_in="custom", animation_in_duration=1, animation_out=style, animation_out_duration=1,
+                custom_intro_keyframes=motion)
+            scene = CanvasScene()
+            scene.set_artboard_size(160, 100)
+            scene.artboard_color = scene.artboard_border_color = QColor("black")
+            scene.addItem(SourceItem(source))
+            for seconds, phase, progress in ((2, None, 1), (3, "out", 0), (3.5, "out", .5)):
+                isolated = CanvasSnapshot.capture_track(scene, track, 1, 1, 0, elapsed_seconds=seconds,
+                    timeline_seconds=seconds, animation_phase=phase, animation_progress=progress)
+                compiled = CanvasSnapshot.capture_track(scene, track, 1, 1, 0, elapsed_seconds=seconds,
+                    timeline_seconds=seconds, compiled_plan=plan, animation_phase=phase, animation_progress=progress)
+                self.assertEqual(isolated, compiled, (style, seconds))
 
     def test_relative_motion_ffmpeg_matches_canvas_and_base_alpha_once(self):
         from app.canvas.live_canvas import CanvasScene

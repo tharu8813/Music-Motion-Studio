@@ -43,11 +43,11 @@ class MotionDialogTests(TestCase):
         self.tracks = [PlaylistTrack("same.wav", "First", artist="Artist A", duration_seconds=10),
                        PlaylistTrack("same.wav", "Second", artist="Artist B", duration_seconds=20)]
 
-    def dialog(self, edge="in"):
+    def dialog(self, edge="in", **kwargs):
         translator = Translator()
         if os.environ.get("MMS_CUSTOM_MOTION_LANGUAGE"):
             translator.set_language(os.environ["MMS_CUSTOM_MOTION_LANGUAGE"])
-        dialog = CustomMotionDialog(self.source, self.scene, self.tracks, translator, edge)
+        dialog = CustomMotionDialog(self.source, self.scene, self.tracks, translator, edge, **kwargs)
         self.addCleanup(dialog.deleteLater)
         self.addCleanup(lambda: dialog.reject() if not dialog._closed else None)
         dialog.show()
@@ -80,6 +80,346 @@ class MotionDialogTests(TestCase):
         dialog.reject()
         self.assertEqual(self.source.to_dict(), saved)
         self.assertEqual(self.item.pos(), position)
+
+    def test_simple_default_and_mode_switch_preserve_independent_keys_bezier_and_history(self):
+        motion = CustomMotion.default().with_key("dx", .3, value=40)
+        motion = motion.with_key("rotation", .7, value=30, interpolation="bezier", bezier=(.2, -.4, .8, 1.3), custom=True)
+        self.source.custom_intro_keyframes = motion
+        self.source.animation_in = "custom"
+        dialog = self.dialog()
+        saved = dialog.state()
+        self.assertFalse(dialog.advanced)
+        self.assertTrue(dialog.simple_host.isVisible())
+        self.assertFalse(dialog.lane_scroll.isVisible())
+        self.assertEqual([k.time for k in dialog.simple_timeline.points], [0, .3, .7, 1])
+        for _ in range(3):
+            dialog.mode_combo.setCurrentIndex(1)
+            self.assertTrue(dialog.lane_scroll.isVisible())
+            dialog.mode_combo.setCurrentIndex(0)
+        self.assertEqual(dialog.state(), saved)
+        self.assertEqual(dialog.undo_stack.count(), 0)
+        dialog.seek(.4)
+        dialog.fields["scale"].setValue(150)
+        edited = dialog.motion
+        self.assertEqual(edited.keys("rotation"), motion.keys("rotation"))
+        dialog.set_advanced(True)
+        dialog.undo_stack.undo()
+        self.assertEqual(dialog.motion, motion)
+        dialog.undo_stack.redo()
+        self.assertEqual(dialog.motion, edited)
+        dialog.apply_preset("dx", "linear")
+        advanced_edit = dialog.motion
+        dialog.set_advanced(False)
+        dialog.undo_stack.undo()
+        self.assertEqual(dialog.motion, edited)
+        dialog.undo_stack.redo()
+        self.assertEqual(dialog.motion, advanced_edit)
+
+    def test_simple_timeline_pose_add_delete_move_are_atomic_and_preserve_disabled_keys(self):
+        dialog = self.dialog()
+        dialog.toggle_field("rotation", False)
+        baseline = dialog.motion
+        dialog.seek(.3)
+        QTest.mouseClick(dialog.simple_add, Qt.MouseButton.LeftButton)
+        for name in ("dx", "dy", "scale", "opacity"):
+            self.assertEqual([k.time for k in dialog.motion.keys(name)], [0, .3, 1])
+        self.assertEqual(dialog.motion.keys("rotation"), baseline.keys("rotation"))
+        added = dialog.motion
+        dialog.begin_gesture()
+        dialog.move_common_point(.3, .4)
+        dialog.move_common_point(.4, .5)
+        dialog.end_gesture()
+        moved = dialog.motion
+        self.assertEqual(moved.key_times(), (0, .5, 1))
+        dialog.undo_stack.undo()
+        self.assertEqual(dialog.motion, added)
+        dialog.undo_stack.redo()
+        self.assertEqual(dialog.motion, moved)
+        dialog.delete_common_point(.5)
+        self.assertEqual(dialog.motion.key_times(), (0, 1))
+        dialog.undo_stack.undo()
+        self.assertEqual(dialog.motion, moved)
+        dialog.move_common_point(.5, 1)
+        self.assertEqual(dialog.motion, moved)
+
+    def test_simple_timeline_mouse_drag_moves_existing_properties_in_one_undo(self):
+        dialog = self.dialog()
+        dialog.seek(.3)
+        dialog.edit_pose(dx=40, scale=1.3)
+        before = dialog.motion
+        timeline = dialog.simple_timeline
+        start = QPoint(round(timeline.point_x(.3)), 19)
+        end = QPoint(round(timeline.point_x(.45)), 19)
+        QTest.mousePress(timeline, Qt.MouseButton.LeftButton, pos=start)
+        QTest.mouseMove(timeline, end)
+        QTest.mouseRelease(timeline, Qt.MouseButton.LeftButton, pos=end)
+        self.assertAlmostEqual(dialog.progress, .45, delta=.005)
+        self.assertEqual(dialog.motion.keys("dx")[1].time, dialog.motion.keys("scale")[1].time)
+        self.assertEqual(dialog.motion.keys("opacity"), before.keys("opacity"))
+        dialog.undo_stack.undo()
+        self.assertEqual(dialog.motion, before)
+
+    def test_simple_canvas_horizontal_edit_does_not_key_unchanged_vertical_curve(self):
+        dialog = self.dialog()
+        before = dialog.motion
+        dialog.edit_canvas_pose(dict(dx=30, dy=0))
+        self.assertEqual([k.time for k in dialog.motion.keys("dx")], [0, .5, 1])
+        for name in ("dy", "scale", "rotation", "opacity"):
+            self.assertEqual(dialog.motion.keys(name), before.keys(name))
+
+    def test_hidden_items_retained_for_project_undo_do_not_reappear_in_the_clone(self):
+        hidden = SourceItem(Source(SourceType.SHAPE, "Deleted", x=0, y=0, width=640, height=360, fill_color="#FF0000", z_index=100))
+        self.scene.addItem(hidden)
+        hidden.hide()
+        dialog = self.dialog()
+        self.assertNotIn(hidden.source.id, [item.source.id for item in dialog.canvas.project_scene.items()])
+        self.assertEqual(dialog.render_now(full_size=True).pixelColor(5, 5), QColor("black"))
+
+    def test_apply_without_link_preserves_an_intentional_pose_difference(self):
+        self.source.animation_in = self.source.animation_out = "custom"
+        self.source.custom_intro_keyframes = CustomMotion.default().with_key("dx", 1, value=80)
+        self.source.custom_outro_keyframes = CustomMotion.default(False)
+        dialog = self.dialog("out")
+        saved = dialog.motion
+        self.assertTrue(dialog.connection_host.isVisible())
+        dialog.apply_changes()
+        self.assertEqual(dialog.changes["custom_outro_keyframes"], saved)
+        from dataclasses import replace
+        restored = Source.from_dict(replace(self.source, **dialog.changes).to_dict())
+        self.assertEqual(restored.custom_outro_keyframes, saved)
+        self.assertEqual(restored.custom_intro_keyframes.at(1).dx, 80)
+
+    def test_project_plan_clocks_match_rendered_pose_for_crossfade_and_automix(self):
+        from app.animation.custom_motion_render import CustomMotionRenderBinding
+        from app.automix.planner import compile_automix
+        from app.timeline.crossfade import compile_crossfade
+        from app.preview.canvas_snapshot import CanvasSnapshot
+        from tests.test_automix_manual_transitions import _tracks, _analyses
+        from tests.test_automix_planner import ENABLED
+        self.tracks = _tracks()
+        plans = [compile_crossfade(self.tracks, 2), compile_automix(self.tracks, _analyses(self.tracks, (120, 124, 120)), ENABLED)]
+        self.source.animation_in = self.source.animation_out = "custom"
+        self.source.custom_intro_keyframes = CustomMotion.default().with_key("dx", 1, value=30)
+        self.source.custom_outro_keyframes = CustomMotion.default(False).with_start_pose(self.source.custom_intro_keyframes.at(1))
+        self.source.animation_fit_mix = True
+        original = deepcopy(self.source.to_dict())
+        for plan in plans:
+            dialog = self.dialog(compiled_plan=plan)
+            dialog.track.setCurrentIndex(1)
+            for edge in (0, 1):
+                dialog.edge_combo.setCurrentIndex(edge)
+                for progress in (0, .25, .5, .99):
+                    dialog.seek(progress)
+                    local, seconds, _ = dialog.preview_clock(self.tracks[1], 1)
+                    binding = CustomMotionRenderBinding.build(dialog.draft_source(), plan, sources=[dialog.draft_source()])
+                    for name in dialog.fields:
+                        self.assertAlmostEqual(getattr(binding.pose(seconds), name), getattr(dialog.motion.at(progress), name), places=7)
+                    expected = CanvasSnapshot.capture_track(self.scene, self.tracks[1], 2, len(self.tracks), 0,
+                        elapsed_seconds=local, timeline_seconds=seconds, compiled_plan=plan)
+                    actual = dialog.render_now(full_size=True)
+                    import numpy as np
+                    def pixels(image):
+                        image = image.convertToFormat(QImage.Format.Format_RGBA8888)
+                        return np.frombuffer(image.constBits(), dtype=np.uint8).copy().astype(int)
+                    error = np.abs(pixels(actual)-pixels(expected))
+                    # Timeline arithmetic can land on opposite sides of an
+                    # 8-bit alpha rounding boundary; geometry must still match.
+                    self.assertLessEqual(int(error.max()), 1, (plan.audio.mode if hasattr(plan.audio, "mode") else "plan", edge, progress))
+                    self.assertLess(float(error.mean()), .05)
+            dialog.reject()
+        self.assertEqual(self.source.to_dict(), original)
+
+    def test_reactive_text_handles_follow_the_composited_pose(self):
+        from app.animation.curves import music_reactive_pose
+        self.scene.clear()
+        self.source = Source(SourceType.TEXT, "React", x=160, y=120, width=100, height=60, text="Beat",
+            music_reactive_enabled=True, music_reactive_effect="bass_scale", music_reactive_strength=1)
+        self.item = SourceItem(self.source)
+        self.scene.addItem(self.item)
+        dialog = self.dialog()
+        pose = dialog.motion.at(dialog.progress)
+        reaction = music_reactive_pose(self.source.music_reactive_effect, .5, self.source.music_reactive_strength, self.source.font_size)
+        self.assertAlmostEqual(dialog.canvas.handles.scale(), self.source.scale*pose.scale*reaction.scale)
+        self.assertGreater(dialog.canvas.handles.scale(), 1)
+        self.assertAlmostEqual(dialog.canvas.handles.x(), self.source.x+pose.dx+reaction.dx)
+
+    def test_link_is_explicit_undoable_preserves_other_keys_and_cancel_preserves_project(self):
+        intro = CustomMotion.default().with_key("dx", 1, value=100).with_key("scale", 1, value=1.2)
+        outro = CustomMotion.default(False).with_key("dx", .6, value=40, interpolation="bezier", bezier=(.1, -.2, .8, 1.3), custom=True)
+        self.source.animation_in = self.source.animation_out = "custom"
+        self.source.custom_intro_keyframes, self.source.custom_outro_keyframes = intro, outro
+        original = deepcopy(self.source.to_dict())
+        dialog = self.dialog("out")
+        self.assertTrue(dialog.connection_host.isVisible())
+        self.assertEqual(dialog.motion, outro)
+        dialog.seek(-.01)
+        before_frame = dialog.render_now(full_size=True)
+        dialog.seek(0)
+        self.assertNotEqual(before_frame, dialog.render_now(full_size=True))
+        QTest.mouseClick(dialog.connect_pose, Qt.MouseButton.LeftButton)
+        self.assertEqual(dialog.motion.at(0), intro.at(1))
+        self.assertEqual(dialog.motion.keys("dx")[1:], outro.keys("dx")[1:])
+        self.assertFalse(dialog.connection_host.isVisible())
+        self.assertEqual(before_frame, dialog.render_now(full_size=True))
+        dialog.undo_stack.undo()
+        self.assertEqual(dialog.motion, outro)
+        self.assertTrue(dialog.connection_host.isVisible())
+        dialog.undo_stack.redo()
+        dialog.reject()
+        self.assertEqual(self.source.to_dict(), original)
+
+    def test_editing_opposite_edge_preview_does_not_activate_it_or_rewrite_legacy_banks(self):
+        from app.animation.keyframes import Keyframe
+        self.source.keyframes.enabled = False
+        self.source.keyframes.global_curves = {"x": [Keyframe(0, 100), Keyframe(5, 200)]}
+        original = deepcopy(self.source.to_dict())
+        dialog = self.dialog()
+        self.assertTrue(dialog.legacy_info.isVisible())
+        dialog.edge_combo.setCurrentIndex(1)
+        dialog.render_now()
+        dialog.apply_changes()
+        self.assertNotIn("animation_out", dialog.changes)
+        self.assertNotIn("keyframes", dialog.changes)
+        self.assertEqual(self.source.to_dict(), original)
+
+    def test_cached_real_reaction_and_sample_mode_are_distinct_without_analysis(self):
+        import numpy as np
+        from app.preview.audio_reaction_cache import REACTION_CACHE
+        from app.renderer.python_visualizer import PythonVisualizerRenderer
+        reactive = Source(SourceType.TEXT, "Reactive", text="Music", x=10, y=10,
+            music_reactive_enabled=True, music_reactive_strength=1)
+        self.scene.addItem(SourceItem(reactive))
+        with TemporaryDirectory() as raw:
+            path = Path(raw)/"track.wav"
+            path.write_bytes(b"cached audio fingerprint")
+            self.tracks[0].file_path = str(path)
+            data = np.linspace(0, 1, 301, dtype=np.float32)
+            REACTION_CACHE.store(self.tracks[0], 30, {"bass": data, "music_envelopes": {reactive.music_reaction_profile: data}})
+            with patch.object(PythonVisualizerRenderer, "_decode_mono_audio", side_effect=AssertionError("must reuse cache")):
+                dialog = self.dialog()
+                _, levels, notice = dialog.reaction_preview(self.tracks[0], 5)
+                self.assertAlmostEqual(levels[reactive.id], .5)
+                self.assertIn("실제" if dialog.korean else "real", notice)
+                _, _, sample = dialog.reaction_preview(self.tracks[1], 5)
+                self.assertIn("예시" if dialog.korean else "samples", sample)
+                dialog.track.setCurrentIndex(1)
+                dialog.render_now()
+                self.assertIn("예시" if dialog.korean else "samples", dialog.limitations.text())
+                path.write_bytes(b"changed track")
+                self.assertIsNone(REACTION_CACHE.get(self.tracks[0]))
+
+    def test_reaction_cache_keeps_only_two_completed_tracks(self):
+        from app.preview.audio_reaction_cache import AudioReactionCache
+        cache = AudioReactionCache()
+        with TemporaryDirectory() as raw:
+            tracks = []
+            for i in range(3):
+                path = Path(raw)/f"{i}.wav"
+                path.write_bytes(b"fingerprint")
+                track = PlaylistTrack(str(path), str(i))
+                tracks.append(track)
+                cache.store(track, 30, {"bass": [i], "music_envelopes": {}})
+            self.assertIsNone(cache.get(tracks[0]))
+            self.assertEqual(cache.get(tracks[2]), (30, [2], {}))
+            self.assertEqual(len(cache.entries), 2)
+
+    def test_closing_during_duration_probe_does_not_block_or_delete_a_running_thread(self):
+        from threading import Event
+        from time import perf_counter
+        from app.dialogs.motion_preview_media import MotionPreviewMedia
+        from app.services.playlist_service import PlaylistService
+        entered, finish = Event(), Event()
+        def probe(_path):
+            entered.set()
+            finish.wait(2)
+            return 2
+        media = MotionPreviewMedia([], {}, None)
+        self.addCleanup(media.deleteLater)
+        with patch.object(PlaylistService, "_probe_duration", side_effect=probe):
+            media.queue.append("probe.mp4")
+            media.start_probe()
+            worker = media.worker
+            try:
+                self.assertTrue(entered.wait(1))
+                begin = perf_counter()
+                media.close()
+                self.assertLess(perf_counter()-begin, .1)
+                self.assertTrue(worker.isInterruptionRequested())
+                self.assertIs(worker.parent(), self.app)
+                self.assertIsNone(media.worker)
+            finally:
+                finish.set()
+                self.assertTrue(worker.wait(1000))
+                self.app.processEvents()
+
+    def test_real_video_scrub_play_loop_speed_exit_and_close_use_owned_decoder(self):
+        import subprocess
+        from contextlib import ExitStack
+        from tests.test_keyframe_rendering import FFMPEG
+        from app.utils.subprocess_utils import hidden_process_kwargs
+        if not FFMPEG:
+            self.skipTest("FFmpeg is unavailable")
+        with TemporaryDirectory() as raw, ExitStack() as cleanup:
+            cleanup.callback(self.app.processEvents)
+            path = Path(raw)/"motion-video.mp4"
+            result = subprocess.run([str(FFMPEG), "-v", "error", "-f", "lavfi", "-i",
+                "testsrc2=size=96x64:rate=20:duration=2", "-c:v", "libx264", "-preset", "ultrafast",
+                "-pix_fmt", "yuv420p", "-y", str(path)], capture_output=True, timeout=20, **hidden_process_kwargs())
+            self.assertEqual(result.returncode, 0, result.stderr)
+            video = Source(SourceType.VIDEO, "Video", x=0, y=0, width=96, height=64,
+                video_paths=[str(path)], video_repeat_mode="loop_one", video_speed=2)
+            original_item = SourceItem(video)
+            self.scene.addItem(original_item)
+            self.addCleanup(original_item.release_video_decoder)
+            cleanup.callback(original_item.release_video_decoder)
+            saved = deepcopy(video.to_dict())
+            dialog = self.dialog()
+            cleanup.callback(lambda: dialog.reject() if not dialog._closed else None)
+            dialog.duration.setValue(.6)
+            clone = dialog.canvas.media.items[0]
+            def wait_for(predicate):
+                for _ in range(200):
+                    if predicate():
+                        return
+                    QTest.qWait(20)
+                self.fail("Video preview did not deliver the requested frame")
+            wait_for(lambda: str(path) in dialog.canvas.media.durations and not clone.video_preview_frame().isNull())
+            dialog.seek(0)
+            dialog.render_now()
+            wait_for(lambda: clone._video_player.position() < 180)
+            first = clone.video_preview_frame().copy()
+            revision = clone.video_preview_revision
+            dialog.seek(.75)
+            dialog.render_now()
+            wait_for(lambda: clone.video_preview_revision > revision and abs(clone._video_player.position()-900) < 180)
+            self.assertNotEqual(first, clone.video_preview_frame())
+            # Default 0.6s effect at 0.75 => .45s * speed 2 => .9s.
+            self.assertAlmostEqual(dialog.canvas.media.last_requests[video.id][1], .9, places=5)
+            dialog.duration.setValue(2)
+            dialog.seek(.75)
+            dialog.render_now()
+            self.assertAlmostEqual(dialog.canvas.media.last_requests[video.id][1], 1, places=5)  # 3s wraps in a 2s clip
+            dialog.edge_combo.setCurrentIndex(1)
+            dialog.seek(0)
+            dialog.render_now()
+            expected = ((self.tracks[0].duration_seconds-dialog.durations["out"])*2) % 2
+            self.assertAlmostEqual(dialog.canvas.media.last_requests[video.id][1], expected, places=5)
+            dialog.seek(.2)
+            dialog.toggle_play()
+            QTest.qWait(180)
+            self.assertTrue(clone._video_should_play)
+            dialog.toggle_play()
+            self.assertFalse(clone._video_should_play)
+            dialog.video_sync.setChecked(False)
+            request = dialog.canvas.media.last_requests[video.id]
+            dialog.seek(.8)
+            dialog.render_now()
+            self.assertEqual(dialog.canvas.media.last_requests[video.id], request)
+            dialog.reject()
+            self.assertTrue(dialog.canvas.media.closed)
+            self.assertIsNone(clone._video_player)
+            self.assertIsNone(clone._video_sink)
+            self.assertEqual(video.to_dict(), saved)
 
     def test_canvas_resize_and_rotation_handles_sync_numeric_pose(self):
         dialog = self.dialog()
@@ -197,6 +537,7 @@ class MotionDialogTests(TestCase):
 
     def test_timeline_selection_add_move_delete_and_interpolation_have_local_undo(self):
         dialog = self.dialog()
+        dialog.set_advanced(True)
         dialog.add_point(.3)
         dialog.add_point(.7)
         before = dialog.motion
@@ -259,6 +600,7 @@ class MotionDialogTests(TestCase):
 
     def test_property_row_buttons_add_delete_and_navigate_independently(self):
         dialog = self.dialog()
+        dialog.set_advanced(True)
         dialog.seek(.3)
         QTest.mouseClick(dialog.lanes["dx"].add, Qt.MouseButton.LeftButton)
         dialog.fields["dx"].setValue(90)
@@ -281,6 +623,7 @@ class MotionDialogTests(TestCase):
         from app.dialogs.motion_curve_presets import CurvePresetMenu
         from PySide6.QtCore import QPoint
         dialog = self.dialog()
+        dialog.set_advanced(True)
         dialog.add_point(.3, "dx")
         dialog.add_point(.7, "dx")
         timeline = dialog.lanes["dx"].timeline
@@ -346,6 +689,7 @@ class MotionDialogTests(TestCase):
 
     def test_track_enable_toggle_preserves_keys_and_selected_row_is_emphasized(self):
         dialog = self.dialog()
+        dialog.set_advanced(True)
         dialog.edit_pose(dx=80, dy=30)
         keys = dialog.motion.keys("dx")
         y_keys = dialog.motion.keys("dy")
@@ -570,7 +914,7 @@ class MotionDialogTests(TestCase):
 class MotionWorkspaceTests(MainWindowTestCase):
     def test_new_project_hides_generic_controls_and_shows_custom_entry_buttons(self):
         source, controller = workspace.KeyframeWorkspaceTests.prepare(self)
-        self.assertEqual(self.window.timeline_panel.view_combo.count(), 2)
+        self.assertFalse(hasattr(self.window.timeline_panel, "view_combo"))
         self.assertFalse(self.window.inspector.findChildren(QPushButton, "keyframeDiamondButton"))
         inspector = self.window.inspector
         inspector.animation_in_combo.setCurrentIndex(inspector.animation_in_combo.findData("custom"))

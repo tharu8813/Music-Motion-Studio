@@ -689,6 +689,7 @@ class CanvasSnapshot:
                       junction: MixJunction | None = None,
                       bass_level: float = 0.0,
                       music_levels: dict[str, float] | None = None,
+                      motion_pose_overrides: dict[str, AnimationPose] | None = None,
                       lyric_instrumental_spans: tuple | None = None,
                       lyric_instrumental_spans_by_source: dict[str, tuple] | None = None) -> QImage:
         """Capture one track state with metadata, cover art, and an optional Z band.
@@ -1329,12 +1330,19 @@ class CanvasSnapshot:
                     source.music_reactive_effect, music_level,
                     source.music_reactive_strength, source.font_size,
                 ))
-            if has_custom_motion(source) and compiled_plan is not None:
+            overridden = motion_pose_overrides is not None and source.id in motion_pose_overrides
+            if overridden:
+                pose = motion_pose_overrides[source.id].combined(pose)
+            elif has_custom_motion(source) and compiled_plan is not None:
                 from app.animation.custom_motion_render import CustomMotionRenderBinding, motion_windows
                 project_sources = [item.source for item in scene.items() if isinstance(item, SourceItem) and item.source.visible]
                 motion_binding = CustomMotionRenderBinding(source, motion_windows(source, compiled_plan, project_sources))
                 pose = motion_binding.pose(global_seconds).combined(pose)
-            if edge is not None and edge[1] != "none" and not (edge[1] == "custom" and compiled_plan is not None):
+            elif source.animation_in == "custom" and (edge is None or (edge[0] == "out" and edge[1] != "custom")):
+                # Isolated captures follow the same hold/composition policy as
+                # the compiled plan and the main Canvas animation preview.
+                pose = source_motion(source, 1, True).combined(pose)
+            if not overridden and edge is not None and edge[1] != "none" and not (edge[1] == "custom" and compiled_plan is not None):
                 phase, style, local_progress = edge
                 pose = source_motion(source, local_progress, phase == "in").combined(pose)
             if not pose.is_identity or key_values:
