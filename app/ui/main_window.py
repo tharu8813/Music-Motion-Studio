@@ -1768,6 +1768,8 @@ class MainWindow(QMainWindow):
             self.playlist_service, self.store, self.translator
         )
         self.timeline_panel.preview_requested.connect(self.preview_controller.preview_at)
+        self.timeline_panel.edit_started.connect(self.history_controller.flush_pending)
+        self.timeline_panel.edit_finished.connect(self.history_controller.flush_pending)
         from app.controllers.custom_motion_controller import CustomMotionController
         self.custom_motion_controller = CustomMotionController(self)
         from app.animation.canvas_keyframes import CanvasKeyframeBinding

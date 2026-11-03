@@ -150,6 +150,10 @@ class SourceItem(QGraphicsObject):
         self._video_filter_busy = False
         self._video_pending_frame: tuple[QImage, object] | None = None
         self._video_filter_generation = 0
+        self._video_validate_timestamps = False
+        self._video_frame_waiting = False
+        self._video_timestamp_missing = False
+        self._video_presented_timestamp_ms = None
         self._image_filter_key: tuple[str, float, float, float] | None = None
         self._raw_pixmap = QPixmap()
         self._raw_pixmap_path: str | None = None
@@ -494,7 +498,12 @@ class SourceItem(QGraphicsObject):
             self._video_player.mediaStatusChanged.connect(
                 self._video_media_status_changed,
             )
+            self._video_player.errorOccurred.connect(self._video_preview_error)
         return self._video_player
+
+    def _video_preview_error(self, *_):
+        if self._video_validate_timestamps:
+            self.video_frame_ready.emit()
 
     def _set_video_loops(self, loops: QMediaPlayer.Loops) -> None:
         if self._video_player is not None and loops != self._video_loop_mode:
@@ -508,6 +517,8 @@ class SourceItem(QGraphicsObject):
             self._video_applied_playback_rate = rate
 
     def _video_media_status_changed(self, status: QMediaPlayer.MediaStatus) -> None:
+        if self._video_validate_timestamps:
+            self.video_frame_ready.emit()
         if status not in {
             QMediaPlayer.MediaStatus.LoadedMedia,
             QMediaPlayer.MediaStatus.BufferedMedia,
@@ -520,6 +531,7 @@ class SourceItem(QGraphicsObject):
     def _apply_video_seek(self, target_ms: int, *, request_time: float | None = None) -> None:
         if self._video_player is None:
             return
+        self._invalidate_video_seek_frame()
         self._video_last_seek_time = (
             monotonic() if request_time is None else float(request_time)
         )
@@ -537,6 +549,21 @@ class SourceItem(QGraphicsObject):
     @timed("video.frame_callback_seconds")
     def _video_frame_changed(self, frame: QVideoFrame) -> None:
         now = monotonic()
+        if self._video_validate_timestamps:
+            if (self._video_preview_suppressed or not self._video_timeline_preview_active
+                    or self._video_pending_seek_ms is not None):
+                return
+            target = self._video_last_requested_target_ms
+            timestamp = frame.startTime()
+            if target is not None and (timestamp < 0 or
+                    abs(timestamp/1000-target) > video_seek_tolerance_ms(self._video_preview_fps)):
+                self._video_dropped_frames += 1
+                changed = self._video_timestamp_missing != (timestamp < 0)
+                self._video_timestamp_missing = timestamp < 0
+                if changed:
+                    self.video_frame_ready.emit()
+                return
+            self._video_timestamp_missing = False
         if self._video_timeline_preview_active:
             minimum_interval = 1.0 / max(1, self._video_preview_fps)
             # Qt's nominal 30/60 fps callbacks arrive a few milliseconds early.
@@ -568,6 +595,8 @@ class SourceItem(QGraphicsObject):
             self._video_presented_gpu_frame = QVideoFrame(frame)
             self._video_presented_gpu_serial += 1
             self._video_presented_revision += 1
+            self._video_frame_waiting = False
+            self._video_presented_timestamp_ms = frame.startTime()/1000 if frame.startTime() >= 0 else None
             self._video_applied_gpu_color_filter = self._video_gpu_color_filter
             if self._video_editor_poster_pending and not self._video_timeline_preview_active:
                 self._video_editor_poster_pending = False
@@ -596,6 +625,10 @@ class SourceItem(QGraphicsObject):
             if self._video_player is not None:
                 self._video_player.pause()
         generation = self._video_filter_key()
+        if self._video_validate_timestamps:
+            # Recheck this presentation timestamp when a slow filter completes:
+            # ordinary playback can advance without starting another seek.
+            generation += (frame.startTime(),)
         # Decode callbacks can arrive faster than a costly blur. Keep only the
         # newest frame, so effects never create an unbounded GUI event backlog.
         if self._video_pending_frame is not None:
@@ -644,12 +677,18 @@ class SourceItem(QGraphicsObject):
 
     def _video_filter_finished(self, generation: object, image: object) -> None:
         self._video_filter_busy = False
-        if (generation == self._video_filter_key()
+        base = generation[:10] if isinstance(generation, tuple) else generation
+        current = self._video_last_requested_target_ms
+        fresh = not (self._video_validate_timestamps and isinstance(generation, tuple) and len(generation) > 10
+                     and current is not None and abs(generation[10]/1000-current) > video_seek_tolerance_ms(self._video_preview_fps))
+        if (base == self._video_filter_key() and fresh
                 and isinstance(image, QImage) and not image.isNull()
                 and not self._video_preview_suppressed and self.isVisible()):
             self._video_presented_frame = QImage(image)
             self._pixmap = QPixmap.fromImage(image)
             self._video_presented_revision += 1
+            self._video_frame_waiting = False
+            self._video_presented_timestamp_ms = generation[10]/1000 if len(generation) > 10 else None
             self._video_applied_gpu_color_filter = bool(generation[9])
             self.update()
             # Full preview renders the scene into a separate CPU/GPU surface.
@@ -657,6 +696,36 @@ class SourceItem(QGraphicsObject):
             # has no next timer tick, so explicitly announce the completed frame.
             self.video_frame_ready.emit()
         self._start_next_video_filter()
+
+    def _invalidate_video_seek_frame(self):
+        """Never publish a pre-seek filter task under the new playhead."""
+        self._video_filter_generation += 1
+        self._video_pending_frame = None
+        if self._video_validate_timestamps:
+            self._video_frame_waiting = True
+            self._video_timestamp_missing = False
+            self._pixmap = QPixmap()
+            self._video_presented_frame = QImage()
+            self._video_presented_gpu_frame = QVideoFrame()
+            self._video_last_raw_frame = QImage()
+            self._video_presented_timestamp_ms = None
+            self._video_presented_revision += 1
+            self.update()
+
+    @property
+    def video_frame_state(self):
+        player = self._video_player
+        if self._video_timestamp_missing or (player is not None and
+                (player.error() != QMediaPlayer.Error.NoError or
+                 player.mediaStatus() == QMediaPlayer.MediaStatus.InvalidMedia)):
+            return "unsupported"
+        if self._video_frame_waiting:
+            return "loading"
+        if (self._video_validate_timestamps and self._video_presented_timestamp_ms is not None
+                and self._video_last_requested_target_ms is not None and
+                abs(self._video_presented_timestamp_ms-self._video_last_requested_target_ms) > video_seek_tolerance_ms(self._video_preview_fps)):
+            return "loading"
+        return "synced" if self.video_preview_active else "still"
 
     def set_video_gpu_color_filter(self, enabled: bool) -> None:
         """Move color-only video effects between CPU and GPU preview paths."""
@@ -805,8 +874,7 @@ class SourceItem(QGraphicsObject):
         self._video_last_requested_target_ms = target
         self._video_last_request_time = request_time
         if path != self._video_preview_path:
-            self._video_filter_generation += 1
-            self._video_pending_frame = None
+            self._invalidate_video_seek_frame()
             self._video_preview_path = path
             self._video_last_frame_accepted = 0.0
             self._video_source_switches += 1
@@ -849,6 +917,8 @@ class SourceItem(QGraphicsObject):
                 600,
                 video_seek_tolerance_ms(self._video_preview_fps) * 3,
             )
+            if self._video_validate_timestamps:
+                discontinuity_threshold = video_seek_tolerance_ms(self._video_preview_fps)
             discontinuous_request = (
                 force_seek
                 or (

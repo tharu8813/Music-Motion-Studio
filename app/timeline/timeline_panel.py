@@ -1,4 +1,4 @@
-"""Visual-only editing of playlist starts and source exposure ranges."""
+"""Visual timeline editing with optional precise timing drafts."""
 from __future__ import annotations
 from PySide6.QtCore import QSignalBlocker, QTimer, Qt, Signal
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QStyle, QVBoxLayout
@@ -7,12 +7,15 @@ from app.models.source import Source
 from app.services.playlist_service import PlaylistService
 from app.services.source_store import SourceStore
 from app.timeline.visual_timeline import VisualTimeline, clock
+from app.timeline.precision_time_dialog import PrecisionTimeDialog
 from app.utils.i18n import Translator
 from app.utils.time_format import format_clock
 
 
 class TimelinePanel(QFrame):
     preview_requested = Signal(float)
+    edit_started = Signal()
+    edit_finished = Signal()
 
     def __init__(self, playlist: PlaylistService, sources: SourceStore, translator: Translator, parent=None):
         super().__init__(parent)
@@ -86,6 +89,7 @@ class TimelinePanel(QFrame):
         self.visual.hint_changed.connect(self.visual_hint.setText)
         self.visual.selection_changed.connect(self._select_visual_block)
         self.visual.timing_committed.connect(self._commit_visual_timing)
+        self.visual.precision_requested.connect(self._edit_precise_timing)
         self.visual.reset_requested.connect(self._reset_visual_timing)
         self.visual.reorder_requested.connect(self.playlist.move_track)
         self.up_button.clicked.connect(lambda: self._move_selected_track(-1))
@@ -121,7 +125,7 @@ class TimelinePanel(QFrame):
         self.down_button.setToolTip("다음 순서로 · Ctrl+↓" if korean else "Move track later · Ctrl+Down")
         self.visual.setAccessibleName("시각 타임라인 편집기" if korean else "Visual timeline editor")
         self.visual.setAccessibleDescription("막대 이동 · 양끝 손잡이로 길이 조절 · 레이어 이름으로 선택 · 두 번 클릭해 확대" if korean else "Drag to move · Edge handles resize · Click lane labels to select · Double-click to focus")
-        self.visual_hint.setText("막대 이동 · 양끝 손잡이로 길이 조절 · 두 번 클릭해 확대 · 눈금 클릭해 시간 이동 · Esc 취소" if korean else "Drag to move · Edge handles resize · Double-click to focus · Click ruler to seek · Esc cancels")
+        self.visual_hint.setText("막대 이동 · 양끝 길이 조절 · F2/우클릭: 시간 정밀 편집 · 두 번 클릭: 확대 · Esc 취소" if korean else "Drag to move · Resize edges · F2/right-click: precise timing · Double-click: focus · Esc: cancel")
         for button in (self.start_button, self.end_button, self.up_button, self.down_button):
             button.setAccessibleName(button.toolTip())
         self._shown = None
@@ -196,11 +200,53 @@ class TimelinePanel(QFrame):
     def _commit_visual_timing(self, kind: str, identifier: str, start: float, duration: float) -> None:
         # Drafts live only in the view: one release produces one undoable model edit.
         if kind == "track":
+            current = next((s for t, s, _e in self.playlist.timeline_tracks() if t.id == identifier), None)
+            if current is None or current == start:
+                return
+            self.edit_started.emit()
             self.playlist.set_start_time(identifier, start)
         else:
             source = self.sources.get(identifier)
-            if source is not None and not source.locked:
-                self.sources.update(identifier, timeline_start=start, timeline_duration=duration)
+            if source is None or source.locked or (source.timeline_start, source.timeline_duration) == (start, duration):
+                return
+            self.edit_started.emit()
+            self.sources.update(identifier, timeline_start=start, timeline_duration=duration)
+        self.edit_finished.emit()
+        self.refresh()
+
+    def _edit_precise_timing(self, kind, identifier):
+        self.refresh()
+        block = next((b for b in self.visual.blocks if (b.kind, b.identifier) == (kind, identifier)), None)
+        if block is None or block.locked:
+            return
+        source = self.sources.get(identifier) if kind == "source" else None
+        track = next((t for t, _s, _e in self.playlist.timeline_tracks() if t.id == identifier), None)
+        dialog = PrecisionTimeDialog(block.name, block.start,
+            source.timeline_duration if source is not None else track.duration_seconds,
+            track=kind == "track", full=block.full,
+            minimum=self.playlist.minimum_start_time(identifier) if kind == "track" else 0,
+            playlist_end=max((end for _t, _s, end in self.playlist.timeline_tracks()), default=0),
+            korean=self.translator.is_korean, parent=self)
+        dialog.adjustSize()
+        rect, viewport = self.visual.block_rect(block), self.visual.viewport()
+        anchor = viewport.mapToGlobal(rect.bottomLeft().toPoint())
+        screen = self.screen().availableGeometry()
+        anchor.setX(max(screen.left(), min(anchor.x(), screen.right()-dialog.width()+1)))
+        anchor.setY(max(screen.top(), min(anchor.y(), screen.bottom()-dialog.height()+1)))
+        dialog.move(anchor)
+        try:
+            # The screen-clamped popup owns its draft and closes on Escape or
+            # outside click. Focus changes never touch project history.
+            if dialog.exec() == dialog.DialogCode.Accepted:
+                start, duration = dialog.timing
+                horizontal = self.visual.horizontalScrollBar().value()
+                vertical = self.visual.verticalScrollBar().value()
+                self._commit_visual_timing(kind, identifier, start, duration)
+                self.visual.horizontalScrollBar().setValue(horizontal)
+                self.visual.verticalScrollBar().setValue(vertical)
+        finally:
+            dialog.deleteLater()
+            self.visual.setFocus()
 
     def _reset_visual_timing(self, kind: str, identifier: str) -> None:
         if kind == "track":

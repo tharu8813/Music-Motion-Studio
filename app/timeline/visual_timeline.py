@@ -1,6 +1,7 @@
 """Direct manipulation of the existing playlist and source timing models."""
 
 from dataclasses import dataclass, replace
+from decimal import Decimal
 from math import ceil, floor
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
@@ -44,6 +45,7 @@ class VisualTimeline(QAbstractScrollArea):
     reset_requested = Signal(str, str)
     preview_requested = Signal()
     reorder_requested = Signal(str, int)
+    precision_requested = Signal(str, str)
 
     LABEL = 176
     RULER = 32
@@ -127,6 +129,15 @@ class VisualTimeline(QAbstractScrollArea):
 
     def selected_block(self):
         return next((b for b in self.blocks if (b.kind, b.identifier) == self.selected), None)
+
+    def _block_duration(self, block):
+        if block.full:
+            return 0.0
+        if block.kind == "source":
+            source = next((s for s in self.sources if s.id == block.identifier), None)
+            if source is not None:
+                return source.timeline_duration
+        return block.end-block.start
 
     def focus_selected(self):
         block = self.selected_block()
@@ -421,14 +432,16 @@ class VisualTimeline(QAbstractScrollArea):
             start = max(block.minimum, proposed)
             if start != proposed:
                 self._snap_guide = block.minimum if self.snapping != invert else None
-            duration = 0.0 if block.full else end - block.start
+            start = max(block.minimum, round(start, 2))
+            duration = self._block_duration(block)
         elif mode == "start":
             start = max(0, min(end - .1, self._snap(start + delta, block, invert)))
+            start = max(0, min(end-.1, round(start, 2)))
             duration = end - start
         else:
-            end = max(start + .1, self._snap(end + delta, block, invert))
+            end = max(start + .1, round(self._snap(end + delta, block, invert), 2))
             duration = end - start
-        self._draft = (block, round(start, 2), round(duration, 2))
+        self._draft = (block, start, duration)
         self._update_scrollbars()
         self._show_hint(replace(block, start=start, end=start + duration if duration else block.end))
 
@@ -497,8 +510,8 @@ class VisualTimeline(QAbstractScrollArea):
         self._pan = None
         if draft:
             block, start, duration = draft
-            old_duration = 0 if block.full else block.end - block.start
-            if (start, duration) != (round(block.start, 2), round(old_duration, 2)):
+            old_duration = self._block_duration(block)
+            if (start, duration) != (block.start, old_duration):
                 self.timing_committed.emit(block.kind, block.identifier, start, duration)
         self.viewport().unsetCursor()
 
@@ -548,6 +561,10 @@ class VisualTimeline(QAbstractScrollArea):
             self.set_playhead(self.duration)
         elif key == Qt.Key.Key_F:
             self.fit_all()
+        elif key == Qt.Key.Key_F2:
+            block = self.selected_block()
+            if block is not None and not block.locked:
+                self.precision_requested.emit(block.kind, block.identifier)
         elif key == Qt.Key.Key_BracketLeft:
             self.seek_selected(False)
         elif key == Qt.Key.Key_BracketRight:
@@ -568,8 +585,8 @@ class VisualTimeline(QAbstractScrollArea):
             delta = (-1 if key == Qt.Key.Key_Left else 1) * (.1 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1)
             block = next((b for b in self.blocks if (b.kind, b.identifier) == self.selected), None)
             if block and not block.locked:
-                self.timing_committed.emit(block.kind, block.identifier, round(max(block.minimum, block.start + delta), 2),
-                                           0 if block.full else round(block.end - block.start, 2))
+                start = max(block.minimum, float(Decimal(str(block.start)) + Decimal(str(delta))))
+                self.timing_committed.emit(block.kind, block.identifier, start, self._block_duration(block))
             else:
                 self.set_playhead(self.playhead + delta)
         else:
@@ -593,6 +610,8 @@ class VisualTimeline(QAbstractScrollArea):
         reset = menu.addAction(("곡 끝까지 표시" if self.korean else "Show to playlist end") if block.kind == "source"
                                else ("자동 이어붙이기" if self.korean else "Sequence automatically"))
         reset.setEnabled(not block.locked)
+        precision = menu.addAction("시간 정밀 편집..." if self.korean else "Edit precise timing...")
+        precision.setEnabled(not block.locked)
         chosen = menu.exec(event.globalPos())
         if chosen is focus:
             self.focus_selected()
@@ -605,3 +624,5 @@ class VisualTimeline(QAbstractScrollArea):
             self.preview_requested.emit()
         elif chosen is reset:
             self.reset_requested.emit(block.kind, block.identifier)
+        elif chosen is precision:
+            self.precision_requested.emit(block.kind, block.identifier)

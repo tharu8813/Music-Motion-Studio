@@ -1,6 +1,6 @@
 """One property lane with interval selection and read-only context time."""
 from PySide6.QtCore import QPointF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QMenu, QWidget
 from app.ui.design_system import COLORS
 
@@ -30,6 +30,7 @@ class MotionTimeline(QWidget):
         self.active = False
         self.enabled_track = True
         self.editable_times = None
+        self._marker_cache = None
         self.setAccessibleName("애니메이션 키프레임 / Animation keyframes")
 
     def point_x(self, progress):
@@ -52,17 +53,39 @@ class MotionTimeline(QWidget):
             painter.fillRect(int(self.point_x(first)), 9, max(1, int(self.point_x(last)-self.point_x(first))), 20, QColor(COLORS["selection"]))
         painter.setPen(QPen(QColor(COLORS["border"])))
         painter.drawLine(QPointF(12, 19), QPointF(self.width()-12, 19))
-        for point in self.points:
-            x = self.point_x(point.time)
-            enabled = self.enabled_track and (self.editable_times is None or point.time in self.editable_times)
-            color = "disabled_text" if not enabled else "accent" if abs(point.time-self.selected) < 1e-6 else "muted"
-            painter.setBrush(QColor(COLORS[color]))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawPolygon(QPolygonF([QPointF(x, 11), QPointF(x+6, 19), QPointF(x, 27), QPointF(x-6, 19)]))
+        painter.drawPixmap(0, 0, self.marker_pixmap())
         painter.setPen(QPen(QColor(COLORS["accent"]), 1.5))
         painter.drawLine(QPointF(self.point_x(self.progress), 0), QPointF(self.point_x(self.progress), self.height()))
         painter.setPen(QColor(COLORS["panel"]))
         painter.drawLine(0, self.height()-1, self.width(), self.height()-1)
+
+    def diamond(self, time):
+        x = self.point_x(time)
+        return QPolygonF([QPointF(x, 11), QPointF(x+6, 19), QPointF(x, 27), QPointF(x-6, 19)])
+
+    def marker_pixmap(self):
+        """One bounded, native-DPI marker layer; the moving playhead is separate."""
+        times = tuple(p.time for p in self.points)
+        selected = tuple(t for t in times if abs(t-self.selected) < 1e-6)
+        ratio = self.devicePixelRatioF()
+        key = (times, selected, self.width(), self.height(), ratio, self.minimum, self.maximum,
+               self.enabled_track, None if self.editable_times is None else frozenset(self.editable_times),
+               tuple(COLORS[name] for name in ("muted", "accent", "disabled_text")))
+        if self._marker_cache is None or self._marker_cache[0] != key:
+            image = QPixmap(round(self.width()*ratio), round(self.height()*ratio))
+            image.setDevicePixelRatio(ratio)
+            image.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(image)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setPen(Qt.PenStyle.NoPen)
+            for time in times:
+                enabled = self.enabled_track and (self.editable_times is None or time in self.editable_times)
+                color = "disabled_text" if not enabled else "accent" if time in selected else "muted"
+                painter.setBrush(QColor(COLORS[color]))
+                painter.drawPolygon(self.diamond(time))
+            painter.end()
+            self._marker_cache = key, image
+        return self._marker_cache[1]
 
     def hit(self, x):
         return min((p.time for p in self.points if abs(self.point_x(p.time) - x) < 9),

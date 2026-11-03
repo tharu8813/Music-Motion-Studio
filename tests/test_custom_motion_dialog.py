@@ -98,6 +98,7 @@ class MotionDialogTests(TestCase):
             dialog.mode_combo.setCurrentIndex(0)
         self.assertEqual(dialog.state(), saved)
         self.assertEqual(dialog.undo_stack.count(), 0)
+
         dialog.seek(.4)
         dialog.fields["scale"].setValue(150)
         edited = dialog.motion
@@ -114,6 +115,17 @@ class MotionDialogTests(TestCase):
         self.assertEqual(dialog.motion, edited)
         dialog.undo_stack.redo()
         self.assertEqual(dialog.motion, advanced_edit)
+
+    def test_direct_render_consumes_pending_timer_request(self):
+        dialog = self.dialog()
+        QTest.qWait(60)
+        with patch.object(dialog.canvas, "render_frame", wraps=dialog.canvas.render_frame) as render:
+            dialog.seek(.25)
+            self.assertTrue(dialog.render_timer.isActive())
+            dialog.render_now()
+            self.assertFalse(dialog.render_timer.isActive())
+            QTest.qWait(40)
+            self.assertEqual(render.call_count, 1)
 
     def test_simple_timeline_pose_add_delete_move_are_atomic_and_preserve_disabled_keys(self):
         dialog = self.dialog()
@@ -386,12 +398,14 @@ class MotionDialogTests(TestCase):
             wait_for(lambda: str(path) in dialog.canvas.media.durations and not clone.video_preview_frame().isNull())
             dialog.seek(0)
             dialog.render_now()
-            wait_for(lambda: clone._video_player.position() < 180)
+            wait_for(lambda: clone._video_player.position() < 180 and clone.video_frame_state == "synced"
+                     and not clone.video_preview_frame().isNull())
             first = clone.video_preview_frame().copy()
             revision = clone.video_preview_revision
             dialog.seek(.75)
             dialog.render_now()
-            wait_for(lambda: clone.video_preview_revision > revision and abs(clone._video_player.position()-900) < 180)
+            wait_for(lambda: clone.video_preview_revision > revision and abs(clone._video_player.position()-900) < 180
+                     and clone.video_frame_state == "synced" and not clone.video_preview_frame().isNull())
             self.assertNotEqual(first, clone.video_preview_frame())
             # Default 0.6s effect at 0.75 => .45s * speed 2 => .9s.
             self.assertAlmostEqual(dialog.canvas.media.last_requests[video.id][1], .9, places=5)

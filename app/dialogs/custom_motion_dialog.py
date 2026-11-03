@@ -1058,22 +1058,14 @@ class CustomMotionDialog(AdaptiveDialog):
     def render_now(self, *, full_size=False):
         if self._closed:
             return None
+        # A direct render consumes the queued request too. Otherwise a slow
+        # seek can immediately render the same state again on the next event.
+        self.render_timer.stop()
         index = max(0, self.track.currentIndex())
         track = self.tracks[index]
         local, global_time, track_start = self.preview_clock(track, index)
         bass, levels, reaction_notice = self.reaction_preview(track, local)
         messages = []
-        if self.canvas.video_stills:
-            messages.append(("영상: 재생 위치 동기화 (비동기, 미지원 파일은 정지 화면)" if self.korean else
-                "Video: playhead sync (asynchronous; still fallback for unsupported files)") if self.video_sync.isChecked() else
-                ("영상: 정지 화면" if self.korean else "Video: still frame"))
-        if reaction_notice:
-            messages.append(reaction_notice)
-        text = " · ".join(messages)
-        if self.limitations.text() != text:
-            self.limitations.setText(text)
-            self.preview_title.setToolTip(text)
-            self.limitations.setVisible(bool(text))
         self.canvas.video_sync = self.video_sync.isChecked()
         image = self.canvas.render_frame(self.motion, self.edge == "in", self.durations[self.edge], self.progress,
             track, index, len(self.tracks), original=self.original.isChecked(), full_size=full_size,
@@ -1084,6 +1076,16 @@ class CustomMotionDialog(AdaptiveDialog):
         self.canvas.handles.editable = self.can_edit
         self.canvas.handles.enabled_fields = {name for name in MOTION_FIELDS if self.motion.field_enabled(name)}
         self.canvas.handles.update()
+        video_notice = self.canvas.media.status_text(self.korean)
+        if video_notice:
+            messages.append(video_notice)
+        if reaction_notice:
+            messages.append(reaction_notice)
+        text = " · ".join(messages)
+        if self.limitations.text() != text:
+            self.limitations.setText(text)
+            self.preview_title.setToolTip(text)
+            self.limitations.setVisible(bool(text))
         return image
 
     def reaction_preview(self, track, local):

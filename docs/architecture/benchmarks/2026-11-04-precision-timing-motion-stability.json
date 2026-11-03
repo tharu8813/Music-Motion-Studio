@@ -1,0 +1,5160 @@
+{
+  "date": "2026-11-04",
+  "baseline_commit": "0183459ce618d3af18c38eb103128adf9cca49e3",
+  "method": "Native Windows Qt; 100 seek samples; inclusive overlapping wall-time stages. 53-source before/after: 20 open-close cycles. Other configurations: 3 cycles. Adjacent baseline replays changed HEAD methods, retaining unused constructor fields; initial_before ran before editing source. See report for large run-to-run variation.",
+  "runs": {
+    "initial_before": {
+      "result": {
+        "language": "ko",
+        "dpi_scale": "1",
+        "canvas": [
+          3840,
+          2160
+        ],
+        "sources": 53,
+        "motion_points": 200,
+        "samples": 100,
+        "seek_and_render_ms": {
+          "median": 13.88,
+          "p95": 17.63,
+          "max": 33.34
+        },
+        "cycles": [
+          {
+            "open_ms": 2427.56,
+            "rss_bytes_after_close": 379760640
+          },
+          {
+            "open_ms": 274.29,
+            "rss_bytes_after_close": 385122304
+          },
+          {
+            "open_ms": 302.52,
+            "rss_bytes_after_close": 391176192
+          },
+          {
+            "open_ms": 268.1,
+            "rss_bytes_after_close": 393449472
+          },
+          {
+            "open_ms": 285.75,
+            "rss_bytes_after_close": 395091968
+          },
+          {
+            "open_ms": 284.89,
+            "rss_bytes_after_close": 399581184
+          },
+          {
+            "open_ms": 282.21,
+            "rss_bytes_after_close": 409784320
+          },
+          {
+            "open_ms": 279.05,
+            "rss_bytes_after_close": 418328576
+          },
+          {
+            "open_ms": 300.68,
+            "rss_bytes_after_close": 420392960
+          },
+          {
+            "open_ms": 282.94,
+            "rss_bytes_after_close": 420179968
+          },
+          {
+            "open_ms": 280.6,
+            "rss_bytes_after_close": 420519936
+          },
+          {
+            "open_ms": 285.78,
+            "rss_bytes_after_close": 419217408
+          },
+          {
+            "open_ms": 281.97,
+            "rss_bytes_after_close": 419934208
+          },
+          {
+            "open_ms": 279.79,
+            "rss_bytes_after_close": 423874560
+          },
+          {
+            "open_ms": 280.22,
+            "rss_bytes_after_close": 422961152
+          },
+          {
+            "open_ms": 279.28,
+            "rss_bytes_after_close": 419205120
+          },
+          {
+            "open_ms": 279.57,
+            "rss_bytes_after_close": 420085760
+          },
+          {
+            "open_ms": 289.3,
+            "rss_bytes_after_close": 421736448
+          },
+          {
+            "open_ms": 287.18,
+            "rss_bytes_after_close": 425308160
+          },
+          {
+            "open_ms": 280.53,
+            "rss_bytes_after_close": 425377792
+          }
+        ],
+        "small_screen_layouts": [
+          {
+            "mode": "simple",
+            "client": [
+              840,
+              709
+            ],
+            "frame": [
+              840,
+              740
+            ],
+            "viewport": [
+              438,
+              219
+            ]
+          },
+          {
+            "mode": "advanced",
+            "client": [
+              840,
+              731
+            ],
+            "frame": [
+              840,
+              762
+            ],
+            "viewport": [
+              438,
+              219
+            ]
+          }
+        ],
+        "source_data_preserved": true,
+        "decoders_released": true
+      },
+      "profile": {
+        "platform": "Windows-11-10.0.26300-SP0",
+        "python": "3.14.10 (tags/v3.14.10:b703b2c, Oct 25 2026, 17:36:52) [MSC v.1944 64 bit (AMD64)]",
+        "pyside": "6.12.0",
+        "stages": {
+          "image_filter": {
+            "count": 1132,
+            "median_ms": 0.0021000014385208488,
+            "p95_ms": 0.0036999990697950125,
+            "max_ms": 0.2702999991015531
+          },
+          "keyframe_evaluation": {
+            "count": 11170,
+            "median_ms": 0.0013000026228837669,
+            "p95_ms": 0.007100003131199628,
+            "max_ms": 0.16709999908925965
+          },
+          "motion_pose": {
+            "count": 2234,
+            "median_ms": 0.014400000509340316,
+            "p95_ms": 0.03730000025825575,
+            "max_ms": 0.4834000064874999
+          },
+          "widget_update": {
+            "count": 416,
+            "median_ms": 0.9341500008304138,
+            "p95_ms": 1.9719000010809395,
+            "max_ms": 4.675600001064595
+          },
+          "audio_lookup": {
+            "count": 493,
+            "median_ms": 0.06769999890821055,
+            "p95_ms": 0.13157999928807837,
+            "max_ms": 10.424000000057276
+          },
+          "media_sync": {
+            "count": 493,
+            "median_ms": 0.09750000026542693,
+            "p95_ms": 0.3169199975673106,
+            "max_ms": 1.7035999990184791
+          },
+          "scene_render": {
+            "count": 493,
+            "median_ms": 2.8359999996609986,
+            "p95_ms": 4.194020001159515,
+            "max_ms": 12.558499998704065
+          },
+          "canvas_snapshot": {
+            "count": 493,
+            "median_ms": 4.087300003448036,
+            "p95_ms": 5.685620004078372,
+            "max_ms": 13.838099999702536
+          },
+          "image_to_pixmap": {
+            "count": 512,
+            "median_ms": 0.006900001608300954,
+            "p95_ms": 0.015195003288681607,
+            "max_ms": 0.24950000079115853
+          },
+          "render_request": {
+            "count": 493,
+            "median_ms": 4.680199999711476,
+            "p95_ms": 6.679799998528319,
+            "max_ms": 25.514599998132326
+          },
+          "play_timer": {
+            "count": 44,
+            "median_ms": 1.059399997757282,
+            "p95_ms": 1.469409996570903,
+            "max_ms": 1.7643999963183887
+          },
+          "keyframe_paint": {
+            "count": 397,
+            "median_ms": 1.251800000318326,
+            "p95_ms": 1.7645599975367072,
+            "max_ms": 4.523700001300313
+          },
+          "video_frame": {
+            "count": 323,
+            "median_ms": 0.6722999969497323,
+            "p95_ms": 1.1149300000397488,
+            "max_ms": 22.51539999997476
+          }
+        }
+      }
+    },
+    "rejected_vector_candidate": {
+      "result": {
+        "language": "ko",
+        "dpi_scale": "1",
+        "canvas": [
+          3840,
+          2160
+        ],
+        "sources": 53,
+        "motion_points": 200,
+        "samples": 100,
+        "seek_and_render_ms": {
+          "median": 15.07,
+          "p95": 18.67,
+          "max": 42.92
+        },
+        "cycles": [
+          {
+            "open_ms": 836.7,
+            "rss_bytes_after_close": 385536000
+          },
+          {
+            "open_ms": 337.76,
+            "rss_bytes_after_close": 388100096
+          },
+          {
+            "open_ms": 364.01,
+            "rss_bytes_after_close": 393871360
+          },
+          {
+            "open_ms": 290.18,
+            "rss_bytes_after_close": 394162176
+          },
+          {
+            "open_ms": 289.08,
+            "rss_bytes_after_close": 401211392
+          },
+          {
+            "open_ms": 287.78,
+            "rss_bytes_after_close": 402976768
+          },
+          {
+            "open_ms": 307.94,
+            "rss_bytes_after_close": 422064128
+          },
+          {
+            "open_ms": 286.56,
+            "rss_bytes_after_close": 420229120
+          },
+          {
+            "open_ms": 295.74,
+            "rss_bytes_after_close": 422187008
+          },
+          {
+            "open_ms": 280.46,
+            "rss_bytes_after_close": 420708352
+          },
+          {
+            "open_ms": 298.55,
+            "rss_bytes_after_close": 421670912
+          },
+          {
+            "open_ms": 327.1,
+            "rss_bytes_after_close": 419405824
+          },
+          {
+            "open_ms": 340.27,
+            "rss_bytes_after_close": 424206336
+          },
+          {
+            "open_ms": 322.22,
+            "rss_bytes_after_close": 419098624
+          },
+          {
+            "open_ms": 357.3,
+            "rss_bytes_after_close": 423141376
+          },
+          {
+            "open_ms": 348.35,
+            "rss_bytes_after_close": 422866944
+          },
+          {
+            "open_ms": 336.9,
+            "rss_bytes_after_close": 420540416
+          },
+          {
+            "open_ms": 340.77,
+            "rss_bytes_after_close": 417316864
+          },
+          {
+            "open_ms": 334.75,
+            "rss_bytes_after_close": 415227904
+          },
+          {
+            "open_ms": 355.54,
+            "rss_bytes_after_close": 416526336
+          }
+        ],
+        "small_screen_layouts": [
+          {
+            "mode": "simple",
+            "client": [
+              840,
+              709
+            ],
+            "frame": [
+              840,
+              740
+            ],
+            "viewport": [
+              438,
+              219
+            ]
+          },
+          {
+            "mode": "advanced",
+            "client": [
+              840,
+              731
+            ],
+            "frame": [
+              840,
+              762
+            ],
+            "viewport": [
+              438,
+              219
+            ]
+          }
+        ],
+        "source_data_preserved": true,
+        "decoders_released": true
+      },
+      "profile": {
+        "platform": "Windows-11-10.0.26300-SP0",
+        "python": "3.14.10 (tags/v3.14.10:b703b2c, Oct 25 2026, 17:36:52) [MSC v.1944 64 bit (AMD64)]",
+        "pyside": "6.12.0",
+        "stages": {
+          "image_filter": {
+            "count": 1132,
+            "median_ms": 0.0022000021999701858,
+            "p95_ms": 0.005399997462518513,
+            "max_ms": 0.027900001441594213
+          },
+          "keyframe_evaluation": {
+            "count": 9745,
+            "median_ms": 0.001400003384333104,
+            "p95_ms": 0.008900002285372466,
+            "max_ms": 0.1540000012028031
+          },
+          "motion_pose": {
+            "count": 1949,
+            "median_ms": 0.015300000086426735,
+            "p95_ms": 0.05265999643597751,
+            "max_ms": 0.4171999971731566
+          },
+          "widget_update": {
+            "count": 411,
+            "median_ms": 1.0127999994438142,
+            "p95_ms": 2.4506500012648758,
+            "max_ms": 5.339399998774752
+          },
+          "audio_lookup": {
+            "count": 358,
+            "median_ms": 0.07325000115088187,
+            "p95_ms": 0.15908500135992648,
+            "max_ms": 1.502999999502208
+          },
+          "media_sync": {
+            "count": 358,
+            "median_ms": 0.1865499980340246,
+            "p95_ms": 0.9726600033900468,
+            "max_ms": 2.704599995922763
+          },
+          "scene_render": {
+            "count": 358,
+            "median_ms": 3.3363500006089453,
+            "p95_ms": 5.525885001770802,
+            "max_ms": 14.743400002771523
+          },
+          "canvas_snapshot": {
+            "count": 358,
+            "median_ms": 4.758999999467051,
+            "p95_ms": 7.473304999803074,
+            "max_ms": 16.270599997369573
+          },
+          "image_to_pixmap": {
+            "count": 377,
+            "median_ms": 0.007899994670879096,
+            "p95_ms": 0.056860005133784614,
+            "max_ms": 0.374700000975281
+          },
+          "render_request": {
+            "count": 358,
+            "median_ms": 5.660150000039721,
+            "p95_ms": 8.947894997982075,
+            "max_ms": 19.47189999918919
+          },
+          "play_timer": {
+            "count": 39,
+            "median_ms": 1.0756999981822446,
+            "p95_ms": 2.1483700016688094,
+            "max_ms": 2.726800004893448
+          },
+          "keyframe_paint": {
+            "count": 391,
+            "median_ms": 5.235199998423923,
+            "p95_ms": 6.085749999328982,
+            "max_ms": 8.361200001672842
+          },
+          "video_frame": {
+            "count": 309,
+            "median_ms": 0.7415000000037253,
+            "p95_ms": 1.2959199972101487,
+            "max_ms": 26.034300004539546
+          }
+        }
+      }
+    },
+    "intermediate_marker_cache": {
+      "result": {
+        "language": "ko",
+        "dpi_scale": "1",
+        "canvas": [
+          3840,
+          2160
+        ],
+        "sources": 53,
+        "motion_points": 200,
+        "samples": 100,
+        "seek_and_render_ms": {
+          "median": 9.81,
+          "p95": 12.16,
+          "max": 36.88
+        },
+        "cycles": [
+          {
+            "open_ms": 988.06,
+            "rss_bytes_after_close": 382488576
+          },
+          {
+            "open_ms": 275.0,
+            "rss_bytes_after_close": 391290880
+          },
+          {
+            "open_ms": 339.29,
+            "rss_bytes_after_close": 396021760
+          },
+          {
+            "open_ms": 281.42,
+            "rss_bytes_after_close": 399941632
+          },
+          {
+            "open_ms": 290.87,
+            "rss_bytes_after_close": 404512768
+          },
+          {
+            "open_ms": 283.88,
+            "rss_bytes_after_close": 405827584
+          },
+          {
+            "open_ms": 282.79,
+            "rss_bytes_after_close": 407040000
+          },
+          {
+            "open_ms": 277.33,
+            "rss_bytes_after_close": 409899008
+          },
+          {
+            "open_ms": 279.87,
+            "rss_bytes_after_close": 410640384
+          },
+          {
+            "open_ms": 275.98,
+            "rss_bytes_after_close": 412741632
+          },
+          {
+            "open_ms": 280.43,
+            "rss_bytes_after_close": 413331456
+          },
+          {
+            "open_ms": 273.36,
+            "rss_bytes_after_close": 419577856
+          },
+          {
+            "open_ms": 288.67,
+            "rss_bytes_after_close": 434319360
+          },
+          {
+            "open_ms": 281.94,
+            "rss_bytes_after_close": 433901568
+          },
+          {
+            "open_ms": 281.62,
+            "rss_bytes_after_close": 433795072
+          },
+          {
+            "open_ms": 274.6,
+            "rss_bytes_after_close": 434147328
+          },
+          {
+            "open_ms": 275.41,
+            "rss_bytes_after_close": 442449920
+          },
+          {
+            "open_ms": 279.86,
+            "rss_bytes_after_close": 442499072
+          },
+          {
+            "open_ms": 286.91,
+            "rss_bytes_after_close": 439136256
+          },
+          {
+            "open_ms": 282.72,
+            "rss_bytes_after_close": 438460416
+          }
+        ],
+        "small_screen_layouts": [
+          {
+            "mode": "simple",
+            "client": [
+              840,
+              709
+            ],
+            "frame": [
+              840,
+              740
+            ],
+            "viewport": [
+              438,
+              219
+            ]
+          },
+          {
+            "mode": "advanced",
+            "client": [
+              840,
+              731
+            ],
+            "frame": [
+              840,
+              762
+            ],
+            "viewport": [
+              438,
+              219
+            ]
+          }
+        ],
+        "source_data_preserved": true,
+        "decoders_released": true
+      },
+      "profile": {
+        "platform": "Windows-11-10.0.26300-SP0",
+        "python": "3.14.10 (tags/v3.14.10:b703b2c, Oct 25 2026, 17:36:52) [MSC v.1944 64 bit (AMD64)]",
+        "pyside": "6.12.0",
+        "stages": {
+          "image_filter": {
+            "count": 1132,
+            "median_ms": 0.0021000014385208488,
+            "p95_ms": 0.0037999998312443495,
+            "max_ms": 0.07960000220919028
+          },
+          "keyframe_evaluation": {
+            "count": 9930,
+            "median_ms": 0.0013000026228837669,
+            "p95_ms": 0.007499998901039362,
+            "max_ms": 0.17830000433605164
+          },
+          "motion_pose": {
+            "count": 1986,
+            "median_ms": 0.013799999578623101,
+            "p95_ms": 0.04380000063974876,
+            "max_ms": 0.4192000051261857
+          },
+          "widget_update": {
+            "count": 418,
+            "median_ms": 0.9349499996460509,
+            "p95_ms": 2.127590001327912,
+            "max_ms": 4.033400000480469
+          },
+          "audio_lookup": {
+            "count": 366,
+            "median_ms": 0.06705000123474747,
+            "p95_ms": 0.12904999493912328,
+            "max_ms": 1.8644000010681339
+          },
+          "media_sync": {
+            "count": 366,
+            "median_ms": 0.17459999799029902,
+            "p95_ms": 0.984199994491064,
+            "max_ms": 2.25720000162255
+          },
+          "scene_render": {
+            "count": 366,
+            "median_ms": 3.0022499959159177,
+            "p95_ms": 4.756674998134258,
+            "max_ms": 13.643800004501827
+          },
+          "canvas_snapshot": {
+            "count": 366,
+            "median_ms": 4.38505000420264,
+            "p95_ms": 6.190325000716257,
+            "max_ms": 14.944399998057634
+          },
+          "image_to_pixmap": {
+            "count": 385,
+            "median_ms": 0.007499998901039362,
+            "p95_ms": 0.07587999716633818,
+            "max_ms": 0.24989999656099826
+          },
+          "render_request": {
+            "count": 366,
+            "median_ms": 5.055399997218046,
+            "p95_ms": 7.306975003302796,
+            "max_ms": 17.889699993247632
+          },
+          "play_timer": {
+            "count": 46,
+            "median_ms": 1.021800002490636,
+            "p95_ms": 1.8896750025305664,
+            "max_ms": 2.325899993593339
+          },
+          "keyframe_paint": {
+            "count": 397,
+            "median_ms": 0.15040000289445743,
+            "p95_ms": 1.3746200042078272,
+            "max_ms": 4.121300000406336
+          },
+          "video_frame": {
+            "count": 317,
+            "median_ms": 0.6758000017725863,
+            "p95_ms": 1.3081000011879949,
+            "max_ms": 24.787299997115042
+          }
+        }
+      }
+    },
+    "final_first_repeat": {
+      "result": {
+        "language": "ko",
+        "dpi_scale": "1",
+        "editor_mode": "simple",
+        "canvas": [
+          3840,
+          2160
+        ],
+        "sources": 53,
+        "motion_points": 200,
+        "samples": 100,
+        "seek_and_render_ms": {
+          "median": 11.27,
+          "p95": 24.92,
+          "max": 34.43
+        },
+        "cycles": [
+          {
+            "open_ms": 912.88,
+            "rss_bytes_after_close": 366465024
+          },
+          {
+            "open_ms": 319.04,
+            "rss_bytes_after_close": 376946688
+          },
+          {
+            "open_ms": 349.57,
+            "rss_bytes_after_close": 382316544
+          },
+          {
+            "open_ms": 321.92,
+            "rss_bytes_after_close": 387026944
+          },
+          {
+            "open_ms": 355.52,
+            "rss_bytes_after_close": 389312512
+          },
+          {
+            "open_ms": 311.97,
+            "rss_bytes_after_close": 390819840
+          },
+          {
+            "open_ms": 323.44,
+            "rss_bytes_after_close": 391401472
+          },
+          {
+            "open_ms": 323.89,
+            "rss_bytes_after_close": 391462912
+          },
+          {
+            "open_ms": 298.86,
+            "rss_bytes_after_close": 391413760
+          },
+          {
+            "open_ms": 341.14,
+            "rss_bytes_after_close": 392216576
+          },
+          {
+            "open_ms": 319.34,
+            "rss_bytes_after_close": 392388608
+          },
+          {
+            "open_ms": 343.08,
+            "rss_bytes_after_close": 392101888
+          },
+          {
+            "open_ms": 426.99,
+            "rss_bytes_after_close": 392474624
+          },
+          {
+            "open_ms": 346.81,
+            "rss_bytes_after_close": 392658944
+          },
+          {
+            "open_ms": 389.21,
+            "rss_bytes_after_close": 392847360
+          },
+          {
+            "open_ms": 336.49,
+            "rss_bytes_after_close": 393031680
+          },
+          {
+            "open_ms": 304.4,
+            "rss_bytes_after_close": 392765440
+          },
+          {
+            "open_ms": 333.87,
+            "rss_bytes_after_close": 393887744
+          },
+          {
+            "open_ms": 320.81,
+            "rss_bytes_after_close": 394612736
+          },
+          {
+            "open_ms": 366.57,
+            "rss_bytes_after_close": 394772480
+          }
+        ],
+        "small_screen_layouts": [
+          {
+            "mode": "simple",
+            "client": [
+              840,
+              709
+            ],
+            "frame": [
+              840,
+              740
+            ],
+            "viewport": [
+              438,
+              219
+            ]
+          },
+          {
+            "mode": "advanced",
+            "client": [
+              840,
+              731
+            ],
+            "frame": [
+              840,
+              762
+            ],
+            "viewport": [
+              438,
+              219
+            ]
+          }
+        ],
+        "source_data_preserved": true,
+        "decoders_released": true
+      },
+      "profile": {
+        "platform": "Windows-11-10.0.26300-SP0",
+        "python": "3.14.10 (tags/v3.14.10:b703b2c, Oct 25 2026, 17:36:52) [MSC v.1944 64 bit (AMD64)]",
+        "pyside": "6.12.0",
+        "stages": {
+          "image_filter": {
+            "count": 1132,
+            "median_ms": 0.0021000014385208488,
+            "p95_ms": 0.0037999998312443495,
+            "max_ms": 0.01340000017080456
+          },
+          "keyframe_evaluation": {
+            "count": 9405,
+            "median_ms": 0.0023000029614195228,
+            "p95_ms": 0.01020000345306471,
+            "max_ms": 0.2890999967348762
+          },
+          "motion_pose": {
+            "count": 1881,
+            "median_ms": 0.02390000008745119,
+            "p95_ms": 0.057600002037361264,
+            "max_ms": 0.4664000007323921
+          },
+          "widget_update": {
+            "count": 393,
+            "median_ms": 1.6684000001987442,
+            "p95_ms": 2.6041800054372284,
+            "max_ms": 6.045900001481641
+          },
+          "audio_lookup": {
+            "count": 351,
+            "median_ms": 0.10540000221226364,
+            "p95_ms": 0.18389999968349002,
+            "max_ms": 1.7474999986006878
+          },
+          "media_sync": {
+            "count": 351,
+            "median_ms": 0.3228999994462356,
+            "p95_ms": 2.566299997852184,
+            "max_ms": 9.812100004637614
+          },
+          "scene_render": {
+            "count": 351,
+            "median_ms": 7.696099994063843,
+            "p95_ms": 9.777300001587719,
+            "max_ms": 15.235800005029887
+          },
+          "canvas_snapshot": {
+            "count": 351,
+            "median_ms": 10.104399996635038,
+            "p95_ms": 13.05895000041346,
+            "max_ms": 18.320399998629
+          },
+          "image_to_pixmap": {
+            "count": 370,
+            "median_ms": 0.010250001651002094,
+            "p95_ms": 0.07397500085062375,
+            "max_ms": 0.2252000049338676
+          },
+          "render_request": {
+            "count": 351,
+            "median_ms": 11.396499998227227,
+            "p95_ms": 15.947450003295671,
+            "max_ms": 23.01429999351967
+          },
+          "play_timer": {
+            "count": 21,
+            "median_ms": 1.8257000047015026,
+            "p95_ms": 2.283100002387073,
+            "max_ms": 2.35909999901196
+          },
+          "keyframe_paint": {
+            "count": 374,
+            "median_ms": 0.2725000013015233,
+            "p95_ms": 3.7659100002201735,
+            "max_ms": 6.744400001480244
+          },
+          "video_frame": {
+            "count": 295,
+            "median_ms": 0.8798000053502619,
+            "p95_ms": 1.3981299969600516,
+            "max_ms": 23.566500000015367
+          }
+        }
+      }
+    },
+    "adjacent_before_head_replay": {
+      "result": {
+        "language": "ko",
+        "dpi_scale": "1",
+        "editor_mode": "simple",
+        "canvas": [
+          3840,
+          2160
+        ],
+        "sources": 53,
+        "motion_points": 200,
+        "samples": 100,
+        "seek_and_render_ms": {
+          "median": 26.59,
+          "p95": 42.87,
+          "max": 53.67
+        },
+        "cycles": [
+          {
+            "open_ms": 953.91,
+            "rss_bytes_after_close": 363847680
+          },
+          {
+            "open_ms": 360.42,
+            "rss_bytes_after_close": 377036800
+          },
+          {
+            "open_ms": 350.08,
+            "rss_bytes_after_close": 378851328
+          },
+          {
+            "open_ms": 342.94,
+            "rss_bytes_after_close": 380780544
+          },
+          {
+            "open_ms": 330.14,
+            "rss_bytes_after_close": 382758912
+          },
+          {
+            "open_ms": 341.87,
+            "rss_bytes_after_close": 384434176
+          },
+          {
+            "open_ms": 329.98,
+            "rss_bytes_after_close": 388177920
+          },
+          {
+            "open_ms": 332.84,
+            "rss_bytes_after_close": 390594560
+          },
+          {
+            "open_ms": 324.36,
+            "rss_bytes_after_close": 391565312
+          },
+          {
+            "open_ms": 326.88,
+            "rss_bytes_after_close": 399388672
+          },
+          {
+            "open_ms": 331.89,
+            "rss_bytes_after_close": 399642624
+          },
+          {
+            "open_ms": 342.91,
+            "rss_bytes_after_close": 399478784
+          },
+          {
+            "open_ms": 327.16,
+            "rss_bytes_after_close": 404447232
+          },
+          {
+            "open_ms": 337.38,
+            "rss_bytes_after_close": 404283392
+          },
+          {
+            "open_ms": 417.0,
+            "rss_bytes_after_close": 405106688
+          },
+          {
+            "open_ms": 357.04,
+            "rss_bytes_after_close": 405528576
+          },
+          {
+            "open_ms": 337.83,
+            "rss_bytes_after_close": 403640320
+          },
+          {
+            "open_ms": 324.27,
+            "rss_bytes_after_close": 403558400
+          },
+          {
+            "open_ms": 344.16,
+            "rss_bytes_after_close": 403349504
+          },
+          {
+            "open_ms": 341.91,
+            "rss_bytes_after_close": 412188672
+          }
+        ],
+        "small_screen_layouts": [
+          {
+            "mode": "simple",
+            "client": [
+              840,
+              709
+            ],
+            "frame": [
+              840,
+              740
+            ],
+            "viewport": [
+              438,
+              219
+            ]
+          },
+          {
+            "mode": "advanced",
+            "client": [
+              840,
+              731
+            ],
+            "frame": [
+              840,
+              762
+            ],
+            "viewport": [
+              438,
+              219
+            ]
+          }
+        ],
+        "source_data_preserved": true,
+        "decoders_released": true
+      },
+      "profile": {
+        "platform": "Windows-11-10.0.26300-SP0",
+        "code": "HEAD hot-path replay",
+        "python": "3.14.10 (tags/v3.14.10:b703b2c, Oct 25 2026, 17:36:52) [MSC v.1944 64 bit (AMD64)]",
+        "pyside": "6.12.0",
+        "stages": {
+          "image_filter": {
+            "count": 1132,
+            "median_ms": 0.0021000014385208488,
+            "p95_ms": 0.004699999408330768,
+            "max_ms": 0.04189999890513718
+          },
+          "keyframe_evaluation": {
+            "count": 10810,
+            "median_ms": 0.0025999979698099196,
+            "p95_ms": 0.0109999964479357,
+            "max_ms": 0.3110000034212135
+          },
+          "motion_pose": {
+            "count": 2162,
+            "median_ms": 0.026699999580159783,
+            "p95_ms": 0.06157999632705462,
+            "max_ms": 0.375000003259629
+          },
+          "widget_update": {
+            "count": 398,
+            "median_ms": 1.7558999970788136,
+            "p95_ms": 2.7467300049465835,
+            "max_ms": 5.278899996483233
+          },
+          "audio_lookup": {
+            "count": 484,
+            "median_ms": 0.10884999937843531,
+            "p95_ms": 0.17456499881518536,
+            "max_ms": 2.1355999997467734
+          },
+          "media_sync": {
+            "count": 484,
+            "median_ms": 0.20869999934802763,
+            "p95_ms": 1.425550000203655,
+            "max_ms": 10.521299998799805
+          },
+          "scene_render": {
+            "count": 484,
+            "median_ms": 7.5466000016604085,
+            "p95_ms": 9.544914999059982,
+            "max_ms": 18.204600004537497
+          },
+          "canvas_snapshot": {
+            "count": 484,
+            "median_ms": 9.822749998420477,
+            "p95_ms": 12.59364999568788,
+            "max_ms": 20.86369999597082
+          },
+          "image_to_pixmap": {
+            "count": 503,
+            "median_ms": 0.010600000678095967,
+            "p95_ms": 0.022009994427207837,
+            "max_ms": 0.2344999957131222
+          },
+          "render_request": {
+            "count": 484,
+            "median_ms": 10.850150003534509,
+            "p95_ms": 14.532090002103358,
+            "max_ms": 23.637300000700634
+          },
+          "play_timer": {
+            "count": 26,
+            "median_ms": 2.03479999981937,
+            "p95_ms": 4.001150004114606,
+            "max_ms": 4.631299998436589
+          },
+          "keyframe_paint": {
+            "count": 379,
+            "median_ms": 3.873800000292249,
+            "p95_ms": 4.4382499960192945,
+            "max_ms": 7.229599999845959
+          },
+          "video_frame": {
+            "count": 289,
+            "median_ms": 0.9145000003627501,
+            "p95_ms": 1.3246999980765393,
+            "max_ms": 30.27000000292901
+          }
+        }
+      }
+    },
+    "final_after": {
+      "result": {
+        "language": "ko",
+        "dpi_scale": "1",
+        "editor_mode": "simple",
+        "canvas": [
+          3840,
+          2160
+        ],
+        "sources": 53,
+        "motion_points": 200,
+        "samples": 100,
+        "seek_and_render_ms": {
+          "median": 11.53,
+          "p95": 23.9,
+          "max": 36.9
+        },
+        "cycles": [
+          {
+            "open_ms": 807.74,
+            "rss_bytes_after_close": 364752896
+          },
+          {
+            "open_ms": 392.32,
+            "rss_bytes_after_close": 377266176
+          },
+          {
+            "open_ms": 367.01,
+            "rss_bytes_after_close": 380436480
+          },
+          {
+            "open_ms": 310.98,
+            "rss_bytes_after_close": 382742528
+          },
+          {
+            "open_ms": 305.45,
+            "rss_bytes_after_close": 385400832
+          },
+          {
+            "open_ms": 326.3,
+            "rss_bytes_after_close": 385851392
+          },
+          {
+            "open_ms": 320.66,
+            "rss_bytes_after_close": 391933952
+          },
+          {
+            "open_ms": 322.84,
+            "rss_bytes_after_close": 392527872
+          },
+          {
+            "open_ms": 323.52,
+            "rss_bytes_after_close": 392679424
+          },
+          {
+            "open_ms": 339.26,
+            "rss_bytes_after_close": 395620352
+          },
+          {
+            "open_ms": 327.43,
+            "rss_bytes_after_close": 397541376
+          },
+          {
+            "open_ms": 321.08,
+            "rss_bytes_after_close": 397979648
+          },
+          {
+            "open_ms": 313.23,
+            "rss_bytes_after_close": 397926400
+          },
+          {
+            "open_ms": 307.16,
+            "rss_bytes_after_close": 398512128
+          },
+          {
+            "open_ms": 312.7,
+            "rss_bytes_after_close": 398344192
+          },
+          {
+            "open_ms": 322.32,
+            "rss_bytes_after_close": 400465920
+          },
+          {
+            "open_ms": 307.68,
+            "rss_bytes_after_close": 400719872
+          },
+          {
+            "open_ms": 308.14,
+            "rss_bytes_after_close": 400330752
+          },
+          {
+            "open_ms": 323.95,
+            "rss_bytes_after_close": 402550784
+          },
+          {
+            "open_ms": 317.39,
+            "rss_bytes_after_close": 403333120
+          }
+        ],
+        "small_screen_layouts": [
+          {
+            "mode": "simple",
+            "client": [
+              840,
+              709
+            ],
+            "frame": [
+              840,
+              740
+            ],
+            "viewport": [
+              438,
+              219
+            ]
+          },
+          {
+            "mode": "advanced",
+            "client": [
+              840,
+              731
+            ],
+            "frame": [
+              840,
+              762
+            ],
+            "viewport": [
+              438,
+              219
+            ]
+          }
+        ],
+        "source_data_preserved": true,
+        "decoders_released": true
+      },
+      "profile": {
+        "platform": "Windows-11-10.0.26300-SP0",
+        "code": "working tree",
+        "python": "3.14.10 (tags/v3.14.10:b703b2c, Oct 25 2026, 17:36:52) [MSC v.1944 64 bit (AMD64)]",
+        "pyside": "6.12.0",
+        "stages": {
+          "image_filter": {
+            "count": 1132,
+            "median_ms": 0.0021000014385208488,
+            "p95_ms": 0.00419999887526501,
+            "max_ms": 0.08240000170189887
+          },
+          "keyframe_evaluation": {
+            "count": 9355,
+            "median_ms": 0.0023000029614195228,
+            "p95_ms": 0.010030001431005003,
+            "max_ms": 0.2175999979954213
+          },
+          "motion_pose": {
+            "count": 1871,
+            "median_ms": 0.024299995857290924,
+            "p95_ms": 0.054749998525949195,
+            "max_ms": 0.36619999445974827
+          },
+          "widget_update": {
+            "count": 393,
+            "median_ms": 1.6707999966456555,
+            "p95_ms": 2.5790000014239918,
+            "max_ms": 4.388599998492282
+          },
+          "audio_lookup": {
+            "count": 346,
+            "median_ms": 0.10480000128154643,
+            "p95_ms": 0.18849999833037145,
+            "max_ms": 1.8227000036858954
+          },
+          "media_sync": {
+            "count": 346,
+            "median_ms": 0.2912500021921005,
+            "p95_ms": 2.050599996437086,
+            "max_ms": 8.945800000219606
+          },
+          "scene_render": {
+            "count": 346,
+            "median_ms": 7.5877000017499086,
+            "p95_ms": 9.31657500041183,
+            "max_ms": 13.531100004911423
+          },
+          "canvas_snapshot": {
+            "count": 346,
+            "median_ms": 9.903699999995297,
+            "p95_ms": 12.513899999248679,
+            "max_ms": 15.115400005015545
+          },
+          "image_to_pixmap": {
+            "count": 365,
+            "median_ms": 0.010200004908256233,
+            "p95_ms": 0.07748000061837984,
+            "max_ms": 0.4079999998793937
+          },
+          "render_request": {
+            "count": 346,
+            "median_ms": 11.062450001190882,
+            "p95_ms": 14.94917499985604,
+            "max_ms": 20.322100004705135
+          },
+          "play_timer": {
+            "count": 21,
+            "median_ms": 2.0215999975334853,
+            "p95_ms": 2.400699995632749,
+            "max_ms": 3.490099996270146
+          },
+          "keyframe_paint": {
+            "count": 374,
+            "median_ms": 0.27119999867863953,
+            "p95_ms": 3.924340000594383,
+            "max_ms": 4.961400001775473
+          },
+          "video_frame": {
+            "count": 281,
+            "median_ms": 0.8111999995890073,
+            "p95_ms": 1.22900000133086,
+            "max_ms": 23.19250000437023
+          }
+        }
+      }
+    },
+    "final_advanced": {
+      "result": {
+        "language": "ko",
+        "dpi_scale": "1",
+        "editor_mode": "advanced",
+        "canvas": [
+          3840,
+          2160
+        ],
+        "sources": 53,
+        "motion_points": 200,
+        "samples": 100,
+        "seek_and_render_ms": {
+          "median": 12.73,
+          "p95": 24.91,
+          "max": 42.33
+        },
+        "cycles": [
+          {
+            "open_ms": 831.74,
+            "rss_bytes_after_close": 365293568
+          },
+          {
+            "open_ms": 345.19,
+            "rss_bytes_after_close": 376057856
+          },
+          {
+            "open_ms": 350.7,
+            "rss_bytes_after_close": 376705024
+          }
+        ],
+        "small_screen_layouts": [
+          {
+            "mode": "simple",
+            "client": [
+              840,
+              709
+            ],
+            "frame": [
+              840,
+              740
+            ],
+            "viewport": [
+              438,
+              219
+            ]
+          },
+          {
+            "mode": "advanced",
+            "client": [
+              840,
+              731
+            ],
+            "frame": [
+              840,
+              762
+            ],
+            "viewport": [
+              438,
+              219
+            ]
+          }
+        ],
+        "source_data_preserved": true,
+        "decoders_released": true
+      },
+      "profile": {
+        "platform": "Windows-11-10.0.26300-SP0",
+        "python": "3.14.10 (tags/v3.14.10:b703b2c, Oct 25 2026, 17:36:52) [MSC v.1944 64 bit (AMD64)]",
+        "pyside": "6.12.0",
+        "stages": {
+          "image_filter": {
+            "count": 214,
+            "median_ms": 0.002049997419817373,
+            "p95_ms": 0.0035999983083456755,
+            "max_ms": 0.009800001862458885
+          },
+          "keyframe_evaluation": {
+            "count": 3410,
+            "median_ms": 0.0017999991541728377,
+            "p95_ms": 0.00825500064820514,
+            "max_ms": 0.28529999690363184
+          },
+          "motion_pose": {
+            "count": 682,
+            "median_ms": 0.0197000008483883,
+            "p95_ms": 0.051099996198900044,
+            "max_ms": 0.3798000034294091
+          },
+          "widget_update": {
+            "count": 140,
+            "median_ms": 1.525000003312016,
+            "p95_ms": 2.089915002943598,
+            "max_ms": 3.540999998222105
+          },
+          "audio_lookup": {
+            "count": 131,
+            "median_ms": 0.09859999408945441,
+            "p95_ms": 0.15424999946844764,
+            "max_ms": 1.4049000019440427
+          },
+          "media_sync": {
+            "count": 131,
+            "median_ms": 0.23949999740580097,
+            "p95_ms": 1.0557999994489364,
+            "max_ms": 8.510699997714255
+          },
+          "scene_render": {
+            "count": 131,
+            "median_ms": 6.943799999135081,
+            "p95_ms": 9.596550000424031,
+            "max_ms": 10.61650000337977
+          },
+          "canvas_snapshot": {
+            "count": 131,
+            "median_ms": 9.171700003207661,
+            "p95_ms": 12.249350002093706,
+            "max_ms": 14.442799998505507
+          },
+          "image_to_pixmap": {
+            "count": 133,
+            "median_ms": 0.009700001101009548,
+            "p95_ms": 0.019200000679120418,
+            "max_ms": 0.34149999555666
+          },
+          "render_request": {
+            "count": 131,
+            "median_ms": 10.161199999856763,
+            "p95_ms": 15.604099997290177,
+            "max_ms": 19.911299998057075
+          },
+          "play_timer": {
+            "count": 3,
+            "median_ms": 1.7369999986840412,
+            "p95_ms": 2.079359999333974,
+            "max_ms": 2.1173999994061887
+          },
+          "keyframe_paint": {
+            "count": 656,
+            "median_ms": 0.1869000006990973,
+            "p95_ms": 3.263699998569791,
+            "max_ms": 9.347999999590684
+          },
+          "video_frame": {
+            "count": 118,
+            "median_ms": 0.7523000022047199,
+            "p95_ms": 1.20030500474968,
+            "max_ms": 23.976399999810383
+          }
+        }
+      }
+    },
+    "final_small": {
+      "result": {
+        "language": "ko",
+        "dpi_scale": "1",
+        "editor_mode": "simple",
+        "canvas": [
+          3840,
+          2160
+        ],
+        "sources": 5,
+        "motion_points": 200,
+        "samples": 100,
+        "seek_and_render_ms": {
+          "median": 6.06,
+          "p95": 7.74,
+          "max": 8.95
+        },
+        "cycles": [
+          {
+            "open_ms": 614.23,
+            "rss_bytes_after_close": 257953792
+          },
+          {
+            "open_ms": 290.81,
+            "rss_bytes_after_close": 256421888
+          },
+          {
+            "open_ms": 309.93,
+            "rss_bytes_after_close": 259010560
+          }
+        ],
+        "small_screen_layouts": [
+          {
+            "mode": "simple",
+            "client": [
+              840,
+              704
+            ],
+            "frame": [
+              840,
+              735
+            ],
+            "viewport": [
+              438,
+              230
+            ]
+          },
+          {
+            "mode": "advanced",
+            "client": [
+              840,
+              726
+            ],
+            "frame": [
+              840,
+              757
+            ],
+            "viewport": [
+              438,
+              230
+            ]
+          }
+        ],
+        "source_data_preserved": true,
+        "decoders_released": true
+      },
+      "profile": {
+        "platform": "Windows-11-10.0.26300-SP0",
+        "code": "working tree",
+        "python": "3.14.10 (tags/v3.14.10:b703b2c, Oct 25 2026, 17:36:52) [MSC v.1944 64 bit (AMD64)]",
+        "pyside": "6.12.0",
+        "stages": {
+          "image_filter": {
+            "count": 23,
+            "median_ms": 0.0025999979698099196,
+            "p95_ms": 0.00689000153215602,
+            "max_ms": 0.00960000033956021
+          },
+          "keyframe_evaluation": {
+            "count": 3445,
+            "median_ms": 0.0013999961083754897,
+            "p95_ms": 0.006499998562503606,
+            "max_ms": 0.13659999967785552
+          },
+          "motion_pose": {
+            "count": 689,
+            "median_ms": 0.012799995602108538,
+            "p95_ms": 0.04645999724743888,
+            "max_ms": 0.43899999582208693
+          },
+          "widget_update": {
+            "count": 141,
+            "median_ms": 1.0113000025739893,
+            "p95_ms": 1.8553000045358203,
+            "max_ms": 5.169600000954233
+          },
+          "audio_lookup": {
+            "count": 133,
+            "median_ms": 0.029100003303028643,
+            "p95_ms": 0.08686000219313421,
+            "max_ms": 1.4104000001680106
+          },
+          "media_sync": {
+            "count": 133,
+            "median_ms": 0.0026999987312592566,
+            "p95_ms": 0.005080002301838247,
+            "max_ms": 0.08679999882588163
+          },
+          "scene_render": {
+            "count": 133,
+            "median_ms": 0.6537000008393079,
+            "p95_ms": 1.2908200034871697,
+            "max_ms": 1.7512999984319322
+          },
+          "canvas_snapshot": {
+            "count": 133,
+            "median_ms": 1.3868000023649074,
+            "p95_ms": 2.329279998957645,
+            "max_ms": 2.8938000032212585
+          },
+          "image_to_pixmap": {
+            "count": 133,
+            "median_ms": 0.008900002285372466,
+            "p95_ms": 0.014019997615832828,
+            "max_ms": 0.03670000296551734
+          },
+          "render_request": {
+            "count": 133,
+            "median_ms": 1.845099999627564,
+            "p95_ms": 3.1703599976026453,
+            "max_ms": 4.206599995086435
+          },
+          "keyframe_paint": {
+            "count": 159,
+            "median_ms": 0.16540000069653615,
+            "p95_ms": 3.5031400046136696,
+            "max_ms": 3.8055000040913
+          },
+          "play_timer": {
+            "count": 7,
+            "median_ms": 1.7152000000351109,
+            "p95_ms": 1.7614999960642308,
+            "max_ms": 1.7671999958110973
+          }
+        }
+      }
+    },
+    "final_normal": {
+      "result": {
+        "language": "ko",
+        "dpi_scale": "1",
+        "editor_mode": "simple",
+        "canvas": [
+          3840,
+          2160
+        ],
+        "sources": 18,
+        "motion_points": 200,
+        "samples": 100,
+        "seek_and_render_ms": {
+          "median": 9.99,
+          "p95": 16.54,
+          "max": 35.02
+        },
+        "cycles": [
+          {
+            "open_ms": 928.93,
+            "rss_bytes_after_close": 368644096
+          },
+          {
+            "open_ms": 347.53,
+            "rss_bytes_after_close": 377204736
+          },
+          {
+            "open_ms": 401.58,
+            "rss_bytes_after_close": 382509056
+          }
+        ],
+        "small_screen_layouts": [
+          {
+            "mode": "simple",
+            "client": [
+              840,
+              709
+            ],
+            "frame": [
+              840,
+              740
+            ],
+            "viewport": [
+              438,
+              219
+            ]
+          },
+          {
+            "mode": "advanced",
+            "client": [
+              840,
+              731
+            ],
+            "frame": [
+              840,
+              762
+            ],
+            "viewport": [
+              438,
+              219
+            ]
+          }
+        ],
+        "source_data_preserved": true,
+        "decoders_released": true
+      },
+      "profile": {
+        "platform": "Windows-11-10.0.26300-SP0",
+        "code": "working tree",
+        "python": "3.14.10 (tags/v3.14.10:b703b2c, Oct 25 2026, 17:36:52) [MSC v.1944 64 bit (AMD64)]",
+        "pyside": "6.12.0",
+        "stages": {
+          "image_filter": {
+            "count": 74,
+            "median_ms": 0.0027999994927085936,
+            "p95_ms": 0.005639999289996919,
+            "max_ms": 0.009399998816661537
+          },
+          "keyframe_evaluation": {
+            "count": 3400,
+            "median_ms": 0.0018999999156221747,
+            "p95_ms": 0.008805001198197687,
+            "max_ms": 0.12900000001536682
+          },
+          "motion_pose": {
+            "count": 680,
+            "median_ms": 0.021100000594742596,
+            "p95_ms": 0.05351999971026087,
+            "max_ms": 0.48909999895840883
+          },
+          "widget_update": {
+            "count": 138,
+            "median_ms": 1.5907999986666255,
+            "p95_ms": 2.0949350000591953,
+            "max_ms": 3.711299999849871
+          },
+          "audio_lookup": {
+            "count": 133,
+            "median_ms": 0.057600002037361264,
+            "p95_ms": 0.10260000417474656,
+            "max_ms": 1.7017000063788146
+          },
+          "media_sync": {
+            "count": 133,
+            "median_ms": 0.2477999951224774,
+            "p95_ms": 0.6416000032913868,
+            "max_ms": 10.055399994598702
+          },
+          "scene_render": {
+            "count": 133,
+            "median_ms": 2.3862999951234087,
+            "p95_ms": 4.391920001944527,
+            "max_ms": 6.339500003377907
+          },
+          "canvas_snapshot": {
+            "count": 133,
+            "median_ms": 3.7556999959633686,
+            "p95_ms": 6.03685999958543,
+            "max_ms": 7.837500001187436
+          },
+          "image_to_pixmap": {
+            "count": 135,
+            "median_ms": 0.010000003385357559,
+            "p95_ms": 0.018329999147681516,
+            "max_ms": 0.23890000011306256
+          },
+          "render_request": {
+            "count": 133,
+            "median_ms": 4.772599997522775,
+            "p95_ms": 8.064599998760967,
+            "max_ms": 14.575499997590668
+          },
+          "play_timer": {
+            "count": 4,
+            "median_ms": 1.6614000014669728,
+            "p95_ms": 1.8585900012112688,
+            "max_ms": 1.8921000009868294
+          },
+          "keyframe_paint": {
+            "count": 154,
+            "median_ms": 0.2519000008760486,
+            "p95_ms": 3.529474999231752,
+            "max_ms": 4.32409999484662
+          },
+          "video_frame": {
+            "count": 100,
+            "median_ms": 0.8153999988280702,
+            "p95_ms": 1.535599996714154,
+            "max_ms": 27.397099998779595
+          }
+        }
+      }
+    },
+    "final_multiple_video": {
+      "result": {
+        "language": "ko",
+        "dpi_scale": "1",
+        "editor_mode": "simple",
+        "canvas": [
+          3840,
+          2160
+        ],
+        "sources": 55,
+        "motion_points": 200,
+        "samples": 100,
+        "seek_and_render_ms": {
+          "median": 29.54,
+          "p95": 49.98,
+          "max": 93.0
+        },
+        "cycles": [
+          {
+            "open_ms": 899.4,
+            "rss_bytes_after_close": 489926656
+          },
+          {
+            "open_ms": 401.56,
+            "rss_bytes_after_close": 519532544
+          },
+          {
+            "open_ms": 379.81,
+            "rss_bytes_after_close": 541052928
+          }
+        ],
+        "small_screen_layouts": [
+          {
+            "mode": "simple",
+            "client": [
+              840,
+              709
+            ],
+            "frame": [
+              840,
+              740
+            ],
+            "viewport": [
+              438,
+              219
+            ]
+          },
+          {
+            "mode": "advanced",
+            "client": [
+              840,
+              731
+            ],
+            "frame": [
+              840,
+              762
+            ],
+            "viewport": [
+              438,
+              219
+            ]
+          }
+        ],
+        "source_data_preserved": true,
+        "decoders_released": true
+      },
+      "profile": {
+        "platform": "Windows-11-10.0.26300-SP0",
+        "code": "working tree",
+        "python": "3.14.10 (tags/v3.14.10:b703b2c, Oct 25 2026, 17:36:52) [MSC v.1944 64 bit (AMD64)]",
+        "pyside": "6.12.0",
+        "stages": {
+          "image_filter": {
+            "count": 220,
+            "median_ms": 0.0018999999156221747,
+            "p95_ms": 0.004004994116257874,
+            "max_ms": 0.009900002623908222
+          },
+          "keyframe_evaluation": {
+            "count": 3725,
+            "median_ms": 0.0024000037228688598,
+            "p95_ms": 0.011199997970834374,
+            "max_ms": 1.5839999978197739
+          },
+          "motion_pose": {
+            "count": 745,
+            "median_ms": 0.025200002710334957,
+            "p95_ms": 0.06374000367941333,
+            "max_ms": 1.6132000018842518
+          },
+          "widget_update": {
+            "count": 137,
+            "median_ms": 1.7380000062985346,
+            "p95_ms": 2.479899996251333,
+            "max_ms": 4.115700001420919
+          },
+          "audio_lookup": {
+            "count": 167,
+            "median_ms": 0.11119999544462189,
+            "p95_ms": 0.17834000027505673,
+            "max_ms": 2.8668000013567507
+          },
+          "media_sync": {
+            "count": 167,
+            "median_ms": 1.0942000008071773,
+            "p95_ms": 4.9260500018135644,
+            "max_ms": 16.59990000189282
+          },
+          "scene_render": {
+            "count": 167,
+            "median_ms": 8.191600005375221,
+            "p95_ms": 12.745900003210409,
+            "max_ms": 16.38239999738289
+          },
+          "canvas_snapshot": {
+            "count": 167,
+            "median_ms": 11.501799999678042,
+            "p95_ms": 21.8382599974575,
+            "max_ms": 29.61660000437405
+          },
+          "image_to_pixmap": {
+            "count": 173,
+            "median_ms": 0.010399999155197293,
+            "p95_ms": 0.02822000096784908,
+            "max_ms": 0.24229999689850956
+          },
+          "render_request": {
+            "count": 167,
+            "median_ms": 13.665899998159148,
+            "p95_ms": 26.866090003750283,
+            "max_ms": 33.00139999919338
+          },
+          "play_timer": {
+            "count": 3,
+            "median_ms": 2.231800004665274,
+            "p95_ms": 2.2512400020787027,
+            "max_ms": 2.253400001791306
+          },
+          "keyframe_paint": {
+            "count": 152,
+            "median_ms": 0.2634999982547015,
+            "p95_ms": 3.5841899993101833,
+            "max_ms": 3.9605999991181307
+          },
+          "video_frame": {
+            "count": 346,
+            "median_ms": 0.8519500006514136,
+            "p95_ms": 1.2578749974636594,
+            "max_ms": 25.792699998419266
+          }
+        }
+      }
+    }
+  },
+  "precision_ui": {
+    "ko-1": [
+      {
+        "mode": "track",
+        "size": [
+          350,
+          273
+        ],
+        "keyboard": "passed",
+        "in_screen": true
+      },
+      {
+        "mode": "source",
+        "size": [
+          350,
+          300
+        ],
+        "keyboard": "passed",
+        "in_screen": true
+      },
+      {
+        "mode": "full",
+        "size": [
+          350,
+          300
+        ],
+        "keyboard": "passed",
+        "in_screen": true
+      }
+    ],
+    "ko-1.5": [
+      {
+        "mode": "track",
+        "size": [
+          350,
+          296
+        ],
+        "keyboard": "passed",
+        "in_screen": true
+      },
+      {
+        "mode": "source",
+        "size": [
+          350,
+          324
+        ],
+        "keyboard": "passed",
+        "in_screen": true
+      },
+      {
+        "mode": "full",
+        "size": [
+          350,
+          324
+        ],
+        "keyboard": "passed",
+        "in_screen": true
+      }
+    ],
+    "ko-2": [
+      {
+        "mode": "track",
+        "size": [
+          350,
+          296
+        ],
+        "keyboard": "passed",
+        "in_screen": true
+      },
+      {
+        "mode": "source",
+        "size": [
+          350,
+          324
+        ],
+        "keyboard": "passed",
+        "in_screen": true
+      },
+      {
+        "mode": "full",
+        "size": [
+          350,
+          324
+        ],
+        "keyboard": "passed",
+        "in_screen": true
+      }
+    ],
+    "en-1": [
+      {
+        "mode": "track",
+        "size": [
+          350,
+          273
+        ],
+        "keyboard": "passed",
+        "in_screen": true
+      },
+      {
+        "mode": "source",
+        "size": [
+          350,
+          300
+        ],
+        "keyboard": "passed",
+        "in_screen": true
+      },
+      {
+        "mode": "full",
+        "size": [
+          350,
+          300
+        ],
+        "keyboard": "passed",
+        "in_screen": true
+      }
+    ],
+    "en-1.5": [
+      {
+        "mode": "track",
+        "size": [
+          350,
+          296
+        ],
+        "keyboard": "passed",
+        "in_screen": true
+      },
+      {
+        "mode": "source",
+        "size": [
+          350,
+          324
+        ],
+        "keyboard": "passed",
+        "in_screen": true
+      },
+      {
+        "mode": "full",
+        "size": [
+          350,
+          324
+        ],
+        "keyboard": "passed",
+        "in_screen": true
+      }
+    ],
+    "en-2": [
+      {
+        "mode": "track",
+        "size": [
+          350,
+          296
+        ],
+        "keyboard": "passed",
+        "in_screen": true
+      },
+      {
+        "mode": "source",
+        "size": [
+          350,
+          324
+        ],
+        "keyboard": "passed",
+        "in_screen": true
+      },
+      {
+        "mode": "full",
+        "size": [
+          350,
+          324
+        ],
+        "keyboard": "passed",
+        "in_screen": true
+      }
+    ]
+  },
+  "verification": {
+    "full_isolated_run": [
+      {
+        "module": "tests.test_activity_progress",
+        "status": "pass",
+        "seconds": 0.43,
+        "returncode": 0,
+        "tests": 6,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_adaptive_preview_quality",
+        "status": "pass",
+        "seconds": 0.34,
+        "returncode": 0,
+        "tests": 4,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_application_launch",
+        "status": "pass",
+        "seconds": 0.5,
+        "returncode": 0,
+        "tests": 5,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_architecture",
+        "status": "pass",
+        "seconds": 2.5,
+        "returncode": 0,
+        "tests": 4,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_audio_sync_warning",
+        "status": "pass",
+        "seconds": 0.58,
+        "returncode": 0,
+        "tests": 20,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_audit_regressions",
+        "status": "pass",
+        "seconds": 10.25,
+        "returncode": 0,
+        "tests": 24,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_auto_line_counts",
+        "status": "pass",
+        "seconds": 1.29,
+        "returncode": 0,
+        "tests": 4,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_analysis_controller",
+        "status": "pass",
+        "seconds": 0.86,
+        "returncode": 0,
+        "tests": 17,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_analysis_service",
+        "status": "pass",
+        "seconds": 0.51,
+        "returncode": 0,
+        "tests": 13,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_audition",
+        "status": "pass",
+        "seconds": 1.33,
+        "returncode": 0,
+        "tests": 9,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_basic_analyzer",
+        "status": "pass",
+        "seconds": 12.23,
+        "returncode": 0,
+        "tests": 24,
+        "skipped": 1
+      },
+      {
+        "module": "tests.test_automix_beat_this",
+        "status": "pass",
+        "seconds": 0.72,
+        "returncode": 0,
+        "tests": 34,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_beat_this_onnx",
+        "status": "pass",
+        "seconds": 9.42,
+        "returncode": 0,
+        "tests": 9,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_beat_this_real_model",
+        "status": "pass",
+        "seconds": 0.47,
+        "returncode": 0,
+        "tests": 3,
+        "skipped": 3
+      },
+      {
+        "module": "tests.test_automix_cache",
+        "status": "pass",
+        "seconds": 1.13,
+        "returncode": 0,
+        "tests": 21,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_candidates",
+        "status": "pass",
+        "seconds": 0.67,
+        "returncode": 0,
+        "tests": 47,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_compatibility",
+        "status": "pass",
+        "seconds": 0.32,
+        "returncode": 0,
+        "tests": 9,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_details_panel",
+        "status": "pass",
+        "seconds": 0.99,
+        "returncode": 0,
+        "tests": 12,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_diagnostics",
+        "status": "pass",
+        "seconds": 0.66,
+        "returncode": 0,
+        "tests": 7,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_editor_dialog",
+        "status": "pass",
+        "seconds": 11.49,
+        "returncode": 0,
+        "tests": 57,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_ffmpeg_integration",
+        "status": "pass",
+        "seconds": 0.94,
+        "returncode": 0,
+        "tests": 15,
+        "skipped": 6
+      },
+      {
+        "module": "tests.test_automix_filter_sweep",
+        "status": "pass",
+        "seconds": 0.49,
+        "returncode": 0,
+        "tests": 5,
+        "skipped": 2
+      },
+      {
+        "module": "tests.test_automix_intelligence",
+        "status": "pass",
+        "seconds": 3.98,
+        "returncode": 0,
+        "tests": 15,
+        "skipped": 1
+      },
+      {
+        "module": "tests.test_automix_invariants",
+        "status": "pass",
+        "seconds": 1.25,
+        "returncode": 0,
+        "tests": 5,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_key",
+        "status": "pass",
+        "seconds": 0.43,
+        "returncode": 0,
+        "tests": 12,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_listening_report",
+        "status": "pass",
+        "seconds": 0.6,
+        "returncode": 0,
+        "tests": 1,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_manual_transitions",
+        "status": "pass",
+        "seconds": 0.91,
+        "returncode": 0,
+        "tests": 32,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_models",
+        "status": "pass",
+        "seconds": 0.33,
+        "returncode": 0,
+        "tests": 18,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_music",
+        "status": "pass",
+        "seconds": 2.29,
+        "returncode": 0,
+        "tests": 11,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_p1_regressions",
+        "status": "pass",
+        "seconds": 1.67,
+        "returncode": 0,
+        "tests": 11,
+        "skipped": 2
+      },
+      {
+        "module": "tests.test_automix_parallel_mix",
+        "status": "pass",
+        "seconds": 0.57,
+        "returncode": 0,
+        "tests": 3,
+        "skipped": 1
+      },
+      {
+        "module": "tests.test_automix_planner",
+        "status": "pass",
+        "seconds": 0.57,
+        "returncode": 0,
+        "tests": 38,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_presets",
+        "status": "pass",
+        "seconds": 0.32,
+        "returncode": 0,
+        "tests": 2,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_progressive",
+        "status": "pass",
+        "seconds": 1.91,
+        "returncode": 0,
+        "tests": 21,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_renderer",
+        "status": "pass",
+        "seconds": 0.57,
+        "returncode": 0,
+        "tests": 65,
+        "skipped": 25
+      },
+      {
+        "module": "tests.test_automix_rhythm",
+        "status": "pass",
+        "seconds": 0.56,
+        "returncode": 0,
+        "tests": 6,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_structure",
+        "status": "pass",
+        "seconds": 0.9,
+        "returncode": 0,
+        "tests": 39,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_structure_real_model",
+        "status": "pass",
+        "seconds": 0.52,
+        "returncode": 0,
+        "tests": 2,
+        "skipped": 2
+      },
+      {
+        "module": "tests.test_automix_tail_protection",
+        "status": "pass",
+        "seconds": 0.61,
+        "returncode": 0,
+        "tests": 5,
+        "skipped": 1
+      },
+      {
+        "module": "tests.test_automix_transition_style",
+        "status": "pass",
+        "seconds": 0.61,
+        "returncode": 0,
+        "tests": 31,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_variety",
+        "status": "pass",
+        "seconds": 0.9,
+        "returncode": 0,
+        "tests": 30,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_vocal_sections",
+        "status": "pass",
+        "seconds": 0.54,
+        "returncode": 0,
+        "tests": 16,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_automix_workflow",
+        "status": "pass",
+        "seconds": 0.58,
+        "returncode": 0,
+        "tests": 5,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_autosave_service",
+        "status": "pass",
+        "seconds": 0.43,
+        "returncode": 0,
+        "tests": 6,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_background_editor",
+        "status": "pass",
+        "seconds": 0.34,
+        "returncode": 0,
+        "tests": 1,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_bounded_export_pipeline",
+        "status": "pass",
+        "seconds": 0.51,
+        "returncode": 0,
+        "tests": 8,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_canvas_pipe",
+        "status": "pass",
+        "seconds": 7.36,
+        "returncode": 0,
+        "tests": 15,
+        "skipped": 3
+      },
+      {
+        "module": "tests.test_canvas_process_stream",
+        "status": "pass",
+        "seconds": 4.88,
+        "returncode": 0,
+        "tests": 7,
+        "skipped": 1
+      },
+      {
+        "module": "tests.test_canvas_snapping",
+        "status": "pass",
+        "seconds": 1.29,
+        "returncode": 0,
+        "tests": 26,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_chatgpt_auth",
+        "status": "timeout",
+        "seconds": 180.02
+      },
+      {
+        "module": "tests.test_color_editor",
+        "status": "pass",
+        "seconds": 1.85,
+        "returncode": 0,
+        "tests": 10,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_content_preview_dialog",
+        "status": "pass",
+        "seconds": 0.64,
+        "returncode": 0,
+        "tests": 3,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_custom_motion",
+        "status": "pass",
+        "seconds": 2.5,
+        "returncode": 0,
+        "tests": 23,
+        "skipped": 1
+      },
+      {
+        "module": "tests.test_custom_motion_dialog",
+        "status": "pass",
+        "seconds": 9.39,
+        "returncode": 0,
+        "tests": 42,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_decoder_backpressure",
+        "status": "pass",
+        "seconds": 0.27,
+        "returncode": 0,
+        "tests": 4,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_distribution_verification",
+        "status": "pass",
+        "seconds": 0.51,
+        "returncode": 0,
+        "tests": 1,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_export_audio_staging",
+        "status": "pass",
+        "seconds": 1.53,
+        "returncode": 0,
+        "tests": 2,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_export_frame_equivalence",
+        "status": "pass",
+        "seconds": 2.17,
+        "returncode": 0,
+        "tests": 16,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_export_optimizations",
+        "status": "pass",
+        "seconds": 0.55,
+        "returncode": 0,
+        "tests": 2,
+        "skipped": 1
+      },
+      {
+        "module": "tests.test_export_plan",
+        "status": "pass",
+        "seconds": 1.34,
+        "returncode": 0,
+        "tests": 7,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_export_session",
+        "status": "pass",
+        "seconds": 1.62,
+        "returncode": 0,
+        "tests": 14,
+        "skipped": 6
+      },
+      {
+        "module": "tests.test_export_storage_service",
+        "status": "pass",
+        "seconds": 0.29,
+        "returncode": 0,
+        "tests": 2,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_export_timeline",
+        "status": "pass",
+        "seconds": 0.69,
+        "returncode": 0,
+        "tests": 15,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_export_validation_service",
+        "status": "pass",
+        "seconds": 0.4,
+        "returncode": 0,
+        "tests": 3,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_ffmpeg_process",
+        "status": "pass",
+        "seconds": 0.67,
+        "returncode": 0,
+        "tests": 7,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_ffmpeg_streaming_integration",
+        "status": "pass",
+        "seconds": 0.6,
+        "returncode": 0,
+        "tests": 6,
+        "skipped": 4
+      },
+      {
+        "module": "tests.test_frame_state",
+        "status": "pass",
+        "seconds": 0.44,
+        "returncode": 0,
+        "tests": 16,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_functional_regressions",
+        "status": "pass",
+        "seconds": 3.26,
+        "returncode": 0,
+        "tests": 113,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_gpu_preview_health",
+        "status": "pass",
+        "seconds": 0.29,
+        "returncode": 0,
+        "tests": 3,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_gpu_texture_surface",
+        "status": "pass",
+        "seconds": 1.18,
+        "returncode": 0,
+        "tests": 11,
+        "skipped": 3
+      },
+      {
+        "module": "tests.test_help_content",
+        "status": "pass",
+        "seconds": 2.74,
+        "returncode": 0,
+        "tests": 10,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_inspector_sections",
+        "status": "pass",
+        "seconds": 1.96,
+        "returncode": 0,
+        "tests": 14,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_keyframe_advanced",
+        "status": "pass",
+        "seconds": 1.43,
+        "returncode": 0,
+        "tests": 11,
+        "skipped": 1
+      },
+      {
+        "module": "tests.test_keyframe_audit",
+        "status": "pass",
+        "seconds": 2.8,
+        "returncode": 0,
+        "tests": 16,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_keyframe_audit_workspace",
+        "status": "pass",
+        "seconds": 5.27,
+        "returncode": 0,
+        "tests": 3,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_keyframe_rendering",
+        "status": "pass",
+        "seconds": 1.9,
+        "returncode": 0,
+        "tests": 6,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_keyframe_workspace",
+        "status": "pass",
+        "seconds": 6.41,
+        "returncode": 0,
+        "tests": 6,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_keyframes",
+        "status": "pass",
+        "seconds": 1.5,
+        "returncode": 0,
+        "tests": 18,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_language_packs",
+        "status": "pass",
+        "seconds": 1.03,
+        "returncode": 0,
+        "tests": 8,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_launch_splash",
+        "status": "pass",
+        "seconds": 2.42,
+        "returncode": 0,
+        "tests": 1,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_live_mix_media",
+        "status": "pass",
+        "seconds": 1.22,
+        "returncode": 0,
+        "tests": 1,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_live_mix_player",
+        "status": "pass",
+        "seconds": 0.7,
+        "returncode": 0,
+        "tests": 8,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_live_mix_preview",
+        "status": "pass",
+        "seconds": 1.67,
+        "returncode": 0,
+        "tests": 3,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_local_llm",
+        "status": "pass",
+        "seconds": 1.45,
+        "returncode": 0,
+        "tests": 17,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_local_translation",
+        "status": "pass",
+        "seconds": 2.94,
+        "returncode": 0,
+        "tests": 17,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lrc_draft_service",
+        "status": "pass",
+        "seconds": 0.29,
+        "returncode": 0,
+        "tests": 1,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lrclib_provider",
+        "status": "pass",
+        "seconds": 0.51,
+        "returncode": 0,
+        "tests": 6,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lyrics_alignment",
+        "status": "pass",
+        "seconds": 1.09,
+        "returncode": 0,
+        "tests": 13,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lyrics_continuous_strip",
+        "status": "pass",
+        "seconds": 1.84,
+        "returncode": 0,
+        "tests": 8,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lyrics_customization",
+        "status": "pass",
+        "seconds": 2.13,
+        "returncode": 0,
+        "tests": 14,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lyrics_first_cue",
+        "status": "pass",
+        "seconds": 1.63,
+        "returncode": 0,
+        "tests": 5,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lyrics_formats",
+        "status": "pass",
+        "seconds": 0.28,
+        "returncode": 0,
+        "tests": 3,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lyrics_intro",
+        "status": "pass",
+        "seconds": 2.32,
+        "returncode": 0,
+        "tests": 15,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lyrics_karaoke",
+        "status": "pass",
+        "seconds": 3.85,
+        "returncode": 0,
+        "tests": 15,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lyrics_overlap",
+        "status": "pass",
+        "seconds": 1.71,
+        "returncode": 0,
+        "tests": 21,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lyrics_render_cache",
+        "status": "pass",
+        "seconds": 1.51,
+        "returncode": 0,
+        "tests": 3,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lyrics_responsiveness",
+        "status": "pass",
+        "seconds": 1.71,
+        "returncode": 0,
+        "tests": 11,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lyrics_search_dialog",
+        "status": "pass",
+        "seconds": 1.42,
+        "returncode": 0,
+        "tests": 26,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lyrics_search_service",
+        "status": "pass",
+        "seconds": 2.06,
+        "returncode": 0,
+        "tests": 20,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lyrics_selection_warnings",
+        "status": "pass",
+        "seconds": 4.75,
+        "returncode": 0,
+        "tests": 5,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lyrics_short_intro",
+        "status": "pass",
+        "seconds": 1.81,
+        "returncode": 0,
+        "tests": 6,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lyrics_sidecar",
+        "status": "pass",
+        "seconds": 0.27,
+        "returncode": 0,
+        "tests": 4,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lyrics_spacing",
+        "status": "pass",
+        "seconds": 1.53,
+        "returncode": 0,
+        "tests": 7,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lyrics_tail_scroll",
+        "status": "pass",
+        "seconds": 1.46,
+        "returncode": 0,
+        "tests": 10,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lyrics_translation",
+        "status": "pass",
+        "seconds": 2.14,
+        "returncode": 0,
+        "tests": 43,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lyrics_translation_prompt",
+        "status": "pass",
+        "seconds": 0.36,
+        "returncode": 0,
+        "tests": 12,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_lyrics_word_wrap",
+        "status": "pass",
+        "seconds": 1.9,
+        "returncode": 0,
+        "tests": 11,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_m3u_playlist",
+        "status": "pass",
+        "seconds": 0.7,
+        "returncode": 0,
+        "tests": 4,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_main_window",
+        "status": "pass",
+        "seconds": 66.71,
+        "returncode": 0,
+        "tests": 86,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_main_window_export",
+        "status": "pass",
+        "seconds": 37.9,
+        "returncode": 0,
+        "tests": 55,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_main_window_lyrics_search",
+        "status": "pass",
+        "seconds": 5.16,
+        "returncode": 0,
+        "tests": 5,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_main_window_playlist",
+        "status": "pass",
+        "seconds": 30.18,
+        "returncode": 0,
+        "tests": 40,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_main_window_preview",
+        "status": "pass",
+        "seconds": 59.56,
+        "returncode": 0,
+        "tests": 79,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_main_window_project",
+        "status": "pass",
+        "seconds": 43.85,
+        "returncode": 0,
+        "tests": 64,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_maintenance_service",
+        "status": "pass",
+        "seconds": 0.87,
+        "returncode": 0,
+        "tests": 3,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_media_export_formats",
+        "status": "pass",
+        "seconds": 2.58,
+        "returncode": 0,
+        "tests": 9,
+        "skipped": 2
+      },
+      {
+        "module": "tests.test_metadata_style_dialogs",
+        "status": "pass",
+        "seconds": 1.91,
+        "returncode": 0,
+        "tests": 5,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_mix_visual_transitions",
+        "status": "pass",
+        "seconds": 1.79,
+        "returncode": 0,
+        "tests": 9,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_motion_curves",
+        "status": "pass",
+        "seconds": 0.34,
+        "returncode": 0,
+        "tests": 5,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_motion_preview_stability",
+        "status": "pass",
+        "seconds": 1.47,
+        "returncode": 0,
+        "tests": 8,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_openai_account",
+        "status": "pass",
+        "seconds": 1.17,
+        "returncode": 0,
+        "tests": 4,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_overlay_frame_cache",
+        "status": "pass",
+        "seconds": 0.26,
+        "returncode": 0,
+        "tests": 3,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_performance_monitor",
+        "status": "pass",
+        "seconds": 3.19,
+        "returncode": 0,
+        "tests": 11,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_performance_profile",
+        "status": "pass",
+        "seconds": 0.44,
+        "returncode": 0,
+        "tests": 3,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_png_frame_staging",
+        "status": "pass",
+        "seconds": 0.45,
+        "returncode": 0,
+        "tests": 2,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_precision_timing",
+        "status": "pass",
+        "seconds": 3.55,
+        "returncode": 0,
+        "tests": 20,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_preview_audio_controller",
+        "status": "pass",
+        "seconds": 0.71,
+        "returncode": 0,
+        "tests": 12,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_preview_large_playlist",
+        "status": "pass",
+        "seconds": 1.74,
+        "returncode": 0,
+        "tests": 5,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_preview_layout",
+        "status": "pass",
+        "seconds": 1.53,
+        "returncode": 0,
+        "tests": 1,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_preview_menu_access",
+        "status": "pass",
+        "seconds": 8.9,
+        "returncode": 0,
+        "tests": 11,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_preview_presentation",
+        "status": "pass",
+        "seconds": 4.84,
+        "returncode": 0,
+        "tests": 18,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_preview_proxy",
+        "status": "pass",
+        "seconds": 0.58,
+        "returncode": 0,
+        "tests": 6,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_preview_responsiveness",
+        "status": "pass",
+        "seconds": 2.13,
+        "returncode": 0,
+        "tests": 10,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_preview_worker_lifecycle",
+        "status": "pass",
+        "seconds": 1.55,
+        "returncode": 0,
+        "tests": 2,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_product_identity",
+        "status": "pass",
+        "seconds": 0.59,
+        "returncode": 0,
+        "tests": 4,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_progress_text",
+        "status": "pass",
+        "seconds": 0.26,
+        "returncode": 0,
+        "tests": 3,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_progressive_automix_controller",
+        "status": "pass",
+        "seconds": 9.97,
+        "returncode": 0,
+        "tests": 15,
+        "skipped": 1
+      },
+      {
+        "module": "tests.test_progressive_loudness",
+        "status": "pass",
+        "seconds": 0.8,
+        "returncode": 0,
+        "tests": 2,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_project_models",
+        "status": "pass",
+        "seconds": 0.37,
+        "returncode": 0,
+        "tests": 24,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_project_persistence_service",
+        "status": "pass",
+        "seconds": 0.27,
+        "returncode": 0,
+        "tests": 3,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_project_service",
+        "status": "pass",
+        "seconds": 1.81,
+        "returncode": 0,
+        "tests": 17,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_project_session",
+        "status": "pass",
+        "seconds": 0.63,
+        "returncode": 0,
+        "tests": 6,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_projectless_workspace",
+        "status": "pass",
+        "seconds": 5.0,
+        "returncode": 0,
+        "tests": 5,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_qt_worker_lifecycle",
+        "status": "pass",
+        "seconds": 0.51,
+        "returncode": 0,
+        "tests": 5,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_real_video_preview_performance",
+        "status": "pass",
+        "seconds": 9.25,
+        "returncode": 0,
+        "tests": 5,
+        "skipped": 4
+      },
+      {
+        "module": "tests.test_release_contract",
+        "status": "pass",
+        "seconds": 0.36,
+        "returncode": 0,
+        "tests": 17,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_release_notes_html",
+        "status": "pass",
+        "seconds": 0.26,
+        "returncode": 0,
+        "tests": 7,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_render_plan",
+        "status": "pass",
+        "seconds": 0.29,
+        "returncode": 0,
+        "tests": 19,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_responsive_workspace",
+        "status": "pass",
+        "seconds": 5.74,
+        "returncode": 0,
+        "tests": 6,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_settings_layout",
+        "status": "pass",
+        "seconds": 1.22,
+        "returncode": 0,
+        "tests": 2,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_shape_rendering",
+        "status": "pass",
+        "seconds": 1.63,
+        "returncode": 0,
+        "tests": 3,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_shared_decoration",
+        "status": "pass",
+        "seconds": 1.81,
+        "returncode": 0,
+        "tests": 11,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_source_components",
+        "status": "pass",
+        "seconds": 1.35,
+        "returncode": 0,
+        "tests": 10,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_source_layout_controller",
+        "status": "pass",
+        "seconds": 1.2,
+        "returncode": 0,
+        "tests": 2,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_source_registry",
+        "status": "pass",
+        "seconds": 1.73,
+        "returncode": 0,
+        "tests": 8,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_speed_optimizations",
+        "status": "pass",
+        "seconds": 2.63,
+        "returncode": 0,
+        "tests": 10,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_startup_design",
+        "status": "pass",
+        "seconds": 0.7,
+        "returncode": 0,
+        "tests": 2,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_static_video_stream",
+        "status": "pass",
+        "seconds": 0.62,
+        "returncode": 0,
+        "tests": 9,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_studio_design",
+        "status": "pass",
+        "seconds": 0.31,
+        "returncode": 0,
+        "tests": 2,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_subprocess_utils",
+        "status": "pass",
+        "seconds": 0.29,
+        "returncode": 0,
+        "tests": 2,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_subtitle_export",
+        "status": "pass",
+        "seconds": 4.35,
+        "returncode": 0,
+        "tests": 14,
+        "skipped": 1
+      },
+      {
+        "module": "tests.test_system_audio_state",
+        "status": "pass",
+        "seconds": 0.39,
+        "returncode": 0,
+        "tests": 7,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_temp_cleanup",
+        "status": "pass",
+        "seconds": 0.27,
+        "returncode": 0,
+        "tests": 1,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_text_music_reaction",
+        "status": "pass",
+        "seconds": 2.16,
+        "returncode": 0,
+        "tests": 8,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_text_template_placeholders",
+        "status": "pass",
+        "seconds": 0.29,
+        "returncode": 0,
+        "tests": 4,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_time_format",
+        "status": "pass",
+        "seconds": 0.26,
+        "returncode": 0,
+        "tests": 4,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_timeline_models",
+        "status": "pass",
+        "seconds": 0.33,
+        "returncode": 0,
+        "tests": 4,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_track_analysis_panel",
+        "status": "pass",
+        "seconds": 0.55,
+        "returncode": 0,
+        "tests": 3,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_track_audio_settings",
+        "status": "pass",
+        "seconds": 1.2,
+        "returncode": 0,
+        "tests": 7,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_track_order_dialog",
+        "status": "pass",
+        "seconds": 0.97,
+        "returncode": 0,
+        "tests": 9,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_track_schedule",
+        "status": "pass",
+        "seconds": 0.27,
+        "returncode": 0,
+        "tests": 5,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_transition_inspector",
+        "status": "pass",
+        "seconds": 1.7,
+        "returncode": 0,
+        "tests": 17,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_translation_safety",
+        "status": "pass",
+        "seconds": 3.66,
+        "returncode": 0,
+        "tests": 17,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_translation_workspace",
+        "status": "pass",
+        "seconds": 2.4,
+        "returncode": 0,
+        "tests": 12,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_ttml_edit_workflow",
+        "status": "pass",
+        "seconds": 3.95,
+        "returncode": 0,
+        "tests": 15,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_ttml_lyrics",
+        "status": "pass",
+        "seconds": 0.92,
+        "returncode": 0,
+        "tests": 16,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_ui_responsiveness",
+        "status": "pass",
+        "seconds": 9.34,
+        "returncode": 0,
+        "tests": 12,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_update_service",
+        "status": "pass",
+        "seconds": 0.43,
+        "returncode": 0,
+        "tests": 10,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_ux_guidance",
+        "status": "pass",
+        "seconds": 10.55,
+        "returncode": 0,
+        "tests": 13,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_video_frame_filter",
+        "status": "pass",
+        "seconds": 1.84,
+        "returncode": 0,
+        "tests": 27,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_video_preview_decoder",
+        "status": "pass",
+        "seconds": 0.3,
+        "returncode": 0,
+        "tests": 2,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_video_timeline",
+        "status": "pass",
+        "seconds": 0.35,
+        "returncode": 0,
+        "tests": 4,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_visual_timeline",
+        "status": "pass",
+        "seconds": 2.07,
+        "returncode": 0,
+        "tests": 10,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_visualizer_streaming",
+        "status": "pass",
+        "seconds": 1.06,
+        "returncode": 0,
+        "tests": 6,
+        "skipped": 3
+      },
+      {
+        "module": "tests.test_word_lyrics_providers",
+        "status": "pass",
+        "seconds": 1.1,
+        "returncode": 0,
+        "tests": 22,
+        "skipped": 0
+      }
+    ],
+    "auth_unsandboxed_local_only": {
+      "tests": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "log": "work/motion-auth-native-tests.log"
+    },
+    "native_windows_regression": [
+      {
+        "module": "tests.test_custom_motion",
+        "status": "pass",
+        "seconds": 3.86,
+        "returncode": 0,
+        "tests": 23,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_custom_motion_dialog",
+        "status": "pass",
+        "seconds": 14.6,
+        "returncode": 0,
+        "tests": 42,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_gpu_preview_health",
+        "status": "pass",
+        "seconds": 0.26,
+        "returncode": 0,
+        "tests": 3,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_gpu_texture_surface",
+        "status": "pass",
+        "seconds": 2.14,
+        "returncode": 0,
+        "tests": 11,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_motion_preview_stability",
+        "status": "pass",
+        "seconds": 1.42,
+        "returncode": 0,
+        "tests": 8,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_precision_timing",
+        "status": "pass",
+        "seconds": 4.64,
+        "returncode": 0,
+        "tests": 20,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_real_video_preview_performance",
+        "status": "pass",
+        "seconds": 86.35,
+        "returncode": 0,
+        "tests": 5,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_video_frame_filter",
+        "status": "pass",
+        "seconds": 1.59,
+        "returncode": 0,
+        "tests": 27,
+        "skipped": 0
+      },
+      {
+        "module": "tests.test_visual_timeline",
+        "status": "pass",
+        "seconds": 2.1,
+        "returncode": 0,
+        "tests": 10,
+        "skipped": 0
+      }
+    ],
+    "final_merged": {
+      "summary": {
+        "modules": 185,
+        "tests": 2413,
+        "skipped": 67,
+        "failed_modules": [],
+        "passed": 2346
+      },
+      "runs": [
+        {
+          "module": "tests.test_activity_progress",
+          "status": "pass",
+          "seconds": 0.43,
+          "returncode": 0,
+          "tests": 6,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_adaptive_preview_quality",
+          "status": "pass",
+          "seconds": 0.34,
+          "returncode": 0,
+          "tests": 4,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_application_launch",
+          "status": "pass",
+          "seconds": 0.5,
+          "returncode": 0,
+          "tests": 5,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_architecture",
+          "status": "pass",
+          "seconds": 2.5,
+          "returncode": 0,
+          "tests": 4,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_audio_sync_warning",
+          "status": "pass",
+          "seconds": 0.58,
+          "returncode": 0,
+          "tests": 20,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_audit_regressions",
+          "status": "pass",
+          "seconds": 10.25,
+          "returncode": 0,
+          "tests": 24,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_auto_line_counts",
+          "status": "pass",
+          "seconds": 1.29,
+          "returncode": 0,
+          "tests": 4,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_analysis_controller",
+          "status": "pass",
+          "seconds": 0.86,
+          "returncode": 0,
+          "tests": 17,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_analysis_service",
+          "status": "pass",
+          "seconds": 0.51,
+          "returncode": 0,
+          "tests": 13,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_audition",
+          "status": "pass",
+          "seconds": 1.33,
+          "returncode": 0,
+          "tests": 9,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_basic_analyzer",
+          "status": "pass",
+          "seconds": 12.23,
+          "returncode": 0,
+          "tests": 24,
+          "skipped": 1
+        },
+        {
+          "module": "tests.test_automix_beat_this",
+          "status": "pass",
+          "seconds": 0.72,
+          "returncode": 0,
+          "tests": 34,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_beat_this_onnx",
+          "status": "pass",
+          "seconds": 9.42,
+          "returncode": 0,
+          "tests": 9,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_beat_this_real_model",
+          "status": "pass",
+          "seconds": 0.47,
+          "returncode": 0,
+          "tests": 3,
+          "skipped": 3
+        },
+        {
+          "module": "tests.test_automix_cache",
+          "status": "pass",
+          "seconds": 1.13,
+          "returncode": 0,
+          "tests": 21,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_candidates",
+          "status": "pass",
+          "seconds": 0.67,
+          "returncode": 0,
+          "tests": 47,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_compatibility",
+          "status": "pass",
+          "seconds": 0.32,
+          "returncode": 0,
+          "tests": 9,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_details_panel",
+          "status": "pass",
+          "seconds": 0.99,
+          "returncode": 0,
+          "tests": 12,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_diagnostics",
+          "status": "pass",
+          "seconds": 0.66,
+          "returncode": 0,
+          "tests": 7,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_editor_dialog",
+          "status": "pass",
+          "seconds": 11.49,
+          "returncode": 0,
+          "tests": 57,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_ffmpeg_integration",
+          "status": "pass",
+          "seconds": 0.94,
+          "returncode": 0,
+          "tests": 15,
+          "skipped": 6
+        },
+        {
+          "module": "tests.test_automix_filter_sweep",
+          "status": "pass",
+          "seconds": 0.49,
+          "returncode": 0,
+          "tests": 5,
+          "skipped": 2
+        },
+        {
+          "module": "tests.test_automix_intelligence",
+          "status": "pass",
+          "seconds": 3.98,
+          "returncode": 0,
+          "tests": 15,
+          "skipped": 1
+        },
+        {
+          "module": "tests.test_automix_invariants",
+          "status": "pass",
+          "seconds": 1.25,
+          "returncode": 0,
+          "tests": 5,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_key",
+          "status": "pass",
+          "seconds": 0.43,
+          "returncode": 0,
+          "tests": 12,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_listening_report",
+          "status": "pass",
+          "seconds": 0.6,
+          "returncode": 0,
+          "tests": 1,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_manual_transitions",
+          "status": "pass",
+          "seconds": 0.91,
+          "returncode": 0,
+          "tests": 32,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_models",
+          "status": "pass",
+          "seconds": 0.33,
+          "returncode": 0,
+          "tests": 18,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_music",
+          "status": "pass",
+          "seconds": 2.29,
+          "returncode": 0,
+          "tests": 11,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_p1_regressions",
+          "status": "pass",
+          "seconds": 1.67,
+          "returncode": 0,
+          "tests": 11,
+          "skipped": 2
+        },
+        {
+          "module": "tests.test_automix_parallel_mix",
+          "status": "pass",
+          "seconds": 0.57,
+          "returncode": 0,
+          "tests": 3,
+          "skipped": 1
+        },
+        {
+          "module": "tests.test_automix_planner",
+          "status": "pass",
+          "seconds": 0.57,
+          "returncode": 0,
+          "tests": 38,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_presets",
+          "status": "pass",
+          "seconds": 0.32,
+          "returncode": 0,
+          "tests": 2,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_progressive",
+          "status": "pass",
+          "seconds": 1.91,
+          "returncode": 0,
+          "tests": 21,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_renderer",
+          "status": "pass",
+          "seconds": 0.57,
+          "returncode": 0,
+          "tests": 65,
+          "skipped": 25
+        },
+        {
+          "module": "tests.test_automix_rhythm",
+          "status": "pass",
+          "seconds": 0.56,
+          "returncode": 0,
+          "tests": 6,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_structure",
+          "status": "pass",
+          "seconds": 0.9,
+          "returncode": 0,
+          "tests": 39,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_structure_real_model",
+          "status": "pass",
+          "seconds": 0.52,
+          "returncode": 0,
+          "tests": 2,
+          "skipped": 2
+        },
+        {
+          "module": "tests.test_automix_tail_protection",
+          "status": "pass",
+          "seconds": 0.61,
+          "returncode": 0,
+          "tests": 5,
+          "skipped": 1
+        },
+        {
+          "module": "tests.test_automix_transition_style",
+          "status": "pass",
+          "seconds": 0.61,
+          "returncode": 0,
+          "tests": 31,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_variety",
+          "status": "pass",
+          "seconds": 0.9,
+          "returncode": 0,
+          "tests": 30,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_vocal_sections",
+          "status": "pass",
+          "seconds": 0.54,
+          "returncode": 0,
+          "tests": 16,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_automix_workflow",
+          "status": "pass",
+          "seconds": 0.58,
+          "returncode": 0,
+          "tests": 5,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_autosave_service",
+          "status": "pass",
+          "seconds": 0.43,
+          "returncode": 0,
+          "tests": 6,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_background_editor",
+          "status": "pass",
+          "seconds": 0.34,
+          "returncode": 0,
+          "tests": 1,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_bounded_export_pipeline",
+          "status": "pass",
+          "seconds": 0.51,
+          "returncode": 0,
+          "tests": 8,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_canvas_pipe",
+          "status": "pass",
+          "seconds": 7.36,
+          "returncode": 0,
+          "tests": 15,
+          "skipped": 3
+        },
+        {
+          "module": "tests.test_canvas_process_stream",
+          "status": "pass",
+          "seconds": 4.88,
+          "returncode": 0,
+          "tests": 7,
+          "skipped": 1
+        },
+        {
+          "module": "tests.test_canvas_snapping",
+          "status": "pass",
+          "seconds": 1.29,
+          "returncode": 0,
+          "tests": 26,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_chatgpt_auth",
+          "status": "pass",
+          "tests": 7,
+          "skipped": 0,
+          "evidence": "work/motion-auth-native-tests.log",
+          "note": "Sandbox loopback timeout; unsandboxed local-only rerun passed"
+        },
+        {
+          "module": "tests.test_color_editor",
+          "status": "pass",
+          "seconds": 1.85,
+          "returncode": 0,
+          "tests": 10,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_content_preview_dialog",
+          "status": "pass",
+          "seconds": 0.64,
+          "returncode": 0,
+          "tests": 3,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_custom_motion",
+          "status": "pass",
+          "seconds": 3.86,
+          "returncode": 0,
+          "tests": 23,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_custom_motion_dialog",
+          "status": "pass",
+          "seconds": 14.6,
+          "returncode": 0,
+          "tests": 42,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_decoder_backpressure",
+          "status": "pass",
+          "seconds": 0.27,
+          "returncode": 0,
+          "tests": 4,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_distribution_verification",
+          "status": "pass",
+          "seconds": 0.51,
+          "returncode": 0,
+          "tests": 1,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_export_audio_staging",
+          "status": "pass",
+          "seconds": 1.53,
+          "returncode": 0,
+          "tests": 2,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_export_frame_equivalence",
+          "status": "pass",
+          "seconds": 2.17,
+          "returncode": 0,
+          "tests": 16,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_export_optimizations",
+          "status": "pass",
+          "seconds": 0.55,
+          "returncode": 0,
+          "tests": 2,
+          "skipped": 1
+        },
+        {
+          "module": "tests.test_export_plan",
+          "status": "pass",
+          "seconds": 1.34,
+          "returncode": 0,
+          "tests": 7,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_export_session",
+          "status": "pass",
+          "seconds": 1.62,
+          "returncode": 0,
+          "tests": 14,
+          "skipped": 6
+        },
+        {
+          "module": "tests.test_export_storage_service",
+          "status": "pass",
+          "seconds": 0.29,
+          "returncode": 0,
+          "tests": 2,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_export_timeline",
+          "status": "pass",
+          "seconds": 0.69,
+          "returncode": 0,
+          "tests": 15,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_export_validation_service",
+          "status": "pass",
+          "seconds": 0.4,
+          "returncode": 0,
+          "tests": 3,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_ffmpeg_process",
+          "status": "pass",
+          "seconds": 0.67,
+          "returncode": 0,
+          "tests": 7,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_ffmpeg_streaming_integration",
+          "status": "pass",
+          "seconds": 0.6,
+          "returncode": 0,
+          "tests": 6,
+          "skipped": 4
+        },
+        {
+          "module": "tests.test_frame_state",
+          "status": "pass",
+          "seconds": 0.44,
+          "returncode": 0,
+          "tests": 16,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_functional_regressions",
+          "status": "pass",
+          "seconds": 3.26,
+          "returncode": 0,
+          "tests": 113,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_gpu_preview_health",
+          "status": "pass",
+          "seconds": 0.26,
+          "returncode": 0,
+          "tests": 3,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_gpu_texture_surface",
+          "status": "pass",
+          "seconds": 2.14,
+          "returncode": 0,
+          "tests": 11,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_help_content",
+          "status": "pass",
+          "seconds": 2.74,
+          "returncode": 0,
+          "tests": 10,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_inspector_sections",
+          "status": "pass",
+          "seconds": 1.96,
+          "returncode": 0,
+          "tests": 14,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_keyframe_advanced",
+          "status": "pass",
+          "seconds": 1.43,
+          "returncode": 0,
+          "tests": 11,
+          "skipped": 1
+        },
+        {
+          "module": "tests.test_keyframe_audit",
+          "status": "pass",
+          "seconds": 2.8,
+          "returncode": 0,
+          "tests": 16,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_keyframe_audit_workspace",
+          "status": "pass",
+          "seconds": 5.27,
+          "returncode": 0,
+          "tests": 3,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_keyframe_rendering",
+          "status": "pass",
+          "seconds": 1.9,
+          "returncode": 0,
+          "tests": 6,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_keyframe_workspace",
+          "status": "pass",
+          "seconds": 6.41,
+          "returncode": 0,
+          "tests": 6,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_keyframes",
+          "status": "pass",
+          "seconds": 1.5,
+          "returncode": 0,
+          "tests": 18,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_language_packs",
+          "status": "pass",
+          "seconds": 1.03,
+          "returncode": 0,
+          "tests": 8,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_launch_splash",
+          "status": "pass",
+          "seconds": 2.42,
+          "returncode": 0,
+          "tests": 1,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_live_mix_media",
+          "status": "pass",
+          "seconds": 1.22,
+          "returncode": 0,
+          "tests": 1,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_live_mix_player",
+          "status": "pass",
+          "seconds": 0.7,
+          "returncode": 0,
+          "tests": 8,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_live_mix_preview",
+          "status": "pass",
+          "seconds": 1.67,
+          "returncode": 0,
+          "tests": 3,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_local_llm",
+          "status": "pass",
+          "seconds": 1.45,
+          "returncode": 0,
+          "tests": 17,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_local_translation",
+          "status": "pass",
+          "seconds": 2.94,
+          "returncode": 0,
+          "tests": 17,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lrc_draft_service",
+          "status": "pass",
+          "seconds": 0.29,
+          "returncode": 0,
+          "tests": 1,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lrclib_provider",
+          "status": "pass",
+          "seconds": 0.51,
+          "returncode": 0,
+          "tests": 6,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lyrics_alignment",
+          "status": "pass",
+          "seconds": 1.09,
+          "returncode": 0,
+          "tests": 13,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lyrics_continuous_strip",
+          "status": "pass",
+          "seconds": 1.84,
+          "returncode": 0,
+          "tests": 8,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lyrics_customization",
+          "status": "pass",
+          "seconds": 2.13,
+          "returncode": 0,
+          "tests": 14,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lyrics_first_cue",
+          "status": "pass",
+          "seconds": 1.63,
+          "returncode": 0,
+          "tests": 5,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lyrics_formats",
+          "status": "pass",
+          "seconds": 0.28,
+          "returncode": 0,
+          "tests": 3,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lyrics_intro",
+          "status": "pass",
+          "seconds": 2.32,
+          "returncode": 0,
+          "tests": 15,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lyrics_karaoke",
+          "status": "pass",
+          "seconds": 3.85,
+          "returncode": 0,
+          "tests": 15,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lyrics_overlap",
+          "status": "pass",
+          "seconds": 1.71,
+          "returncode": 0,
+          "tests": 21,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lyrics_render_cache",
+          "status": "pass",
+          "seconds": 1.51,
+          "returncode": 0,
+          "tests": 3,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lyrics_responsiveness",
+          "status": "pass",
+          "seconds": 1.71,
+          "returncode": 0,
+          "tests": 11,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lyrics_search_dialog",
+          "status": "pass",
+          "seconds": 1.42,
+          "returncode": 0,
+          "tests": 26,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lyrics_search_service",
+          "status": "pass",
+          "seconds": 2.06,
+          "returncode": 0,
+          "tests": 20,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lyrics_selection_warnings",
+          "status": "pass",
+          "seconds": 4.75,
+          "returncode": 0,
+          "tests": 5,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lyrics_short_intro",
+          "status": "pass",
+          "seconds": 1.81,
+          "returncode": 0,
+          "tests": 6,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lyrics_sidecar",
+          "status": "pass",
+          "seconds": 0.27,
+          "returncode": 0,
+          "tests": 4,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lyrics_spacing",
+          "status": "pass",
+          "seconds": 1.53,
+          "returncode": 0,
+          "tests": 7,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lyrics_tail_scroll",
+          "status": "pass",
+          "seconds": 1.46,
+          "returncode": 0,
+          "tests": 10,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lyrics_translation",
+          "status": "pass",
+          "seconds": 2.14,
+          "returncode": 0,
+          "tests": 43,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lyrics_translation_prompt",
+          "status": "pass",
+          "seconds": 0.36,
+          "returncode": 0,
+          "tests": 12,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_lyrics_word_wrap",
+          "status": "pass",
+          "seconds": 1.9,
+          "returncode": 0,
+          "tests": 11,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_m3u_playlist",
+          "status": "pass",
+          "seconds": 0.7,
+          "returncode": 0,
+          "tests": 4,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_main_window",
+          "status": "pass",
+          "seconds": 66.71,
+          "returncode": 0,
+          "tests": 86,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_main_window_export",
+          "status": "pass",
+          "seconds": 37.9,
+          "returncode": 0,
+          "tests": 55,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_main_window_lyrics_search",
+          "status": "pass",
+          "seconds": 5.16,
+          "returncode": 0,
+          "tests": 5,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_main_window_playlist",
+          "status": "pass",
+          "seconds": 30.18,
+          "returncode": 0,
+          "tests": 40,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_main_window_preview",
+          "status": "pass",
+          "seconds": 59.56,
+          "returncode": 0,
+          "tests": 79,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_main_window_project",
+          "status": "pass",
+          "seconds": 43.85,
+          "returncode": 0,
+          "tests": 64,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_maintenance_service",
+          "status": "pass",
+          "seconds": 0.87,
+          "returncode": 0,
+          "tests": 3,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_media_export_formats",
+          "status": "pass",
+          "seconds": 2.58,
+          "returncode": 0,
+          "tests": 9,
+          "skipped": 2
+        },
+        {
+          "module": "tests.test_metadata_style_dialogs",
+          "status": "pass",
+          "seconds": 1.91,
+          "returncode": 0,
+          "tests": 5,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_mix_visual_transitions",
+          "status": "pass",
+          "seconds": 1.79,
+          "returncode": 0,
+          "tests": 9,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_motion_curves",
+          "status": "pass",
+          "seconds": 0.34,
+          "returncode": 0,
+          "tests": 5,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_motion_preview_stability",
+          "status": "pass",
+          "seconds": 1.42,
+          "returncode": 0,
+          "tests": 8,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_openai_account",
+          "status": "pass",
+          "seconds": 1.17,
+          "returncode": 0,
+          "tests": 4,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_overlay_frame_cache",
+          "status": "pass",
+          "seconds": 0.26,
+          "returncode": 0,
+          "tests": 3,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_performance_monitor",
+          "status": "pass",
+          "seconds": 3.19,
+          "returncode": 0,
+          "tests": 11,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_performance_profile",
+          "status": "pass",
+          "seconds": 0.44,
+          "returncode": 0,
+          "tests": 3,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_png_frame_staging",
+          "status": "pass",
+          "seconds": 0.45,
+          "returncode": 0,
+          "tests": 2,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_precision_timing",
+          "status": "pass",
+          "seconds": 4.64,
+          "returncode": 0,
+          "tests": 20,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_preview_audio_controller",
+          "status": "pass",
+          "seconds": 0.71,
+          "returncode": 0,
+          "tests": 12,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_preview_large_playlist",
+          "status": "pass",
+          "seconds": 1.74,
+          "returncode": 0,
+          "tests": 5,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_preview_layout",
+          "status": "pass",
+          "seconds": 1.53,
+          "returncode": 0,
+          "tests": 1,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_preview_menu_access",
+          "status": "pass",
+          "seconds": 8.9,
+          "returncode": 0,
+          "tests": 11,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_preview_presentation",
+          "status": "pass",
+          "seconds": 4.84,
+          "returncode": 0,
+          "tests": 18,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_preview_proxy",
+          "status": "pass",
+          "seconds": 0.58,
+          "returncode": 0,
+          "tests": 6,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_preview_responsiveness",
+          "status": "pass",
+          "seconds": 2.13,
+          "returncode": 0,
+          "tests": 10,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_preview_worker_lifecycle",
+          "status": "pass",
+          "seconds": 1.55,
+          "returncode": 0,
+          "tests": 2,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_product_identity",
+          "status": "pass",
+          "seconds": 0.59,
+          "returncode": 0,
+          "tests": 4,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_progress_text",
+          "status": "pass",
+          "seconds": 0.26,
+          "returncode": 0,
+          "tests": 3,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_progressive_automix_controller",
+          "status": "pass",
+          "seconds": 9.97,
+          "returncode": 0,
+          "tests": 15,
+          "skipped": 1
+        },
+        {
+          "module": "tests.test_progressive_loudness",
+          "status": "pass",
+          "seconds": 0.8,
+          "returncode": 0,
+          "tests": 2,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_project_models",
+          "status": "pass",
+          "seconds": 0.37,
+          "returncode": 0,
+          "tests": 24,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_project_persistence_service",
+          "status": "pass",
+          "seconds": 0.27,
+          "returncode": 0,
+          "tests": 3,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_project_service",
+          "status": "pass",
+          "seconds": 1.81,
+          "returncode": 0,
+          "tests": 17,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_project_session",
+          "status": "pass",
+          "seconds": 0.63,
+          "returncode": 0,
+          "tests": 6,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_projectless_workspace",
+          "status": "pass",
+          "seconds": 5.0,
+          "returncode": 0,
+          "tests": 5,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_qt_worker_lifecycle",
+          "status": "pass",
+          "seconds": 0.51,
+          "returncode": 0,
+          "tests": 5,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_real_video_preview_performance",
+          "status": "pass",
+          "seconds": 86.35,
+          "returncode": 0,
+          "tests": 5,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_release_contract",
+          "status": "pass",
+          "seconds": 0.36,
+          "returncode": 0,
+          "tests": 17,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_release_notes_html",
+          "status": "pass",
+          "seconds": 0.26,
+          "returncode": 0,
+          "tests": 7,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_render_plan",
+          "status": "pass",
+          "seconds": 0.29,
+          "returncode": 0,
+          "tests": 19,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_responsive_workspace",
+          "status": "pass",
+          "seconds": 5.74,
+          "returncode": 0,
+          "tests": 6,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_settings_layout",
+          "status": "pass",
+          "seconds": 1.22,
+          "returncode": 0,
+          "tests": 2,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_shape_rendering",
+          "status": "pass",
+          "seconds": 1.63,
+          "returncode": 0,
+          "tests": 3,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_shared_decoration",
+          "status": "pass",
+          "seconds": 1.81,
+          "returncode": 0,
+          "tests": 11,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_source_components",
+          "status": "pass",
+          "seconds": 1.35,
+          "returncode": 0,
+          "tests": 10,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_source_layout_controller",
+          "status": "pass",
+          "seconds": 1.2,
+          "returncode": 0,
+          "tests": 2,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_source_registry",
+          "status": "pass",
+          "seconds": 1.73,
+          "returncode": 0,
+          "tests": 8,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_speed_optimizations",
+          "status": "pass",
+          "seconds": 2.63,
+          "returncode": 0,
+          "tests": 10,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_startup_design",
+          "status": "pass",
+          "seconds": 0.7,
+          "returncode": 0,
+          "tests": 2,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_static_video_stream",
+          "status": "pass",
+          "seconds": 0.62,
+          "returncode": 0,
+          "tests": 9,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_studio_design",
+          "status": "pass",
+          "seconds": 0.31,
+          "returncode": 0,
+          "tests": 2,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_subprocess_utils",
+          "status": "pass",
+          "seconds": 0.29,
+          "returncode": 0,
+          "tests": 2,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_subtitle_export",
+          "status": "pass",
+          "seconds": 4.35,
+          "returncode": 0,
+          "tests": 14,
+          "skipped": 1
+        },
+        {
+          "module": "tests.test_system_audio_state",
+          "status": "pass",
+          "seconds": 0.39,
+          "returncode": 0,
+          "tests": 7,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_temp_cleanup",
+          "status": "pass",
+          "seconds": 0.27,
+          "returncode": 0,
+          "tests": 1,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_text_music_reaction",
+          "status": "pass",
+          "seconds": 2.16,
+          "returncode": 0,
+          "tests": 8,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_text_template_placeholders",
+          "status": "pass",
+          "seconds": 0.29,
+          "returncode": 0,
+          "tests": 4,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_time_format",
+          "status": "pass",
+          "seconds": 0.26,
+          "returncode": 0,
+          "tests": 4,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_timeline_models",
+          "status": "pass",
+          "seconds": 0.33,
+          "returncode": 0,
+          "tests": 4,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_track_analysis_panel",
+          "status": "pass",
+          "seconds": 0.55,
+          "returncode": 0,
+          "tests": 3,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_track_audio_settings",
+          "status": "pass",
+          "seconds": 1.2,
+          "returncode": 0,
+          "tests": 7,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_track_order_dialog",
+          "status": "pass",
+          "seconds": 0.97,
+          "returncode": 0,
+          "tests": 9,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_track_schedule",
+          "status": "pass",
+          "seconds": 0.27,
+          "returncode": 0,
+          "tests": 5,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_transition_inspector",
+          "status": "pass",
+          "seconds": 1.7,
+          "returncode": 0,
+          "tests": 17,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_translation_safety",
+          "status": "pass",
+          "seconds": 3.66,
+          "returncode": 0,
+          "tests": 17,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_translation_workspace",
+          "status": "pass",
+          "seconds": 2.4,
+          "returncode": 0,
+          "tests": 12,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_ttml_edit_workflow",
+          "status": "pass",
+          "seconds": 3.95,
+          "returncode": 0,
+          "tests": 15,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_ttml_lyrics",
+          "status": "pass",
+          "seconds": 0.92,
+          "returncode": 0,
+          "tests": 16,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_ui_responsiveness",
+          "status": "pass",
+          "seconds": 9.34,
+          "returncode": 0,
+          "tests": 12,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_update_service",
+          "status": "pass",
+          "seconds": 0.43,
+          "returncode": 0,
+          "tests": 10,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_ux_guidance",
+          "status": "pass",
+          "seconds": 10.55,
+          "returncode": 0,
+          "tests": 13,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_video_frame_filter",
+          "status": "pass",
+          "seconds": 1.59,
+          "returncode": 0,
+          "tests": 27,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_video_preview_decoder",
+          "status": "pass",
+          "seconds": 0.3,
+          "returncode": 0,
+          "tests": 2,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_video_timeline",
+          "status": "pass",
+          "seconds": 0.35,
+          "returncode": 0,
+          "tests": 4,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_visual_timeline",
+          "status": "pass",
+          "seconds": 2.1,
+          "returncode": 0,
+          "tests": 10,
+          "skipped": 0
+        },
+        {
+          "module": "tests.test_visualizer_streaming",
+          "status": "pass",
+          "seconds": 1.06,
+          "returncode": 0,
+          "tests": 6,
+          "skipped": 3
+        },
+        {
+          "module": "tests.test_word_lyrics_providers",
+          "status": "pass",
+          "seconds": 1.1,
+          "returncode": 0,
+          "tests": 22,
+          "skipped": 0
+        }
+      ]
+    }
+  }
+}

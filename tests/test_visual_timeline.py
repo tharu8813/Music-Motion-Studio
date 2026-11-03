@@ -218,7 +218,7 @@ class VisualTimelineTests(unittest.TestCase):
         self.assertEqual(commits.count(), 0)
         self.assertEqual(self.source.timeline_start, 5)
 
-    def test_context_menu_offers_visual_actions_without_numeric_editor(self):
+    def test_context_menu_offers_visual_actions_and_compact_precision_entry(self):
         point = self.visual.block_rect(self.block(self.source.id)).center().toPoint()
         menu, actions = Mock(), []
         def add_action(text):
@@ -231,7 +231,8 @@ class VisualTimelineTests(unittest.TestCase):
         with patch("app.timeline.visual_timeline.QMenu", return_value=menu):
             self.visual.contextMenuEvent(SimpleNamespace(pos=lambda: point, globalPos=lambda: point))
         names = [action.text() for action in actions]
-        self.assertEqual(len(names), 5)
+        self.assertEqual(len(names), 6)
+        self.assertTrue(any("정밀" in name or "precise" in name.lower() for name in names))
         self.assertFalse(any("숫자" in name or "numeric" in name.lower() for name in names))
         self.assertEqual(self.visual.selected, ("source", self.source.id))
         self.assertGreater(self.visual.pixels_per_second, self.visual._fit_scale())

@@ -45,8 +45,12 @@ def main():
     parser.add_argument("--language", choices=("ko", "en"), default="ko")
     parser.add_argument("--samples", type=int, default=80)
     parser.add_argument("--cycles", type=int, default=5)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--layers", type=int, default=50)
+    parser.add_argument("--videos", type=int, default=1)
+    parser.add_argument("--advanced", action="store_true")
     args = parser.parse_args()
-    output = ROOT / "work" / f"motion-quality-{args.language}"
+    output = args.output or ROOT / "work" / f"motion-quality-{args.language}"
     output.mkdir(parents=True, exist_ok=True)
     QSettings.setDefaultFormat(QSettings.Format.IniFormat)
     QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, str(output / "settings"))
@@ -69,14 +73,15 @@ def main():
     scene = CanvasScene()
     scene.set_artboard_size(3840, 2160)
     models = []
-    for i in range(50):
+    for i in range(args.layers):
         models.append(Source(SourceType.IMAGE if i < 30 else SourceType.TEXT, f"Layer {i}",
             x=80+(i % 10)*350, y=80+(i//10)*330, width=240, height=180,
             content_path=str(output / "image.png") if i < 30 else "", text=f"Music Motion {i}", font_size=32))
     models.append(Source(SourceType.AUDIO_VISUALIZER, "Audio sample", x=100, y=1900, width=1200, height=160))
     if video.is_file():
-        models.append(Source(SourceType.VIDEO, "Video", x=1600, y=1800, width=480, height=270,
-            video_paths=[str(video)], video_repeat_mode="loop_one"))
+        for i in range(args.videos):
+            models.append(Source(SourceType.VIDEO, f"Video {i}", x=1600+i*100, y=1800, width=480, height=270,
+                video_paths=[str(video)], video_repeat_mode="loop_one"))
     target = Source(SourceType.SHAPE, "Motion / 모션", x=1900, y=800, width=400, height=250,
         fill_color="#B7D0C4", animation_in="custom", animation_out="custom",
         custom_intro_keyframes=CustomMotion(tuple(MotionPoint(i/199, dx=i*.5, scale=1+i/1000) for i in range(200))),
@@ -91,6 +96,8 @@ def main():
     for cycle in range(args.cycles):
         begin = perf_counter()
         dialog = CustomMotionDialog(target, scene, tracks, translator)
+        if args.advanced:
+            dialog.set_advanced(True)
         dialog.show()
         app.processEvents()
         opened = (perf_counter()-begin)*1000
@@ -136,6 +143,7 @@ def main():
         gc.collect()
         cycles.append({"open_ms": round(opened, 2), "rss_bytes_after_close": _resident_set_bytes()})
     result = {"language": args.language, "dpi_scale": os.environ.get("QT_SCALE_FACTOR", "1"),
+        "editor_mode": "advanced" if args.advanced else "simple",
         "canvas": [3840, 2160], "sources": len(models), "motion_points": 200, "samples": len(timings),
         "seek_and_render_ms": {"median": round(float(np.median(timings)), 2),
             "p95": round(float(np.percentile(timings, 95)), 2), "max": round(max(timings), 2)},

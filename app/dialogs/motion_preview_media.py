@@ -21,7 +21,11 @@ class MotionPreviewMedia(QObject):
         self.last_requests = {}
         self.proxy_cache = PreviewProxyCache()
         self.proxies = {}
+        self.states = {}
         for item in self.items:
+            # This editor explicitly reports loading instead of presenting a
+            # retained frame as the result of a new asynchronous seek.
+            item._video_validate_timestamps = True
             item.video_frame_ready.connect(self.changed)
 
     def sync(self, track, local, global_time, track_start, *, playing=False, enabled=True, scale=1, clock_rate=1):
@@ -29,11 +33,14 @@ class MotionPreviewMedia(QObject):
             return
         for item in self.items:
             source = item.source
+            self.states[source.id] = "active"
             item.set_video_preview_budget(scale, 30)
             item.set_video_preview_playback(playing and enabled, source.video_speed*clock_rate)
             if not enabled:
+                self.states[source.id] = "still"
                 continue  # Keep the last frame as the explicit still fallback.
             if not source.visible or not item.isVisible():
+                self.states[source.id] = "inactive"
                 item.set_video_preview_position(None)
                 continue
             outside = global_time < source.timeline_start or (source.timeline_duration > 0 and
@@ -50,11 +57,17 @@ class MotionPreviewMedia(QObject):
             # While a duration is being probed, retain the seeded poster. Once
             # known, the production scheduler owns loop/once/rate decisions.
             if not outside and paths and any(path not in self.durations for path in paths):
+                self.states[source.id] = "loading"
                 continue
             if not outside and paths and all(self.durations.get(path, 0) <= 0 for path in paths):
+                self.states[source.id] = "unsupported"
                 item.set_video_preview_playback(False, source.video_speed)
                 continue  # Unreadable metadata keeps the poster/placeholder.
             request = (position.path, position.seconds) if position else (None, 0)
+            if outside:
+                self.states[source.id] = "inactive"
+            elif not paths:
+                self.states[source.id] = "unsupported"
             previous = self.last_requests.get(source.id)
             force = previous != request and (not playing or previous is None or request[0] != previous[0] or request[1] < previous[1])
             path = request[0]
@@ -66,6 +79,14 @@ class MotionPreviewMedia(QObject):
             item.set_video_preview_position(path, request[1], force_seek=force, playback_rate=source.video_speed*clock_rate)
             self.last_requests[source.id] = request
         self.start_probe()
+
+    def status_text(self, korean):
+        states = {item.video_frame_state if self.states.get(item.source.id) == "active"
+                  else self.states.get(item.source.id, "loading") for item in self.items}
+        labels = (("loading", "로딩 중", "loading"), ("synced", "동기화", "synchronized"),
+                  ("still", "정지 화면", "still frame"), ("unsupported", "미지원/시간 확인 불가", "unsupported/unverified time"))
+        parts = [ko if korean else en for state, ko, en in labels if state in states]
+        return (("영상: " if korean else "Video: ") + ", ".join(parts)) if parts else ""
 
     def start_probe(self):
         if self.closed or self.worker is not None or not self.queue:
