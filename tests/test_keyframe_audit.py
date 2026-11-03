@@ -9,9 +9,8 @@ from types import SimpleNamespace
 from unittest import TestCase, skipUnless
 
 import numpy as np
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QImage
-from PySide6.QtTest import QSignalSpy, QTest
+from PySide6.QtTest import QSignalSpy
 from PySide6.QtWidgets import QApplication
 
 from app.animation.keyframes import Keyframe, evaluate_curve
@@ -21,7 +20,6 @@ from app.models.playlist import PlaylistTrack
 from app.models.source import Source, SourceType
 from app.services.source_store import SourceStore
 from app.timeline.compiler import compile_playlist
-from app.timeline.keyframe_editor import Diamond, KeyframeEditor
 from app.utils.i18n import Translator
 from tests import test_keyframe_rendering as render_tests
 FFMPEG = render_tests.FFMPEG
@@ -39,11 +37,6 @@ class AuditEditingTests(TestCase):
         self.track = PlaylistTrack("same.wav", "A", duration_seconds=10)
         self.entries = [(self.track, 0, 10)]
         self.controller = KeyframeController(self.store, lambda: self.entries)
-
-    def editor(self):
-        editor = KeyframeEditor(self.controller, Translator())
-        self.addCleanup(editor.deleteLater)
-        return editor
 
     def test_new_points_cannot_exceed_video_or_track_end(self):
         for mode in ("global", "single_track", "per_track"):
@@ -87,9 +80,6 @@ class AuditEditingTests(TestCase):
         self.entries[:] = [(self.track, 0, 5)]
         self.controller.replace_points({("x", 9)}, [("x", Keyframe(9, 50))])
         self.assertEqual(self.controller.curves()["x"], [Keyframe(9, 50)])
-        editor = self.editor()
-        diamond = next(i for i in editor.scene.items() if isinstance(i, Diamond))
-        self.assertIn("range", diamond.toolTip().lower()) if not editor.korean else self.assertIn("범위", diamond.toolTip())
 
     def test_zero_length_or_disabled_track_is_not_editable(self):
         self.controller.configure(mode="per_track")
@@ -101,43 +91,6 @@ class AuditEditingTests(TestCase):
         self.track.enabled = False
         self.entries[:] = [(self.track, 0, 10)]
         self.assertFalse(self.controller.editable)
-
-    def test_other_track_editor_uses_its_own_curve_value(self):
-        other = PlaylistTrack("same.wav", "B", duration_seconds=10)
-        self.entries.append((other, 10, 20))
-        self.controller.configure(mode="per_track")
-        self.controller.edit_track_id = other.id
-        self.source.keyframes.per_track_curves = {self.track.id: {"x": [Keyframe(0, 100)]},
-                                                 other.id: {"x": [Keyframe(0, 300)]}}
-        self.controller.seek_global(1)  # Canvas still belongs to A; editing B.
-        self.controller.toggle("y")
-        editor = self.editor()
-        editor.property.setCurrentIndex(editor.property.findData("x"))
-        editor.fill_value()
-        self.assertEqual(editor.value.value(), 300)
-        self.assertEqual(self.controller.evaluated()["x"], 100)
-
-    def test_noop_refresh_keeps_graphics_items_and_selection(self):
-        self.controller.toggle("x")
-        editor = self.editor()
-        diamond = next(i for i in editor.scene.items() if isinstance(i, Diamond))
-        diamond.setSelected(True)
-        editor.refresh()
-        self.assertTrue(any(i is diamond for i in editor.scene.items()))
-        self.assertEqual(editor.selection(), {("x", 0)})
-
-    def test_escape_during_drag_restores_visual_positions_and_data(self):
-        self.controller.toggle("x")
-        editor = self.editor()
-        diamond = next(i for i in editor.scene.items() if isinstance(i, Diamond))
-        diamond.setSelected(True)
-        editor.dragging = True
-        diamond.setPos(editor.time_x(3), diamond.y())
-        QTest.keyClick(editor.view, Qt.Key.Key_Escape)
-        self.assertFalse(editor.dragging)
-        current = next(i for i in editor.scene.items() if isinstance(i, Diamond))
-        self.assertEqual(current.x(), editor.time_x(0))
-        self.assertEqual(self.controller.curves()["x"][0].time, 0)
 
     def test_editor_canvas_paints_keyed_opacity_without_capture_adapter(self):
         from app.animation.canvas_keyframes import CanvasKeyframeBinding
@@ -187,26 +140,6 @@ class AuditEditingTests(TestCase):
         self.controller.replace_points((), [("x", Keyframe(7, 22))])
         self.assertEqual(self.controller.curves()["x"][0].time, 7)
 
-    def test_nudge_at_left_boundary_keeps_spacing_of_multi_selection(self):
-        self.controller.replace_points((), [("x", Keyframe(0, 10)), ("x", Keyframe(2, 20))])
-        editor = self.editor()
-        for item in editor.scene.items():
-            if isinstance(item, Diamond):
-                item.setSelected(True)
-        saved = deepcopy(self.source.to_dict())
-        QTest.keyClick(editor.view, Qt.Key.Key_Left)
-        self.assertEqual(self.source.to_dict(), saved)
-        self.assertEqual(editor.selection(), {("x", 0), ("x", 2)})
-
-    def test_drag_cannot_commit_into_a_different_time_basis(self):
-        self.controller.toggle("x")
-        editor = self.editor()
-        editor.dragging = True
-        self.controller.configure(mode="per_track")
-        self.assertFalse(editor.dragging)
-        self.assertEqual(self.source.keyframes.global_curves["x"], [Keyframe(0, 10)])
-        self.assertEqual(self.source.keyframes.per_track_curves, {})
-
     def test_visualizer_base_opacity_scales_every_style_once(self):
         from app.renderer.ffmpeg_renderer import VisualizerOverlay
         from app.renderer.python_visualizer import PythonVisualizerRenderer
@@ -223,30 +156,6 @@ class AuditEditingTests(TestCase):
                     alphas.append(np.frombuffer(rgba.constBits(), dtype=np.uint8).reshape(64, 64, 4)[:, :, 3].copy())
                 self.assertLessEqual(int(alphas[2].max()), 0)
                 self.assertLessEqual(float(np.abs(alphas[1].astype(float) - alphas[0] / 2).max()), 2)
-
-    def test_gui_ctrl_multi_selection_drag_clamps_group_and_escape_cancels(self):
-        self.controller.replace_points((), [("x", Keyframe(1, 10)), ("x", Keyframe(3, 20))])
-        editor = self.editor()
-        editor.resize(960, 420)
-        editor.show()
-        self.app.processEvents()
-        def at(seconds):
-            return editor.view.mapFromScene(editor.time_x(seconds), editor.row_y(0))
-        viewport = editor.view.viewport()
-        QTest.mouseClick(viewport, Qt.MouseButton.LeftButton, pos=at(1))
-        QTest.mouseClick(viewport, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ControlModifier, pos=at(3))
-        self.assertEqual(editor.selection(), {("x", 1), ("x", 3)})
-        QTest.mousePress(viewport, Qt.MouseButton.LeftButton, pos=at(1))
-        QTest.mouseMove(viewport, at(12))
-        QTest.mouseRelease(viewport, Qt.MouseButton.LeftButton, pos=at(12))
-        self.assertEqual([p.time for p in self.controller.curves()["x"]], [8, 10])
-        saved = deepcopy(self.source.to_dict())
-        QTest.mousePress(viewport, Qt.MouseButton.LeftButton, pos=at(8))
-        QTest.mouseMove(viewport, at(6))
-        QTest.keyClick(editor.view, Qt.Key.Key_Escape)
-        QTest.mouseRelease(viewport, Qt.MouseButton.LeftButton, pos=at(6))
-        self.assertEqual(self.source.to_dict(), saved)
-        editor.close()
 
     def test_trimmed_track_keys_are_inactive_during_compiled_silent_gap(self):
         from app.canvas.live_canvas import CanvasScene

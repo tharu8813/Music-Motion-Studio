@@ -3,9 +3,6 @@ from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from PySide6.QtCore import Qt
-from PySide6.QtTest import QTest
-
 from app.animation.keyframes import Keyframe
 from app.services.project_service import ProjectService
 from tests.main_window_base import MainWindowTestCase
@@ -67,35 +64,3 @@ class AuditHistoryTests(MainWindowTestCase):
         self.assertEqual(controller.source.to_dict(), saved)
         self.window._undo()
         self.assertFalse(controller.source.keyframes.animated)
-
-    def test_native_workspace_language_resize_selection_and_snapshot(self):
-        from app.utils.i18n import Language
-        from app.timeline.keyframe_editor import Diamond
-        source, controller = workspace.KeyframeWorkspaceTests.prepare(self)
-        controller.replace_points((), [("x", Keyframe(0, 100)), ("x", Keyframe(5, 200))])
-        self.window._show_bottom_panel(1)
-        self.window.timeline_panel.view_combo.setCurrentIndex(2)
-        self.window.resize(960, 600)
-        self.window.show()
-        self.application.processEvents()
-        QTest.qWait(300)
-        editor = self.window.timeline_panel.keyframe_editor
-        for language in (Language.ENGLISH, Language.KOREAN):
-            self.window.translator.set_language(language)
-            self.application.processEvents()
-            editor.change_zoom(1.25)
-            editor.change_zoom(.8)
-        for item in editor.scene.items():
-            if isinstance(item, Diamond):
-                item.setSelected(True)
-        saved = deepcopy(source.to_dict())
-        QTest.keyClick(editor.view, Qt.Key.Key_Right)
-        self.window._undo()
-        self.assertEqual(controller.source.to_dict(), saved)
-        self.assertLess(editor.view.geometry().bottom(), editor.property.geometry().top())
-        self.window.timeline_panel.keyframe_scroll.ensureWidgetVisible(editor.add)
-        self.application.processEvents()
-        self.assertTrue(self.window.rect().contains(editor.add.mapTo(self.window, editor.add.rect().bottomRight())))
-        import os
-        if os.environ.get("MMS_AUDIT_SCREENSHOT"):
-            self.assertTrue(self.window.grab().save(os.environ["MMS_AUDIT_SCREENSHOT"]))

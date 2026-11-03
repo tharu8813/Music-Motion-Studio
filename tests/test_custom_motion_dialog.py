@@ -10,7 +10,7 @@ from unittest.mock import patch
 from PySide6.QtCore import QCoreApplication, QPoint, QPointF, QSettings, Qt
 from PySide6.QtGui import QColor, QImage, QWheelEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialog
+from PySide6.QtWidgets import QApplication, QDialog, QPushButton
 
 from app.animation.custom_motion import CustomMotion
 from app.canvas.live_canvas import CanvasScene
@@ -571,9 +571,7 @@ class MotionWorkspaceTests(MainWindowTestCase):
     def test_new_project_hides_generic_controls_and_shows_custom_entry_buttons(self):
         source, controller = workspace.KeyframeWorkspaceTests.prepare(self)
         self.assertEqual(self.window.timeline_panel.view_combo.count(), 2)
-        binding = self.window.inspector.keyframe_binding
-        self.assertTrue(binding.panel.isHidden())
-        self.assertTrue(all(button.isHidden() for button in binding.buttons.values()))
+        self.assertFalse(self.window.inspector.findChildren(QPushButton, "keyframeDiamondButton"))
         inspector = self.window.inspector
         inspector.animation_in_combo.setCurrentIndex(inspector.animation_in_combo.findData("custom"))
         self.assertFalse(inspector.animation_in_edit_button.isHidden())

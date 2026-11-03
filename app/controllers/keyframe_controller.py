@@ -13,7 +13,6 @@ from app.animation.keyframes import (Keyframe, MODES, TIME_EPSILON, valid_edit_p
 class KeyframeController(QObject):
     changed = Signal()
     position_changed = Signal(float)
-    editor_requested = Signal()
     edit_started = Signal()
     edit_finished = Signal()
     edit_rejected = Signal()

@@ -153,7 +153,6 @@ class SourceInspector(QScrollArea):
         super().__init__(parent)
         self.store = store
         self.property_binding = SelectionPropertyBinding(store)
-        self.keyframe_binding = None
         self.translator = translator
         self._tracks_provider = tracks_provider
         self._updating = False
@@ -1398,8 +1397,6 @@ class SourceInspector(QScrollArea):
     def _update(self, field: str, value: object) -> None:
         if self._updating or not self._source_ids or field in self._lyrics_locked_fields:
             return
-        if self.keyframe_binding and self.keyframe_binding.controller.edit_value(field, value):
-            return
         self._apply_updates({field: value})
 
     def _update_line(self, field: str, editor: QLineEdit) -> None:
@@ -1628,8 +1625,6 @@ class SourceInspector(QScrollArea):
 
     def _update_nested(self, container: str, field: str, value: object) -> None:
         if self._updating or not self._source_ids:
-            return
-        if self.keyframe_binding and self.keyframe_binding.controller.edit_value(f"{container}.{field}", value):
             return
         self._apply_updates({f"{container}.{field}": value})
 

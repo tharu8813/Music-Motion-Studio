@@ -8,8 +8,8 @@ from unittest.mock import patch
 import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QImage, QPixmap
-from PySide6.QtTest import QSignalSpy, QTest
-from PySide6.QtWidgets import QApplication, QDialog
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
 
 from app.animation.canvas_keyframes import CanvasKeyframeBinding
 from app.animation.keyframes import (
@@ -24,7 +24,6 @@ from app.models.source import Shadow, Source, SourceType
 from app.preview.canvas_snapshot import CanvasSnapshot
 from app.services.source_store import SourceStore
 from app.timeline.bezier_editor import BezierEditor
-from app.timeline.keyframe_editor import Diamond, KeyframeEditor
 from app.utils.i18n import Translator
 
 
@@ -206,24 +205,6 @@ class AdvancedKeyframeTests(TestCase):
         self.assertEqual([source.to_dict() for source in (image_source, text)], saved)
         self.assertEqual(item._pixmap.cacheKey(), original_pixmap)
 
-    def test_nested_inspector_keys_update_points_and_refresh_never_writes(self):
-        from app.inspector.keyframe_binding import InspectorKeyframeBinding
-        from app.inspector.source_inspector import SourceInspector
-        inspector = SourceInspector(self.store, self.translator)
-        inspector.set_source(self.source)
-        inspector.keyframe_binding = InspectorKeyframeBinding(inspector, self.controller)
-        self.addCleanup(inspector.deleteLater)
-        self.controller.toggle("shadow.offset_x")
-        inspector.shadow_x_spin.setValue(15)
-        self.assertEqual(self.controller.curves()["shadow.offset_x"][0].value, 15)
-        self.assertEqual(self.source.shadow.offset_x, 3)
-        saved = self.source.to_dict()
-        spy = QSignalSpy(self.store.source_changed)
-        self.controller.seek(2)
-        inspector.keyframe_binding.refresh()
-        self.assertEqual(spy.count(), 0)
-        self.assertEqual(saved, self.source.to_dict())
-
     def test_capture_another_track_cannot_reuse_editor_animated_blur(self):
         source = Source(SourceType.IMAGE, "Image", width=64, height=64)
         source.keyframes.mode, source.keyframes.target_track_id = "single_track", self.track.id
@@ -272,27 +253,6 @@ class AdvancedKeyframeTests(TestCase):
         self.assertEqual(dialog.handles, (0, 0, 1, 1))
         dialog.reject()
         self.assertEqual(point.bezier, DEFAULT_BEZIER)
-
-    def test_graph_only_edits_selected_segment_and_preserves_handles_on_value_edit(self):
-        self.source.keyframes.global_curves = {"x": [Keyframe(0, 30), Keyframe(5, 130)]}
-        editor = KeyframeEditor(self.controller, self.translator)
-        self.addCleanup(editor.deleteLater)
-        for item in editor.scene.items():
-            if isinstance(item, Diamond) and item.point.time == 0:
-                item.setSelected(True)
-        handles = (.1, -.5, .8, 1.8)
-        with patch("app.timeline.bezier_editor.BezierEditor.exec", return_value=QDialog.DialogCode.Accepted), \
-             patch.object(BezierEditor, "handles", new=property(lambda _: handles)):
-            editor.edit_graph()
-        self.assertEqual(self.controller.curves()["x"][0].bezier, handles)
-        self.assertEqual(self.controller.curves()["x"][0].interpolation, "bezier")
-        self.controller.edit_value("x", 40)
-        self.assertEqual(self.controller.curves()["x"][0].bezier, handles)
-        self.controller.copy({("x", 0)})
-        self.controller.seek(7)
-        self.controller.paste()
-        self.assertEqual(self.controller.curves()["x"][-1].bezier, handles)
-
 
 @skipUnless(os.environ.get("QT_QPA_PLATFORM") == "windows", "Requires native Windows OpenGL")
 class NativeKeyframeGpuTests(TestCase):

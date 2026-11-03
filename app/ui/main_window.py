@@ -917,11 +917,6 @@ class MainWindow(QMainWindow):
             self.cut_action.setEnabled(canvas_scope)
             self.copy_action.setEnabled(canvas_scope)
             self.paste_action.setEnabled(canvas_scope)
-            panel = getattr(self, "timeline_panel", None)
-            if panel is not None and current is not None and panel.keyframe_editor.isAncestorOf(current):
-                # Let the lane view handle these keys instead of deleting Canvas sources.
-                for action in (self.delete_action, self.select_all_action, self.duplicate_action):
-                    action.setEnabled(False)
 
     def _canvas_shortcut_scope_active(self, focus: QWidget | None = None) -> bool:
         """Return whether keyboard focus belongs to Canvas editing UI."""
@@ -1773,14 +1768,10 @@ class MainWindow(QMainWindow):
             self.playlist_service, self.store, self.translator
         )
         self.timeline_panel.preview_requested.connect(self.preview_controller.preview_at)
-        from app.inspector.keyframe_binding import InspectorKeyframeBinding
-        self.inspector.keyframe_binding = InspectorKeyframeBinding(
-            self.inspector, self.timeline_panel.keyframe_controller, show_controls=False)
         from app.controllers.custom_motion_controller import CustomMotionController
         self.custom_motion_controller = CustomMotionController(self)
         from app.animation.canvas_keyframes import CanvasKeyframeBinding
         self.canvas_keyframe_binding = CanvasKeyframeBinding(self.canvas, self.timeline_panel.keyframe_controller)
-        self.timeline_panel.keyframe_controller.editor_requested.connect(lambda: self._show_bottom_panel(1))
         self.timeline_panel.keyframe_controller.edit_started.connect(self.history_controller.flush_pending)
         self.timeline_panel.keyframe_controller.edit_finished.connect(self.history_controller.flush_pending)
         self.playlist_service.playlist_changed.connect(self._refresh_keyframe_timing)

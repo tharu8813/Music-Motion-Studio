@@ -1,14 +1,12 @@
-"""Keyboard, history and workspace integration for keyed sources."""
+"""Saved animation compatibility after retiring the generic keyframe editor."""
+from copy import deepcopy
 from dataclasses import replace
-from unittest.mock import patch
-
-from PySide6.QtCore import Qt
-from PySide6.QtTest import QTest
 
 from tests.main_window_base import MainWindowTestCase
 from app.animation.keyframes import Keyframe
 from app.models.playlist import PlaylistTrack
 from app.models.source import Source, SourceType
+from app.utils.i18n import Language
 
 
 class KeyframeWorkspaceTests(MainWindowTestCase):
@@ -35,60 +33,58 @@ class KeyframeWorkspaceTests(MainWindowTestCase):
         self.window._redo()
         self.assertEqual(controller.source.keyframes.global_curves["x"][0].value, 250)
 
-    def test_delete_key_cannot_remove_source_from_canvas(self):
-        source, controller = self.prepare()
-        controller.toggle("x")
-        editor = self.window.timeline_panel.keyframe_editor
-        self.window._show_bottom_panel(1)
-        self.window.timeline_panel.view_combo.setCurrentIndex(2)
-        self.window.show()
-        editor.view.setFocus()
-        self.application.processEvents()
-        for item in editor.scene.items():
-            if hasattr(item, "point"):
-                item.setSelected(True)
-        QTest.keyClick(editor.view, Qt.Key.Key_Delete)
-        self.assertIsNotNone(self.window.store.get(source.id))
-        self.assertFalse(controller.curves()["x"])
-
     def test_visual_view_changes_preserve_animation_time_basis_and_data(self):
         source, controller = self.prepare()
         controller.configure(mode="per_track")
         controller.choose_track(self.window.playlist_service.tracks[0].id)
         controller.toggle("scale")
         saved = source.to_dict()
-        for index in (0, 1, 2, 0):
+        for index in (0, 1, 0):
             self.window.timeline_panel.view_combo.setCurrentIndex(index)
         self.assertEqual(source.to_dict(), saved)
 
-    def test_copy_paste_and_frame_nudge_are_one_transaction_per_edit(self):
+    def test_saved_banks_never_reintroduce_the_retired_editor(self):
         source, controller = self.prepare()
-        controller.toggle("x")
-        controller.seek(3)
-        controller.toggle("rotation")
-        editor = self.window.timeline_panel.keyframe_editor
-        for item in editor.scene.items():
-            if hasattr(item, "point"):
-                item.setSelected(True)
-        before = {name: list(points) for name, points in controller.curves().items()}
-        QTest.keyClick(editor.view, Qt.Key.Key_Right)
-        self.assertAlmostEqual(controller.curves()["x"][0].time, 1 / editor.fps, places=5)
-        self.assertAlmostEqual(controller.curves()["rotation"][0].time, 3 + 1 / editor.fps, places=5)
-        self.window._undo()
-        self.assertEqual(controller.curves(), before)
-        self.window._show_bottom_panel(1)
-        self.window.timeline_panel.view_combo.setCurrentIndex(2)
-        self.window.show()
-        editor.view.setFocus()
-        self.application.processEvents()
-        for item in editor.scene.items():
-            if hasattr(item, "point"):
-                item.setSelected(True)
-        QTest.keyClick(editor.view, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
-        controller.seek(6)
-        QTest.keyClick(editor.view, Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
-        self.assertEqual([point.time for point in controller.curves()["x"]], [0, 6])
-        self.assertEqual([point.time for point in controller.curves()["rotation"]], [3, 9])
+        track = self.window.playlist_service.tracks[0]
+        source.keyframes.global_curves = {"x": [Keyframe(0, 100), Keyframe(10, 300)]}
+        source.keyframes.single_track_curves = {track.id: {"rotation": [Keyframe(0, 30)]}}
+        source.keyframes.per_track_curves = {track.id: {"scale": [Keyframe(0, 2)]}}
+        saved = deepcopy(source.keyframes)
+        panel = self.window.timeline_panel
+        for mode in ("global", "single_track", "per_track"):
+            animation = deepcopy(source.keyframes)
+            animation.mode = mode
+            animation.target_track_id = track.id
+            self.window.store.update(source.id, keyframes=animation)
+            for language in (Language.ENGLISH, Language.KOREAN):
+                self.window.translator.set_language(language)
+                self.application.processEvents()
+                self.assertEqual(panel.view_combo.count(), 2)
+                self.assertEqual(panel.view_stack.count(), 2)
+                for index in (1, 0):
+                    panel.view_combo.setCurrentIndex(index)
+                    self.assertEqual(panel.view_stack.currentIndex(), index)
+            self.assertEqual(source.keyframes.global_curves, saved.global_curves)
+        self.assertEqual(source.keyframes.single_track_curves[track.id]["rotation"], [Keyframe(0, 30)])
+        self.assertEqual(source.keyframes.per_track_curves[track.id]["scale"], [Keyframe(0, 2)])
+
+    def test_inspector_edits_base_properties_and_preserves_saved_animation(self):
+        source, controller = self.prepare()
+        source.keyframes.global_curves = {
+            "x": [Keyframe(0, 100, "linear"), Keyframe(10, 300)],
+            "shadow.offset_x": [Keyframe(0, 4)],
+        }
+        self.window.store.update(source.id, keyframes=source.keyframes)
+        saved = deepcopy(source.keyframes)
+        controller.seek_global(5)
+        inspector = self.window.inspector
+        self.assertEqual(inspector.x_spin.value(), source.x)
+        inspector.x_spin.setValue(250)
+        inspector.shadow_x_spin.setValue(12)
+        self.assertEqual(source.x, 250)
+        self.assertEqual(source.shadow.offset_x, 12)
+        self.assertEqual(source.keyframes, saved)
+        self.assertEqual(controller.evaluated()["x"], 200)
 
     def test_rejected_paste_preserves_existing_points(self):
         source, controller = self.prepare()
@@ -97,18 +93,6 @@ class KeyframeWorkspaceTests(MainWindowTestCase):
         controller.copy()
         controller.paste()
         self.assertEqual(source.to_dict(), saved)
-
-    def test_scrubbing_updates_slider_without_creating_an_undo_entry(self):
-        source, controller = self.prepare()
-        source.keyframes.global_curves = {"scale": [Keyframe(0, 1), Keyframe(10, 2)]}
-        self.window.store.update(source.id, keyframes=source.keyframes)
-        self.window.history_controller.flush_pending()
-        serial = self.window.project_session.change_serial
-        controller.seek_global(5)
-        self.assertEqual(self.window.inspector.scale_spin.value(), 1.5)
-        slider = self.window.inspector._linked_sliders[self.window.inspector.scale_spin]
-        self.assertEqual(slider.value(), round((1.5 - .1) / .05))
-        self.assertEqual(self.window.project_session.change_serial, serial)
 
     def test_crossfade_editor_uses_visual_owner_not_early_incoming_audio(self):
         source, controller = self.prepare()
@@ -122,38 +106,3 @@ class KeyframeWorkspaceTests(MainWindowTestCase):
         self.assertEqual(controller.evaluated()["x"], 100)
         controller.seek_global(9.5)
         self.assertEqual(controller.evaluated()["x"], 300)
-
-    def test_minimum_window_does_not_overlap_lanes_and_numeric_controls(self):
-        self.prepare()
-        self.window._show_bottom_panel(1)
-        self.window.timeline_panel.view_combo.setCurrentIndex(2)
-        self.window.resize(960, 520)
-        self.window.show()
-        self.application.processEvents()
-        editor = self.window.timeline_panel.keyframe_editor
-        self.assertLess(editor.view.geometry().bottom(), editor.property.geometry().top())
-        self.assertLessEqual(self.window.width(), 960)
-
-    def test_bezier_graph_apply_is_one_undo_step_and_cancel_does_not_edit(self):
-        from PySide6.QtWidgets import QDialog
-        from app.timeline.bezier_editor import BezierEditor
-        from app.timeline.keyframe_editor import Diamond
-        source, controller = self.prepare()
-        controller.replace_points((), [("x", Keyframe(0, 100)), ("x", Keyframe(5, 300))])
-        editor = self.window.timeline_panel.keyframe_editor
-        for item in editor.scene.items():
-            if isinstance(item, Diamond) and item.point.time == 0:
-                item.setSelected(True)
-        saved = source.to_dict()
-        with patch.object(BezierEditor, "exec", return_value=QDialog.DialogCode.Rejected):
-            editor.edit_graph()
-        self.assertEqual(saved, source.to_dict())
-        handles = (.2, -.4, .7, 1.6)
-        with patch.object(BezierEditor, "exec", return_value=QDialog.DialogCode.Accepted), \
-             patch.object(BezierEditor, "handles", new=property(lambda _: handles)):
-            editor.edit_graph()
-        self.assertEqual(controller.curves()["x"][0].bezier, handles)
-        self.window._undo()
-        self.assertEqual(saved, controller.source.to_dict())
-        self.window._redo()
-        self.assertEqual(controller.curves()["x"][0].bezier, handles)

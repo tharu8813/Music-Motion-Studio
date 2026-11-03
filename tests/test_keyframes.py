@@ -199,30 +199,6 @@ class KeyframeEditingTests(TestCase):
         self.assertTrue(self.controller.editable)
         self.assertTrue(self.controller.curves()["x"])
 
-    def test_inspector_and_timeline_are_bound_without_writes_on_refresh(self):
-        from app.inspector.source_inspector import SourceInspector
-        from app.inspector.keyframe_binding import InspectorKeyframeBinding
-        from app.timeline.keyframe_editor import KeyframeEditor
-        from app.utils.i18n import Translator
-        translator = Translator()
-        inspector = SourceInspector(self.store, translator)
-        inspector.set_source(self.source)
-        binding = InspectorKeyframeBinding(inspector, self.controller)
-        inspector.keyframe_binding = binding
-        editor = KeyframeEditor(self.controller, translator)
-        self.addCleanup(inspector.deleteLater)
-        self.addCleanup(editor.deleteLater)
-        self.assertEqual(inspector.property_tabs.count(), 5)
-        binding.buttons["x"].click()
-        self.assertEqual(binding.buttons["x"].text(), "◆")
-        self.controller.seek(1)
-        self.assertEqual(binding.buttons["x"].text(), "◇")
-        self.assertEqual(inspector.x_spin.value(), 10)
-        spy = QSignalSpy(self.store.source_changed)
-        binding.refresh()
-        editor.refresh()
-        self.assertEqual(spy.count(), 0)
-
     def test_canvas_capture_evaluates_and_restores_without_changing_project(self):
         from app.canvas.live_canvas import LiveCanvas
         from app.animation.canvas_keyframes import CanvasKeyframeBinding
