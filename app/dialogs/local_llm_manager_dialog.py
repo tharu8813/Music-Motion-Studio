@@ -514,6 +514,7 @@ class LocalLLMManagerDialog(QDialog):
             self.tabs.setCurrentIndex(2)
             self.status.setText(self.tr_text("서버가 제공한 모델 정보입니다.", "Model information returned by the local server."))
         else:
+            first_discovery = not self._discovered
             self._discovered = True
             previous = self._selected()
             self._updating_models = True
@@ -528,7 +529,7 @@ class LocalLLMManagerDialog(QDialog):
                 for index, row in enumerate(self.models):
                     self.table.setRowHidden(index, self.search.text().casefold() not in row["id"].casefold())
                 requested = (self._download_target if self.operation == "download" else
-                             self.preferred_model if self.operation in {"refresh", "setup"} and self.preferred_model
+                             self.preferred_model if first_discovery and self.operation in {"refresh", "setup"} and self.preferred_model
                              else (previous or {}).get("id", ""))
                 selected = self._installed_index(requested)
                 if self.operation == "download" and selected < 0:
