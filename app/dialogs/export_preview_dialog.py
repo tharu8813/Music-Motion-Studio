@@ -52,6 +52,9 @@ from app.models.playlist import PlaylistTrack
 from app.models.source import SourceType
 from app.preview.canvas_snapshot import CanvasSnapshot
 from app.preview.adaptive_quality import AdaptivePreviewQuality
+from app.preview.quality_presets import (
+    PREVIEW_QUALITY_PRESETS, load_preview_quality, save_preview_quality,
+)
 from app.preview.cadence import preview_interval_ms, screen_preview_fps
 from app.preview.gpu_texture_surface import (
     GPU_TEXTURE_SURFACE_AVAILABLE, GpuBackendInfo, GpuColorFilter, GpuPreviewLayer,
@@ -83,7 +86,7 @@ from app.preview.overlay_frame_cache import OverlayFrameCache, OverlaySignature
 from app.video.timeline import resolve_video_position, source_video_paths
 from app.video.frame_filter import VideoFrameFilterSettings, filter_video_frame
 from app.video.decoder_backpressure import VideoDecoderBackpressure
-from app.video.preview_proxy import PreviewProxyCache, PreviewProxyWorker
+from app.video.preview_proxy import PreviewProxyCache, PreviewProxySpec, PreviewProxyWorker
 from app.utils.i18n import Translator
 from app.utils.performance import ENABLED as PROFILE_ENABLED, PROFILE, timed
 from app.widgets.activity_progress import activity_for
@@ -575,6 +578,7 @@ class ExportPreviewDialog(QDialog):
                  blended_audio_temp_dir: TemporaryDirectory | None = None,
                  automix_settings=None) -> None:
         super().__init__(parent)
+        self.preview_quality = load_preview_quality()
         self.embedded = embedded
         self.setObjectName("playlistPreview")
         self.preferred_backend = (
@@ -628,9 +632,7 @@ class ExportPreviewDialog(QDialog):
             if ffmpeg_executable is not None and Path(ffmpeg_executable).is_file()
             else None
         )
-        self._preview_proxy_cache = (
-            PreviewProxyCache() if self._preview_proxy_ffmpeg is not None else None
-        )
+        self._preview_proxy_cache = self._new_video_proxy_cache()
         self._transition_mode = transition_mode
         self._crossfade_seconds = crossfade_seconds
         self._automix_settings = automix_settings
@@ -767,9 +769,11 @@ class ExportPreviewDialog(QDialog):
         self._last_preview_error_title = ""
         self._last_preview_error_detail = ""
         self.preview_fps = PREVIEW_SAMPLE_FPS  # Audio analysis and overlay sampling rate.
-        self.presentation_fps = screen_preview_fps(self.screen())
+        preset = PREVIEW_QUALITY_PRESETS[self.preview_quality]
+        native_fps = screen_preview_fps(self.screen())
+        self.presentation_fps = min(native_fps, preset.fps_cap or native_fps)
         self._presentation_fps_override: int | None = None
-        self.preview_render_scale = PREVIEW_BASE_SCALE
+        self.preview_render_scale = preset.canvas_scale
         self.audio_output = QAudioOutput(self)
         saved_volume = preview_volume()
         self.audio_output.setVolume(saved_volume / 100.0)
@@ -893,8 +897,8 @@ class ExportPreviewDialog(QDialog):
         self.volume_value_label = QLabel(f"{saved_volume}%")
         self.volume_value_label.setObjectName("previewValueLabel")
         self.volume_value_label.setMinimumWidth(42)
-        self._adaptive_quality = AdaptivePreviewQuality(self.preview_render_scale)
-        self._decoder_backpressure = VideoDecoderBackpressure(self.presentation_fps)
+        self._adaptive_quality = self._new_adaptive_quality()
+        self._decoder_backpressure = self._new_decoder_backpressure()
         self._last_decoder_accepted_frames = 0
         self._last_decoder_pressure_drops = 0
         self._last_active_decoder_count = 0
@@ -1349,6 +1353,63 @@ class ExportPreviewDialog(QDialog):
         start = float(item.data(Qt.ItemDataRole.UserRole + 1) or 0.0)
         self.timeline.setValue(round(start * TIMELINE_SCALE))
         self._highlight_track(index)
+
+    def _new_video_proxy_cache(self) -> PreviewProxyCache | None:
+        """Only preview media is proxied; export always keeps original inputs."""
+        preset = PREVIEW_QUALITY_PRESETS[self.preview_quality]
+        if self._preview_proxy_ffmpeg is None or preset.proxy_size is None:
+            return None
+        return PreviewProxyCache(spec=PreviewProxySpec(
+            max_width=preset.proxy_size[0],
+            max_height=preset.proxy_size[1],
+        ))
+
+    def _new_adaptive_quality(self) -> AdaptivePreviewQuality:
+        preset = PREVIEW_QUALITY_PRESETS[self.preview_quality]
+        return AdaptivePreviewQuality(
+            preset.canvas_scale,
+            downscale_samples=preset.downscale_samples,
+            recovery_samples=preset.recovery_samples,
+            minimum_factor=preset.minimum_factor,
+        )
+
+    def _new_decoder_backpressure(self) -> VideoDecoderBackpressure:
+        preset = PREVIEW_QUALITY_PRESETS[self.preview_quality]
+        return VideoDecoderBackpressure(
+            self.presentation_fps,
+            prefer_resolution=preset.prefer_resolution,
+            keep_resolution=preset.keep_resolution,
+        )
+
+    def set_preview_quality(self, key: str) -> None:
+        """Apply a display-only quality policy without restarting audio/playback."""
+        if self._closing or key not in PREVIEW_QUALITY_PRESETS or key == self.preview_quality:
+            return
+        self.preview_quality = save_preview_quality(key)
+        preset = PREVIEW_QUALITY_PRESETS[self.preview_quality]
+        self.preview_render_scale = preset.canvas_scale
+        self._adaptive_quality = self._new_adaptive_quality()
+        self._decoder_backpressure = self._new_decoder_backpressure()
+        self._sync_presentation_cadence()
+        self._reset_decoder_backpressure()
+
+        # The previous worker may finish after the user has chosen a different
+        # proxy size. Cancel it and reject its late result in the callbacks.
+        if self._video_proxy_worker is not None:
+            self._video_proxy_worker.cancel()
+        self._video_proxy_queue.clear()
+        self._video_proxy_queued.clear()
+        self._video_proxy_paths.clear()
+        self._video_proxy_failures.clear()
+        self._video_proxy_total = 0
+        self._preview_proxy_cache = self._new_video_proxy_cache()
+        for item in self._cached_video_items:
+            item.reset_video_preview()
+        self._force_video_seek = True
+        self._invalidate_preview_render_cache()
+        self._reset_frame_statistics()
+        self._sync_background_activity()
+        self._schedule_refresh()
 
     @property
     def _active_render_scale(self) -> float:
@@ -1920,6 +1981,7 @@ class ExportPreviewDialog(QDialog):
             return resolved
         worker_is_preparing = (
             self._video_proxy_worker is not None
+            and self._video_proxy_worker.cache is self._preview_proxy_cache
             and str(self._video_proxy_worker.source_path) == key
         )
         if key in self._video_proxy_queued or worker_is_preparing:
@@ -1943,6 +2005,7 @@ class ExportPreviewDialog(QDialog):
                 or key in self._video_proxy_queued
                 or (
                     self._video_proxy_worker is not None
+                    and self._video_proxy_worker.cache is cache
                     and str(self._video_proxy_worker.source_path) == key
                 )
             ):
@@ -1986,6 +2049,9 @@ class ExportPreviewDialog(QDialog):
     def _video_proxy_ready(
         self, original_path: str, preview_path: str, _proxied: bool,
     ) -> None:
+        worker = self.sender()
+        if isinstance(worker, PreviewProxyWorker) and worker.cache is not self._preview_proxy_cache:
+            return
         key = self._video_proxy_key(original_path)
         self._video_proxy_paths[key] = preview_path
         self._update_frame_rate_label()
@@ -1993,6 +2059,9 @@ class ExportPreviewDialog(QDialog):
 
     def _video_proxy_failed(self, original_path: str, message: str) -> None:
         """Keep original playback available after a nonfatal proxy failure."""
+        worker = self.sender()
+        if isinstance(worker, PreviewProxyWorker) and worker.cache is not self._preview_proxy_cache:
+            return
         key = self._video_proxy_key(original_path)
         self._video_proxy_failures.add(key)
         self._video_proxy_paths[key] = original_path
@@ -2018,6 +2087,10 @@ class ExportPreviewDialog(QDialog):
         self._start_next_video_proxy()
         self._update_frame_rate_label()
         self._sync_background_activity()
+        # A cancelled worker from the previous quality mode can finish while
+        # playback is paused. Refresh to switch the poster back to original
+        # media or to enqueue the new profile's proxy.
+        self._schedule_refresh()
 
     def _sync_background_activity(self) -> None:
         """Mirror Preview's own background work in the main window's status-bar activity line."""
@@ -3543,7 +3616,9 @@ class ExportPreviewDialog(QDialog):
         self._try_apply_pending_swap()  # a mix that arrived mid-swap waited for this
 
     def _sync_presentation_cadence(self) -> None:
-        fps = self._presentation_fps_override or screen_preview_fps(self.preview_stack_host.screen())
+        native_fps = self._presentation_fps_override or screen_preview_fps(self.preview_stack_host.screen())
+        cap = PREVIEW_QUALITY_PRESETS[self.preview_quality].fps_cap
+        fps = min(native_fps, cap) if cap is not None else native_fps
         if fps != self.presentation_fps:
             self.presentation_fps = fps
             self.play_timer.setInterval(preview_interval_ms(fps))
@@ -3800,17 +3875,19 @@ class ExportPreviewDialog(QDialog):
         )
         self.frame_rate_label.setToolTip("")
         factor = round(self._adaptive_quality.factor * 100)
+        preset = PREVIEW_QUALITY_PRESETS[self.preview_quality]
+        quality_name = preset.name_ko if korean else preset.name_en
         self.performance_scale_label.setText(
-            f"렌더 {factor}% · ×{self._active_render_scale:.3f}"
+            f"{quality_name} · 렌더 {factor}% · ×{self._active_render_scale:.3f}"
             if korean else
-            f"Render {factor}% · ×{self._active_render_scale:.3f}"
+            f"{quality_name} · Render {factor}% · ×{self._active_render_scale:.3f}"
         )
         self.performance_scale_label.setToolTip(
-            "캔버스 원본 크기 기준의 렌더 배율입니다. 재생 부하가 커지면 "
-            "미리보기 배율을 자동으로 낮춥니다."
+            ("미리보기 전용 렌더 배율입니다. 품질 모드는 해상도를 고정하고, "
+             "다른 모드는 선택한 우선순위에 따라 부하를 조절합니다.")
             if korean else
-            "Render scale relative to the canvas dimensions. The preview "
-            "automatically lowers its scale when playback is under load."
+            ("Preview-only render scale. Quality mode keeps resolution fixed; "
+             "other modes adapt according to the selected priority.")
         )
         stats = (
             getattr(self.gpu_surface, "upload_stats", None)

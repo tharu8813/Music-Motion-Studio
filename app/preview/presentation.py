@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QEvent, QObject, QPoint, QPropertyAnimation, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QCursor, QKeySequence, QShortcut
+from PySide6.QtGui import QAction, QActionGroup, QCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QFrame, QHBoxLayout, QLabel, QLayout, QMenu, QPushButton,
     QVBoxLayout, QWidget,
 )
 from shiboken6 import isValid
+
+from app.preview.quality_presets import PREVIEW_QUALITY_PRESETS
 
 
 _ACTIVITY_EVENTS = frozenset({
@@ -104,6 +106,25 @@ class PreviewPresentationController(QObject):
         self.retranslate()
         menu = QMenu(self.preview.preview_stack_host)
         menu.addAction(self.monitor_action)
+        quality_menu = menu.addMenu(
+            "미리보기 품질" if self.preview.translator.is_korean else "Preview quality"
+        )
+        quality_group = QActionGroup(quality_menu)
+        quality_group.setExclusive(True)
+        for key, preset in PREVIEW_QUALITY_PRESETS.items():
+            action = quality_menu.addAction(
+                preset.name_ko if self.preview.translator.is_korean else preset.name_en
+            )
+            action.setCheckable(True)
+            action.setChecked(key == self.preview.preview_quality)
+            action.setToolTip(
+                preset.description_ko if self.preview.translator.is_korean
+                else preset.description_en
+            )
+            action.triggered.connect(
+                lambda _checked=False, selected=key: self.preview.set_preview_quality(selected)
+            )
+            quality_group.addAction(action)
         menu.addSeparator()
         menu.addAction(self.fullscreen_action)
         self._menu = menu
