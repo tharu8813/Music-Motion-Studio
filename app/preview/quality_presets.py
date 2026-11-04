@@ -30,9 +30,9 @@ class PreviewQualityPreset:
 PREVIEW_QUALITY_PRESETS = {
     "resolution": PreviewQualityPreset(
         "해상도 우선", "Prioritize resolution",
-        "높은 캔버스 해상도와 최대 1080p 영상 프록시를 유지하고 FPS를 먼저 양보합니다.",
+        "캔버스 해상도 100%와 최대 1080p 영상 프록시를 유지하고 FPS를 먼저 양보합니다.",
         "Keep a sharp canvas and up to 1080p video proxies, yielding FPS first.",
-        1.0, (1920, 1080), None, 8, 3, 0.85,
+        1.0, (1920, 1080), None, 8, 3, 1.0,
         prefer_resolution=True,
     ),
     "frames": PreviewQualityPreset(
