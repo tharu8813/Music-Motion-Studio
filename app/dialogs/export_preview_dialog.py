@@ -3875,10 +3875,12 @@ class ExportPreviewDialog(QDialog):
         )
         self.frame_rate_label.setToolTip("")
         factor = round(self._adaptive_quality.factor * 100)
+        preset = PREVIEW_QUALITY_PRESETS[self.preview_quality]
+        quality_name = preset.name_ko if korean else preset.name_en
         self.performance_scale_label.setText(
-            f"렌더 {factor}% · ×{self._active_render_scale:.3f}"
+            f"{quality_name} · 렌더 {factor}% · ×{self._active_render_scale:.3f}"
             if korean else
-            f"Render {factor}% · ×{self._active_render_scale:.3f}"
+            f"{quality_name} · Render {factor}% · ×{self._active_render_scale:.3f}"
         )
         self.performance_scale_label.setToolTip(
             ("미리보기 전용 렌더 배율입니다. 품질 모드는 해상도를 고정하고, "
