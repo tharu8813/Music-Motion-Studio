@@ -116,24 +116,29 @@ class PreviewQualityPresetTests(unittest.TestCase):
     def test_quality_context_menu_is_exclusive_and_switches_mode(self):
         preview = self.preview()
         controller = preview.presentation_controller
-        inspected = []
+        from app.utils.i18n import Language
+        preview.translator.set_language(Language.KOREAN)
         with patch("app.dialogs.export_preview_dialog.save_preview_quality", side_effect=lambda value: value):
-            def inspect():
-                menu = controller._menu
-                submenu = next(action.menu() for action in menu.actions() if action.menu())
-                actions = submenu.actions()
-                inspected.append((
-                    [action.text() for action in actions],
-                    [action.text() for action in actions if action.isChecked()],
-                ))
-                actions[1].trigger()
-                menu.close()
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(0, inspect)
-            controller.show_context_menu(QPoint(50, 50))
-        self.assertEqual(inspected[0][0], ["해상도 우선", "프레임 우선", "절전", "품질"])
-        self.assertEqual(inspected[0][1], ["해상도 우선"])
-        self.assertEqual(preview.preview_quality, "frames")
+            # Offscreen Windows can dismiss QMenu.exec() before a QTimer fires.
+            # Inspect actions without the native popup event loop.
+            menu = controller._build_context_menu()
+            submenu = next(action.menu() for action in menu.actions() if action.menu())
+            actions = submenu.actions()
+            self.assertEqual(
+                [action.text() for action in actions],
+                ["해상도 우선", "프레임 우선", "절전", "품질"],
+            )
+            self.assertEqual(
+                [action.text() for action in actions if action.isChecked()],
+                ["해상도 우선"],
+            )
+            actions[1].trigger()
+            self.assertEqual(preview.preview_quality, "frames")
+            self.assertEqual(
+                [action.text() for action in actions if action.isChecked()],
+                ["프레임 우선"],
+            )
+            menu.deleteLater()
 
 
 if __name__ == "__main__":

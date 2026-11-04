@@ -100,9 +100,8 @@ class PreviewPresentationController(QObject):
         if self.is_fullscreen:
             self.show_controls()
 
-    def show_context_menu(self, position) -> None:
-        if self.preview._closing or self._menu is not None:
-            return
+    def _build_context_menu(self) -> QMenu:
+        """Construct a testable transient menu without entering a modal Qt loop."""
         self.retranslate()
         menu = QMenu(self.preview.preview_stack_host)
         menu.addAction(self.monitor_action)
@@ -127,6 +126,12 @@ class PreviewPresentationController(QObject):
             quality_group.addAction(action)
         menu.addSeparator()
         menu.addAction(self.fullscreen_action)
+        return menu
+
+    def show_context_menu(self, position) -> None:
+        if self.preview._closing or self._menu is not None:
+            return
+        menu = self._build_context_menu()
         self._menu = menu
         self.show_controls()
         try:

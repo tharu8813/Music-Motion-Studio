@@ -2977,10 +2977,11 @@ class ExportPreviewDialog(QDialog):
                 CustomMotionRenderBinding, motion_windows,
             )
             if isinstance(binding, CustomMotionRenderBinding):
+                scene = getattr(self, "scene", None)
                 sources = [
-                    item.source for item in self.scene.items()
+                    item.source for item in scene.items()
                     if isinstance(item, SourceItem)
-                ]
+                ] if scene is not None else []
                 windows = motion_windows(binding.source, plan, sources)
             else:
                 windows = keyframe_windows(plan)
@@ -2993,8 +2994,10 @@ class ExportPreviewDialog(QDialog):
         for overlay, image in zip(active_overlays, images, strict=True):
             binding = overlay.keyframe_binding
             if binding and not image.isNull():
-                values, source, output_scale = self._overlay_keyframe_values(
-                    binding, timeline_seconds,
+                # The adapter is also invoked as an unbound method by CPU
+                # render audits using a minimal context object.
+                values, source, output_scale = ExportPreviewDialog._overlay_keyframe_values(
+                    self, binding, timeline_seconds,
                 )
                 ratio = values.get("scale", source.scale) / (source.scale or 1)
                 image = image.scaled(max(1, round(image.width() * ratio)), max(1, round(image.height() * ratio)),
@@ -4159,11 +4162,11 @@ class ExportPreviewDialog(QDialog):
             f"{quality_name} · Render {factor}% · ×{self._active_render_scale:.3f}"
         )
         self.performance_scale_label.setToolTip(
-            ("미리보기 전용 렌더 배율입니다. 품질 모드는 해상도를 고정하고, "
-             "다른 모드는 선택한 우선순위에 따라 부하를 조절합니다.")
+            ("캔버스 원본 크기 기준의 미리보기 전용 배율입니다. "
+             "해상도 우선·품질 모드는 100%를 유지하고, 프레임 우선·절전 모드는 부하에 따라 조절합니다.")
             if korean else
-            ("Preview-only render scale. Quality mode keeps resolution fixed; "
-             "other modes adapt according to the selected priority.")
+            ("Preview-only scale relative to the original canvas dimensions. "
+             "Resolution and quality modes keep 100%; frame and power modes may adapt.")
         )
         stats = (
             getattr(self.gpu_surface, "upload_stats", None)

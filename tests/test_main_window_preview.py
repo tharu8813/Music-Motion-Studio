@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QRect, QRectF, QSize, Qt, QUrl
-from PySide6.QtGui import QColor, QImage
+from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtWidgets import QApplication, QDialog, QFrame, QMessageBox, QWidget
@@ -906,9 +906,23 @@ class MainWindowPreviewTests(MainWindowTestCase):
             isinstance(layer.key, tuple) and layer.key[0] == "canvas-dynamic"
             for layer in submissions[-1]
         ))
+        # The new ordered Z compositor intentionally keeps the lower layer
+        # unflattened. Verify the *composed* pixels instead of assuming the
+        # first uploaded texture already contains every upper-Z source.
+        layers = submissions[-1]
+        composited = QImage(
+            round(preview.scene.artboard_rect.width() * preview._active_render_scale),
+            round(preview.scene.artboard_rect.height() * preview._active_render_scale),
+            QImage.Format.Format_ARGB32_Premultiplied,
+        )
+        composited.fill(0)
+        painter = QPainter(composited)
+        for layer in layers:
+            painter.setOpacity(layer.opacity)
+            painter.drawImage(layer.target, layer.image)
+        painter.end()
         self.assertEqual(
-            submissions[-1][0].image.pixelColor(sample, sample).name().upper(),
-            "#2563EB",
+            composited.pixelColor(sample, sample).name().upper(), "#2563EB",
         )
         preview.gpu_surface = None
         preview.gpu_preview_enabled = False
@@ -1378,6 +1392,8 @@ class MainWindowPreviewTests(MainWindowTestCase):
             def restart(self) -> None:
                 pass
 
+        with patch("app.dialogs.export_preview_dialog.save_preview_quality", side_effect=lambda v: v):
+            preview.set_preview_quality("frames")
         selected_scale = preview.preview_render_scale
         preview.gpu_surface = SurfaceStub()
         preview.gpu_preview_enabled = True
