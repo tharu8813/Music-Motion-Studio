@@ -170,6 +170,36 @@ class TranslationWorkspaceTests(unittest.TestCase):
         self.assertFalse(review.table.isRowHidden(0))
         self.assertTrue(review.table.isRowHidden(1))
 
+    def test_failed_translation_retains_finished_rows_and_ephemeral_llm_diagnostics(self):
+        dialog = self.dialog()
+        review = dialog.review_panel
+        raw = '{"translations":[{"id":0,"text":"첫번째 번역"}]}'
+        def work(cancel, progress):
+            dialog.worker.activity.emit({"stage": "working", "rows": [0, 1, 2]})
+            dialog.worker.activity.emit({"stage": "diagnostic", "provider": "ollama",
+                "model": "qwen2.5-coder:7b", "rows": [0, 1, 2], "raw": raw,
+                "reason": "Missing rows 2-3", "status": "failed"})
+            dialog.worker.activity.emit({"stage": "complete", "row": 0, "text": "첫번째 번역"})
+            dialog.worker.activity.emit({"stage": "failure", "rows": [1, 2],
+                "reason": "Missing rows 2-3"})
+            raise TranslationError("Missing rows 2-3")
+        dialog.workflow._rows = [0, 1, 2]
+        dialog.workflow.start("translate", work)
+        self.until(lambda: dialog.worker is None)
+        self.assertEqual(dialog.table.item(0, 3).text(), "첫번째 번역")
+        self.assertEqual(dialog.draft.rows[0].status, "complete")
+        self.assertTrue(dialog.draft.rows[0].checked)
+        self.assertEqual([dialog.draft.rows[i].status for i in (1, 2)], ["failed", "failed"])
+        self.assertTrue(all(not dialog.draft.rows[i].checked for i in (1, 2)))
+        self.assertEqual(dialog.draft.rows[1].detail, "Missing rows 2-3")
+        self.assertTrue(review.inspect_button.isEnabled())
+        self.assertIn(raw, review._diagnostics[0]["raw"])
+        self.assertIn("1줄", dialog.workflow.status)
+        stored = str(self.settings.value(dialog.draft.key))
+        self.assertIn("첫번째 번역", stored)
+        self.assertNotIn(raw, stored)
+        self.assertNotIn("qwen2.5-coder:7b", stored)
+
     def test_selective_cancel_restores_draft_checks_and_edit_flags(self):
         dialog = self.dialog()
         dialog.table.item(0, 3).setText("첫째 편집")
