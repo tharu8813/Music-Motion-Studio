@@ -266,7 +266,7 @@ class LocalLLMManagerDialog(QDialog):
             guide = item.data(Qt.ItemDataRole.UserRole)
             title = guide["ko" if self.translator.is_korean else "en"][0]
             kind = self.tr_text("코딩", "Coding") if guide["focus"] == "coder" else self.tr_text("다국어", "Multilingual")
-            installed = self._installed_index(guide["id"]) >= 0 if self.service.provider == "ollama" else False
+            installed = self._installed_index(guide["id"]) >= 0
             suffix = " · " + self.tr_text("설치됨", "Installed") if installed else ""
             item.setText(f"{title} · {guide['size']} · {kind}{suffix}")
         self._recommendation()
@@ -324,7 +324,7 @@ class LocalLLMManagerDialog(QDialog):
                                             and bool(self.download_name.text().strip()))
             return
         guide = item.data(Qt.ItemDataRole.UserRole)
-        installed = self.service.provider == "ollama" and self._installed_index(guide["id"]) >= 0
+        installed = self._installed_index(guide["id"]) >= 0
         self.download_button.setEnabled(self.worker is None)
         self.download_button.setText(self.tr_text(
             "입력한 모델 다운로드·설치" if self.manual_toggle.isChecked() else
@@ -367,7 +367,7 @@ class LocalLLMManagerDialog(QDialog):
             name if self.manual_toggle.isChecked() else
             (self.recommended.currentItem().data(Qt.ItemDataRole.UserRole)["id"]
              if self.recommended.currentItem() and not self.recommended.currentItem().isHidden()
-             and self.service.provider == "ollama" else name))
+             else name))
         if installed_index >= 0:
             self.search.clear()
             self.tabs.setCurrentIndex(0)
