@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import QRectF
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication
 
@@ -106,6 +107,63 @@ class GpuCompositorOptimizationTests(unittest.TestCase):
             preview._frame_junction = object()
             render()
             self.assertEqual(capture.call_count, 6)
+
+    def test_ordered_canvas_band_cache_renders_only_changed_runs(self):
+        scene = CanvasScene()
+        scene.set_artboard_size(640, 360)
+        preview = ExportPreviewDialog(
+            scene, [PlaylistTrack("missing.wav", "Preview", duration_seconds=30)],
+            Translator(), preferred_backend="cpu",
+        )
+        self.addCleanup(preview.deleteLater)
+        self.addCleanup(preview._stop_preview)
+        preview._cached_source_items = ()
+        image = QImage(640, 360, QImage.Format.Format_ARGB32_Premultiplied)
+        image.fill(0xff444444)
+        bands = [(None, 0), (1, 1), (2, None)]
+        with patch.object(CanvasSnapshot, "split_mixed_capture_bands", return_value=bands), \\
+             patch.object(CanvasSnapshot, "invariant_stream_keys", return_value={"base", "layer:1"}), \\
+             patch.object(CanvasSnapshot, "band_capture_envelope", return_value=None), \\
+             patch.object(CanvasSnapshot, "capture_track", return_value=image) as capture:
+            first = preview._ordered_canvas_gpu_layers(
+                preview.tracks[0], 0, 5.0, 0.0, frozenset(),
+            )
+            second = preview._ordered_canvas_gpu_layers(
+                preview.tracks[0], 0, 5.1, 0.0, frozenset(),
+            )
+            self.assertEqual(len(first), 3)
+            self.assertEqual(len(second), 3)
+            self.assertEqual(capture.call_count, 4)
+            self.assertEqual(preview._ordered_cache_hits, 2)
+            preview._invalidate_preview_render_cache()
+            preview._ordered_canvas_gpu_layers(
+                preview.tracks[0], 0, 5.2, 0.0, frozenset(),
+            )
+            self.assertEqual(capture.call_count, 7)
+
+    def test_ordered_canvas_uses_crop_coordinates_for_gpu_layers(self):
+        scene = CanvasScene()
+        scene.set_artboard_size(640, 360)
+        preview = ExportPreviewDialog(
+            scene, [PlaylistTrack("missing.wav", "Preview", duration_seconds=30)],
+            Translator(), preferred_backend="cpu",
+        )
+        self.addCleanup(preview.deleteLater)
+        self.addCleanup(preview._stop_preview)
+        preview._cached_source_items = ()
+        image = QImage(100, 60, QImage.Format.Format_ARGB32_Premultiplied)
+        image.fill(0xffaabbcc)
+        bands = [(None, 0), (1, None)]
+        crop = QRectF(40, 30, 100, 60)
+        with patch.object(CanvasSnapshot, "split_mixed_capture_bands", return_value=bands), \\
+             patch.object(CanvasSnapshot, "invariant_stream_keys", return_value=set()), \\
+             patch.object(CanvasSnapshot, "band_capture_envelope", return_value=crop), \\
+             patch.object(CanvasSnapshot, "capture_track", return_value=image):
+            layers = preview._ordered_canvas_gpu_layers(
+                preview.tracks[0], 0, 5.0, 0.0, frozenset(),
+            )
+        self.assertEqual((layers[1].target.x(), layers[1].target.y()), (40, 30))
+        self.assertEqual((layers[1].target.width(), layers[1].target.height()), (100, 60))
 
     def test_gpu_keyframe_uses_unchanged_texture_pixels(self):
         scene = CanvasScene()

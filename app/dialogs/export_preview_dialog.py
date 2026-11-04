@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 import threading
 from tempfile import TemporaryDirectory
-from time import monotonic
+from time import monotonic, perf_counter
 from dataclasses import replace
 from weakref import WeakSet
 
@@ -724,6 +724,14 @@ class ExportPreviewDialog(QDialog):
         self._gpu_static_band_cache_key: tuple[object, ...] | None = None
         self._static_band_cache_hits = 0
         self._static_band_cache_misses = 0
+        # Separate cache for scenes in which a changing Canvas source sits
+        # below an unchanged higher Z layer (the previous full-scene hotspot).
+        self._gpu_ordered_static_cache: dict[int, QImage] = {}
+        self._gpu_ordered_static_key: tuple[object, ...] | None = None
+        self._ordered_cache_hits = 0
+        self._ordered_cache_renders = 0
+        self._preview_render_path = "initializing"
+        self._canvas_render_last_ms = 0.0
         self._last_composition_key: tuple[object, ...] | None = None
         self._active_overlay_cache_seconds: float | None = None
         self._active_overlay_cache: tuple[tuple[int, VisualizerOverlay], ...] = ()
@@ -1632,17 +1640,32 @@ class ExportPreviewDialog(QDialog):
             )
         )
         full_canvas_ordered_required = ordered_canvas_required and not video_z_banded
+        use_gpu_layers = self.gpu_preview_enabled and self.gpu_surface is not None
+        # In this common case the legacy renderer paints every source again
+        # just because a moving lyric has a static cover/text above it.
+        # Keep the video and interleaved-reactive cases on their proven paths.
+        audio_overlays = [
+            overlay for _index, overlay
+            in self._active_overlay_entries(playlist_seconds)
+        ]
+        ordered_gpu_fast_path = (
+            full_canvas_ordered_required and use_gpu_layers
+            and not direct_video_ids
+            and phase is None and junction is None
+            and not self._requires_z_band_composition(audio_overlays)
+        )
         if video_z_banded:
             self._ensure_video_z_band_cache(
                 track, track_index, start, static_hidden_ids,
                 direct_video_ids,
             )
             self._foreground_bands = []
-        elif full_canvas_ordered_required:
+        elif full_canvas_ordered_required and not ordered_gpu_fast_path:
             # A dynamic source below a static source cannot be drawn as a final
             # dirty-region layer without reversing their stack. Capture the
             # Canvas in its native scene order for this frame. Audio-reactive
             # overlays remain separate and use their existing Z-band path.
+            capture_start = perf_counter()
             self._base_image = CanvasSnapshot.capture_track(
                 self.scene, track, track_index + 1, len(self.tracks), start,
                 phase, phase_progress, elapsed, audio_dynamic_ids,
@@ -1655,11 +1678,15 @@ class ExportPreviewDialog(QDialog):
                 bass_level=bass_level,
                 music_levels=self._music_reaction_levels(track, elapsed),
             )
+            self._canvas_render_last_ms = (perf_counter() - capture_start) * 1000
+            self._preview_render_path = "GPU full-canvas" if use_gpu_layers else "CPU full-canvas"
+            if PROFILE_ENABLED:
+                PROFILE.observe("preview.full_canvas_ordered_seconds", self._canvas_render_last_ms / 1000)
             self._base_track_id = track.id
             self._base_elapsed = elapsed
             self._base_hidden_source_ids = frozenset(audio_dynamic_ids)
             self._foreground_bands = []
-        else:
+        elif not ordered_gpu_fast_path:
             refresh_base = (
                 self._base_image.isNull()
                 or self._base_track_id != track.id
@@ -1679,7 +1706,6 @@ class ExportPreviewDialog(QDialog):
                 self._base_elapsed = 0.0
                 self._base_hidden_source_ids = static_hidden_ids
                 self._foreground_bands = []
-        use_gpu_layers = self.gpu_preview_enabled and self.gpu_surface is not None
         composition_key = self._preview_composition_key(
             track, phase, raster_dynamic_ids, direct_video_ids,
             playlist_seconds,
@@ -1758,12 +1784,36 @@ class ExportPreviewDialog(QDialog):
                     key=lambda entry: (entry[0], entry[1]),
                 )
             ]
-            # Dynamic audio layers are normally a cheap final composition.
-            gpu_submitted = use_gpu_layers and self._submit_gpu_composition(
-                track, track_index, elapsed, start, phase, phase_progress,
-                phase_duration, dynamic_layers,
-            )
+            # Keep static and changing Canvas bands at their real Z positions
+            # instead of flattening the entire canvas every 3-17 ms.
+            if ordered_gpu_fast_path:
+                gpu_submitted = self._submit_gpu_ordered_canvas(
+                    track, track_index, elapsed, start,
+                    audio_dynamic_ids,
+                )
+            else:
+                gpu_submitted = use_gpu_layers and self._submit_gpu_composition(
+                    track, track_index, elapsed, start, phase, phase_progress,
+                    phase_duration, dynamic_layers,
+                )
             if not gpu_submitted:
+                if ordered_gpu_fast_path:
+                    # GPU submission failed: reconstruct the full correct
+                    # scene so the CPU fallback cannot show stale pixels.
+                    self._base_image = CanvasSnapshot.capture_track(
+                        self.scene, track, track_index + 1, len(self.tracks), start,
+                        phase, phase_progress, elapsed, audio_dynamic_ids,
+                        self._playlist_duration(), self.tracks,
+                        self._active_render_scale,
+                        timeline_seconds=playlist_seconds,
+                        keyframe_active=self._keyframes_active_at(playlist_seconds),
+                        compiled_plan=getattr(self, "_compiled_plan", None),
+                        animation_phase_duration=phase_duration,
+                        junction=junction,
+                        bass_level=bass_level,
+                        music_levels=self._music_reaction_levels(track, elapsed),
+                    )
+                    self._preview_render_path = "CPU fallback"
                 if use_gpu_layers:
                     self._image = self._base_image.copy()
                     painter = QPainter(self._image)
@@ -1811,6 +1861,8 @@ class ExportPreviewDialog(QDialog):
         self._video_z_band_layers.clear()
         self._gpu_static_band_cache.clear()
         self._gpu_static_band_cache_key = None
+        self._gpu_ordered_static_cache.clear()
+        self._gpu_ordered_static_key = None
         self._last_composition_key = None
 
     def _sync_video_sources(
@@ -2677,6 +2729,137 @@ class ExportPreviewDialog(QDialog):
         )
         self._dynamic_region_plans[key] = result
         return result
+
+    @timed("preview.gpu_ordered_canvas_seconds")
+    def _ordered_canvas_gpu_layers(
+        self, track: PlaylistTrack, track_index: int,
+        elapsed: float, start: float, audio_dynamic_ids: frozenset[str],
+    ) -> list[GpuPreviewLayer]:
+        """Render changing Z-runs separately; keep track-local static runs.
+
+        The old full_canvas_ordered_required branch flattened the entire
+        scene on every frame. This path uses the same QGraphicsScene painter
+        for exact source styles, but only recaptures changing runs and sends
+        their texture order to the GPU. A fixed capture crop avoids producing
+        a full-frame transparent image for small moving lyric regions.
+        """
+        duration = self._playlist_duration()
+        bands = CanvasSnapshot.split_mixed_capture_bands(
+            self.scene, set(audio_dynamic_ids), [(None, None)],
+            duration, preview_track=True, max_streams=16,
+        )
+        invariant = CanvasSnapshot.invariant_stream_keys(
+            self.scene, set(audio_dynamic_ids), bands,
+            duration, preview_track=True,
+        )
+        key = (
+            track.id, track_index, start, self._active_render_scale,
+            id(getattr(self, "_compiled_plan", None)), tuple(bands),
+        )
+        if key != self._gpu_ordered_static_key:
+            self._gpu_ordered_static_key = key
+            self._gpu_ordered_static_cache.clear()
+
+        scale = self._active_render_scale
+        artboard = self.scene.artboard_rect
+        common = dict(
+            elapsed_seconds=elapsed,
+            hide_visualizers=set(audio_dynamic_ids),
+            playlist_duration_seconds=duration,
+            playlist_tracks=self.tracks,
+            output_scale=scale,
+            timeline_seconds=self.timeline.value() / TIMELINE_SCALE,
+            keyframe_active=self._keyframes_active_at(
+                self.timeline.value() / TIMELINE_SCALE,
+            ),
+            compiled_plan=getattr(self, "_compiled_plan", None),
+            bass_level=self._bass_level(track, elapsed),
+            music_levels=self._music_reaction_levels(track, elapsed),
+        )
+        result: list[GpuPreviewLayer] = []
+        for index, (z_min, z_max) in enumerate(bands):
+            invariant_key = "base" if index == 0 else f"layer:{index - 1}"
+            is_static = invariant_key in invariant
+            cached = self._gpu_ordered_static_cache.get(index) if is_static else None
+            # The envelope is fixed for the lifetime of this source partition,
+            # including its configured motion padding. Keyframes/unbounded
+            # custom motion deliberately decline this optimization.
+            rect = (
+                CanvasSnapshot.band_capture_envelope(self.scene, z_min, z_max)
+                if index > 0 else None
+            )
+            target = QRectF(
+                round((rect.left() - artboard.left()) * scale),
+                round((rect.top() - artboard.top()) * scale),
+                0.0, 0.0,
+            ) if rect is not None else QRectF()
+            if cached is not None:
+                image = cached
+                self._ordered_cache_hits += 1
+            else:
+                matching_items = tuple(
+                    item for item in self._cached_source_items
+                    if (z_min is None or item.source.z_index >= z_min)
+                    and (z_max is None or item.source.z_index <= z_max)
+                )
+                image = CanvasSnapshot.capture_track(
+                    self.scene, track, track_index + 1, len(self.tracks), start,
+                    None, 1.0,
+                    z_min=z_min, z_max=z_max,
+                    transparent=index > 0,
+                    capture_rect=rect,
+                    band_source_items=matching_items,
+                    **common,
+                )
+                self._ordered_cache_renders += 1
+                if is_static:
+                    self._gpu_ordered_static_cache[index] = image
+            if rect is None:
+                target = QRectF(
+                    0.0, 0.0, float(image.width()), float(image.height()),
+                )
+            else:
+                target.setWidth(float(image.width()))
+                target.setHeight(float(image.height()))
+            result.append(GpuPreviewLayer(
+                ("ordered-z", track.id, index, z_min, z_max),
+                image, target,
+            ))
+        return result
+
+    def _submit_gpu_ordered_canvas(
+        self, track: PlaylistTrack, track_index: int,
+        elapsed: float, start: float, audio_dynamic_ids: frozenset[str],
+    ) -> bool:
+        """GPU-compose a Z-ordered canvas without repeated full-scene raster."""
+        if self.gpu_surface is None:
+            return False
+        started = perf_counter()
+        try:
+            canvas_layers = self._ordered_canvas_gpu_layers(
+                track, track_index, elapsed, start, audio_dynamic_ids,
+            )
+            active_overlays, images = self._prepared_overlay_images(
+                track, elapsed, apply_keyframes=False,
+            )
+            if active_overlays and self._requires_z_band_composition(active_overlays):
+                # A dynamic reconfiguration can change overlay ordering while
+                # a frame is prepared. Fall back rather than misorder layers.
+                return False
+            canvas_size = QSize(
+                max(1, round(self.scene.artboard_rect.width() * self._active_render_scale)),
+                max(1, round(self.scene.artboard_rect.height() * self._active_render_scale)),
+            )
+            layers = [*canvas_layers, *self._gpu_audio_layers(active_overlays, images)]
+            self.gpu_surface.set_layers(canvas_size, layers)
+            self._gpu_health.frame_queued(monotonic())
+            self._gpu_watchdog.start()
+            self._preview_render_path = "GPU ordered Z-bands"
+            self._canvas_render_last_ms = (perf_counter() - started) * 1000
+            return True
+        except Exception:
+            LOGGER.warning("Ordered GPU canvas failed; falling back to full CPU capture", exc_info=True)
+            return False
 
     def _submit_gpu_composition(
         self, track: PlaylistTrack, track_index: int, elapsed: float, start: float,
@@ -3948,6 +4131,8 @@ class ExportPreviewDialog(QDialog):
         self._video_z_band_layers.clear()
         self._gpu_static_band_cache.clear()
         self._gpu_static_band_cache_key = None
+        self._gpu_ordered_static_cache.clear()
+        self._gpu_ordered_static_key = None
         self._clear_overlay_frames()
 
     def _update_frame_rate_label(self) -> None:
