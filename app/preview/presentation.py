@@ -105,9 +105,15 @@ class PreviewPresentationController(QObject):
         self.retranslate()
         menu = QMenu(self.preview.preview_stack_host)
         menu.addAction(self.monitor_action)
-        quality_menu = menu.addMenu(
-            "미리보기 품질" if self.preview.translator.is_korean else "Preview quality"
+        # Explicitly parent/retain the submenu wrapper. PySide6 can dispose
+        # menu.addMenu(str)'s transient Python wrapper when the builder returns,
+        # leaving a dangling QAction.menu() under Windows.
+        quality_menu = QMenu(
+            "미리보기 품질" if self.preview.translator.is_korean else "Preview quality",
+            menu,
         )
+        menu.addMenu(quality_menu)
+        menu._quality_menu = quality_menu
         quality_group = QActionGroup(quality_menu)
         quality_group.setExclusive(True)
         for key, preset in PREVIEW_QUALITY_PRESETS.items():
