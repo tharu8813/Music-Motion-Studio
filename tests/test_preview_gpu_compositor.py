@@ -121,9 +121,9 @@ class GpuCompositorOptimizationTests(unittest.TestCase):
         image = QImage(640, 360, QImage.Format.Format_ARGB32_Premultiplied)
         image.fill(0xff444444)
         bands = [(None, 0), (1, 1), (2, None)]
-        with patch.object(CanvasSnapshot, "split_mixed_capture_bands", return_value=bands), \\
-             patch.object(CanvasSnapshot, "invariant_stream_keys", return_value={"base", "layer:1"}), \\
-             patch.object(CanvasSnapshot, "band_capture_envelope", return_value=None), \\
+        with patch.object(CanvasSnapshot, "split_mixed_capture_bands", return_value=bands), \
+             patch.object(CanvasSnapshot, "invariant_stream_keys", return_value={"base", "layer:1"}), \
+             patch.object(CanvasSnapshot, "band_capture_envelope", return_value=None), \
              patch.object(CanvasSnapshot, "capture_track", return_value=image) as capture:
             first = preview._ordered_canvas_gpu_layers(
                 preview.tracks[0], 0, 5.0, 0.0, frozenset(),
@@ -155,9 +155,9 @@ class GpuCompositorOptimizationTests(unittest.TestCase):
         image.fill(0xffaabbcc)
         bands = [(None, 0), (1, None)]
         crop = QRectF(40, 30, 100, 60)
-        with patch.object(CanvasSnapshot, "split_mixed_capture_bands", return_value=bands), \\
-             patch.object(CanvasSnapshot, "invariant_stream_keys", return_value=set()), \\
-             patch.object(CanvasSnapshot, "band_capture_envelope", return_value=crop), \\
+        with patch.object(CanvasSnapshot, "split_mixed_capture_bands", return_value=bands), \
+             patch.object(CanvasSnapshot, "invariant_stream_keys", return_value=set()), \
+             patch.object(CanvasSnapshot, "band_capture_envelope", return_value=crop), \
              patch.object(CanvasSnapshot, "capture_track", return_value=image):
             layers = preview._ordered_canvas_gpu_layers(
                 preview.tracks[0], 0, 5.0, 0.0, frozenset(),
