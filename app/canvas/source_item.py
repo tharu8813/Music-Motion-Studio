@@ -187,6 +187,7 @@ class SourceItem(QGraphicsObject):
         self._subtitle_transition_raw = 1.0
         self._subtitle_intro_state = None
         self._subtitle_word_reveal: tuple[float, ...] = ()
+        self._subtitle_word_highlight_ranges: tuple[tuple[tuple[float, float], ...] | None, ...] = ()
         self._subtitle_overlap_prior_rows = 0
         self._subtitle_gap_unblurred = False
         self._subtitle_before_first = False

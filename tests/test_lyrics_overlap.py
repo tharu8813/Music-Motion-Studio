@@ -278,6 +278,28 @@ class LyricsOverlapTests(unittest.TestCase):
                 self.assertEqual(item._subtitle_word_reveal, ())
                 self.assertFalse(item._subtitle_gap_unblurred)
 
+    def test_concurrent_word_intervals_paint_separate_highlight_ranges(self):
+        scene, item, track = self.scene()
+        track.lyrics = [{
+            "start": 1, "end": 4, "text": "Alpha Beta", "format": "ttml",
+            "words": [
+                {"start": 1, "end": 2.8, "text": "Alpha ", "offset": 0},
+                {"start": 2.2, "end": 4, "text": "Beta", "offset": 6},
+            ],
+        }]
+        observations = []
+        original = lyrics_renderer.paint_word_reveal
+        def recorded(*args, **kwargs):
+            if kwargs.get("highlight_ranges") is not None:
+                observations.append(kwargs["highlight_ranges"])
+            return original(*args, **kwargs)
+        with patch.object(lyrics_renderer, "paint_word_reveal", side_effect=recorded):
+            CanvasSnapshot.capture_track(scene, track, 1, 1, 0,
+                elapsed_seconds=2.5, transparent=True)
+        self.assertTrue(observations)
+        self.assertEqual(len(observations[0]), 2)
+        self.assertLess(observations[0][0][1], observations[0][1][0])
+
     def test_current_phrase_does_not_reset_its_animation_when_second_phrase_starts(self):
         scene, item, track = self.scene()
         item.source.subtitle_animation = "glow"

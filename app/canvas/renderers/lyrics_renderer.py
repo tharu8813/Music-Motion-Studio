@@ -597,15 +597,29 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         # Sung words follow the audio clock even while their row fades or unblurs.
         if karaoke_alpha > _VISIBLE:
             painter.setOpacity(base_opacity * karaoke_alpha)
-            paint_word_reveal(item, painter, row, flags, line,
-                              max(0.0, item._subtitle_word_reveal[original_inner] - offsets[index]))
+            revealed = max(0.0, item._subtitle_word_reveal[original_inner] - offsets[index])
+            highlights = (item._subtitle_word_highlight_ranges[original_inner]
+                          if original_inner < len(item._subtitle_word_highlight_ranges) else None)
+            if highlights is None:
+                paint_word_reveal(item, painter, row, flags, line, revealed)
+            else:
+                # A wrapped row covers only part of its original lyric line.
+                # Intersect every independently active word with that slice.
+                local_ranges = tuple(
+                    (max(0.0, a - offsets[index]), min(float(len(line)), b - offsets[index]))
+                    for a, b in highlights
+                    if b > offsets[index] and a < offsets[index] + len(line)
+                )
+                paint_word_reveal(item, painter, row, flags, line, revealed,
+                                  highlight_ranges=local_ranges)
         painter.restore()
     painter.restore()
 
 
-def paint_word_reveal(item, painter: QPainter, row: QRectF, flags, text: str, revealed: float) -> None:
-    """Reuse shaped glyphs and cursor positions while only the clip advances."""
-    if revealed <= 0:
+def paint_word_reveal(item, painter: QPainter, row: QRectF, flags, text: str, revealed: float,
+                      *, highlight_ranges: tuple[tuple[float, float], ...] | None = None) -> None:
+    """Reuse shaped glyphs while supporting multiple simultaneously sung words."""
+    if revealed <= 0 and not highlight_ranges:
         return
     key = (painter.font().key(), text, row.width(), row.height(), str(flags), item._line_spacing(flags))
     cached = item._lyric_reveal_cache.get(key)
@@ -630,16 +644,24 @@ def paint_word_reveal(item, painter: QPainter, row: QRectF, flags, text: str, re
         cached = (tuple(positions), path)
         item._lyric_reveal_cache[key] = cached
     positions, path = cached
-    whole = min(len(text), int(revealed))
-    left, boundary = positions[0], positions[whole]
-    if whole < len(text):
-        boundary += (positions[whole + 1] - boundary) * (revealed - whole)
+    def cursor_x(position: float) -> float:
+        position = max(0.0, min(float(len(text)), position))
+        whole = int(position)
+        x = positions[whole]
+        return x + (positions[whole + 1] - x) * (position - whole) if whole < len(text) else x
+
+    ranges = highlight_ranges if highlight_ranges is not None else ((0.0, revealed),)
     painter.save()
     painter.translate(row.topLeft())
-    if whole < len(text):
-        painter.setClipRect(QRectF(min(left, boundary), 0, abs(boundary - left), row.height()),
+    for start, end in ranges:
+        if end <= start:
+            continue
+        left, right = cursor_x(start), cursor_x(end)
+        painter.save()
+        painter.setClipRect(QRectF(min(left, right), 0, abs(right - left), row.height()),
                             Qt.ClipOperation.IntersectClip)
-    painter.fillPath(path, QColor(item.source.subtitle_accent_color))
+        painter.fillPath(path, QColor(item.source.subtitle_accent_color))
+        painter.restore()
     painter.restore()
 
 

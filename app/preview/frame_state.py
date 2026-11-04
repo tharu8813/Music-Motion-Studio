@@ -332,6 +332,43 @@ def resolve_lyrics_word_reveal(
     return tuple(values)
 
 
+def resolve_lyrics_overlapping_word_ranges(
+    track: PlaylistTrack, source: Source, elapsed: float,
+    cue_state: LyricsCueState, intro_state: LyricsIntroState | None,
+) -> tuple[tuple[tuple[float, float], ...] | None, ...]:
+    """Word-specific reveal ranges only where source timings overlap.
+
+    Ordinary non-overlapping lyrics continue using the established fast prefix
+    highlight. The rows line up with resolve_lyrics_word_reveal() exactly.
+    """
+    if (not source.subtitle_karaoke_enabled or cue_state.cue_index is None or cue_state.before_first
+            or (intro_state is not None and not intro_state.exiting)):
+        return ()
+    clock = max(0.0, elapsed + track.lyrics_timing_offset_seconds
+                + source.subtitle_timing_offset + source.subtitle_karaoke_offset)
+    result: list[tuple[tuple[float, float], ...] | None] = []
+    for cue_index in (cue_state.active_cue_indices or cue_state.held_cue_indices or (cue_state.cue_index,)):
+        cue = track.lyrics[cue_index]
+        if cue.get("format") != "ttml":
+            result.extend(None for _ in LyricsService.decode_line_breaks(
+                cue.get("text", "")).strip().splitlines() if _.strip())
+        else:
+            words = cue.get("words", [])
+            has_overlap = any(
+                float(right["start"]) < float(left["end"])
+                for left, right in zip(words, words[1:])
+            )
+            if has_overlap:
+                result.extend(LyricsService.word_highlight_ranges(
+                    cue, clock, line_positions=tuple(source.subtitle_karaoke_lines)))
+            else:
+                result.extend(None for _ in LyricsService.word_reveal(
+                    cue, clock, line_positions=tuple(source.subtitle_karaoke_lines)))
+        if source.subtitle_translation_enabled:
+            result.extend(None for line in approved_translation(cue).splitlines() if line.strip())
+    return tuple(result)
+
+
 @dataclass(slots=True, frozen=True)
 class NowPlayingExitState:
     """Whether a NOW_PLAYING card is visible at all, and how far its exit

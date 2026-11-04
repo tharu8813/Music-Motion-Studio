@@ -84,6 +84,9 @@ class KRCConversionTests(unittest.TestCase):
                          [(1, 2.8), (2.2, 4)])
         PlaylistTrack.from_dict(PlaylistTrack('', 'Song', lyrics=cues).to_dict())
         self.assertGreater(LyricsService.word_reveal(cues[0], 2.5)[0], len('Alpha '))
+        highlighted = LyricsService.word_highlight_ranges(cues[0], 2.5)[0]
+        self.assertEqual(len(highlighted), 2)
+        self.assertLess(highlighted[0][1], highlighted[1][0])
 
     def test_reversed_word_starts_report_line_and_word(self):
         lyrics = '[1000,3000]<900,1400,0>Alpha <800,2000,0>Beta'
