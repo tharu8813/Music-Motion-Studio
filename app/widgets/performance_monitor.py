@@ -44,6 +44,7 @@ FIELDS = [
     ('decoder_limit', '디코더 해상도 / FPS 제한', 'Decoder scale / FPS limit', 'video', False),
     ('proxies', '프록시 상태', 'Proxy status', 'video', False),
     ('image_cache', '합성 이미지 용량', 'Composition image bytes', 'cache', False),
+    ('static_bands', '정적 레이어 캐시 적중 / 렌더', 'Static band cache hits / renders', 'cache', False),
     ('overlay_cache', '효과 이미지 용량', 'Overlay image bytes', 'cache', False),
     ('workers', '분석 / 효과 작업', 'Analysis / overlay workers', 'cache', False),
     ('refresh', '새 프레임 대기 / 지연', 'Queued / deferred refresh', 'cache', False),
@@ -338,6 +339,9 @@ class PerformanceMonitor(QFrame):
             decoder_limit=f'{p._decoder_backpressure.resolution_factor:.0%} / {p._decoder_backpressure.fps_limit} FPS',
             proxies=p._video_proxy_status_text(self.korean).strip(' ·') or self.tr('없음', 'None'))
         values['image_cache'] = mb(p._image.sizeInBytes()+p._base_image.sizeInBytes())
+        values['static_bands'] = (
+            f'{p._static_band_cache_hits} / {p._static_band_cache_misses}'
+        )
         # Memory enumeration is only needed when this optional diagnostic is shown.
         if self.enabled['overlay_cache']:
             values['overlay_cache'] = mb(sum(image.sizeInBytes() for image in p._overlay_cache.images()))

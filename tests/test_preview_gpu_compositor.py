@@ -15,6 +15,8 @@ from PySide6.QtWidgets import QApplication
 from app.canvas.live_canvas import CanvasScene
 from app.dialogs.export_preview_dialog import ExportPreviewDialog
 from app.models.playlist import PlaylistTrack
+from app.models.source import Source, SourceType
+from app.preview.canvas_snapshot import CanvasSnapshot
 from app.preview.texture_fingerprint import image_content_signature
 from app.renderer.ffmpeg_renderer import VisualizerOverlay
 from app.utils.i18n import Translator
@@ -44,6 +46,30 @@ class GpuCompositorOptimizationTests(unittest.TestCase):
         copy.setPixel(4, 3, 0xff113355)
         self.assertNotEqual(image_content_signature(image), image_content_signature(copy))
         self.assertIsNone(image_content_signature(image, max_bytes=32))
+
+    def test_track_static_policy_excludes_animated_or_timed_sources(self):
+        self.assertTrue(CanvasSnapshot.source_is_preview_track_static(
+            Source(SourceType.ALBUM_COVER, "Cover")
+        ))
+        self.assertTrue(CanvasSnapshot.source_is_preview_track_static(
+            Source(SourceType.BACKGROUND, "Backdrop", background_mode="album_art")
+        ))
+        self.assertFalse(CanvasSnapshot.source_is_preview_track_static(
+            Source(SourceType.LYRICS, "Lyrics")
+        ))
+        self.assertFalse(CanvasSnapshot.source_is_preview_track_static(
+            Source(SourceType.TEXT, "Time", text="%current_time%")
+        ))
+        self.assertFalse(CanvasSnapshot.source_is_preview_track_static(
+            Source(SourceType.TEXT, "Moving", loop_motion="float")
+        ))
+        self.assertFalse(CanvasSnapshot.source_is_preview_track_static(
+            Source(SourceType.BACKGROUND, "Animated", background_mode="album_art",
+                   background_ambient=True)
+        ))
+        self.assertFalse(CanvasSnapshot.source_is_preview_track_static(
+            Source(SourceType.ALBUM_COVER, "Temporary", timeline_start=1.0)
+        ))
 
     def test_gpu_keyframe_uses_unchanged_texture_pixels(self):
         scene = CanvasScene()

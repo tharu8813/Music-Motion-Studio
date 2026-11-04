@@ -718,6 +718,12 @@ class ExportPreviewDialog(QDialog):
         self._foreground_bands: list[tuple[float, QImage]] = []
         self._video_z_band_key: tuple[object, ...] | None = None
         self._video_z_band_layers: list[tuple[float, int, GpuPreviewLayer]] = []
+        # GPU audio Z-band compositor: stable track-local raster bands survive
+        # across frames; only genuinely animated bands are recaptured.
+        self._gpu_static_band_cache: dict[int, QImage] = {}
+        self._gpu_static_band_cache_key: tuple[object, ...] | None = None
+        self._static_band_cache_hits = 0
+        self._static_band_cache_misses = 0
         self._last_composition_key: tuple[object, ...] | None = None
         self._active_overlay_cache_seconds: float | None = None
         self._active_overlay_cache: tuple[tuple[int, VisualizerOverlay], ...] = ()
@@ -1803,6 +1809,8 @@ class ExportPreviewDialog(QDialog):
         self._dynamic_region_buffers.clear()
         self._video_z_band_key = None
         self._video_z_band_layers.clear()
+        self._gpu_static_band_cache.clear()
+        self._gpu_static_band_cache_key = None
         self._last_composition_key = None
 
     def _sync_video_sources(
@@ -2904,10 +2912,32 @@ class ExportPreviewDialog(QDialog):
                 GpuPreviewLayer("canvas-base", self._base_image, canvas_rect),
                 *self._gpu_audio_layers(overlays, images),
             ]
+
+        # Preserve the original relative Z order, but separate immutable
+        # backgrounds/covers/shapes from animated lyrics and progress items.
+        # Mixed static+dynamic bands previously re-rendered their full area for
+        # every audio visualizer frame even though almost all pixels were still.
+        duration = self._playlist_duration()
+        z_bands = CanvasSnapshot.split_mixed_capture_bands(
+            self.scene, audio_ids, z_bands, duration, preview_track=True,
+        )
+        invariant = CanvasSnapshot.invariant_stream_keys(
+            self.scene, audio_ids, z_bands, duration, preview_track=True,
+        )
+        cache_key = (
+            track.id, track_index, start, self._active_render_scale,
+            id(getattr(self, "_compiled_plan", None)), tuple(z_bands),
+        )
+        if cache_key != self._gpu_static_band_cache_key:
+            self._gpu_static_band_cache.clear()
+            self._gpu_static_band_cache_key = cache_key
+        cache_safe = (
+            phase is None and getattr(self, "_frame_junction", None) is None
+        )
         common = dict(
             elapsed_seconds=elapsed,
             hide_visualizers=audio_ids,
-            playlist_duration_seconds=self._playlist_duration(),
+            playlist_duration_seconds=duration,
             playlist_tracks=self.tracks,
             output_scale=self._active_render_scale,
             timeline_seconds=self.timeline.value() / TIMELINE_SCALE,
@@ -2918,10 +2948,24 @@ class ExportPreviewDialog(QDialog):
             bass_level=self._bass_level(track, elapsed),
             music_levels=self._music_reaction_levels(track, elapsed),
         )
-        base = CanvasSnapshot.capture_track(
-            self.scene, track, track_index + 1, len(self.tracks), start,
-            phase, phase_progress, z_max=z_bands[0][1], **common,
-        )
+
+        def capture_band(index: int, z_min, z_max) -> QImage:
+            stream_key = "base" if index == 0 else f"layer:{index - 1}"
+            can_cache = cache_safe and stream_key in invariant
+            if can_cache and index in self._gpu_static_band_cache:
+                self._static_band_cache_hits += 1
+                return self._gpu_static_band_cache[index]
+            self._static_band_cache_misses += 1
+            captured = CanvasSnapshot.capture_track(
+                self.scene, track, track_index + 1, len(self.tracks), start,
+                phase, phase_progress, z_min=z_min, z_max=z_max,
+                transparent=index > 0, **common,
+            )
+            if can_cache:
+                self._gpu_static_band_cache[index] = captured
+            return captured
+
+        base = capture_band(0, *z_bands[0])
         canvas_rect = QRectF(0.0, 0.0, base.width(), base.height())
         layers: list[GpuPreviewLayer] = [
             GpuPreviewLayer(("z-base", z_bands[0][1]), base, canvas_rect),
@@ -2930,11 +2974,7 @@ class ExportPreviewDialog(QDialog):
         for index, layer in enumerate(self._gpu_audio_layers(overlays, images)):
             ordered.append((overlays[index].z_index, 0, layer))
         for index, (z_min, z_max) in enumerate(z_bands[1:]):
-            foreground = CanvasSnapshot.capture_track(
-                self.scene, track, track_index + 1, len(self.tracks), start,
-                phase, phase_progress, z_min=z_min, z_max=z_max,
-                transparent=True, **common,
-            )
+            foreground = capture_band(index + 1, z_min, z_max)
             ordered.append((
                 z_min if z_min is not None else -10_000.0,
                 1,
@@ -2943,7 +2983,11 @@ class ExportPreviewDialog(QDialog):
                     QRectF(0.0, 0.0, foreground.width(), foreground.height()),
                 ),
             ))
-        layers.extend(layer for _z, _kind, layer in sorted(ordered, key=lambda value: (value[0], value[1])))
+        layers.extend(
+            layer for _z, _kind, layer in sorted(
+                ordered, key=lambda value: (value[0], value[1]),
+            )
+        )
         return layers
 
     def _composite_export_overlays(
@@ -3902,6 +3946,8 @@ class ExportPreviewDialog(QDialog):
         self._dynamic_region_buffers.clear()
         self._video_z_band_key = None
         self._video_z_band_layers.clear()
+        self._gpu_static_band_cache.clear()
+        self._gpu_static_band_cache_key = None
         self._clear_overlay_frames()
 
     def _update_frame_rate_label(self) -> None:
