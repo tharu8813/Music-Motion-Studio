@@ -6,6 +6,7 @@ import os
 import unittest
 from dataclasses import dataclass, field
 from types import SimpleNamespace
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -70,6 +71,41 @@ class GpuCompositorOptimizationTests(unittest.TestCase):
         self.assertFalse(CanvasSnapshot.source_is_preview_track_static(
             Source(SourceType.ALBUM_COVER, "Temporary", timeline_start=1.0)
         ))
+
+    def test_static_z_band_cache_reuses_images_and_invalidates_on_change(self):
+        scene = CanvasScene()
+        scene.set_artboard_size(640, 360)
+        preview = ExportPreviewDialog(
+            scene, [PlaylistTrack("missing.wav", "Preview", duration_seconds=30)],
+            Translator(), preferred_backend="cpu",
+        )
+        self.addCleanup(preview.deleteLater)
+        self.addCleanup(preview._stop_preview)
+        frame = QImage(640, 360, QImage.Format.Format_ARGB32_Premultiplied)
+        frame.fill(0xff304050)
+        bands = [(None, 0.0), (1.0, None)]
+
+        def render():
+            return preview._gpu_z_band_layers(
+                preview.tracks[0], 0, 5.0, 0.0,
+                None, 1.0, 0.0, [], (),
+            )
+
+        with patch.object(CanvasSnapshot, "z_bands", return_value=bands), \
+             patch.object(CanvasSnapshot, "split_mixed_capture_bands", return_value=bands), \
+             patch.object(CanvasSnapshot, "invariant_stream_keys", return_value={"base", "layer:0"}), \
+             patch.object(CanvasSnapshot, "capture_track", return_value=frame) as capture:
+            first = render()
+            second = render()
+            self.assertEqual(capture.call_count, 2)
+            self.assertEqual(len(first), len(second))
+            self.assertEqual(preview._static_band_cache_hits, 2)
+            preview._invalidate_preview_render_cache()
+            render()
+            self.assertEqual(capture.call_count, 4)
+            preview._frame_junction = object()
+            render()
+            self.assertEqual(capture.call_count, 6)
 
     def test_gpu_keyframe_uses_unchanged_texture_pixels(self):
         scene = CanvasScene()
