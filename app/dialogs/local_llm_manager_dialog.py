@@ -363,17 +363,20 @@ class LocalLLMManagerDialog(QDialog):
             self.status.setText(self.tr_text("설치할 모델을 선택하거나 이름을 입력하세요.",
                 "Choose a model or enter its name before installing."))
             return
+        installed_index = self._installed_index(
+            name if self.manual_toggle.isChecked() else
+            (self.recommended.currentItem().data(Qt.ItemDataRole.UserRole)["id"]
+             if self.recommended.currentItem() and not self.recommended.currentItem().isHidden()
+             and self.service.provider == "ollama" else name))
+        if installed_index >= 0:
+            self.search.clear()
+            self.tabs.setCurrentIndex(0)
+            self.table.selectRow(installed_index)
+            self._use()
+            return
         if not self.manual_toggle.isChecked():
             item = self.recommended.currentItem()
             guide = item.data(Qt.ItemDataRole.UserRole) if item and not item.isHidden() else None
-            if guide and self.service.provider == "ollama":
-                installed_index = self._installed_index(guide["id"])
-                if installed_index >= 0:
-                    self.search.clear()
-                    self.tabs.setCurrentIndex(0)
-                    self.table.selectRow(installed_index)
-                    self._use()
-                    return
             if guide and guide["tier"] == "large":
                 if QMessageBox.question(self, self.windowTitle(), self.tr_text(
                         f"{guide['id']} 모델은 다운로드만 {guide['size']} 정도입니다. 실제 실행에는 추가 메모리가 필요합니다. 계속할까요?",
@@ -439,7 +442,24 @@ class LocalLLMManagerDialog(QDialog):
         total = event.get("total", 0)
         if not isinstance(done, (int, float)) or not isinstance(total, (int, float)):
             return
-        message = label or self.tr_text("다운로드 중", "Downloading")
+        if self.translator.is_korean:
+            lowered = label.casefold()
+            if lowered.startswith("pulling manifest"):
+                message = "모델 정보를 확인하는 중"
+            elif lowered.startswith("pulling "):
+                message = "모델 파일을 다운로드하는 중"
+            elif lowered.startswith("verifying"):
+                message = "다운로드 파일을 검증하는 중"
+            elif lowered.startswith("writing"):
+                message = "모델 설치를 마무리하는 중"
+            elif lowered in {"downloading", "download"}:
+                message = "모델 다운로드 중"
+            elif lowered in {"success", "completed", "already_downloaded"}:
+                message = "다운로드 완료"
+            else:
+                message = label or "다운로드 중"
+        else:
+            message = label or "Downloading"
         if total > 0:
             now = monotonic()
             sample = self._download_sample
