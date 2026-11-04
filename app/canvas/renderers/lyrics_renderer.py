@@ -650,18 +650,28 @@ def paint_word_reveal(item, painter: QPainter, row: QRectF, flags, text: str, re
         x = positions[whole]
         return x + (positions[whole + 1] - x) * (position - whole) if whole < len(text) else x
 
-    ranges = highlight_ranges if highlight_ranges is not None else ((0.0, revealed),)
     painter.save()
     painter.translate(row.topLeft())
-    for start, end in ranges:
-        if end <= start:
-            continue
-        left, right = cursor_x(start), cursor_x(end)
-        painter.save()
-        painter.setClipRect(QRectF(min(left, right), 0, abs(right - left), row.height()),
-                            Qt.ClipOperation.IntersectClip)
+    if highlight_ranges is None:
+        # Preserve the established prefix renderer exactly for ordinary lyrics,
+        # including bidi text whose cursor endpoints do not bound the glyphs.
+        whole = min(len(text), int(revealed))
+        left, boundary = positions[0], positions[whole]
+        if whole < len(text):
+            boundary += (positions[whole + 1] - boundary) * (revealed - whole)
+            painter.setClipRect(QRectF(min(left, boundary), 0, abs(boundary - left), row.height()),
+                                Qt.ClipOperation.IntersectClip)
         painter.fillPath(path, QColor(item.source.subtitle_accent_color))
-        painter.restore()
+    else:
+        for start, end in highlight_ranges:
+            if end <= start:
+                continue
+            left, right = cursor_x(start), cursor_x(end)
+            painter.save()
+            painter.setClipRect(QRectF(min(left, right), 0, abs(right - left), row.height()),
+                                Qt.ClipOperation.IntersectClip)
+            painter.fillPath(path, QColor(item.source.subtitle_accent_color))
+            painter.restore()
     painter.restore()
 
 
