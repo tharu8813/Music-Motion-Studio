@@ -176,7 +176,15 @@ class LocalLLMService:
         return next((row["metadata"] for row in self.list_models(cancel) if row["id"] == name), {})
 
     def download(self, name, cancel=None, progress=None):
-        validate_local_model(name)
+        if self.provider == "lmstudio" and isinstance(name, str) and name.startswith("https://"):
+            address = urlsplit(name)
+            if (address.hostname != "huggingface.co" or address.username or address.password
+                    or address.port or address.query or address.fragment
+                    or not re.fullmatch(r"/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/?", address.path)
+                    or ".." in address.path):
+                raise TranslationError("허용된 Hugging Face 모델 주소를 입력하세요. / Enter a valid Hugging Face model URL.")
+        else:
+            validate_local_model(name)
         if self.provider == "ollama":
             self.ensure_running(cancel=cancel)
             self._request("/api/pull", {"model": name, "stream": True}, stream=True, cancel=cancel, progress=progress)
