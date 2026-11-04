@@ -144,6 +144,37 @@ class TranslationServiceTests(unittest.TestCase):
             with self.assertRaises(TranslationError):
                 service.translate(self.cues, replace(self.config, provider="chatgpt", model="chosen"))
 
+    def test_local_llm_reports_raw_json_and_keeps_valid_partial_batch_rows(self):
+        raw = json.dumps({"translations": [{"id": 0, "text": "안녕\n세상"}]}, ensure_ascii=False)
+        requests = []
+        def transport(url, body=None, headers=None, **kwargs):
+            requests.append(body)
+            return {"choices": [{"finish_reason": "stop", "message": {"content": raw}}]}
+        events = []
+        config = TranslationConfig("ollama", model="qwen2.5-coder:7b",
+                                   endpoint="http://localhost:11434/v1")
+        with self.assertRaisesRegex(TranslationError, "Missing translations"):
+            LyricsTranslationService(transport).translate(self.cues, config, activity=events.append)
+        self.assertEqual(requests[0]["response_format"], {"type": "json_object"})
+        self.assertTrue(any(e.get("stage") == "complete" and e["row"] == 0
+                            and e["text"] == "안녕\n세상" for e in events))
+        self.assertTrue(any(e.get("stage") == "failure" and e["rows"] == [1] for e in events))
+        detail = next(e for e in events if e["stage"] == "diagnostic")
+        self.assertEqual(detail["raw"], raw)
+        self.assertEqual(detail["status"], "failed")
+
+    def test_local_llm_shows_exact_json_error_location(self):
+        raw = '{"translations": ['
+        def transport(url, body=None, headers=None, **kwargs):
+            return {"choices": [{"finish_reason": "stop", "message": {"content": raw}}]}
+        events = []
+        config = TranslationConfig("ollama", model="qwen2.5-coder:7b",
+                                   endpoint="http://localhost:11434/v1")
+        with self.assertRaisesRegex(TranslationError, "Invalid JSON"):
+            LyricsTranslationService(transport).translate(self.cues, config, activity=events.append)
+        self.assertTrue(any(e["stage"] == "diagnostic" and e["raw"] == raw
+                            and "JSON" in e["reason"] for e in events))
+
     def test_cancel_and_provider_count_mismatch_never_apply_partial_results(self):
         cancel = Event()
         cancel.set()

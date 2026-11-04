@@ -5,7 +5,7 @@ from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView, QInputDialog,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QPushButton,
     QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget, QScrollArea,
-    QGridLayout)
+    QGridLayout, QComboBox)
 
 from app.dialogs.help_dialog import install_help_shortcut
 from app.services.local_llm_service import LocalLLMService, MODEL_GUIDES, model_guide
@@ -42,6 +42,12 @@ class LocalLLMManagerDialog(QDialog):
             "Choose an installed model or download one. Download size is not required RAM; memory also depends on context, quantization and hardware."))
         note.setWordWrap(True)
         root.addWidget(note)
+        self.steps_label = QLabel(self.tr_text(
+            "① 실행 준비  →  ② 모델 찾기·설치  →  ③ 설치된 모델 선택 후 사용",
+            "① Prepare engine  →  ② Find and install  →  ③ Select an installed model"))
+        self.steps_label.setObjectName("panelTitle")
+        self.steps_label.setWordWrap(True)
+        root.addWidget(self.steps_label)
         self.runtime_note = QLabel(self.tr_text(
             "처음이라면 ‘실행 구성요소 자동 설치·시작’을 누르세요. 공식 Ollama Windows x64 파일(수 GB)을 검증해 앱 전용 폴더에 설치합니다. 이미 실행 중인 Ollama는 그대로 사용합니다.",
             "New to local LLMs? Automatic setup verifies and installs the official Ollama Windows x64 runtime (several GB) in this app's folder. An existing Ollama server is reused.") if self.service.provider == "ollama" else self.tr_text(
@@ -52,9 +58,12 @@ class LocalLLMManagerDialog(QDialog):
             '<a href="https://lmstudio.ai/docs/app">LM Studio 설치 안내</a>')
         links.setOpenExternalLinks(True)
         actions = QHBoxLayout()
-        self.setup_button = QPushButton(self.tr_text("실행 구성요소 자동 설치·시작", "Automatic runtime setup / start"))
+        self.setup_button = QPushButton(self.tr_text("AI 실행 환경 준비하기", "Set up local AI engine"))
+        self.setup_button.setToolTip(self.tr_text(
+            "Ollama를 자동으로 준비하거나 이미 실행 중인 Ollama에 연결합니다.",
+            "Prepare Ollama automatically, or reuse an existing running Ollama server."))
         self.setup_button.setVisible(self.service.provider == "ollama")
-        self.refresh_button = QPushButton(self.tr_text("설치된 모델 새로고침", "Refresh installed models"))
+        self.refresh_button = QPushButton(self.tr_text("모델 목록 새로고침", "Refresh models"))
         actions.addWidget(self.setup_button)
         actions.addWidget(self.refresh_button)
         actions.addStretch()
@@ -85,36 +94,69 @@ class LocalLLMManagerDialog(QDialog):
         self.table.setMinimumHeight(180)
         self.table.setAccessibleName(self.tr_text("설치된 로컬 LLM", "Installed local LLMs"))
         installed_layout.addWidget(self.table)
-        row_actions = QGridLayout()
+        advanced_actions = QGridLayout()
         self.load_button = QPushButton(self.tr_text("메모리에 로드", "Load into memory"))
         self.unload_button = QPushButton(self.tr_text("메모리 해제", "Unload from memory"))
         self.details_button = QPushButton(self.tr_text("상세 정보·라이선스", "Details / license"))
         self.alias_button = QPushButton(self.tr_text("별칭 만들기", "Create alias"))
         self.delete_button = QPushButton(self.tr_text("모델 삭제…", "Delete model…"))
-        for index, button in enumerate((self.load_button, self.unload_button, self.details_button, self.delete_button)):
-            row_actions.addWidget(button, index // 2, index % 2)
+        for index, button in enumerate((self.load_button, self.unload_button, self.delete_button)):
+            advanced_actions.addWidget(button, index // 2, index % 2)
+        advanced_layout.addLayout(advanced_actions)
         advanced_layout.addWidget(self.alias_button)
         self.metadata = QTextBrowser()
         self.metadata.setMinimumHeight(180)
         advanced_layout.addWidget(self.metadata, 1)
         self.alias_button.setVisible(self.service.provider == "ollama")
         self.delete_button.setVisible(self.service.provider == "ollama")
-        installed_layout.addLayout(row_actions)
+        installed_layout.addWidget(self.details_button)
+        download_layout.addWidget(QLabel(self.tr_text(
+            "모델 찾기 · 실제 가사 품질 순위가 아니며 코딩 모델도 번역 정확도를 보장하지 않습니다.",
+            "Find models · not a lyric-quality ranking; coding models do not guarantee translation accuracy.")))
+        catalog_filters = QHBoxLayout()
+        self.catalog_search = QLineEdit()
+        self.catalog_search.setPlaceholderText(self.tr_text("모델 이름·특징 검색", "Search model names or features"))
+        self.catalog_category = QComboBox()
+        self.catalog_category.addItem(self.tr_text("모든 종류", "All types"), "all")
+        self.catalog_category.addItem(self.tr_text("코딩 · JSON", "Coding · JSON"), "coder")
+        self.catalog_category.addItem(self.tr_text("다국어 · 번역", "Multilingual · translation"), "multilingual")
+        self.catalog_size = QComboBox()
+        self.catalog_size.addItem(self.tr_text("모든 크기", "All sizes"), "all")
+        self.catalog_size.addItem(self.tr_text("가벼움", "Lightweight"), "small")
+        self.catalog_size.addItem(self.tr_text("중간", "Medium"), "medium")
+        self.catalog_size.addItem(self.tr_text("고사양", "High-end"), "large")
+        catalog_filters.addWidget(self.catalog_search, 2)
+        catalog_filters.addWidget(self.catalog_category, 1)
+        catalog_filters.addWidget(self.catalog_size, 1)
+        download_layout.addLayout(catalog_filters)
         self.recommended = QListWidget()
+        self.recommended.setMinimumHeight(170)
+        self.recommended.setAccessibleName(self.tr_text("추천 다운로드 모델 목록", "Recommended model catalog"))
         for guide in MODEL_GUIDES:
-            item = QListWidgetItem(guide["ko" if translator.is_korean else "en"][0] + " · " + guide["size"])
+            if self.service.provider == "lmstudio" and not guide.get("lmstudio"):
+                continue
+            title = guide["ko" if translator.is_korean else "en"][0]
+            kind = self.tr_text("코딩", "Coding") if guide["focus"] == "coder" else self.tr_text("다국어", "Multilingual")
+            item = QListWidgetItem(f"{title} · {guide['size']} · {kind}")
             item.setData(Qt.ItemDataRole.UserRole, guide)
             self.recommended.addItem(item)
-        download_layout.addWidget(QLabel(self.tr_text("비교할 모델 · 번역 품질 순위가 아닙니다", "Models to compare · not a lyric quality ranking")))
         download_layout.addWidget(self.recommended)
+        self.catalog_count = QLabel()
+        download_layout.addWidget(self.catalog_count)
+        self.manual_toggle = QPushButton(self.tr_text("다른 모델 직접 입력 (고급)", "Enter another model (advanced)"))
+        self.manual_toggle.setCheckable(True)
+        download_layout.addWidget(self.manual_toggle)
+        self.manual_label = QLabel(self.tr_text("모델 ID 또는 Hugging Face 주소", "Model ID or Hugging Face URL"))
+        self.manual_label.setVisible(False)
+        download_layout.addWidget(self.manual_label)
         self.download_name = QLineEdit()
-        self.download_name.setPlaceholderText("qwen3:4b" if self.service.provider == "ollama" else "https://huggingface.co/Qwen/Qwen3-4B-GGUF")
-        download_layout.addWidget(QLabel(self.tr_text("모델 이름 / 다른 모델 직접 입력", "Model name / enter another model")))
+        self.download_name.setPlaceholderText("qwen2.5-coder:7b" if self.service.provider == "ollama" else "https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF")
+        self.download_name.setVisible(False)
         download_layout.addWidget(self.download_name)
-        self.download_button = QPushButton(self.tr_text("다운로드·설치 / 이어받기", "Download / resume"))
+        self.download_button = QPushButton(self.tr_text("선택한 모델 다운로드·설치", "Download and install selected model"))
         download_layout.addWidget(self.download_button)
         self.tabs.addTab(installed_page, self.tr_text("설치된 모델", "Installed"))
-        self.tabs.addTab(download_page, self.tr_text("다운로드·모델 비교", "Download / compare"))
+        self.tabs.addTab(download_page, self.tr_text("모델 찾기·설치", "Find and install"))
         self.tabs.addTab(advanced_page, self.tr_text("고급 관리", "Advanced management"))
         root.addWidget(self.tabs, 2)
         self.description = QTextBrowser()
@@ -150,6 +192,10 @@ class LocalLLMManagerDialog(QDialog):
         self.table.itemDoubleClicked.connect(lambda *_: self._use())
         self.search.textChanged.connect(self._filter)
         self.recommended.currentRowChanged.connect(self._recommendation)
+        self.catalog_search.textChanged.connect(self._filter_catalog)
+        self.catalog_category.currentIndexChanged.connect(self._filter_catalog)
+        self.catalog_size.currentIndexChanged.connect(self._filter_catalog)
+        self.manual_toggle.toggled.connect(self._manual_mode)
         self.tabs.currentChanged.connect(self._selection)
         self.download_button.clicked.connect(self._download)
         self.use_button.clicked.connect(self._use)
@@ -161,6 +207,7 @@ class LocalLLMManagerDialog(QDialog):
         self.unload_button.clicked.connect(lambda: self._memory(False))
         for button in self.findChildren(QPushButton):
             button.setAutoDefault(False)
+        self._filter_catalog()
         self.recommended.setCurrentRow(0)
         self._selection()
         QTimer.singleShot(0, self._refresh)
@@ -186,18 +233,41 @@ class LocalLLMManagerDialog(QDialog):
         elif self.tabs.currentIndex() == 1:
             self._recommendation()
 
+    def _filter_catalog(self, *_args):
+        term = self.catalog_search.text().strip().casefold()
+        category = self.catalog_category.currentData()
+        size = self.catalog_size.currentData()
+        visible = 0
+        for i in range(self.recommended.count()):
+            item = self.recommended.item(i)
+            guide = item.data(Qt.ItemDataRole.UserRole)
+            matches = (not term or term in (item.text() + " " + guide["id"] + " "
+                + " ".join(guide["ko" if self.translator.is_korean else "en"])).casefold())
+            shown = matches and (category == "all" or guide["focus"] == category) and (
+                size == "all" or guide["tier"] == size)
+            item.setHidden(not shown)
+            visible += int(shown)
+        self.catalog_count.setText(self.tr_text(
+            f"표시된 모델 {visible}개 · 파일 크기는 참고용이며 실제 실행 메모리는 더 필요합니다.",
+            f"{visible} models shown · download sizes are estimates, not runtime RAM."))
+        if self.recommended.currentItem() is None or self.recommended.currentItem().isHidden():
+            first = next((i for i in range(self.recommended.count()) if not self.recommended.item(i).isHidden()), -1)
+            self.recommended.setCurrentRow(first)
+
     def _recommendation(self, *_args):
         item = self.recommended.currentItem()
-        if not item:
+        if not item or item.isHidden():
+            self.download_button.setEnabled(False)
             return
+        self.download_button.setEnabled(True)
         guide = item.data(Qt.ItemDataRole.UserRole)
         title, strength, limitation = guide["ko" if self.translator.is_korean else "en"]
         if self.service.provider == "ollama":
             name = guide["id"]
         else:
-            name = "https://huggingface.co/" + {"qwen3:4b": "Qwen/Qwen3-4B-GGUF", "qwen3:8b": "Qwen/Qwen3-8B-GGUF",
-                "gemma3:4b": "lmstudio-community/gemma-3-4b-it-GGUF"}[guide["id"]]
-        self.download_name.setText(name)
+            name = guide["lmstudio"]
+        if not self.manual_toggle.isChecked():
+            self.download_name.setText(name)
         self.description.setPlainText(self.tr_text(f"{title}\n장점: {strength}\n주의: {limitation}\n{guide['size']} · 용량은 버전과 양자화에 따라 바뀔 수 있습니다.",
             f"{title}\nStrengths: {strength}\nLimitations: {limitation}\n{guide['size']} · Size varies with version and quantization."))
         self.source_link.setText(f'<a href="{guide["url"]}">' + self.tr_text("모델 공식 정보·이용 조건", "Official model information / terms") + "</a>")
@@ -210,8 +280,30 @@ class LocalLLMManagerDialog(QDialog):
     def _refresh(self):
         self._start("refresh", lambda cancel, _progress: self.service.discover(cancel))
 
+    def _manual_mode(self, manual):
+        self.manual_label.setVisible(manual)
+        self.download_name.setVisible(manual)
+        self.download_button.setText(self.tr_text("입력한 모델 다운로드·설치", "Download entered model")
+            if manual else self.tr_text("선택한 모델 다운로드·설치", "Download and install selected model"))
+        if not manual:
+            self._recommendation()
+
     def _download(self):
         name = self.download_name.text().strip()
+        if not name:
+            self.status.setText(self.tr_text("설치할 모델을 선택하거나 이름을 입력하세요.",
+                "Choose a model or enter its name before installing."))
+            return
+        if not self.manual_toggle.isChecked():
+            item = self.recommended.currentItem()
+            guide = item.data(Qt.ItemDataRole.UserRole) if item and not item.isHidden() else None
+            if guide and guide["tier"] == "large":
+                if QMessageBox.question(self, self.windowTitle(), self.tr_text(
+                        f"{guide['id']} 모델은 다운로드만 {guide['size']} 정도입니다. 실제 실행에는 추가 메모리가 필요합니다. 계속할까요?",
+                        f"{guide['id']} requires approximately {guide['size']} to download; additional RAM is needed to run it. Continue?"),
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                        QMessageBox.StandardButton.Cancel) != QMessageBox.StandardButton.Yes:
+                    return
         self._start("download", lambda cancel, progress: self.service.download(name, cancel, progress))
 
     def _delete(self):
@@ -301,12 +393,12 @@ class LocalLLMManagerDialog(QDialog):
                 self.table.selectRow(selected)
                 if self.operation == "download":
                     self.tabs.setCurrentIndex(0)
-            elif self.operation == "setup":
+            elif self.operation in {"setup", "refresh"}:
                 self.tabs.setCurrentIndex(1)
-            self.status.setText(self.tr_text(f"설치된 로컬 모델 {len(self.models)}개. 사용할 모델을 선택하세요.",
-                f"{len(self.models)} installed local models. Choose a model to use.") if self.models else self.tr_text(
-                "실행 구성요소에 연결했습니다. 다운로드 탭에서 모델을 설치하세요.",
-                "Connected to the runtime. Install a model from Download."))
+            self.status.setText(self.tr_text(f"설치된 모델 {len(self.models)}개 · 사용할 모델을 선택한 뒤 '선택한 모델 사용'을 누르세요.",
+                f"{len(self.models)} installed models · select one and click 'Use selected model'.") if self.models else self.tr_text(
+                "모델이 아직 없습니다. '모델 찾기·설치'에서 모델을 선택하고 다운로드하세요.",
+                "No model installed yet. Choose and download one under 'Find and install'."))
         if self.operation != "details":
             self._selection()
         worker.deleteLater()

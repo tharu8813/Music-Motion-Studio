@@ -21,6 +21,8 @@ class TranslationWorkflow(QObject):
         self.services, self.review = services, review
         self.worker, self.operation = None, ""
         self._rows, self._snapshot = [], None
+        self._received, self._failed_rows, self.diagnostics = {}, {}, []
+        self._current_config = None
         self.status = ""
 
     def tr_text(self, ko, en):
@@ -70,6 +72,7 @@ class TranslationWorkflow(QObject):
                     QMessageBox.StandardButton.Cancel) != QMessageBox.StandardButton.Yes:
                 return
         self._rows = selected
+        self._current_config = self.draft.safe_config(config)
         # Keep global cue IDs and surrounding context for selective retranslations.
         def work(cancel, progress):
             connected = replace(config, key=self.auth.access_token(cancel)) if config.provider == "chatgpt" and not config.same_language else config
@@ -87,6 +90,8 @@ class TranslationWorkflow(QObject):
         if operation == "translate" and not self._rows:
             self._rows = sorted(self.review._editable_rows)
         if operation == "translate":
+            self._received, self._failed_rows, self.diagnostics = {}, {}, []
+            self.review.set_diagnostics([])
             self.review._incomplete_rows.difference_update(self._rows)
             for row in self._rows:
                 self.review.table.item(row, 4).setToolTip("")
@@ -94,7 +99,7 @@ class TranslationWorkflow(QObject):
         self.worker = TranslationWorker(work, self)
         self.worker.finished.connect(self._finished)
         self.worker.progress.connect(self.progress_changed)
-        self.worker.activity.connect(self.review._activity)
+        self.worker.activity.connect(self._activity)
         self.review._set_review_busy(True)
         self.review.apply_button.setEnabled(False)
         self.services._settings_panel.setEnabled(False)
@@ -116,6 +121,23 @@ class TranslationWorkflow(QObject):
             self.set_status(self.tr_text("취소 중… 현재 요청이 끝나면 중단합니다.",
                                         "Cancelling… waiting for the current request to finish."))
 
+    def _activity(self, event):
+        if self.operation != "translate":
+            return
+        stage = event.get("stage")
+        if stage == "complete":
+            self._received[event["row"]] = (event["text"], tuple(event.get("missing_lines", ())))
+        elif stage == "failure":
+            for row in event.get("rows", ()):
+                self._failed_rows[row] = event.get("reason", "")
+        elif stage == "diagnostic":
+            if len(self.diagnostics) < 100:
+                # Raw model output is intentionally temporary and not persisted in drafts.
+                self.diagnostics.append(event)
+                self.review.set_diagnostics(self.diagnostics)
+        if stage in {"working", "complete"}:
+            self.review._activity(event)
+
     def _finished(self):
         worker, self.worker = self.worker, None
         review, services = self.review, self.services
@@ -128,17 +150,39 @@ class TranslationWorkflow(QObject):
             if self._snapshot is not None:
                 self.draft.rows = self._snapshot
                 self.draft.has_result = self._previous_result
-                # Retain earlier edited/saved translations; failed rows remain retryable.
                 if worker.error:
+                    recovered = 0
+                    for index, (text, missing_lines) in self._received.items():
+                        if index not in self._rows:
+                            continue
+                        row = self.draft.rows[index]
+                        row.text, row.edited = text, False
+                        row.checked = not bool(missing_lines)
+                        row.config = self._current_config or row.config
+                        row.status = "incomplete" if missing_lines else "complete" if text else "unneeded"
+                        row.detail = (review.table.item(index, 4).toolTip() if missing_lines else "")
+                        recovered += 1
+                    for index in self._rows:
+                        if index not in self._received:
+                            row = self.draft.rows[index]
+                            row.status = "failed"
+                            row.detail = self._failed_rows.get(index) or worker.error
+                            row.checked = False
+                    self.draft.has_result = self._previous_result or bool(recovered)
                     self.draft.dirty = True
-                    for row in self._rows:
-                        self.draft.rows[row].status = "failed"
-                        self.draft.rows[row].detail = worker.error
-                        self.draft.rows[row].checked = False
                 review.restore_draft()
                 save_error = self._save_draft()
-            self.set_status(worker.error or self.tr_text("취소했습니다. 번역은 적용되지 않았습니다.",
-                                                        "Cancelled. No translations were applied."))
+            if worker.error and self.operation == "translate":
+                preserved = len(set(self._rows) & self._received.keys())
+                failed = len(self._rows) - preserved
+                suffix = self.tr_text(" 'LLM 응답 확인'에서 원문 출력과 실패 원인을 볼 수 있습니다.",
+                    " Open 'Inspect LLM responses' for raw output and reasons.") if self.diagnostics else ""
+                self.set_status(self.tr_text(
+                    f"번역 실패: {worker.error}\n성공한 {preserved}줄은 보존하고 {failed}줄을 재시도 대상으로 표시했습니다." + suffix,
+                    f"Translation failed: {worker.error}\nPreserved {preserved} successful rows; marked {failed} for retry." + suffix))
+            else:
+                self.set_status(worker.error or self.tr_text("취소했습니다. 번역은 적용되지 않았습니다.",
+                                                            "Cancelled. No translations were applied."))
         elif self.operation == "translate" and worker.value is not None:
             config, texts = worker.value
             if not config.same_language and config.provider != "local_nmt":
@@ -193,6 +237,7 @@ class TranslationWorkflow(QObject):
                     f"Installed {worker.value.source} → {worker.value.target}. Check source and target languages before use."))
         self._rows = []
         self._snapshot = None
+        self._current_config = None
         services._refresh_account()
         services.changed.emit()
         if save_error:

@@ -7,7 +7,7 @@ from PySide6.QtCore import QRect, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QWidget, QDialogButtonBox, QHBoxLayout,
-    QHeaderView, QLabel, QPlainTextEdit, QPushButton, QStyledItemDelegate,
+    QHeaderView, QLabel, QPlainTextEdit, QPushButton, QStyledItemDelegate, QDialog, QApplication,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QCheckBox, QMessageBox,
 )
 
@@ -63,6 +63,7 @@ class TranslationReviewPanel(QWidget):
         self._draft_config, self._review_ready = None, draft.has_result
         self._incomplete_rows = {i for i, row in enumerate(draft.rows) if row.status == "incomplete"}
         self._editable_rows = {i for i, cue in enumerate(cues) if lyric_text(cue)}
+        self._diagnostics = []
         self.setObjectName("translationReviewPanel")
         review_layout = QVBoxLayout(self)
         review_layout.setContentsMargins(0, 0, 0, 0)
@@ -90,6 +91,13 @@ class TranslationReviewPanel(QWidget):
         self.follow_check.setToolTip(self.tr_text("끄면 번역 중에도 현재 검토 위치를 유지합니다.",
                                                 "When off, translation preserves your review position."))
         row_actions.addWidget(self.follow_check)
+        self.inspect_button = QPushButton(self.tr_text("LLM 응답 확인…", "Inspect LLM responses…"))
+        self.inspect_button.setToolTip(self.tr_text(
+            "이 번역 실행에서 받은 로컬 LLM 원문 출력과 오류 원인을 표시합니다. 가사 내용이 포함될 수 있으며 파일로 자동 저장하지 않습니다.",
+            "Inspect raw local LLM output and errors from this run. It may contain lyric text; it is never auto-saved."))
+        self.inspect_button.setEnabled(False)
+        self.inspect_button.clicked.connect(self.show_diagnostics)
+        row_actions.addWidget(self.inspect_button)
         review_layout.addLayout(row_actions)
         self.table = QTableWidget(len(cues), 5)
         self.table.setItemDelegateForColumn(2, _TranslationDelegate(self.table))
@@ -223,6 +231,52 @@ class TranslationReviewPanel(QWidget):
 
     def tr_text(self, korean, english):
         return korean if self.translator.is_korean else english
+
+    def set_diagnostics(self, records):
+        self._diagnostics = list(records)
+        self.inspect_button.setEnabled(bool(self._diagnostics))
+
+    def show_diagnostics(self):
+        if not self._diagnostics:
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle(self.tr_text("로컬 LLM 응답 및 오류", "Local LLM responses and errors"))
+        dialog.resize(840, 600)
+        layout = QVBoxLayout(dialog)
+        notice = QLabel(self.tr_text(
+            "모델이 실제 반환한 텍스트입니다. 가사 등 개인 정보가 포함될 수 있으므로 공유 전에 확인하세요. 이 정보는 번역 초안이나 프로젝트 파일에 저장되지 않습니다.",
+            "Raw text returned by the model. It may contain lyrics or private content: review before sharing. It is not stored in drafts or project files."))
+        notice.setWordWrap(True)
+        layout.addWidget(notice)
+        entries = []
+        for i, record in enumerate(self._diagnostics, 1):
+            rows = ", ".join(str(row + 1) for row in record.get("rows", ()))
+            title = self.tr_text(f"{i}. 모델 {record.get('model', '')} · 가사 {rows}번",
+                f"{i}. Model {record.get('model', '')} · lyric rows {rows}")
+            reason = self.tr_text("검증 결과: ", "Validation: ") + str(record.get("reason", ""))
+            output = record.get("raw", "")
+            if not output:
+                output = self.tr_text("(응답 텍스트를 받지 못했습니다.)", "(No model response text received.)")
+            elif record.get("truncated"):
+                output += self.tr_text("\n(응답이 너무 길어 앞부분만 표시합니다.)",
+                    "\n(Output exceeded the safety limit; only the beginning is shown.)")
+            entries.append(f"{title}\n{reason}\n\n{output}")
+        content = ("\n\n" + "=" * 56 + "\n\n").join(entries)
+        viewer = QPlainTextEdit()
+        viewer.setReadOnly(True)
+        viewer.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        viewer.setPlainText(content)
+        layout.addWidget(viewer, 1)
+        actions = QHBoxLayout()
+        copy_button = QPushButton(self.tr_text("진단 내용 복사", "Copy diagnostics"))
+        copy_button.clicked.connect(lambda: QApplication.clipboard().setText(content))
+        actions.addWidget(copy_button)
+        actions.addStretch()
+        close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        close.rejected.connect(dialog.reject)
+        actions.addWidget(close)
+        layout.addLayout(actions)
+        dialog.exec()
 
     def _check_all(self, checked):
         self._commit_editor()

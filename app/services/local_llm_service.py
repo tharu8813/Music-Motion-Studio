@@ -28,22 +28,24 @@ _PROCESSES, _START_LOCK = [], Lock()
 
 # Sizes are approximate downloads, not RAM requirements or quality guarantees.
 MODEL_GUIDES = (
-    {"id": "qwen3:4b", "size": "≈ 2.5 GB", "url": "https://ollama.com/library/qwen3",
-     "ko": ("Qwen3 4B · 가볍게 시작", "다국어와 번역 요청을 지원하며 8B보다 파일이 작습니다.", "작은 모델은 비유·문맥과 JSON 형식을 놓칠 수 있습니다. 사고 과정 때문에 느려질 수 있습니다."),
-     "en": ("Qwen3 4B · compact", "Multilingual instructions and translation; smaller download than 8B.", "Small models may miss context, metaphors or JSON formatting. Reasoning can add latency.")},
-    {"id": "qwen3:8b", "size": "≈ 5.2 GB", "url": "https://ollama.com/library/qwen3",
-     "ko": ("Qwen3 8B · 여유 있는 PC", "다국어 지시와 번역을 지원하는 더 큰 모델입니다.", "4B보다 저장 공간·메모리가 많이 필요합니다. 가사 품질 향상을 보장하지 않습니다."),
-     "en": ("Qwen3 8B · larger", "A larger model supporting multilingual instructions and translation.", "Needs more storage and memory than 4B; better lyric quality is not guaranteed.")},
-    {"id": "gemma3:4b", "size": "≈ 3.4 GB", "url": "https://ollama.com/library/gemma3",
-     "ko": ("Gemma 3 4B · 다른 계열 비교", "140개 이상 언어를 지원하는 다국어 모델 계열입니다.", "이미지 기능은 가사 번역에 쓰지 않습니다. 언어별 품질이 다르며 Gemma 이용약관을 확인하세요."),
-     "en": ("Gemma 3 4B · alternative family", "A multilingual model family supporting over 140 languages.", "Vision is unused for lyrics. Quality varies by language; check the Gemma terms.")},
+    {"id":"qwen2.5-coder:7b","size":"≈ 4.7 GB","focus":"coder","tier":"medium","lmstudio":"https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF","url":"https://ollama.com/library/qwen2.5-coder","ko":["Qwen2.5 Coder 7B · 권장 시작","코딩 특화 · JSON 구조 요청을 시험하기 좋은 균형형","가사 번역의 자연스러움과 언어별 정확도는 직접 확인해야 합니다."],"en":["Qwen2.5 Coder 7B · suggested","Coding-focused, balanced choice for structured JSON tasks.","Verify lyric quality and language coverage on your own content."]},
+    {"id":"qwen2.5-coder:3b","size":"≈ 1.9 GB","focus":"coder","tier":"small","lmstudio":"https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF","url":"https://ollama.com/library/qwen2.5-coder","ko":["Qwen2.5 Coder 3B · 가볍게 시작","용량이 작아 낮은 사양에서 형식 지시를 빠르게 시험","복잡한 가사와 문맥·번역 정확도에 한계가 있을 수 있습니다."],"en":["Qwen2.5 Coder 3B · lightweight","Small coding model for testing format instructions.","Less reliable for complex lyric contexts and languages."]},
+    {"id":"qwen2.5-coder:14b","size":"≈ 9.0 GB","focus":"coder","tier":"large","lmstudio":"https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct-GGUF","url":"https://ollama.com/library/qwen2.5-coder","ko":["Qwen2.5 Coder 14B · 더 큰 모델","코딩·JSON 작업을 위한 더 큰 모델","다운로드와 실행 메모리 부담이 커집니다."],"en":["Qwen2.5 Coder 14B · larger","Larger model for coding and structured output.","Greater download and RAM needs."]},
+    {"id":"qwen2.5-coder:32b","size":"≈ 20 GB","focus":"coder","tier":"large","lmstudio":"","url":"https://ollama.com/library/qwen2.5-coder","ko":["Qwen2.5 Coder 32B · 고사양","대규모 코딩 특화 모델","가용 메모리와 속도를 반드시 확인하세요."],"en":["Qwen2.5 Coder 32B · demanding","Large coding-specialized model.","Check available RAM and speed."]},
+    {"id":"qwen3-coder:30b","size":"≈ 19 GB","focus":"coder","tier":"large","lmstudio":"","url":"https://ollama.com/library/qwen3-coder","ko":["Qwen3 Coder 30B · 고사양","최신 계열 코딩 지시와 구조화 출력 비교용","가사 번역 품질은 별도 검증이 필요합니다."],"en":["Qwen3 Coder 30B · demanding","For coding instructions and structured-output comparisons.","Lyric quality requires independent testing."]},
+    {"id":"devstral-small-2:24b","size":"≈ 15 GB","focus":"coder","tier":"large","lmstudio":"","url":"https://ollama.com/library/devstral-small-2","ko":["Devstral Small 2 24B · 다른 코딩 계열","코딩 작업 특화 모델 계열을 비교할 때","다국어 가사 번역 모델로 검증된 것은 아닙니다."],"en":["Devstral Small 2 24B · coding alternative","Alternative software-oriented model family.","Not validated for multilingual lyrics."]},
+    {"id":"qwen3.5:4b","size":"≈ 3.4 GB","focus":"multilingual","tier":"small","lmstudio":"","url":"https://ollama.com/library/qwen3.5","ko":["Qwen3.5 4B · 다국어 경량","다국어 문맥을 중시할 때 비교할 범용 모델","코딩 전용은 아니며 JSON 준수 여부를 확인하세요."],"en":["Qwen3.5 4B · multilingual compact","General model for multilingual context.","Not coder-specific; test its JSON output."]},
+    {"id":"qwen3.5:9b","size":"≈ 6.6 GB","focus":"multilingual","tier":"medium","lmstudio":"","url":"https://ollama.com/library/qwen3.5","ko":["Qwen3.5 9B · 다국어 균형","여러 언어의 가사와 구조화 지시를 함께 시험","메모리·속도와 언어별 편차를 고려하세요."],"en":["Qwen3.5 9B · multilingual balance","Try multilingual lyrics and structured instructions.","Consider RAM, speed, and uneven language quality."]},
+    {"id":"qwen3.5:27b","size":"≈ 17 GB","focus":"multilingual","tier":"large","lmstudio":"","url":"https://ollama.com/library/qwen3.5","ko":["Qwen3.5 27B · 고사양 다국어","복잡한 다국어 번역을 시도할 범용 대형 모델","메모리 요구량이 크고 정확도를 보장하지 않습니다."],"en":["Qwen3.5 27B · multilingual large","Larger general model for complex multilingual tasks.","High memory needs; results are not guaranteed."]},
+    {"id":"qwen3:4b","size":"≈ 2.5 GB","focus":"multilingual","tier":"small","lmstudio":"https://huggingface.co/Qwen/Qwen3-4B-GGUF","url":"https://ollama.com/library/qwen3","ko":["Qwen3 4B · 기존 경량","다국어 지시와 일반 번역용 범용 대안","작은 모델은 JSON 형식·문맥을 놓칠 수 있습니다."],"en":["Qwen3 4B · existing compact","Small general multilingual alternative.","May miss JSON rules or nuance."]},
+    {"id":"qwen3:8b","size":"≈ 5.2 GB","focus":"multilingual","tier":"medium","lmstudio":"https://huggingface.co/Qwen/Qwen3-8B-GGUF","url":"https://ollama.com/library/qwen3","ko":["Qwen3 8B · 기존 모델","일반 다국어 지시를 시험할 균형형","코딩 전용이 아니며 가사 품질을 보장하지 않습니다."],"en":["Qwen3 8B · existing model","Balanced general multilingual alternative.","Not coder-specific; lyric quality is unverified."]},
+    {"id":"gemma3:4b","size":"≈ 3.4 GB","focus":"multilingual","tier":"small","lmstudio":"https://huggingface.co/lmstudio-community/gemma-3-4b-it-GGUF","url":"https://ollama.com/library/gemma3","ko":["Gemma 3 4B · 다른 계열","다양한 언어를 지원하는 비교용 대안","언어별 품질과 이용 조건을 확인하세요."],"en":["Gemma 3 4B · alternative","Alternative multilingual family.","Language quality varies; check model terms."]},
 )
 
 
 def model_guide(name, korean=True):
     lowered = name.lower()
-    guide = next((row for row in MODEL_GUIDES if row["id"].split(":")[0] in lowered
-        and row["id"].split(":")[1] in lowered), None)
+    guide = next((row for row in MODEL_GUIDES if lowered == row["id"] or lowered.startswith(row["id"] + "-")), None)
     if guide:
         return guide["ko" if korean else "en"][1:]
     return (("설치된 모델의 정보와 라이선스를 확인해 사용할 수 있습니다.",
@@ -174,7 +176,15 @@ class LocalLLMService:
         return next((row["metadata"] for row in self.list_models(cancel) if row["id"] == name), {})
 
     def download(self, name, cancel=None, progress=None):
-        validate_local_model(name)
+        if self.provider == "lmstudio" and isinstance(name, str) and name.startswith("https://"):
+            address = urlsplit(name)
+            if (address.hostname != "huggingface.co" or address.username or address.password
+                    or address.port or address.query or address.fragment
+                    or not re.fullmatch(r"/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/?", address.path)
+                    or ".." in address.path):
+                raise TranslationError("허용된 Hugging Face 모델 주소를 입력하세요. / Enter a valid Hugging Face model URL.")
+        else:
+            validate_local_model(name)
         if self.provider == "ollama":
             self.ensure_running(cancel=cancel)
             self._request("/api/pull", {"model": name, "stream": True}, stream=True, cancel=cancel, progress=progress)

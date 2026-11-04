@@ -138,6 +138,17 @@ class LocalLLMServiceTests(unittest.TestCase):
         self.assertEqual(request.get_header("Authorization"), "Bearer local-token")
         self.assertEqual(progress, [(100, 100)])
 
+    def test_lmstudio_accepts_only_valid_hugging_face_references(self):
+        service = LocalLLMService("lmstudio", "http://localhost:1234/v1")
+        with patch.object(service, "_request", side_effect=lambda path, *args, **kwargs:
+                {"status": "completed"} if path.endswith("/download") else {"models": []}):
+            rows = service.download("https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF")
+        self.assertEqual(rows, [])
+        for address in ("https://evil.example/a/b", "https://huggingface.co/a/../b",
+                        "https://huggingface.co/a/b?token=secret"):
+            with self.subTest(address=address), self.assertRaises(TranslationError):
+                service.download(address)
+
     def test_existing_server_is_reused_without_spawning_or_installing(self):
         with patch.object(self.service, "list_models", return_value=[installed_row()]), patch(
                 "app.services.local_llm_service.subprocess.Popen") as spawn, patch.object(self.service, "install_runtime") as install:
@@ -300,13 +311,17 @@ class TranslationSetupUITests(unittest.TestCase):
     def test_manager_shows_tradeoffs_downloads_and_selects_installed_model(self):
         service = Mock(provider="ollama")
         service.discover.return_value = [installed_row()]
-        service.download.return_value = [installed_row(), installed_row("qwen3:8b")]
+        service.download.return_value = [installed_row(), installed_row("qwen2.5-coder:3b")]
         manager = LocalLLMManagerDialog(Translator(), service=service)
         self.addCleanup(manager.deleteLater)
         self.until(lambda: manager.worker is None and manager.table.rowCount() == 1)
         manager.tabs.setCurrentIndex(1)
+        self.assertGreaterEqual(manager.recommended.count(), 10)
+        self.assertEqual(manager.recommended.item(0).data(Qt.ItemDataRole.UserRole)["id"], "qwen2.5-coder:7b")
+        manager.catalog_category.setCurrentIndex(manager.catalog_category.findData("coder"))
+        self.assertTrue(any(manager.recommended.item(i).isHidden() for i in range(manager.recommended.count())))
         manager.recommended.setCurrentRow(1)
-        self.assertEqual(manager.download_name.text(), "qwen3:8b")
+        self.assertEqual(manager.download_name.text(), "qwen2.5-coder:3b")
         self.assertIn("장점:", manager.description.toPlainText())
         self.assertIn("주의:", manager.description.toPlainText())
         manager._download()
@@ -314,7 +329,7 @@ class TranslationSetupUITests(unittest.TestCase):
         self.assertEqual(manager.table.rowCount(), 2)
         manager.table.selectRow(1)
         manager._use()
-        self.assertEqual(manager.selected_model, "qwen3:8b")
+        self.assertEqual(manager.selected_model, "qwen2.5-coder:3b")
 
 
 if __name__ == "__main__":
