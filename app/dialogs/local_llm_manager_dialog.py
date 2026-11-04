@@ -273,7 +273,8 @@ class LocalLLMManagerDialog(QDialog):
 
     def _selected(self):
         row = self.table.currentRow()
-        return self.models[row] if 0 <= row < len(self.models) and not self.table.isRowHidden(row) else None
+        return (self.models[row] if self.table.selectedItems() and 0 <= row < len(self.models)
+                and not self.table.isRowHidden(row) else None)
 
     def _selection(self, *_args):
         if self._updating_models:
@@ -496,7 +497,13 @@ class LocalLLMManagerDialog(QDialog):
         self.progress.hide()
         self.cancel_button.hide()
         if worker.error:
-            self.status.setText(worker.error)
+            if self.operation in {"refresh", "setup"}:
+                self.engine_state.setText(self.tr_text(
+                    "로컬 AI 연결 실패 · 실행 환경을 준비하거나 연결 주소를 확인하세요.",
+                    "Local AI unavailable · prepare the engine or check the server address."))
+            self.status.setText(worker.error + (self.tr_text(
+                " · 같은 모델을 다시 선택해 재시도할 수 있습니다.",
+                " · Select the same model to retry.") if self.operation == "download" else ""))
         elif worker.cancel.is_set():
             self.status.setText(self.tr_text("취소했습니다.", "Cancelled.") + (self.tr_text(
                 " LM Studio 다운로드는 서버에서 계속될 수 있습니다. LM Studio에서 확인하세요.",
@@ -509,27 +516,68 @@ class LocalLLMManagerDialog(QDialog):
         else:
             self._discovered = True
             previous = self._selected()
+            self._updating_models = True
             self.models = worker.value or []
-            self.table.setRowCount(len(self.models))
-            for index, row in enumerate(self.models):
-                size = f"{row['size'] / 1024**3:.2f} GiB" if isinstance(row["size"], (int, float)) and row["size"] else "—"
-                for column, text in enumerate((row["id"], size, row["parameters"] or "—", row["quantization"] or "—")):
-                    self.table.setItem(index, column, QTableWidgetItem(str(text)))
-            self._filter(self.search.text())
-            if self.models:
-                requested = self.download_name.text().strip() if self.operation == "download" else (previous or {}).get("id", "")
-                selected = next((i for i, row in enumerate(self.models) if row["id"] == requested), 0)
-                self.table.selectRow(selected)
-                if self.operation == "download":
-                    self.tabs.setCurrentIndex(0)
-            elif self.operation in {"setup", "refresh"}:
+            self.table.blockSignals(True)
+            try:
+                self.table.setRowCount(len(self.models))
+                for index, row in enumerate(self.models):
+                    size = f"{row['size'] / 1024**3:.2f} GiB" if isinstance(row["size"], (int, float)) and row["size"] else "—"
+                    for column, value in enumerate((row["id"], size, row["parameters"] or "—", row["quantization"] or "—")):
+                        self.table.setItem(index, column, QTableWidgetItem(str(value)))
+                for index, row in enumerate(self.models):
+                    self.table.setRowHidden(index, self.search.text().casefold() not in row["id"].casefold())
+                requested = (self._download_target if self.operation == "download" else
+                             self.preferred_model if self.operation in {"refresh", "setup"} and self.preferred_model
+                             else (previous or {}).get("id", ""))
+                selected = self._installed_index(requested)
+                if self.operation == "download" and selected < 0:
+                    new_rows = [i for i, row in enumerate(self.models)
+                                if row["id"] not in self._before_download]
+                    if len(new_rows) == 1:
+                        selected = new_rows[0]
+                if self.operation == "delete" and self._model_key(requested) == self._model_key(self._deleted_name):
+                    selected = -1
+                if selected < 0 and not requested and self.models and self.operation not in {"delete", "download"}:
+                    selected = 0
+                self.table.clearSelection()
+                if selected >= 0 and not self.table.isRowHidden(selected):
+                    self.table.selectRow(selected)
+            finally:
+                self.table.blockSignals(False)
+                self._updating_models = False
+            self._sync_catalog()
+            self.engine_state.setText(self.tr_text(
+                f"로컬 AI 연결됨 · 설치된 모델 {len(self.models)}개",
+                f"Local AI connected · {len(self.models)} installed models"))
+            if self.operation == "download":
+                self.tabs.setCurrentIndex(0)
+                self.status.setText(self.tr_text(
+                    "모델 다운로드 완료! 선택한 모델을 확인하고 '이 모델 사용'을 누르세요."
+                    if self._selected() else "다운로드가 끝났습니다. 설치된 모델 목록에서 사용할 모델을 선택하세요.",
+                    "Download complete! Review the selected model and click 'Use this model'."
+                    if self._selected() else "Download finished. Choose the model from Installed."))
+            elif self.operation == "delete":
+                self.status.setText(self.tr_text(
+                    f"{self._deleted_name} 삭제 완료 · 다른 모델을 사용하려면 직접 선택하세요.",
+                    f"{self._deleted_name} deleted · choose another model explicitly."))
+                self._deleted_name = ""
+            elif not self.models:
                 self.tabs.setCurrentIndex(1)
-            self.status.setText(self.tr_text(f"설치된 모델 {len(self.models)}개 · 사용할 모델을 선택한 뒤 '선택한 모델 사용'을 누르세요.",
-                f"{len(self.models)} installed models · select one and click 'Use selected model'.") if self.models else self.tr_text(
-                "모델이 아직 없습니다. '모델 찾기·설치'에서 모델을 선택하고 다운로드하세요.",
-                "No model installed yet. Choose and download one under 'Find and install'."))
+                self.status.setText(self.tr_text(
+                    "설치된 모델이 없습니다. 추천 목록에서 모델을 받아보세요.",
+                    "No models installed. Choose one from the catalog to get started."))
+            elif requested and not self._selected():
+                self.status.setText(self.tr_text(
+                    "전에 선택한 모델이 설치되어 있지 않습니다. 다른 모델을 직접 선택하세요.",
+                    "The previously selected model is missing. Choose another model explicitly."))
+            else:
+                self.status.setText(self.tr_text(
+                    f"설치된 모델 {len(self.models)}개 · 모델을 선택한 뒤 '이 모델 사용'을 누르세요.",
+                    f"{len(self.models)} installed models · select one and click 'Use this model'."))
         if self.operation != "details":
             self._selection()
+            self._recommendation()
         worker.deleteLater()
         self.busy_changed.emit(False)
         if self._closing:
