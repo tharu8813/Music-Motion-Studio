@@ -31,6 +31,20 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q main.py app tests scripts
 
+      - name: Benchmark Canvas preview Z-band optimization
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python tools/preview_ordered_canvas_benchmark.py --output preview-zband-benchmark.json
+        continue-on-error: true
+
+      - name: Upload preview rendering benchmark
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-zband-benchmark
+          path: preview-zband-benchmark.json
+          if-no-files-found: ignore
+
       - name: Install verified FFmpeg for integration tests
         shell: pwsh
         run: |
