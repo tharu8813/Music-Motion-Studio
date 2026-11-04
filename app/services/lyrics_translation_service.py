@@ -18,6 +18,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from app.services.lyrics_translation_prompt import (
     build_translation_prompt, lyric_text, neighboring_context, reference_translations,
+    whole_song_context, LOCAL_SONG_CONTEXT_MAX_CHARS, SONG_CONTEXT_MAX_CHARS,
 )
 
 
@@ -302,9 +303,13 @@ class LyricsTranslationService:
                 activity({"stage": "working", "rows": [index for index, _text in batch]})
             try:
                 if config.provider in LLM_PROVIDERS:
+                    song_context = whole_song_context(cues, {index for index, _text in batch},
+                        max_chars=LOCAL_SONG_CONTEXT_MAX_CHARS if config.provider in LOCAL_LLM_PROVIDERS
+                        else SONG_CONTEXT_MAX_CHARS)
                     translated = self._translate_batch(batch, config, cancel, activity=activity,
                         neighbors=neighboring_context(cues, batch[0][0], batch[-1][0]),
-                        references=reference_translations(batch, completed))
+                        references=reference_translations(batch, completed),
+                        song_context=song_context)
                 else:
                     translated = self._translate_batch(batch, config, cancel)
             except TranslationError as error:
@@ -353,9 +358,11 @@ class LyricsTranslationService:
             if progress:
                 progress(processed, len(rows))
             batch, length = [], 0
+        max_batch_rows = 1 if config.provider == "local_nmt" else 12 if config.provider in LOCAL_LLM_PROVIDERS else 20
+        max_batch_chars = 1800 if config.provider in LOCAL_LLM_PROVIDERS else 4000
         for index, text in rows:
             check_cancel(cancel)
-            if batch and (len(batch) >= (1 if config.provider == "local_nmt" else 20) or length + len(text) > 4000):
+            if batch and (len(batch) >= max_batch_rows or length + len(text) > max_batch_chars):
                 flush()
             batch.append((index, text))
             length += len(text)
@@ -363,7 +370,8 @@ class LyricsTranslationService:
         check_cancel(cancel)
         return result
 
-    def _translate_batch(self, rows, c, cancel, *, neighbors=None, references=None, activity=None):
+    def _translate_batch(self, rows, c, cancel, *, neighbors=None, references=None,
+                         song_context=None, activity=None):
         texts = [text for _index, text in rows]
         if c.provider == "local_nmt":
             if self.local_engine is None:
@@ -379,7 +387,8 @@ class LyricsTranslationService:
 
         if c.provider in LLM_PROVIDERS:
             instruction, prompt = build_translation_prompt(rows, source_language=c.source,
-                target_language=c.target, preferences=c.instructions, neighbors=neighbors, references=references)
+                target_language=c.target, preferences=c.instructions, neighbors=neighbors, references=references,
+                song_context=song_context)
             headers = {"Authorization": "Bearer " + c.key} if c.key else {}
             raw = None
 
