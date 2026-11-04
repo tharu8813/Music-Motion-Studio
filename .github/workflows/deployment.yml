@@ -59,9 +59,20 @@ jobs:
           '@ | python -
           if ($LASTEXITCODE -ne 0) { throw 'Verified FFmpeg installation failed.' }
 
+      - name: Validate previously failing preview and keyframe regressions
+        env:
+          QT_QPA_PLATFORM: offscreen
+          # Windows hosted runners have no reliable DXVA2 device. Qt's
+          # documented comma-only value disables hardware decode backends.
+          QT_FFMPEG_DECODING_HW_DEVICE_TYPES: ","
+        run: |
+          python -m unittest -v tests.test_custom_motion tests.test_keyframe_audit tests.test_keyframes tests.test_preview_gpu_compositor tests.test_preview_quality_presets tests.test_preview_responsiveness tests.test_text_music_reaction tests.test_preview_menu_access
+          python -m unittest -v tests.test_main_window_preview.MainWindowPreviewTests.test_dynamic_canvas_source_keeps_z_order_below_static_source tests.test_main_window_preview.MainWindowPreviewTests.test_gpu_preview_adapts_render_scale_without_changing_base_quality tests.test_main_window_preview.MainWindowPreviewTests.test_preview_track_navigator_highlights_and_jumps_to_track
+
       - name: Run isolated test modules
         env:
           QT_QPA_PLATFORM: offscreen
+          QT_FFMPEG_DECODING_HW_DEVICE_TYPES: ","
         run: python scripts/run_tests.py --timeout 300 --report test-results.json
 
       - name: Upload test results
