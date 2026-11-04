@@ -66,11 +66,18 @@ class TranslationReviewPanel(QWidget):
         self.setObjectName("translationReviewPanel")
         review_layout = QVBoxLayout(self)
         review_layout.setContentsMargins(0, 0, 0, 0)
+        review_layout.setSpacing(7)
+        self.review_title = QLabel(self.tr_text(
+            "2. 번역 검토 및 수정", "2. Review and edit translations",
+        ))
+        self.review_title.setObjectName("panelTitle")
+        review_layout.addWidget(self.review_title)
         self.review_summary = QLabel()
         self.review_summary.setObjectName("mutedLabel")
         self.review_summary.setWordWrap(True)
         review_layout.addWidget(self.review_summary)
         row_actions = QHBoxLayout()
+        row_actions.setSpacing(7)
         self._row_action_buttons = []
         for ko, en, checked in (("전체 선택", "Select all", True), ("전체 해제", "Clear selection", False)):
             button = QPushButton(self.tr_text(ko, en))
@@ -95,6 +102,9 @@ class TranslationReviewPanel(QWidget):
         self.table.setWordWrap(True)
         self.table.setTextElideMode(Qt.TextElideMode.ElideNone)
         self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(False)
+        self.table.verticalHeader().setDefaultSectionSize(48)
+        self.table.setMinimumHeight(220)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setAccessibleName(self.tr_text("원문과 번역 검토 표", "Original and translated lyrics review"))
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -128,14 +138,16 @@ class TranslationReviewPanel(QWidget):
                 self.table.item(row, 3).setFlags(Qt.ItemFlag.ItemIsEnabled)
                 self.table.item(row, 4).setText(self.tr_text("가사 없음", "No lyrics"))
         self.table.resizeRowsToContents()
+        for row in range(self.table.rowCount()):
+            self.table.setRowHeight(row, max(48, self.table.rowHeight(row)))
         review_layout.addWidget(self.table, 1)
         selection_note = QLabel(self.tr_text(
-            "체크하지 않은 줄은 기존 번역을 유지합니다. 기존 번역 삭제는 확인을 거칩니다. 적용 후 곡 정보 창에서도 적용하고 프로젝트를 저장하세요.",
-            "Unchecked rows keep translations. Deletion requires confirmation. Apply again in track settings, then save the project."))
+            "체크한 줄만 적용하며, 체크하지 않은 줄은 그대로 유지됩니다. 곡 정보 창에서도 적용한 뒤 프로젝트를 저장하세요.",
+            "Only checked rows are applied; others stay unchanged. Apply in track settings and save the project."))
         selection_note.setWordWrap(True)
         review_layout.addWidget(selection_note)
-        edit_note = QLabel(self.tr_text("번역문을 두 번 클릭해 수정 · 줄바꿈은 Enter · 편집 완료는 Ctrl+Enter",
-            "Double-click to edit · Enter for a line break · Ctrl+Enter to finish"))
+        edit_note = QLabel(self.tr_text("번역문 수정: 두 번 클릭  ·  줄바꿈: Enter  ·  완료: Ctrl+Enter",
+            "Edit translation: double-click  ·  New line: Enter  ·  Done: Ctrl+Enter"))
         edit_note.setWordWrap(True)
         edit_note.setObjectName("mutedLabel")
         review_layout.addWidget(edit_note)
@@ -144,11 +156,16 @@ class TranslationReviewPanel(QWidget):
         self.attribution_label.setVisible(any(approved_translation(cue) and cue["translation"]["provider"] == "papago" for cue in cues))
         review_layout.addWidget(self.attribution_label)
         filters = QHBoxLayout()
+        filters.setSpacing(7)
+        filter_label = QLabel(self.tr_text("표시", "Show"))
+        filter_label.setBuddy(self.table)
+        filters.addWidget(filter_label)
         self.filter_combo = QComboBox()
         for ko, en, value in (("모든 행", "All rows", "all"), ("번역되지 않은 행", "Untranslated", "untranslated"),
                               ("실패·미완료 행", "Failed / incomplete", "failed"), ("수정한 행", "Edited", "edited")):
             self.filter_combo.addItem(self.tr_text(ko, en), value)
         self.filter_combo.setAccessibleName(self.tr_text("검토 행 필터", "Review row filter"))
+        self.filter_combo.setMinimumContentsLength(10)
         filters.addWidget(self.filter_combo)
         self.retry_selected = QPushButton(self.tr_text("선택한 행 재번역", "Retranslate selected rows"))
         self.retry_selected.setToolTip(self.tr_text(
@@ -160,8 +177,9 @@ class TranslationReviewPanel(QWidget):
         filters.addStretch()
         self.style_button = QPushButton(self.tr_text("번역문 스타일…", "Translation style…"))
         filters.addWidget(self.style_button)
-        review_layout.insertLayout(1, filters)
+        review_layout.insertLayout(2, filters)
         footer = QHBoxLayout()
+        footer.setSpacing(8)
         self.discard_button = QPushButton(self.tr_text("초안 삭제…", "Delete draft…"))
         self.discard_button.clicked.connect(self.discard_draft)
         footer.addWidget(self.discard_button)
