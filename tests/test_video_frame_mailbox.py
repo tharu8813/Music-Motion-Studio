@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import Mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, QUrl
 from PySide6.QtMultimedia import QVideoFrame, QVideoFrameFormat
 from PySide6.QtTest import QSignalSpy
 from PySide6.QtWidgets import QApplication
@@ -83,6 +83,16 @@ class VideoFrameMailboxTests(unittest.TestCase):
         self.application.processEvents()
         self.assertEqual(mailbox.take(), (None, 0))
         item._video_frame_changed.assert_not_called()
+
+    def test_release_clears_media_and_detaches_sink_before_returning(self):
+        item = SourceItem(Source(SourceType.SHAPE, "Decoder teardown"))
+        player = item._ensure_video_decoder()
+        player.setSource(QUrl.fromLocalFile("missing-preview-fixture.mp4"))
+        self.assertFalse(player.source().isEmpty())
+        item.release_video_decoder()
+        self.assertTrue(player.source().isEmpty())
+        self.assertIsNone(player.videoOutput())
+        self.assertIsNone(item._video_player)
 
 
 if __name__ == "__main__":

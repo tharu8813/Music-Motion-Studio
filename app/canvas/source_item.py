@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.utils.performance import timed
+from app.utils.performance import ENABLED as PROFILE_ENABLED, PROFILE, timed
 
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -11,7 +11,7 @@ from pathlib import Path
 from time import monotonic
 
 import numpy as np
-from PySide6.QtCore import QPointF, QRectF, QSizeF, Qt, QThreadPool, QUrl, Signal
+from PySide6.QtCore import Q_ARG, QEventLoop, QMetaObject, QPointF, QRectF, QSizeF, Qt, QThreadPool, QUrl, Signal
 from PySide6.QtGui import (
     QColor, QBrush, QFont, QFontMetricsF, QImage, QLinearGradient, QPainter,
     QPainterPath, QPainterPathStroker, QPen, QPixmap, QTextLayout, QTextOption,
@@ -57,6 +57,7 @@ from app.video.frame_filter import (
     _rgb_pixels, apply_color_filters,
 )
 from app.video.preview_decoder import (
+    MAPPED_YUV420_FORMATS,
     VideoDecoderStats, video_position_needs_seek, video_seek_tolerance_ms,
 )
 
@@ -92,8 +93,7 @@ class SourceItem(QGraphicsObject):
         "Format_BGRA8888", "Format_BGRX8888",
         "Format_ARGB8888", "Format_XRGB8888",
         "Format_ABGR8888", "Format_XBGR8888",
-        "Format_NV12", "Format_NV21",
-    })
+    }) | MAPPED_YUV420_FORMATS
 
     def __init__(self, source: Source) -> None:
         super().__init__()
@@ -133,6 +133,10 @@ class SourceItem(QGraphicsObject):
         self._video_last_requested_target_ms: int | None = None
         self._video_last_request_time = 0.0
         self._video_accepted_frames = 0
+        self._video_received_frames = 0
+        self._video_mailbox_drops = 0
+        self._video_stream_fps = 0.0
+        self._video_pixel_format = ""
         self._video_dropped_frames = 0
         self._video_throttled_frames = 0
         self._video_pressure_drops = 0
@@ -487,7 +491,6 @@ class SourceItem(QGraphicsObject):
         self._pixmap = QPixmap()
         self._video_presented_frame = QImage()
         self._video_presented_gpu_frame = QVideoFrame()
-        self._video_presented_gpu_serial = 0
         self._video_presented_revision = 0
         if path and Path(path).is_file():
             self._video_player.setSource(QUrl.fromLocalFile(str(Path(path).resolve())))
@@ -524,6 +527,8 @@ class SourceItem(QGraphicsObject):
         if mailbox is None:
             return
         frame, dropped = mailbox.take()
+        self._video_received_frames += int(frame is not None) + dropped
+        self._video_mailbox_drops += dropped
         self._video_dropped_frames += dropped
         self._video_pressure_drops += dropped
         if frame is not None:
@@ -617,16 +622,46 @@ class SourceItem(QGraphicsObject):
             self._video_frame_handle = ""
             self._video_gpu_backed_frame = False
         pixel_format_name = getattr(frame.pixelFormat(), "name", "")
+        self._video_pixel_format = pixel_format_name
+        reported_fps = frame.streamFrameRate()
+        if reported_fps > 0.0:
+            self._video_stream_fps = reported_fps
+        if PROFILE_ENABLED and frame.startTime() >= 0 and self._video_last_requested_target_ms is not None:
+            PROFILE.observe(
+                "video.eligible_pts_error_seconds",
+                (frame.startTime() / 1000 - self._video_last_requested_target_ms) / 1000,
+            )
+        planar = self._video_direct_gpu_frame and pixel_format_name in MAPPED_YUV420_FORMATS
+        surface_format = frame.surfaceFormat() if planar else None
+        # Qt's public API supplies mapped planes, including for CPU-backed
+        # frames. Fall back for formats/transforms the shader cannot match.
+        supported_planes = (
+            surface_format is not None
+            # Some Qt-owned 3-plane buffers allocate floor(height / 2) rows.
+            and (pixel_format_name != "Format_YUV420P" or frame.height() % 2 == 0)
+            and surface_format.scanLineDirection().name == "TopToBottom"
+            and surface_format.viewport().size() == frame.size()
+            and surface_format.viewport().topLeft().isNull()
+            and surface_format.colorSpace().name in {
+                "ColorSpace_Undefined", "ColorSpace_BT601", "ColorSpace_BT709",
+            }
+            and surface_format.colorTransfer().name in {
+                "ColorTransfer_Unknown", "ColorTransfer_BT601", "ColorTransfer_BT709",
+            }
+        )
         if (
             self._video_direct_gpu_frame
-            and self._video_gpu_backed_frame
             and pixel_format_name in self._direct_gpu_pixel_formats
+            and (supported_planes if planar else self._video_gpu_backed_frame)
             and not frame.mirrored()
             and int(frame.rotation().value) == 0
         ):
             self._video_next_frame_deadline = next_deadline
             self._video_accepted_frames += 1
             self._video_presented_gpu_frame = QVideoFrame(frame)
+            self._video_presented_frame = QImage()
+            self._video_last_raw_frame = QImage()
+            self._pixmap = QPixmap()
             self._video_presented_gpu_serial += 1
             self._video_presented_revision += 1
             self._video_frame_waiting = False
@@ -642,7 +677,8 @@ class SourceItem(QGraphicsObject):
                     self._video_player.pause()
             self.video_frame_ready.emit()
             return
-        image = frame.toImage()
+        self._video_presented_gpu_frame = QVideoFrame()
+        image = self._video_frame_to_image(frame)
         if image.isNull():
             self._video_dropped_frames += 1
             self._video_pressure_drops += 1
@@ -670,6 +706,11 @@ class SourceItem(QGraphicsObject):
             self._video_pressure_drops += 1
         self._video_pending_frame = (image, generation)
         self._start_next_video_filter()
+
+    @staticmethod
+    @timed("video.to_image_seconds")
+    def _video_frame_to_image(frame: QVideoFrame) -> QImage:
+        return frame.toImage()
 
     def _video_filter_key(self) -> tuple[object, ...]:
         return (
@@ -786,8 +827,6 @@ class SourceItem(QGraphicsObject):
             return
         self._video_direct_gpu_frame = enabled
         self._video_presented_gpu_frame = QVideoFrame()
-        if not enabled:
-            self._video_presented_gpu_serial = 0
         self._video_presented_revision += 1
 
     @property
@@ -992,6 +1031,10 @@ class SourceItem(QGraphicsObject):
             throttled_frames=self._video_throttled_frames,
             pressure_drops=self._video_pressure_drops,
             filter_pending=self._video_pending_frame is not None,
+            received_frames=self._video_received_frames,
+            mailbox_drops=self._video_mailbox_drops,
+            stream_fps=self._video_stream_fps,
+            pixel_format=self._video_pixel_format,
         )
 
     def reset_video_preview(self) -> None:
@@ -1034,7 +1077,6 @@ class SourceItem(QGraphicsObject):
         self._video_last_raw_frame = QImage()
         self._video_presented_frame = QImage()
         self._video_presented_gpu_frame = QVideoFrame()
-        self._video_presented_gpu_serial = 0
         self._video_presented_revision = 0
         self._video_direct_gpu_frame = False
         if self._video_player is not None:
@@ -1063,7 +1105,6 @@ class SourceItem(QGraphicsObject):
         self._video_last_raw_frame = QImage()
         self._video_presented_frame = QImage()
         self._video_presented_gpu_frame = QVideoFrame()
-        self._video_presented_gpu_serial = 0
         self._video_presented_revision = 0
         self._video_direct_gpu_frame = False
         player = self._video_player
@@ -1087,12 +1128,19 @@ class SourceItem(QGraphicsObject):
             except (RuntimeError, TypeError):
                 pass
         if player is not None:
-            player.stop()
+            if not player.source().isEmpty():
+                # A direct decoder callback may still be returning to Qt.
+                # Let Qt clear the source without a Python call holding the GIL.
+                loop = QEventLoop()
+                QMetaObject.invokeMethod(
+                    player, "setSource", Qt.ConnectionType.QueuedConnection, Q_ARG(QUrl, QUrl()),
+                )
+                QMetaObject.invokeMethod(loop, "quit", Qt.ConnectionType.QueuedConnection)
+                loop.exec(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
             try:
                 player.setVideoOutput(None)
             except RuntimeError:
                 pass
-            player.setSource(QUrl())
             player.deleteLater()
         if sink is not None:
             sink.deleteLater()

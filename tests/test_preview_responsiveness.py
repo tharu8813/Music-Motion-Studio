@@ -169,6 +169,7 @@ class PreviewResponsivenessTests(unittest.TestCase):
         base = preview.preview_render_scale
         preview._playing = True
         preview._frame_stats_clock = Clock()
+        preview._scene_cadence_target = 30
         for _ in range(2):
             preview._presented_frames = 5
             preview._record_presented_frame()

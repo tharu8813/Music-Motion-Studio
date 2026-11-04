@@ -1,6 +1,7 @@
 """Preview-only, translucent telemetry with independent appearance controls."""
 from collections import deque
 import json
+from time import monotonic
 
 from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSettings, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
@@ -11,7 +12,7 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout
 # key, Korean label, English label, section, enabled by default
 FIELDS = [
     ('backend', '렌더러', 'Renderer', 'render', True),
-    ('fps', '실제 / 목표 FPS', 'Actual / target FPS', 'render', True),
+    ('fps', '신규 장면 / 화면 목표 FPS', 'New scenes / display target FPS', 'render', True),
     ('scale', '미리보기 해상도', 'Preview resolution', 'render', True),
     ('frame_budget', '목표 프레임 간격', 'Target frame interval', 'render', False),
     ('quality', '자동 품질 단계', 'Adaptive quality level', 'render', False),
@@ -34,12 +35,16 @@ FIELDS = [
     ('content_reuses', '동일 이미지 업로드 생략', 'Identical uploads skipped', 'gpu', False),
     ('upload_bytes', '누적 업로드 용량', 'Total uploaded bytes', 'gpu', False),
     ('gpu_frames', '제출 / 표시 / 드롭', 'Submitted / presented / dropped', 'gpu', False),
+    ('repeat_swaps', '같은 장면 화면 교체', 'Swaps repeating a scene', 'gpu', False),
+    ('swap_fps', '화면 교체 FPS', 'Swap FPS', 'gpu', False),
     ('scene_frames', '장면 표시 프레임', 'Presented scene frames', 'gpu', False),
     ('filters', 'GPU 필터 레이어', 'GPU filter layers', 'gpu', False),
     ('stalls', '정지 / 연속 정지', 'Stalls / consecutive stalls', 'gpu', False),
     ('awaiting', '표시 대기', 'Awaiting presentation', 'gpu', False),
     ('video', '활성 디코더', 'Active decoders', 'video', False),
-    ('decoded', '수신 / 드롭 프레임', 'Accepted / dropped frames', 'video', False),
+    ('decoded', '수락 / 드롭 프레임', 'Accepted / dropped frames', 'video', False),
+    ('received', '디코더 수신 / 메일박스 교체', 'Decoder received / mailbox drops', 'video', False),
+    ('received_fps', '전체 디코더 수신 FPS', 'Aggregate decoder received FPS', 'video', False),
     ('pressure', '압력 드롭 / 스로틀', 'Pressure drops / throttled frames', 'video', False),
     ('seeks', '탐색 / 소스 변경', 'Seeks / source switches', 'video', False),
     ('pending', '필터 대기 / GPU 프레임', 'Pending filters / GPU frames', 'video', False),
@@ -47,7 +52,7 @@ FIELDS = [
     ('proxies', '프록시 상태', 'Proxy status', 'video', False),
     ('image_cache', '합성 이미지 용량', 'Composition image bytes', 'cache', False),
     ('static_bands', '정적 레이어 캐시 적중 / 렌더', 'Static band cache hits / renders', 'cache', False),
-    ('ordered_cache', '순서형 Z 캐시 적중 / 렌더', 'Ordered Z cache hits / renders', 'cache', False),
+    ('ordered_cache', '순서형 Z 캐시 적중 / 렌더 / 초기화', 'Ordered Z cache hits / renders / resets', 'cache', False),
     ('overlay_cache', '효과 이미지 용량', 'Overlay image bytes', 'cache', False),
     ('workers', '분석 / 효과 작업', 'Analysis / overlay workers', 'cache', False),
     ('refresh', '새 프레임 대기 / 지연', 'Queued / deferred refresh', 'cache', False),
@@ -321,7 +326,7 @@ class PerformanceMonitor(QFrame):
         health = p._gpu_health.stats
         def mb(n):
             return f'{n/1048576:.1f} MiB'
-        for key in ('latency','gpu','gpu_peak','textures','uploads','content_reuses','upload_bytes','gpu_frames','scene_frames','filters','stalls','awaiting'):
+        for key in ('latency','gpu','gpu_peak','textures','uploads','content_reuses','upload_bytes','gpu_frames','repeat_swaps','scene_frames','filters','stalls','awaiting'):
             values[key] = unavailable
         if p.gpu_preview_enabled:
             values['latency'] = f'{health.last_latency_ms:.1f} / {health.maximum_latency_ms:.1f} ms'
@@ -334,21 +339,39 @@ class PerformanceMonitor(QFrame):
                 content_reuses=str(gpu.content_reuses),
                 upload_bytes=mb(gpu.uploaded_bytes),
                 gpu_frames=f'{gpu.submitted_frames} / {gpu.presented_frames} / {gpu.dropped_pending_frames}',
+                repeat_swaps=str(gpu.presented_frames - gpu.presented_scene_frames),
                 scene_frames=str(gpu.presented_scene_frames), filters=str(gpu.filtered_layers))
         decoders = [item.video_decoder_stats() for item in p._cached_video_items if item._video_timeline_preview_active]
         total = lambda name: sum(getattr(d, name) for d in decoders)
+        now = monotonic()
+        swaps = gpu.presented_frames if gpu is not None else 0
+        received = total("received_frames")
+        previous = getattr(self, "_rate_sample", None)
+        self._rate_sample = now, swaps, received, len(decoders)
+        values['swap_fps'] = values['received_fps'] = '—'
+        if previous is not None and now > previous[0]:
+            elapsed = now - previous[0]
+            if gpu is not None and swaps >= previous[1]:
+                values['swap_fps'] = f'{(swaps - previous[1]) / elapsed:.1f}'
+            if decoders and len(decoders) == previous[3] and received >= previous[2]:
+                values['received_fps'] = f'{(received - previous[2]) / elapsed:.1f}'
         values.update(video=str(len(decoders)), decoded=f'{total("accepted_frames")} / {total("dropped_frames")}',
+            received=f'{total("received_frames")} / {total("mailbox_drops")}',
             pressure=f'{total("pressure_drops")} / {total("throttled_frames")}',
             seeks=f'{total("seek_count")} / {total("source_switches")}',
             pending=f'{total("filter_pending")} / {total("gpu_backed_frame")}',
             decoder_limit=f'{p._decoder_backpressure.resolution_factor:.0%} / {p._decoder_backpressure.fps_limit} FPS',
             proxies=p._video_proxy_status_text(self.korean).strip(' ·') or self.tr('없음', 'None'))
-        values['image_cache'] = mb(p._image.sizeInBytes()+p._base_image.sizeInBytes())
+        values['image_cache'] = mb(
+            p._image.sizeInBytes() + p._base_image.sizeInBytes()
+            + sum(image.sizeInBytes() for image in p._gpu_ordered_static_cache.values())
+            + (p._gpu_ordered_scratch.sizeInBytes() if p._gpu_ordered_scratch is not None else 0)
+        )
         values['static_bands'] = (
             f'{p._static_band_cache_hits} / {p._static_band_cache_misses}'
         )
         values['ordered_cache'] = (
-            f'{p._ordered_cache_hits} / {p._ordered_cache_renders}'
+            f'{p._ordered_cache_hits} / {p._ordered_cache_renders} / {p._ordered_cache_invalidations}'
         )
         # Memory enumeration is only needed when this optional diagnostic is shown.
         if self.enabled['overlay_cache']:

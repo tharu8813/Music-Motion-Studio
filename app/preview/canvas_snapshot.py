@@ -202,6 +202,11 @@ class CanvasSnapshot:
     """Captures only the export artboard, without editor handles or workspace chrome."""
 
     @staticmethod
+    @timed("canvas.qt_scene_paint_seconds")
+    def _paint_scene(scene: CanvasScene, painter: QPainter, target: QRectF, source: QRectF) -> None:
+        scene.render(painter, target, source, Qt.AspectRatioMode.IgnoreAspectRatio)
+
+    @staticmethod
     @timed("canvas.scene_render_seconds")
     def capture(scene: CanvasScene, output_scale: float = 1.0,
                 z_min: float | None = None, z_max: float | None = None,
@@ -254,11 +259,8 @@ class CanvasSnapshot:
                         item.setVisible(False)
             painter = QPainter(image)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            scene.render(
-                painter,
-                QRectF(0, 0, image.width(), image.height()),
-                source_rect,
-                Qt.AspectRatioMode.IgnoreAspectRatio,
+            CanvasSnapshot._paint_scene(
+                scene, painter, QRectF(0, 0, image.width(), image.height()), source_rect,
             )
             painter.end()
             for item in selected_items:
@@ -278,12 +280,15 @@ class CanvasSnapshot:
         scene: CanvasScene,
         z_min: float | None,
         z_max: float | None,
+        *,
+        transformed_preview: bool = False,
+        source_items: Sequence[SourceItem] | None = None,
     ) -> QRectF | None:
         """Return pixel-aligned bounds for the currently visible band items."""
         artboard = scene.artboard_rect
         bounds = QRectF()
         found = False
-        for item in scene.items():
+        for item in source_items if source_items is not None else scene.items():
             if not isinstance(item, SourceItem) or not item.isVisible():
                 continue
             source = item.source
@@ -293,10 +298,12 @@ class CanvasSnapshot:
                 or (z_max is not None and source.z_index > z_max)
             ):
                 continue
-            if source.keyframes.animated or has_custom_motion(source):
+            if not transformed_preview and (source.keyframes.animated or has_custom_motion(source)):
                 # A fixed base-pose crop cannot bound arbitrary keyed transforms.
                 return None
             item_bounds = item.mapRectToScene(item.content_rect())
+            if transformed_preview and source.source_type is SourceType.SHAPE:
+                item_bounds = item_bounds.united(item.mapRectToScene(item.boundingRect()))
             # SourceItem paints a few effects beyond its nominal content.  The
             # item transform already includes current animation movement,
             # scale, and rotation; this scene-space padding covers antialiasing,
@@ -346,6 +353,7 @@ class CanvasSnapshot:
         z_max: float | None,
         *,
         maximum_area_ratio: float = 0.9,
+        source_items: Sequence[SourceItem] | None = None,
     ) -> QRectF | None:
         """Return one safe fixed crop for a complete transparent Z stream."""
         artboard = scene.artboard_rect
@@ -354,7 +362,7 @@ class CanvasSnapshot:
         slide_styles = {
             "slide_left", "slide_right", "slide_up", "slide_down",
         }
-        for item in scene.items():
+        for item in source_items if source_items is not None else scene.items():
             if not isinstance(item, SourceItem) or not item.isVisible():
                 continue
             source = item.source
@@ -422,6 +430,21 @@ class CanvasSnapshot:
         return envelope
 
     @staticmethod
+    def align_preview_crop(
+        rect: QRectF, artboard: QRectF, scale: float, *, tile: int = 1,
+    ) -> QRectF:
+        """Use the same raster grid as a full artboard capture."""
+        sx = max(1, round(artboard.width() * scale)) / artboard.width()
+        sy = max(1, round(artboard.height() * scale)) / artboard.height()
+        left = floor((rect.left() - artboard.left()) * sx / tile) * tile / sx
+        right = ceil((rect.right() - artboard.left()) * sx / tile) * tile / sx
+        top = floor((rect.top() - artboard.top()) * sy / tile) * tile / sy
+        bottom = ceil((rect.bottom() - artboard.top()) * sy / tile) * tile / sy
+        return QRectF(
+            artboard.left() + left, artboard.top() + top, right - left, bottom - top,
+        ).intersected(artboard)
+
+    @staticmethod
     def _expand_partial_capture(
         partial_image: QImage,
         capture_rect: QRectF,
@@ -444,9 +467,12 @@ class CanvasSnapshot:
         return image
 
     @staticmethod
-    def z_bands(scene: CanvasScene, dynamic_source_ids: set[str]) -> list[tuple[float | None, float | None]]:
+    def z_bands(
+        scene: CanvasScene, dynamic_source_ids: set[str], *,
+        external_z: tuple[float, ...] = (),
+    ) -> list[tuple[float | None, float | None]]:
         """Return static Z-index intervals separated by reactive source layers."""
-        dynamic_z = sorted({item.source.z_index for item in scene.items()
+        dynamic_z = sorted(set(external_z) | {item.source.z_index for item in scene.items()
                             if isinstance(item, SourceItem) and item.isVisible()
                             and item.source.visible and item.source.id in dynamic_source_ids})
         if not dynamic_z:
@@ -744,6 +770,7 @@ class CanvasSnapshot:
                       bass_level: float = 0.0,
                       music_levels: dict[str, float] | None = None,
                       motion_pose_overrides: dict[str, AnimationPose] | None = None,
+                      compact_preview_band: bool = False,
                       lyric_instrumental_spans: tuple | None = None,
                       lyric_instrumental_spans_by_source: dict[str, tuple] | None = None) -> QImage:
         """Capture one track state with metadata, cover art, and an optional Z band.
@@ -1433,6 +1460,15 @@ class CanvasSnapshot:
         try:
             effective_capture_rect = capture_rect
             used_partial_render = False
+            if compact_preview_band and transparent and capture_rect is None:
+                candidate = CanvasSnapshot._dynamic_band_capture_rect(
+                    scene, z_min, z_max,
+                    transformed_preview=True, source_items=source_items,
+                )
+                if candidate is not None:
+                    effective_capture_rect = CanvasSnapshot.align_preview_crop(
+                        candidate, scene.artboard_rect, output_scale, tile=32,
+                    )
             if partial_render and transparent and capture_rect is None:
                 candidate = CanvasSnapshot._dynamic_band_capture_rect(
                     scene, z_min, z_max,

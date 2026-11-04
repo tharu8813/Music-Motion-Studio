@@ -103,12 +103,7 @@ def filter_video_frame(
     # Keep native pixels when a clean frame is smaller than that rectangle.
     scaled = image
     if not neutral or image.width() > target_width or image.height() > target_height:
-        scaled = image.scaled(
-            target_width,
-            target_height,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
+        scaled = _scale_video_image(image, target_width, target_height)
     return apply_color_filters(
         scaled,
         brightness=settings.brightness,
@@ -119,6 +114,16 @@ def filter_video_frame(
     )
 
 
+@timed("video.cpu_scale_seconds")
+def _scale_video_image(image: QImage, width: int, height: int) -> QImage:
+    return image.scaled(
+        width, height,
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+
+
+@timed("video.cpu_color_blur_seconds")
 def apply_color_filters(
     image: QImage,
     *,
@@ -220,12 +225,11 @@ def _box_blur(values: np.ndarray, radius: int, axis: int) -> np.ndarray:
         return values
     moved = np.ascontiguousarray(np.moveaxis(values, axis, 0))
     padded = np.pad(moved, [(radius, radius), (0, 0), (0, 0)], mode="edge")
-    cumulative = np.cumsum(padded, axis=0, dtype=np.float32)
-    cumulative = np.concatenate(
-        (np.zeros((1, *cumulative.shape[1:]), dtype=np.float32), cumulative),
-        axis=0,
-    )
+    cumulative = np.empty((padded.shape[0] + 1, *padded.shape[1:]), dtype=np.float32)
+    cumulative[0] = 0
+    np.cumsum(padded, axis=0, dtype=np.float32, out=cumulative[1:])
     length = moved.shape[0]
     kernel = radius * 2 + 1
-    blurred = (cumulative[kernel:kernel + length] - cumulative[0:length]) / kernel
+    blurred = cumulative[kernel:kernel + length] - cumulative[:length]
+    blurred /= kernel
     return np.moveaxis(blurred, 0, axis)

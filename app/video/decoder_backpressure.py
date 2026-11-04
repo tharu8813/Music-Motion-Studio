@@ -62,7 +62,12 @@ class VideoDecoderBackpressure:
         """Consume one rolling sample of decoder and presentation pressure."""
         previous = (self.resolution_factor, self.fps_limit)
         active = max(0, int(active_decoders))
-        pressure = max(0, int(pressure_drops)) > 0 or pending_decoders > 0
+        # Occasional mailbox replacement is expected at vsync, particularly
+        # when a decoder publishes two frames in one GUI event-loop turn.
+        pressure = (
+            pressure_drops >= max(2, (accepted_frames + 9) // 10)
+            or pending_decoders > 0
+        )
 
         # Resolution-oriented modes give the decoder time to reduce cadence
         # before sacrificing pixel detail. Quality mode never shrinks video.

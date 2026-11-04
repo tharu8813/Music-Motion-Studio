@@ -1399,6 +1399,7 @@ class MainWindowPreviewTests(MainWindowTestCase):
         preview.gpu_preview_enabled = True
         preview._playing = True
         preview._frame_stats_clock = ClockStub()
+        preview._scene_cadence_target = 60  # Simulate a continuously animated scene.
         preview._base_image = QImage(64, 36, QImage.Format.Format_RGBA8888)
         for _ in range(2):
             preview._presented_frames = 5

@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+MAPPED_YUV420_FORMATS = frozenset({"Format_NV12", "Format_NV21", "Format_YUV420P"})
+
+
 def video_seek_tolerance_ms(fps: int) -> int:
     """Allow normal decoder clock granularity without repeated corrective seeks."""
     bounded_fps = max(10, min(60, int(fps)))
@@ -28,3 +31,7 @@ class VideoDecoderStats:
     throttled_frames: int = 0
     pressure_drops: int = 0
     filter_pending: bool = False
+    received_frames: int = 0
+    mailbox_drops: int = 0
+    stream_fps: float = 0.0
+    pixel_format: str = ""

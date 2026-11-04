@@ -71,6 +71,11 @@ class PerformanceProfile:
                 }
             return result
 
+    def clear(self) -> None:
+        """Start a fresh measurement window after benchmark warm-up."""
+        with self._lock:
+            self._samples.clear()
+
 
 PROFILE = PerformanceProfile()
 

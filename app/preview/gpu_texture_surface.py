@@ -10,12 +10,15 @@ from __future__ import annotations
 from array import array
 from dataclasses import dataclass, replace
 from math import cos, radians, sin
+from sys import byteorder
+from time import perf_counter
 from typing import Hashable, Sequence
 
 import numpy as np
 
-from app.utils.performance import timed
+from app.utils.performance import ENABLED as PROFILE_ENABLED, PROFILE, timed
 from app.preview.texture_fingerprint import image_content_signature
+from app.video.preview_decoder import MAPPED_YUV420_FORMATS
 
 from PySide6.QtCore import QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QImage, QOpenGLContext, QSurfaceFormat
@@ -24,7 +27,7 @@ from PySide6.QtWidgets import QSizePolicy
 
 try:
     from PySide6.QtOpenGL import (
-        QOpenGLBuffer, QOpenGLShader, QOpenGLShaderProgram,
+        QOpenGLBuffer, QOpenGLPixelTransferOptions, QOpenGLShader, QOpenGLShaderProgram,
         QOpenGLTexture, QOpenGLTextureBlitter, QOpenGLVertexArrayObject,
     )
     from PySide6.QtOpenGLWidgets import QOpenGLWidget
@@ -127,6 +130,7 @@ class _TextureEntry:
     aux_texture: object | None = None
     video_format: str = ""
     fingerprint: object | None = None
+    premultiplied: bool = False
 
 
 if GPU_TEXTURE_SURFACE_AVAILABLE:
@@ -154,11 +158,14 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
             self._video_program = None
             self._functions = None
             self._ready = False
+            self._bgra_upload_supported = False
             self._failure_reported = False
             self._submitted_frames = 0
             self._presented_frames = 0
             self._presented_scene_frames = 0
             self._last_presented_serial = 0
+            self.last_swap_had_new_scene = False
+            self._pending_since = self._active_since = self._compose_since = None
             self._dropped_pending_frames = 0
             self._texture_uploads = 0
             self._texture_allocations = 0
@@ -189,6 +196,8 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
             self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
             self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
             self.frameSwapped.connect(self._on_frame_swapped)
+            if PROFILE_ENABLED:
+                self.aboutToCompose.connect(self._on_about_to_compose)
 
         @property
         def ready(self) -> bool:
@@ -238,6 +247,8 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
         ) -> None:
             """Replace the queued scene while preserving reusable GPU textures."""
             self._submitted_frames += 1
+            if PROFILE_ENABLED:
+                self._pending_since = perf_counter()
             if self._pending_layers:
                 self._dropped_pending_frames += 1
             self._pending_canvas_size = QSize(canvas_size)
@@ -261,16 +272,30 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
 
         def _on_frame_swapped(self) -> None:
             self._presented_frames += 1
-            if self._frame_serial > self._last_presented_serial:
+            self.last_swap_had_new_scene = self._frame_serial > self._last_presented_serial
+            if self.last_swap_had_new_scene:
                 self._presented_scene_frames += 1
                 self._last_presented_serial = self._frame_serial
+            if PROFILE_ENABLED:
+                now = perf_counter()
+                PROFILE.observe("preview.swap_new_scene", float(self.last_swap_had_new_scene))
+                if self._compose_since is not None:
+                    PROFILE.observe("preview.qt_compose_to_swap_seconds", now - self._compose_since)
+                    self._compose_since = None
+                if self.last_swap_had_new_scene and self._active_since is not None:
+                    PROFILE.observe("preview.submission_to_swap_seconds", now - self._active_since)
+                    self._active_since = None
             self.frame_presented.emit()
+
+        def _on_about_to_compose(self) -> None:
+            self._compose_since = perf_counter()
 
         def initializeGL(self) -> None:  # type: ignore[override]
             try:
                 context = self.context()
                 if context is None or not context.isValid():
                     raise RuntimeError("Could not create a valid OpenGL context.")
+                self._bgra_upload_supported = byteorder == "little" and not context.isOpenGLES()
                 self._functions = context.functions()
                 self._functions.initializeOpenGLFunctions()
                 self._blitter = QOpenGLTextureBlitter()
@@ -313,17 +338,30 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                 origin_y = (
                     viewport.height() - self._active_canvas_size.height() * scale
                 ) / 2.0
+                draw_started = perf_counter() if PROFILE_ENABLED else 0.0
                 self._functions.glEnable(0x0BE2)  # GL_BLEND
+                self._functions.glEnable(0x0C11)  # GL_SCISSOR_TEST
+                self._functions.glScissor(
+                    round(origin_x), round(origin_y),
+                    viewport.width() - 2 * round(origin_x),
+                    viewport.height() - 2 * round(origin_y),
+                )
                 # Source-over alpha is A + dstA*(1-A), not A*A + dstA*(1-A).
                 # The latter made framebuffer readback/composition brighter
                 # whenever a translucent animated layer crossed an opaque base.
                 self._functions.glBlendFuncSeparate(0x0302, 0x0303, 1, 0x0303)
                 self._blitter.bind()
                 try:
+                    premultiplied = False
                     for layer in self._active_layers:
                         entry = self._textures.get(layer.key)
                         if entry is None or not entry.texture.isCreated():
                             continue
+                        if entry.premultiplied != premultiplied:
+                            premultiplied = entry.premultiplied
+                            self._functions.glBlendFuncSeparate(
+                                1 if premultiplied else 0x0302, 0x0303, 1, 0x0303,
+                            )
                         target = QRectF(
                             origin_x + layer.target.x() * scale,
                             origin_y + layer.target.y() * scale,
@@ -333,7 +371,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                         transform = QOpenGLTextureBlitter.targetTransform(
                             target, viewport,
                         )
-                        if entry.video_format in {"Format_NV12", "Format_NV21"}:
+                        if entry.video_format in MAPPED_YUV420_FORMATS:
                             self._blitter.release()
                             self._draw_video_layer(entry, layer, target, viewport)
                             self._blitter.bind()
@@ -354,7 +392,10 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                             )
                 finally:
                     self._blitter.release()
+                    self._functions.glDisable(0x0C11)
                     self._functions.glDisable(0x0BE2)
+                    if PROFILE_ENABLED:
+                        PROFILE.observe("preview.gl_draw_submit_cpu_seconds", perf_counter() - draw_started)
             except Exception as error:
                 self._ready = False
                 self._fail(str(error))
@@ -366,10 +407,15 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
             self._pending_canvas_size = QSize()
             active_keys = {layer.key for layer in layers}
             self._frame_serial += 1
+            self._active_since, self._pending_since = self._pending_since, None
             for layer in layers:
                 self._upload_layer(layer)
             self._evict_texture_cache(active_keys)
-            self._active_layers = layers
+            # Subsequent paints read the textures, not the uploaded raster.
+            self._active_layers = tuple(
+                replace(layer, image=QImage()) if not layer.image.isNull() else layer
+                for layer in layers
+            )
             self._active_canvas_size = canvas_size
             self._pending_image = QImage()
 
@@ -378,11 +424,23 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
             if layer.video_frame is not None and layer.video_frame.isValid():
                 self._upload_video_frame_layer(layer)
                 return
-            cache_key = int(layer.image.cacheKey())
+            self._upload_image_layer(layer)
+
+        def _upload_image_layer(
+            self, layer: GpuPreviewLayer, *, mapped_format: str = "",
+        ) -> None:
+            cache_key = layer.native_serial if mapped_format else int(layer.image.cacheKey())
             existing = self._textures.get(layer.key)
+            premultiplied = (
+                self._bgra_upload_supported
+                and layer.image.format() == QImage.Format.Format_ARGB32_Premultiplied
+                and layer.opacity == 1.0 and not layer.rotation
+                and (layer.color_filter is None or not layer.color_filter.active)
+            )
             size_matches = (
                 existing is not None
-                and not existing.video_format
+                and existing.video_format == mapped_format
+                and existing.premultiplied == premultiplied
                 and existing.width == layer.image.width()
                 and existing.height == layer.image.height()
             )
@@ -396,7 +454,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
             # into a reused QImage buffer every frame, changing cacheKey().
             # Compare bounded content before costly RGBA conversion and GL
             # transfer. Never hash a large full-canvas surface on each frame.
-            fingerprint = image_content_signature(layer.image)
+            fingerprint = None if mapped_format else image_content_signature(layer.image)
             if (
                 size_matches and fingerprint is not None
                 and existing.fingerprint == fingerprint
@@ -408,12 +466,15 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                     last_used_frame=self._frame_serial,
                 )
                 return
-            image = layer.image.convertToFormat(
-                QImage.Format.Format_RGBA8888,
+            use_bgra = premultiplied or (
+                self._bgra_upload_supported and layer.image.format() == QImage.Format.Format_RGB32
             )
+            image = layer.image if use_bgra else self._rgba_upload_image(layer.image)
+            pixel_format = QOpenGLTexture.PixelFormat.BGRA if use_bgra else QOpenGLTexture.PixelFormat.RGBA
+            upload_started = perf_counter() if PROFILE_ENABLED else 0.0
             same_size = (
                 existing is not None
-                and not existing.video_format
+                and existing.video_format == mapped_format
                 and existing.texture.isCreated()
                 and existing.width == image.width()
                 and existing.height == image.height()
@@ -429,34 +490,34 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                     # every loaded module (>0.5 s stalls while AutoMix loads
                     # its analysis libraries).
                     existing.texture.setData(
-                        QOpenGLTexture.PixelFormat.RGBA,
+                        pixel_format,
                         QOpenGLTexture.PixelType.UInt8,
                         image.constBits(),
                     )
                     self._textures[layer.key] = _TextureEntry(
                         existing.texture, cache_key, image.width(), image.height(),
                         existing.allocated_bytes, self._frame_serial,
-                        fingerprint=fingerprint,
+                        video_format=mapped_format, fingerprint=fingerprint,
+                        premultiplied=premultiplied,
                     )
-                    self._record_texture_upload(image)
+                    self._record_texture_upload(image, upload_started)
                     return
                 except (BufferError, RuntimeError, TypeError, ValueError):
                     self._destroy_texture(layer.key)
             elif existing is not None:
                 self._destroy_texture(layer.key)
-            texture = QOpenGLTexture(
-                image, QOpenGLTexture.MipMapGeneration.DontGenerateMipMaps,
+            texture = self._new_raw_texture(
+                image.width(), image.height(), QOpenGLTexture.TextureFormat.RGBA8_UNorm,
+                pixel_format, image.constBits(),
             )
             if not texture.isCreated():
                 raise RuntimeError("Could not allocate the preview texture.")
             self._texture_allocations += 1
-            texture.setMinificationFilter(QOpenGLTexture.Filter.Linear)
-            texture.setMagnificationFilter(QOpenGLTexture.Filter.Linear)
-            texture.setWrapMode(QOpenGLTexture.WrapMode.ClampToEdge)
             self._textures[layer.key] = _TextureEntry(
                 texture, cache_key, image.width(), image.height(),
                 max(0, image.width() * image.height() * 4), self._frame_serial,
-                fingerprint=fingerprint,
+                video_format=mapped_format, fingerprint=fingerprint,
+                premultiplied=premultiplied,
             )
             allocation = max(0, image.width() * image.height() * 4)
             self._allocated_bytes += allocation
@@ -464,30 +525,36 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                 self._peak_allocated_bytes, self._allocated_bytes,
             )
 
-            self._record_texture_upload(image)
+            self._record_texture_upload(image, upload_started)
 
-        def _record_texture_upload(self, image: QImage) -> None:
+        @staticmethod
+        @timed("preview.texture_rgba_conversion_seconds")
+        def _rgba_upload_image(image: QImage) -> QImage:
+            return image.convertToFormat(QImage.Format.Format_RGBA8888)
+
+        def _record_texture_upload(self, image: QImage, started: float) -> None:
+            if PROFILE_ENABLED:
+                PROFILE.observe("preview.gl_texture_upload_cpu_seconds", perf_counter() - started)
             self._texture_uploads += 1
             self._uploaded_bytes += max(0, image.sizeInBytes())
 
         @staticmethod
         def _copy_video_plane(
             frame: QVideoFrame, plane: int, row_bytes: int, rows: int,
-        ) -> bytearray:
+        ) -> bytes:
             """Copy mapped rows without invoking QVideoFrame.toImage()."""
             stride = frame.bytesPerLine(plane)
             source = np.frombuffer(
                 memoryview(frame.bits(plane)), dtype=np.uint8, count=stride * rows,
             ).reshape(rows, stride)
-            # NumPy packs padded rows in native code; keep owned storage after unmap.
-            packed = np.ascontiguousarray(source[:, :row_bytes])
-            return bytearray(memoryview(packed).cast("B"))
+            # Keep an owned, tightly packed buffer after unmap.
+            return source[:, :row_bytes].tobytes()
 
         @staticmethod
         def _copy_scaled_video_plane(
             frame: QVideoFrame, plane: int, source_width: int, source_rows: int,
             target_width: int, target_rows: int, *, channels: int = 1,
-        ) -> bytearray:
+        ) -> bytes:
             """Nearest-sample one mapped plane while respecting padded strides."""
             if source_width == target_width and source_rows == target_rows:
                 return GpuTexturePreviewSurface._copy_video_plane(
@@ -498,38 +565,37 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                 memoryview(frame.bits(plane)), dtype=np.uint8,
                 count=stride * source_rows,
             ).reshape(source_rows, stride)
-            pixels = source[:, :source_width * channels].reshape(
-                source_rows, source_width, channels,
-            )
+            # Gather packed pixels as units instead of copying each channel.
+            pixels = source[:, :source_width * channels].view(np.dtype((np.void, channels)))
             y_indices = np.linspace(
                 0, max(0, source_rows - 1), max(1, target_rows),
             ).astype(np.intp)
             x_indices = np.linspace(
                 0, max(0, source_width - 1), max(1, target_width),
             ).astype(np.intp)
-            scaled = pixels[y_indices[:, None], x_indices[None, :], :]
-            return bytearray(memoryview(scaled).cast("B"))
+            scaled = pixels[y_indices[:, None], x_indices[None, :]]
+            return scaled.tobytes()
 
         @staticmethod
         def _upload_raw_texture(
-            texture: object, pixel_format: object, data: bytearray,
+            texture: object, pixel_format: object, data: bytes | bytearray | memoryview,
         ) -> None:
             if not data:
                 return
             # The buffer itself, never an int address (PySide rejects that).
-            texture.setData(pixel_format, QOpenGLTexture.PixelType.UInt8, data)
+            unpack = QOpenGLPixelTransferOptions()
+            unpack.setAlignment(1)
+            texture.setData(pixel_format, QOpenGLTexture.PixelType.UInt8, data, unpack)
 
         @staticmethod
         def _new_raw_texture(
             width: int, height: int, texture_format: object,
-            pixel_format: object, data: bytearray,
+            pixel_format: object, data: bytes | bytearray | memoryview,
         ) -> object:
             texture = QOpenGLTexture(QOpenGLTexture.Target.Target2D)
             texture.setSize(max(1, width), max(1, height))
             texture.setFormat(texture_format)
-            texture.allocateStorage(
-                pixel_format, QOpenGLTexture.PixelType.UInt8,
-            )
+            texture.allocateStorage(pixel_format, QOpenGLTexture.PixelType.UInt8)
             GpuTexturePreviewSurface._upload_raw_texture(
                 texture, pixel_format, data,
             )
@@ -538,8 +604,9 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
             texture.setWrapMode(QOpenGLTexture.WrapMode.ClampToEdge)
             return texture
 
+        @timed("preview.mapped_video_prepare_upload_seconds")
         def _upload_video_frame_layer(self, layer: GpuPreviewLayer) -> None:
-            """Upload mapped RHI planes while avoiding CPU RGB conversion."""
+            """Upload mapped Qt video planes while avoiding CPU RGB conversion."""
             frame = QVideoFrame(layer.video_frame)
             format_name = getattr(frame.pixelFormat(), "name", "")
             native_scale = max(0.25, min(1.0, float(layer.native_scale)))
@@ -562,57 +629,84 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                     existing.aux_texture, existing.video_format,
                 )
                 return
+            if format_name in MAPPED_YUV420_FORMATS:
+                self._upload_yuv_frame(layer, frame, format_name, output_width, output_height)
+                return
+            map_started = perf_counter() if PROFILE_ENABLED else 0.0
             if not frame.map(QVideoFrame.MapMode.ReadOnly):
                 raise RuntimeError("Could not map the GPU video frame for preview upload.")
             try:
                 width, height = frame.width(), frame.height()
-                if format_name in {"Format_NV12", "Format_NV21"}:
-                    y_data = self._copy_scaled_video_plane(
-                        frame, 0, width, height,
-                        output_width, output_height,
-                    )
-                    uv_width = (width + 1) // 2
-                    uv_height = (height + 1) // 2
-                    output_uv_width = (output_width + 1) // 2
-                    output_uv_height = (output_height + 1) // 2
-                    uv_data = self._copy_scaled_video_plane(
-                        frame, 1, uv_width, uv_height,
-                        output_uv_width, output_uv_height, channels=2,
-                    )
-                else:
-                    image_format = QVideoFrameFormat.imageFormatFromPixelFormat(
-                        frame.pixelFormat(),
-                    )
-                    if image_format == QImage.Format.Format_Invalid:
-                        raise RuntimeError(
-                            f"Unsupported mapped GPU frame format: {format_name}"
-                        )
-                    stride = frame.bytesPerLine(0)
-                    raw = self._copy_video_plane(frame, 0, stride, height)
-                    image = QImage(
-                        raw, width, height, stride, image_format,
-                    ).copy()
+                image_format = QVideoFrameFormat.imageFormatFromPixelFormat(frame.pixelFormat())
+                if image_format == QImage.Format.Format_Invalid:
+                    raise RuntimeError(f"Unsupported mapped GPU frame format: {format_name}")
+                stride = frame.bytesPerLine(0)
+                raw = self._copy_video_plane(frame, 0, stride, height)
+                image = QImage(raw, width, height, stride, image_format).copy()
+                if PROFILE_ENABLED:
+                    PROFILE.observe("preview.video_map_pack_cpu_seconds", perf_counter() - map_started)
             finally:
                 frame.unmap()
-            if format_name not in {"Format_NV12", "Format_NV21"}:
-                if image.width() != output_width or image.height() != output_height:
-                    image = image.scaled(
-                        output_width, output_height,
-                        Qt.AspectRatioMode.IgnoreAspectRatio,
-                        Qt.TransformationMode.FastTransformation,
-                    )
-                self._upload_layer(replace(
-                    layer, image=image, video_frame=None, native_serial=0,
-                ))
-                uploaded = self._textures.get(layer.key)
-                if uploaded is not None:
-                    self._textures[layer.key] = _TextureEntry(
-                        uploaded.texture, layer.native_serial,
-                        uploaded.width, uploaded.height,
-                        uploaded.allocated_bytes, uploaded.last_used_frame,
-                        uploaded.aux_texture, format_name,
-                    )
-                return
+            if image.width() != output_width or image.height() != output_height:
+                image = image.scaled(
+                    output_width, output_height,
+                    Qt.AspectRatioMode.IgnoreAspectRatio,
+                    Qt.TransformationMode.FastTransformation,
+                )
+            self._upload_image_layer(replace(layer, image=image), mapped_format=format_name)
+
+        def _upload_yuv_frame(
+            self, layer: GpuPreviewLayer, frame: QVideoFrame, format_name: str,
+            output_width: int, output_height: int,
+        ) -> None:
+            map_started = perf_counter() if PROFILE_ENABLED else 0.0
+            if not frame.map(QVideoFrame.MapMode.ReadOnly):
+                raise RuntimeError("Could not map the GPU video frame for preview upload.")
+            try:
+                width, height = frame.width(), frame.height()
+                uv_width, uv_height = (width + 1) // 2, (height + 1) // 2
+                output_uv_width = (output_width + 1) // 2
+                output_uv_height = (output_height + 1) // 2
+                direct = (
+                    frame.handleType() == QVideoFrame.HandleType.NoHandle
+                    and format_name in {"Format_NV12", "Format_NV21"}
+                    and (width, height) == (output_width, output_height)
+                    and frame.bytesPerLine(0) == width
+                    and frame.bytesPerLine(1) == uv_width * 2
+                    and frame.mappedBytes(0) >= width * height
+                    and frame.mappedBytes(1) >= uv_width * uv_height * 2
+                )
+                if direct:
+                    # GL consumes client memory before setData returns.
+                    y_data = memoryview(frame.bits(0))[:width * height]
+                    uv_data = memoryview(frame.bits(1))[:uv_width * uv_height * 2]
+                else:
+                    y_data = self._copy_scaled_video_plane(frame, 0, width, height, output_width, output_height)
+                    if format_name == "Format_YUV420P":
+                        uv_data = bytearray(output_uv_width * output_uv_height * 2)
+                        for plane in (1, 2):
+                            uv_data[plane - 1::2] = self._copy_scaled_video_plane(
+                                frame, plane, uv_width, uv_height, output_uv_width, output_uv_height,
+                            )
+                    else:
+                        uv_data = self._copy_scaled_video_plane(
+                            frame, 1, uv_width, uv_height, output_uv_width, output_uv_height, channels=2,
+                        )
+                if PROFILE_ENABLED:
+                    PROFILE.observe("preview.video_map_pack_cpu_seconds", perf_counter() - map_started)
+                    PROFILE.observe("preview.yuv_direct_upload", float(direct))
+                if direct:
+                    self._upload_yuv_planes(layer, format_name, output_width, output_height, y_data, uv_data)
+                    return
+            finally:
+                frame.unmap()
+            self._upload_yuv_planes(layer, format_name, output_width, output_height, y_data, uv_data)
+
+        def _upload_yuv_planes(
+            self, layer: GpuPreviewLayer, format_name: str, output_width: int, output_height: int,
+            y_data: bytes | memoryview, uv_data: bytes | bytearray | memoryview,
+        ) -> None:
+            upload_started = perf_counter() if PROFILE_ENABLED else 0.0
             existing = self._textures.get(layer.key)
             same_size = (
                 existing is not None
@@ -662,6 +756,8 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                 )
             self._texture_uploads += 2
             self._uploaded_bytes += len(y_data) + len(uv_data)
+            if PROFILE_ENABLED:
+                PROFILE.observe("preview.gl_texture_upload_cpu_seconds", perf_counter() - upload_started)
 
         def _evict_texture_cache(self, active_keys: set[Hashable]) -> None:
             """Retain recent textures briefly, then enforce the VRAM budget."""
@@ -698,6 +794,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                 entry.aux_texture.destroy()
 
         def _release_gl_resources(self) -> None:
+            self._pending_since = self._active_since = self._compose_since = None
             try:
                 if self.context() is not None and self.context().isValid():
                     self.makeCurrent()
@@ -705,6 +802,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                     self._destroy_texture(key)
                 self._active_layers = ()
                 self._pending_layers = ()
+                self._pending_image = QImage()
                 if self._blitter is not None:
                     self._blitter.destroy()
                     self._blitter = None
@@ -805,8 +903,8 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                     vec2 chroma = texture(uvTexture, uv).rg;
                     if (swapUv != 0)
                         chroma = chroma.gr;
-                    float u = chroma.r - 0.5;
-                    float v = chroma.g - 0.5;
+                    float u = chroma.r - 128.0 / 255.0;
+                    float v = chroma.g - 128.0 / 255.0;
                     if (fullRange == 0) {
                         y = (y - 16.0 / 255.0) * (255.0 / 219.0);
                         u *= 255.0 / 224.0;
@@ -832,7 +930,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                             y + 1.8556 * u
                         );
                     }
-                    rgb = (rgb - vec3(0.5019608)) * contrast
+                    rgb = (clamp(rgb, 0.0, 1.0) - vec3(0.5019608)) * contrast
                           + vec3(0.5019608 + brightness);
                     float luminance = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
                     rgb = mix(vec3(luminance), rgb, saturation);
@@ -902,9 +1000,14 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                     0.0 if color_filter.grayscale else
                     max(0.0, min(3.0, color_filter.saturation)),
                 )
-                self._functions.glUniform1i(program.uniformLocation(b"fullRange"), int(range_name == "ColorRange_Full"))
+                # Match the established Qt toImage() appearance for these
+                # 8-bit CPU frames (limited range BT.601 in Qt 6.12).
+                cpu_backed = layer.video_frame.handleType() == QVideoFrame.HandleType.NoHandle
+                self._functions.glUniform1i(
+                    program.uniformLocation(b"fullRange"), int(not cpu_backed and range_name == "ColorRange_Full"),
+                )
                 color_matrix = (
-                    1 if space_name == "ColorSpace_BT601" else
+                    1 if cpu_backed or space_name == "ColorSpace_BT601" else
                     2 if space_name == "ColorSpace_BT2020" else 0
                 )
                 self._functions.glUniform1i(program.uniformLocation(b"colorMatrix"), color_matrix)

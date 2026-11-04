@@ -100,6 +100,7 @@ def preview_benchmark(args) -> dict:
     from concurrent.futures import ThreadPoolExecutor
     from dataclasses import asdict
     from PySide6.QtCore import QSettings, QTimer
+    from PySide6.QtGui import QImage
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication
     from app.canvas.live_canvas import CanvasScene
@@ -123,14 +124,15 @@ def preview_benchmark(args) -> dict:
         QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, str(root))
         QSettings().setValue("export/ffmpeg_path", str(executable))
         video = root / "video.mp4"
-        generated = subprocess.run([
-            str(executable), "-hide_banner", "-loglevel", "error", "-f", "lavfi",
-            "-i", f"testsrc2=size={args.width}x{args.height}:rate={args.fps}",
-            "-t", "6", "-c:v", "libx264", "-preset", "ultrafast",
-            "-pix_fmt", "yuv420p", "-y", str(video),
-        ], capture_output=True, **hidden_process_kwargs())
-        if generated.returncode:
-            raise RuntimeError(generated.stderr.decode(errors="replace"))
+        if args.video_count:
+            generated = subprocess.run([
+                str(executable), "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+                "-i", f"testsrc2=size={args.width}x{args.height}:rate={args.fps}",
+                "-t", "6", "-c:v", "libx264", "-preset", "ultrafast",
+                "-pix_fmt", "yuv420p", "-y", str(video),
+            ], capture_output=True, **hidden_process_kwargs())
+            if generated.returncode:
+                raise RuntimeError(generated.stderr.decode(errors="replace"))
         audio = root / "audio.wav"
         sample_rate = 22050
         times = np.arange(round((args.seconds + args.warmup + 10) * sample_rate)) / sample_rate
@@ -147,28 +149,44 @@ def preview_benchmark(args) -> dict:
         source = Source(SourceType.VIDEO, "Benchmark video", width=args.width,
                         height=args.height, video_paths=[str(video)], video_repeat_mode="loop_one",
                         video_cycle_unlimited=True, image_fit_mode="stretch")
-        store.add(source)
-        item = SourceItem(source)
-        video_items = [item]
+        video_items = []
         scene = CanvasScene()
-        from PySide6.QtCore import QRectF
-        scene.artboard_rect = QRectF(0, 0, args.width, args.height)
-        scene.addItem(item)
+        scene.set_artboard_size(args.width, args.height)
+        if args.video_count:
+            store.add(source)
+            item = SourceItem(source)
+            video_items.append(item)
+            scene.addItem(item)
+        else:
+            backdrop = Source(SourceType.SHAPE, "Backdrop", width=args.width,
+                              height=args.height, fill_color="#24334a")
+            store.add(backdrop)
+            scene.addItem(SourceItem(backdrop))
         for index in range(1, args.video_count):
             from dataclasses import replace
             duplicate = replace(source, id=f"video-{index}", z_index=index,
                                 x=index * args.width / 6, y=index * args.height / 6,
                                 width=args.width / 2, height=args.height / 2)
+            if args.styled:
+                duplicate.brightness = 12
+                duplicate.blur = 4
+                duplicate.opacity = 0.8
+                duplicate.rotation = 8
             store.add(duplicate)
             duplicate_item = SourceItem(duplicate)
             video_items.append(duplicate_item)
             scene.addItem(duplicate_item)
         track = PlaylistTrack(str(audio), "Benchmark", duration_seconds=args.seconds + args.warmup + 10)
-        if args.lyrics or args.integrated:
+        if args.lyrics or args.integrated or args.static_lyrics:
             lyrics = Source(SourceType.LYRICS, "Bilingual karaoke", x=80, y=20,
                             width=max(1, args.width - 160), height=max(1, args.height - 40), font_size=32,
                             fill_color="#00000000", z_index=10, subtitle_animation="glow",
                             subtitle_karaoke_enabled=True, subtitle_karaoke_lines=[0])
+            if args.static_lyrics:
+                lyrics.subtitle_animation = "none"
+                lyrics.subtitle_karaoke_enabled = False
+                lyrics.subtitle_intro_enabled = False
+                lyrics.subtitle_context_lines = lyrics.subtitle_next_lines = 0
             store.add(lyrics)
             scene.addItem(SourceItem(lyrics))
             track.lyrics = [{"start": i * 2, "end": i * 2 + 2,
@@ -176,9 +194,19 @@ def preview_benchmark(args) -> dict:
                             for i in range(ceil(track.duration_seconds / 2))]
         tracks = [track]
         preview_options = {}
+        if args.static_lyrics:
+            track.lyrics = [{"start": 0.0, "end": track.duration_seconds,
+                             "text": "음악이 흐르는 밤\nMusic brings us together"}]
+            cover_image = QImage(256, 256, QImage.Format.Format_RGB32)
+            cover_image.fill(0xff456688)
+            cover_path = root / "cover.png"
+            cover_image.save(str(cover_path))
+            track.cover_path = str(cover_path)
+            cover = Source(SourceType.ALBUM_COVER, "Cover", x=24, y=24, width=180, height=180, z_index=11)
+            store.add(cover)
+            scene.addItem(SourceItem(cover))
         if args.integrated:
             from dataclasses import replace
-            from PySide6.QtGui import QImage
             from app.animation.custom_motion import CustomMotion
             from app.renderer.ffmpeg_renderer import VisualizerOverlay
 
@@ -204,6 +232,12 @@ def preview_benchmark(args) -> dict:
             title = Source(SourceType.NOW_PLAYING, "Now Playing", x=cover_size + 48, y=24,
                            width=round(480 * scale), height=round(120 * scale), z_index=12,
                            animation_in="custom", custom_intro_keyframes=CustomMotion.default())
+            if args.transport:
+                from app.animation.keyframes import Keyframe
+                title.keyframes.global_curves = {
+                    "rotation": [Keyframe(0, 0), Keyframe(20, 8), Keyframe(40, -8)],
+                    "opacity": [Keyframe(0, 1), Keyframe(20, .65), Keyframe(40, 1)],
+                }
             for added in (
                 Source(SourceType.ALBUM_COVER, "Cover", x=24, y=24, width=cover_size, height=cover_size, z_index=11),
                 title,
@@ -214,13 +248,55 @@ def preview_benchmark(args) -> dict:
                 scene.addItem(SourceItem(added))
             bars = VisualizerOverlay(32, args.height - 130, round(540 * scale), 96, "bars", "#7dd3fc", z_index=8)
             overlays = [bars]
+            if not args.video_count:
+                progress = Source(SourceType.PROGRESS_BAR, "Progress", x=80, y=args.height - 80,
+                                  width=args.width - 160, height=20, z_index=14)
+                store.add(progress)
+                scene.addItem(SourceItem(progress))
             if args.video_count >= 3:
                 overlays.append(replace(bars, kind="particles", style="dust", x=0, y=0,
                                         width=args.width, height=args.height, z_index=9))
+            # Match the editor: every rendered overlay also has a scene source
+            # at that Z value, which the Canvas capture hides before composition.
+            for overlay in overlays:
+                reactive = Source(
+                    SourceType.PARTICLE_OVERLAY if overlay.kind == "particles" else SourceType.AUDIO_VISUALIZER,
+                    "Audio visualization", x=overlay.x, y=overlay.y,
+                    width=overlay.width, height=overlay.height, z_index=overlay.z_index,
+                )
+                store.add(reactive)
+                scene.addItem(SourceItem(reactive))
             preview_options = dict(overlays=overlays, ffmpeg_executable=executable, transition_mode="automix")
+            if args.known_beats:
+                from app.automix.models import TrackAnalysis
+                from app.automix.planner import compile_automix
+                from app.automix.renderer import AutoMixAudioPipeline
+                from app.automix.settings import AUTOMIX_SETTINGS
+
+                # The fixture WAV already contains exactly one pulse every
+                # half-second. Use that ground truth to isolate playback from
+                # rhythm-model startup, then render the actual AutoMix audio.
+                beats = tuple(index / 2 for index in range(ceil(track.duration_seconds * 2)))
+                analyses = {
+                    song.id: TrackAnalysis(
+                        song.id, song.file_path, song.duration_seconds,
+                        bpm=120, bpm_confidence=1, beats=beats, downbeats=beats[::4],
+                        meter_numerator=4, meter_denominator=4, meter_confidence=1,
+                    )
+                    for song in tracks
+                }
+                plan = compile_automix(tracks, analyses, AUTOMIX_SETTINGS)
+                mix = AutoMixAudioPipeline(executable).render(
+                    plan.audio, {song.id: song.file_path for song in tracks},
+                    root / "mix", container="flac",
+                )
+                preview_options["preloaded_blended_audio"] = (mix.path, plan)
         from unittest.mock import patch
         from app.video.preview_proxy import PreviewProxyCache
-        with patch.object(PreviewProxyCache, "default_root", return_value=root / "preview-proxies"):
+        with (
+            patch.object(PreviewProxyCache, "default_root", return_value=root / "preview-proxies"),
+            patch("app.dialogs.export_preview_dialog.load_preview_quality", return_value=args.quality),
+        ):
             preview = ExportPreviewDialog(scene, tracks, Translator(), source_store=store,
                                           preferred_backend=args.backend, **preview_options)
         preview.audio_output.setMuted(True)
@@ -241,13 +317,10 @@ def preview_benchmark(args) -> dict:
         presentation_count = 0
         scene_count = 0
         last_scene_serial = -1
-        # Count the existing presentation callback, preserving all normal behavior.
-        original_presented = preview._record_presented_frame
         measuring = False
 
         def presented():
             nonlocal presentation_count, scene_count, last_scene_serial
-            original_presented()
             if measuring:
                 presentation_count += 1
                 now = perf_counter()
@@ -258,7 +331,10 @@ def preview_benchmark(args) -> dict:
                     scene_count += 1
                     scene_times.append(now)
                     last_scene_serial = serial
-        preview._record_presented_frame = presented
+        if preview.gpu_surface is not None:
+            preview.gpu_surface.frame_presented.connect(presented)
+        else:
+            preview.preview_label.frame_presented.connect(presented)
         heartbeat = deque(maxlen=6001)
         pulse = QTimer()
         pulse.setInterval(100)
@@ -281,16 +357,49 @@ def preview_benchmark(args) -> dict:
 
         rss_start = rss_peak = rss_end = None
         frame_buffer_peak = backlog_peak = 0
+        gpu_samples = []
+        stop_gpu_sampling = threading.Event()
+        nvidia_smi = shutil.which("nvidia-smi") if args.sample_nvidia else None
+
+        def sample_gpu():
+            while not stop_gpu_sampling.is_set():
+                try:
+                    probe = subprocess.run(
+                        [nvidia_smi, "--query-gpu=utilization.gpu,memory.used", "--format=csv,noheader,nounits"],
+                        capture_output=True, text=True, timeout=2, **hidden_process_kwargs(),
+                    )
+                    if probe.returncode == 0:
+                        rows = [line.strip() for line in probe.stdout.splitlines() if line.strip()]
+                        if len(rows) == 1:
+                            gpu_samples.append(tuple(map(int, rows[0].split(","))))
+                except (OSError, ValueError, subprocess.TimeoutExpired):
+                    return
+                stop_gpu_sampling.wait(1.0)
+
+        gpu_sampler = threading.Thread(target=sample_gpu, daemon=True) if nvidia_smi else None
         try:
             if args.integrated:
-                mix_deadline = perf_counter() + 20
-                while preview._blended_audio_path is None and perf_counter() < mix_deadline:
+                mix_deadline = perf_counter() + args.mix_wait
+                while (
+                    preview._blended_audio_path is None
+                    and preview._blended_audio_controller is not None
+                    and preview._blended_audio_controller._worker is not None
+                    and perf_counter() < mix_deadline
+                ):
                     QTest.qWait(100)
                 transitions = preview._compiled_plan.audio.transitions
                 if transitions:
                     preview._seek_to_seconds(max(0.0, transitions[0].timeline_start - args.warmup - 1))
             preview.play_button.setChecked(True)
             preview._toggle_playback(True)
+            if args.transport:
+                preview.play_button.setChecked(False)
+                preview._seek_to_seconds(preview._playhead_seconds + 0.35)
+                preview.presentation_controller.enter_fullscreen()
+                QTest.qWait(250)
+                preview.presentation_controller.exit_fullscreen()
+                QTest.qWait(250)
+                preview.play_button.setChecked(True)
             QTest.qWait(round(args.warmup * 1000))
             surface = preview.gpu_surface
             if args.backend != "cpu" and (surface is None or not surface.ready):
@@ -298,11 +407,19 @@ def preview_benchmark(args) -> dict:
             gpu_start = asdict(surface.upload_stats) if surface else None
             last_scene_serial = surface._frame_serial if surface else -1
             decoder_starts = [asdict(video_item.video_decoder_stats()) for video_item in video_items]
-            decoder_start = decoder_starts[0]
+            decoder_start = decoder_starts[0] if decoder_starts else {}
+            ordered_start = (preview._ordered_cache_hits, preview._ordered_cache_renders)
+            static_band_start = (preview._static_band_cache_hits, preview._static_band_cache_misses)
+            ordered_invalidation_start = getattr(preview, "_ordered_cache_invalidations", 0)
+            scale_min = scale_max = preview._active_render_scale
+            if hasattr(PROFILE, "clear"):
+                PROFILE.clear()
             rss_start = rss_peak = resident_set_bytes()
             measuring = True
             started = perf_counter()
             cpu_started = process_time()
+            if gpu_sampler:
+                gpu_sampler.start()
             if args.analysis_workers:
                 future = pool.submit(analyze)
             deadline = started + args.seconds
@@ -313,6 +430,13 @@ def preview_benchmark(args) -> dict:
                     rss_peak = max(rss_peak or 0, rss_end)
                 images = [preview._base_image, preview._image, *preview._dynamic_region_buffers.values()]
                 images.extend(preview._overlay_cache.images())
+                images.extend(preview._gpu_ordered_static_cache.values())
+                images.extend(preview._gpu_static_band_cache.values())
+                scratch = getattr(preview, "_gpu_ordered_scratch", None)
+                if scratch is not None:
+                    images.append(scratch)
+                scale_min = min(scale_min, preview._active_render_scale)
+                scale_max = max(scale_max, preview._active_render_scale)
                 # Unique Qt cache keys avoid double-counting implicitly shared QImages.
                 buffers = {int(image.cacheKey()): image.sizeInBytes() for image in images if not image.isNull()}
                 frame_buffer_peak = max(frame_buffer_peak, sum(buffers.values()))
@@ -322,8 +446,9 @@ def preview_benchmark(args) -> dict:
                 PROFILE.observe("memory.frame_buffers_bytes", sum(buffers.values()))
             elapsed = perf_counter() - started
             cpu_elapsed = process_time() - cpu_started
+            stop_gpu_sampling.set()
             decoder_ends = [asdict(video_item.video_decoder_stats()) for video_item in video_items]
-            decoder_end = decoder_ends[0]
+            decoder_end = decoder_ends[0] if decoder_ends else {}
             gpu_end = asdict(surface.upload_stats) if surface else None
             callbacks = list(presentation_times)
             pulses = list(heartbeat)
@@ -338,18 +463,33 @@ def preview_benchmark(args) -> dict:
                 "numpy": np.__version__, "platform": platform.platform(),
                 "width": args.width, "height": args.height, "warmup_seconds": args.warmup,
                 "video_count": args.video_count,
-                "lyrics": args.lyrics or args.integrated,
+                "preview_quality": args.quality, "render_path": preview._preview_render_path,
+                "transport_exercised": args.transport,
+                "canvas_scale_min": scale_min, "canvas_scale_max": scale_max,
+                "ordered_cache_hits": preview._ordered_cache_hits - ordered_start[0],
+                "ordered_band_renders": preview._ordered_cache_renders - ordered_start[1],
+                "ordered_cache_invalidations": getattr(preview, "_ordered_cache_invalidations", 0) - ordered_invalidation_start,
+                "legacy_band_cache_hits": preview._static_band_cache_hits - static_band_start[0],
+                "legacy_band_cache_misses": preview._static_band_cache_misses - static_band_start[1],
+                "lyrics": args.lyrics or args.integrated or args.static_lyrics,
                 "integrated": args.integrated,
+                "known_fixture_beats": args.known_beats,
                 "track_count": len(tracks),
                 "proxy_count": len(preview._video_proxy_paths),
                 "blended_audio_ready": preview._blended_audio_path is not None,
+                "mix_preparation_stage": (
+                    preview._blended_audio_controller.last_progress
+                    if preview._blended_audio_controller is not None else None
+                ),
                 "transitions": [dict(type=transition.type.value, dsp=transition.dsp.value if transition.dsp else None)
                                 for transition in preview._compiled_plan.audio.transitions],
                 "gpu_backend": surface.backend_info.label if surface and surface.backend_info else None,
+                "gpu_active_at_end": preview.gpu_preview_enabled,
                 "seconds": elapsed, "target_fps": preview.presentation_fps,
                 "process_cpu_seconds": cpu_elapsed,
                 "mean_parent_cpu_percent_of_one_core": 100 * cpu_elapsed / elapsed,
                 "presentation_callbacks": presentation_count,
+                "repeat_presentation_callbacks": presentation_count - scene_count,
                 "average_fps": presentation_count / elapsed,
                 "presented_scene_fps": scene_count / elapsed,
                 "scene_frame_time_mean_ms": statistics.mean(scene_intervals) * 1000 if scene_intervals else None,
@@ -357,12 +497,14 @@ def preview_benchmark(args) -> dict:
                 "scene_frame_time_p50_ms": sorted(scene_intervals)[max(0, ceil(len(scene_intervals) * .5) - 1)] * 1000 if scene_intervals else None,
                 "scene_frame_time_p99_ms": sorted(scene_intervals)[max(0, ceil(len(scene_intervals) * .99) - 1)] * 1000 if scene_intervals else None,
                 "late_scene_intervals": sum(interval > 1.5 / args.fps for interval in scene_intervals),
-                "decoder_fps": (decoder_end["accepted_frames"] - decoder_start["accepted_frames"]) / elapsed,
-                "decode_drops": decoder_end["dropped_frames"] - decoder_start["dropped_frames"],
+                "decoder_fps": (decoder_end.get("accepted_frames", 0) - decoder_start.get("accepted_frames", 0)) / elapsed,
+                "decode_drops": sum(end["dropped_frames"] - start["dropped_frames"]
+                                    for start, end in zip(decoder_starts, decoder_ends, strict=True)),
                 "decoder_sources": [
                     {name: end[name] - start[name] for name in (
                         "accepted_frames", "dropped_frames", "pressure_drops", "seek_count",
-                    )}
+                        "received_frames", "mailbox_drops",
+                    ) if name in end}
                     for start, end in zip(decoder_starts, decoder_ends, strict=True)
                 ],
                 "frame_time_mean_ms": statistics.mean(intervals) * 1000 if intervals else None,
@@ -379,6 +521,7 @@ def preview_benchmark(args) -> dict:
             }
         finally:
             measuring = False
+            stop_gpu_sampling.set()
             pulse.stop()
             cancellation.set()
             preview._stop_preview()
@@ -388,6 +531,9 @@ def preview_benchmark(args) -> dict:
                 video_item.release_video_decoder()
             application.processEvents()
             pool.shutdown(wait=True, cancel_futures=True)
+            if gpu_sampler and gpu_sampler.ident is not None:
+                gpu_sampler.join(timeout=3)
+        result["nvidia_device_samples_gpu_percent_and_vram_mib"] = gpu_samples
         result["profile"] = PROFILE.snapshot()
         return result
 
@@ -621,8 +767,15 @@ def main() -> int:
     parser.add_argument("--fps", type=int, choices=(30, 60), default=30)
     parser.add_argument("--width", type=int, default=1920)
     parser.add_argument("--height", type=int, default=1080)
-    parser.add_argument("--video-count", type=int, choices=(1, 2, 3, 4), default=1)
+    parser.add_argument("--video-count", type=int, choices=(0, 1, 2, 3, 4), default=1)
+    parser.add_argument("--quality", choices=("resolution", "frames", "power", "quality"), default="resolution")
+    parser.add_argument("--static-lyrics", action="store_true", help="Use a still bilingual cue with a cover")
+    parser.add_argument("--styled", action="store_true", help="Apply color, blur, opacity and rotation to extra videos")
+    parser.add_argument("--transport", action="store_true", help="Exercise pause, seek and fullscreen before measuring")
+    parser.add_argument("--sample-nvidia", action="store_true", help="Sample device-wide NVIDIA usage and VRAM")
     parser.add_argument("--integrated", action="store_true", help="Use multiple songs, AutoMix and layered effects in Preview")
+    parser.add_argument("--mix-wait", type=float, default=20, help="Seconds to wait for the integrated audio mix")
+    parser.add_argument("--known-beats", action="store_true", help="Render AutoMix from the synthetic WAV's known beat grid")
     parser.add_argument("--display-refresh", action="store_true", help="Use the screen's natural preview cadence")
     parser.add_argument("--analysis-workers", type=int, choices=(0, 1, 2, 4), default=0)
     parser.add_argument("--lyrics", action="store_true", help="Include bilingual Glow/Karaoke in the real preview")

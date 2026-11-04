@@ -292,6 +292,7 @@ class GpuTextureSurfaceTests(unittest.TestCase):
         self.assertTrue(all(
             entry.texture.isCreated() for entry in surface._textures.values()
         ))
+        self.assertTrue(all(layer.image.isNull() for layer in surface._active_layers))
         initial_uploads = surface.upload_stats.texture_uploads
         surface.set_layers(QSize(64, 36), (
             GpuPreviewLayer("base", base, QRectF(0, 0, 64, 36)),

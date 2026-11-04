@@ -286,8 +286,17 @@ class PreviewPresentationTests(unittest.TestCase):
         controller.enter_fullscreen()
         controller.hide_controls()
         self.assertEqual(QApplication.overrideCursor().shape(), Qt.CursorShape.BlankCursor)
-        QTest.mouseMove(preview.preview_label, QPoint(647, 113))
-        QTest.qWait(140)
+        # QTest.mouseMove may only reposition the native cursor on Windows.
+        # Exercise QWidget event delivery here; pointer polling has its own test.
+        point = preview.preview_label.rect().center()
+        self.app.sendEvent(
+            preview.preview_label,
+            QMouseEvent(
+                QEvent.Type.MouseMove, QPointF(point),
+                QPointF(preview.preview_label.mapToGlobal(point)),
+                Qt.MouseButton.NoButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+            ),
+        )
         self.assertEqual(QApplication.overrideCursor(), previous)
         controller.exit_fullscreen()
         self.assertEqual(QApplication.overrideCursor(), previous)
