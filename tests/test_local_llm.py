@@ -405,7 +405,7 @@ class TranslationSetupUITests(unittest.TestCase):
         manager._download()
         self.until(lambda: manager.worker is None)
         self.assertEqual(manager.table.rowCount(), 2)
-        manager.table.selectRow(1)
+        self.assertEqual(manager._selected()["id"], "qwen2.5-coder:3b")
         manager._use()
         self.assertEqual(manager.selected_model, "qwen2.5-coder:3b")
 
