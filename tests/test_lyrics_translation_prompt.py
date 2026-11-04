@@ -152,6 +152,30 @@ class TranslationPromptTests(unittest.TestCase):
         self.assertEqual(calls[1]["song_context"]["coverage"], "full")
         self.assertEqual([row["id"] for row in calls[1]["song_context"]["cues"]], list(range(20)))
 
+    def test_local_llm_keeps_small_json_batches_but_sees_full_song_context(self):
+        cues = [{"text": f"Verse {i}"} for i in range(30)]
+        requests = []
+        def transport(url, body=None, headers=None, **kwargs):
+            data = json.loads(body["messages"][1]["content"])
+            requests.append(data)
+            return {"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(
+                {"translations": [{"id": row["id"], "text": f"번역 {row['id']}"}
+                                 for row in data["lyrics"]]})}}]}
+        config = TranslationConfig("ollama", model="qwen2.5-coder:7b",
+                                   endpoint="http://localhost:11434/v1")
+        output = LyricsTranslationService(transport).translate(cues, config)
+        self.assertEqual([len(request["lyrics"]) for request in requests], [12, 12, 6])
+        self.assertEqual(output[29], "번역 29")
+        for request in requests:
+            context = request["song_context"]
+            self.assertEqual(context["coverage"], "full")
+            actual_ids = {row["id"] for row in request["lyrics"]}
+            context_ids = {row["id"] for row in context["cues"]}
+            self.assertFalse(actual_ids & context_ids)
+            self.assertEqual(actual_ids | context_ids, set(range(30)))
+            self.assertLessEqual(sum(len(row["text"]) for row in context["cues"]),
+                                 LOCAL_SONG_CONTEXT_MAX_CHARS)
+
     def test_returning_context_only_ids_or_explanations_is_rejected(self):
         config = TranslationConfig("chatgpt", model="selected", key="test")
         cues = [{"text": str(i)} for i in range(21)]
