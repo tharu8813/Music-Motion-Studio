@@ -1981,6 +1981,7 @@ class ExportPreviewDialog(QDialog):
             return resolved
         worker_is_preparing = (
             self._video_proxy_worker is not None
+            and self._video_proxy_worker.cache is self._preview_proxy_cache
             and str(self._video_proxy_worker.source_path) == key
         )
         if key in self._video_proxy_queued or worker_is_preparing:
@@ -2004,6 +2005,7 @@ class ExportPreviewDialog(QDialog):
                 or key in self._video_proxy_queued
                 or (
                     self._video_proxy_worker is not None
+                    and self._video_proxy_worker.cache is cache
                     and str(self._video_proxy_worker.source_path) == key
                 )
             ):
@@ -2085,6 +2087,10 @@ class ExportPreviewDialog(QDialog):
         self._start_next_video_proxy()
         self._update_frame_rate_label()
         self._sync_background_activity()
+        # A cancelled worker from the previous quality mode can finish while
+        # playback is paused. Refresh to switch the poster back to original
+        # media or to enqueue the new profile's proxy.
+        self._schedule_refresh()
 
     def _sync_background_activity(self) -> None:
         """Mirror Preview's own background work in the main window's status-bar activity line."""
