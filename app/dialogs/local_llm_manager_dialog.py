@@ -577,7 +577,8 @@ class LocalLLMManagerDialog(QDialog):
                     f"{len(self.models)} installed models · select one and click 'Use this model'."))
         if self.operation != "details":
             self._selection()
-            self._recommendation()
+            if self.tabs.currentIndex() == 1:
+                self._recommendation()
         worker.deleteLater()
         self.busy_changed.emit(False)
         if self._closing:
