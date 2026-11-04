@@ -259,7 +259,7 @@ class LyricsOverlapTests(unittest.TestCase):
         self.assertEqual(LyricsService.active_cue_indices(cues, 4), (1,))
         self.assertEqual(PlaylistTrack.from_dict(PlaylistTrack("", "Song", lyrics=cues).to_dict()).lyrics, cues)
 
-    def test_active_group_is_centered_and_word_clocks_remain_independent(self):
+    def test_latest_overlapping_cue_takes_current_position_and_word_clocks_remain_independent(self):
         for direction in ("up", "down", "left", "right"):
             with self.subTest(direction=direction):
                 scene, item, track = self.scene(direction)
@@ -269,13 +269,36 @@ class LyricsOverlapTests(unittest.TestCase):
                 self.assertAlmostEqual(observed[0][1], 3)
                 self.assertAlmostEqual(observed[1][1], 5 / 3)
                 self.assertTrue(all(row[2] == 1 for row in observed))
-                self.assertAlmostEqual(sum(row[3].center().y() for row in observed) / 2, 150)
+                self.assertAlmostEqual(observed[1][3].center().y(), 150)
+                self.assertLess(observed[0][3].center().y(), observed[1][3].center().y())
                 after_short, _ = self.observe(scene, item, track, 7)
                 self.assertEqual([row[0] for row in after_short], ["Sustained"])
                 self.assertAlmostEqual(after_short[0][3].center().y(), 150)
                 self.assertEqual(item.source.to_dict(), before)
                 self.assertEqual(item._subtitle_word_reveal, ())
                 self.assertFalse(item._subtitle_gap_unblurred)
+
+    def test_concurrent_word_intervals_paint_separate_highlight_ranges(self):
+        scene, item, track = self.scene()
+        track.lyrics = [{
+            "start": 1, "end": 4, "text": "Alpha Beta", "format": "ttml",
+            "words": [
+                {"start": 1, "end": 2.8, "text": "Alpha ", "offset": 0},
+                {"start": 2.2, "end": 4, "text": "Beta", "offset": 6},
+            ],
+        }]
+        observations = []
+        original = lyrics_renderer.paint_word_reveal
+        def recorded(*args, **kwargs):
+            if kwargs.get("highlight_ranges") is not None:
+                observations.append(kwargs["highlight_ranges"])
+            return original(*args, **kwargs)
+        with patch.object(lyrics_renderer, "paint_word_reveal", side_effect=recorded):
+            CanvasSnapshot.capture_track(scene, track, 1, 1, 0,
+                elapsed_seconds=2.5, transparent=True)
+        self.assertTrue(observations)
+        self.assertEqual(len(observations[0]), 2)
+        self.assertLess(observations[0][0][1], observations[0][1][0])
 
     def test_current_phrase_does_not_reset_its_animation_when_second_phrase_starts(self):
         scene, item, track = self.scene()

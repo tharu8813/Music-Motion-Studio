@@ -58,20 +58,34 @@ def krc_to_ttml(encoded: str, *, max_bytes: int, check_cancel=lambda: None) -> s
             paragraph.text = text
             continue
         paragraph.text = text[:markers[0].start()]
-        previous_end = 0
+        previous_start = -1
+        longest_word_end = duration
         for index, marker in enumerate(markers):
             check_cancel()
             fields = re.fullmatch(r"(\d{1,9}),(\d{1,9}),(\d{1,9})", marker[1])
             if fields is None:
                 raise KRCError("Invalid KRC word timestamp.")
             offset, length = int(fields[1]), int(fields[2])
-            if not previous_end <= offset <= offset + length <= duration:
-                raise KRCError("Invalid KRC word interval.")
+            # Concurrent words are valid karaoke data. Only a backwards start
+            # indicates reversed word order; do not truncate overlapping words.
+            if offset < previous_start:
+                raise KRCError(
+                    f"Reversed KRC word timing at lyric line {count}, word {index + 1}: "
+                    f"{offset}ms follows {previous_start}ms. / "
+                    f"{count}번째 가사 줄 {index + 1}번째 단어의 시작 시간이 이전 단어보다 빠릅니다."
+                )
+            if start + offset + length > 86400000:
+                raise KRCError("Invalid KRC word interval: word exceeds the maximum time.")
             end = markers[index + 1].start() if index + 1 < len(markers) else len(text)
             segment = text[marker.end():end]
             word = ET.SubElement(paragraph, "span", {"begin": f"{offset}ms", "end": f"{offset + length}ms"})
             word.text = segment
-            previous_end = offset + length
+            previous_start = offset
+            longest_word_end = max(longest_word_end, offset + length)
+        # The provider's line duration can end before its final timed word.
+        # Keep every source word timestamp and extend only the containing cue.
+        if longest_word_end > duration:
+            paragraph.set("end", f"{start + longest_word_end}ms")
     if not count:
         raise KRCError("No timed KRC lyric lines were found.")
     return ET.tostring(root, encoding="unicode")

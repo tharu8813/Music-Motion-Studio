@@ -129,6 +129,36 @@ class LyricsService:
             result.append(revealed)
         return tuple(result)
 
+    @classmethod
+    def word_highlight_ranges(cls, cue: dict[str, object], elapsed: float, *,
+                              line_positions: tuple[int, ...] | None = None
+                              ) -> tuple[tuple[tuple[float, float], ...], ...]:
+        """Separate word fill ranges, including words singing at the same time.
+
+        Unlike a single left-to-right reveal position, these ranges do not
+        prematurely complete an earlier word when a later word starts.
+        """
+        raw_text = cls.decode_line_breaks(cue.get("text", ""))
+        text = raw_text.strip()
+        leading = len(raw_text) - len(raw_text.lstrip())
+        words = tuple((int(word["offset"]) - leading,
+                       int(word["offset"]) + len(word["text"]) - leading,
+                       float(word["start"]), float(word["end"])) for word in cue.get("words", []))
+        spans_by_line = cls._reveal_spans(text, float(cue.get("start", 0)),
+                                           float(cue.get("end", 0)), words, line_positions)
+        result = []
+        for spans in spans_by_line:
+            ranges = []
+            for a, b, start, end in spans:
+                if elapsed < start:
+                    continue
+                progress = 1.0 if end <= start else min(1.0, max(0.0, (elapsed - start) / (end - start)))
+                right = a + (b - a) * progress
+                if right > a:
+                    ranges.append((float(a), float(right)))
+            result.append(tuple(ranges))
+        return tuple(result)
+
     @staticmethod
     def decode_line_breaks(value: object) -> str:
         """Interpret the two LRC characters ``\\n`` as an in-app line break."""

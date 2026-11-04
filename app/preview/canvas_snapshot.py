@@ -36,7 +36,7 @@ from app.preview.album_art import (
 )
 from app.preview.frame_state import (
     MixJunction, resolve_edge_animation, resolve_lyrics_cue_state, resolve_lyrics_intro_state,
-    resolve_lyrics_word_reveal,
+    resolve_lyrics_word_reveal, resolve_lyrics_overlapping_word_ranges,
     lyrics_display_groups,
     resolve_now_playing_exit_state, resolve_timeline_window_phase,
 )
@@ -911,6 +911,8 @@ class CanvasSnapshot:
                     graphics_item, graphics_item._subtitle_transition_raw, graphics_item._subtitle_cue_layout,
                     graphics_item._subtitle_intro_state,
                     graphics_item._subtitle_word_reveal,
+                    graphics_item._subtitle_word_highlight_ranges,
+                    graphics_item._subtitle_overlap_prior_rows,
                     graphics_item._subtitle_gap_unblurred,
                     graphics_item._subtitle_before_first,
                     graphics_item._subtitle_blur_restore_lines,
@@ -966,6 +968,28 @@ class CanvasSnapshot:
                 graphics_item._subtitle_word_reveal = resolve_lyrics_word_reveal(
                     track, source, elapsed_seconds, cue_state, graphics_item._subtitle_intro_state,
                 )
+                graphics_item._subtitle_word_highlight_ranges = resolve_lyrics_overlapping_word_ranges(
+                    track, source, elapsed_seconds, cue_state, graphics_item._subtitle_intro_state,
+                )
+                # The newest overlapping phrase owns the normal current-line
+                # position. Older active phrases remain visible and highlighted
+                # above it until their own end, without changing stored timings.
+                graphics_item._subtitle_overlap_prior_rows = 0
+                if len(cue_state.active_cue_indices) > 1 and lyric_cue is not None:
+                    members = lyric_cue.get("display_cue_indices", ())
+                    newest = cue_state.active_cue_indices[-1]
+                    for original_index in members:
+                        if original_index == newest:
+                            break
+                        original_cue = track.lyrics[original_index]
+                        if source.subtitle_translation_enabled:
+                            original_cue = display_cue(original_cue)
+                        original_text = LyricsService.decode_line_breaks(
+                            original_cue.get("text", "")
+                        ).strip()
+                        graphics_item._subtitle_overlap_prior_rows += max(
+                            1, sum(bool(row.strip()) for row in original_text.splitlines())
+                        )
                 lyric = LyricsService.decode_line_breaks(
                     lyric_cue.get("text", "") if lyric_cue else ""
                 )
@@ -1533,13 +1557,15 @@ class CanvasSnapshot:
             for graphics_item, indices in original_subtitle_style_indices:
                 graphics_item._subtitle_line_style_indices = indices
                 graphics_item.update()
-            for (graphics_item, raw, layout, intro_state, word_reveal, gap_unblurred, before_first,
+            for (graphics_item, raw, layout, intro_state, word_reveal, word_highlight_ranges, overlap_prior_rows, gap_unblurred, before_first,
                  blur_restore_lines, blur_restore_progress, prefetch_line_count, prefetch_progress,
                  prefetch_entry_line_count, strip_window) in original_subtitle_motion:
                 graphics_item._subtitle_transition_raw = raw
                 graphics_item._subtitle_cue_layout = layout
                 graphics_item._subtitle_intro_state = intro_state
                 graphics_item._subtitle_word_reveal = word_reveal
+                graphics_item._subtitle_word_highlight_ranges = word_highlight_ranges
+                graphics_item._subtitle_overlap_prior_rows = overlap_prior_rows
                 graphics_item._subtitle_gap_unblurred = gap_unblurred
                 graphics_item._subtitle_before_first = before_first
                 graphics_item._subtitle_blur_restore_lines = blur_restore_lines

@@ -202,6 +202,7 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
     count = max(1, source.subtitle_current_line_count)
     has_current = 0 <= current < len(lines)
     anchor = item._subtitle_anchor_line
+    original_anchor = anchor
     anchored = 0 <= anchor < len(lines)
     anchor_count = max(1, item._subtitle_anchor_line_count)
     boundary = current if has_current else (anchor if anchored else -1)
@@ -254,6 +255,13 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         lines, layout = expanded, tuple(wrapped_layout)
     else:
         boundaries = list(range(len(lines) + 1))
+    # The active group holds all simultaneous phrases, but the newest one
+    # should occupy the normal current cue position, not the group's midpoint.
+    prior_rows = max(0, item._subtitle_overlap_prior_rows) if anchored and has_current else 0
+    if prior_rows:
+        first = max(0, original_anchor)
+        prior_rows = boundaries[min(len(boundaries) - 1, first + prior_rows)] - boundaries[first]
+    overlap_shift = prior_rows * height / 2
     axis = rect.width() if horizontal else rect.height()
     anchor_extent = layout[anchor][2] if anchored else (
         layout[current][2] if compact_layout and has_current else anchor_count)
@@ -262,6 +270,8 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         return max(guard, min(axis - guard, axis * source.subtitle_anchor))
 
     anchor_position = anchor_at(anchor_extent)
+    if not horizontal:
+        anchor_position -= overlap_shift
     alignment = _ALIGNMENTS.get(source.text_alignment, Qt.AlignmentFlag.AlignHCenter)
     flags = alignment | Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextSingleLine
     pixel_ratio = device_pixel_ratio(painter)
@@ -483,7 +493,7 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         layout_offset = 0.0 if intro is not None else offset
         if horizontal:
             x = rect.left() + anchor_position + sign * ((slot - anchor_slot) * step + scroll + layout_offset)
-            row = QRectF(x - width / 2, rect.center().y() + (inner - total / 2) * height, width, height)
+            row = QRectF(x - width / 2, rect.center().y() + (inner - total / 2) * height - overlap_shift, width, height)
         elif anchored:
             distance = (centers[slot] - centers[anchor_slot]) * height
             row = QRectF(rect.left() + 12, rect.top() + anchor_position + sign * (
@@ -587,15 +597,29 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         # Sung words follow the audio clock even while their row fades or unblurs.
         if karaoke_alpha > _VISIBLE:
             painter.setOpacity(base_opacity * karaoke_alpha)
-            paint_word_reveal(item, painter, row, flags, line,
-                              max(0.0, item._subtitle_word_reveal[original_inner] - offsets[index]))
+            revealed = max(0.0, item._subtitle_word_reveal[original_inner] - offsets[index])
+            highlights = (item._subtitle_word_highlight_ranges[original_inner]
+                          if original_inner < len(item._subtitle_word_highlight_ranges) else None)
+            if highlights is None:
+                paint_word_reveal(item, painter, row, flags, line, revealed)
+            else:
+                # A wrapped row covers only part of its original lyric line.
+                # Intersect every independently active word with that slice.
+                local_ranges = tuple(
+                    (max(0.0, a - offsets[index]), min(float(len(line)), b - offsets[index]))
+                    for a, b in highlights
+                    if b > offsets[index] and a < offsets[index] + len(line)
+                )
+                paint_word_reveal(item, painter, row, flags, line, revealed,
+                                  highlight_ranges=local_ranges)
         painter.restore()
     painter.restore()
 
 
-def paint_word_reveal(item, painter: QPainter, row: QRectF, flags, text: str, revealed: float) -> None:
-    """Reuse shaped glyphs and cursor positions while only the clip advances."""
-    if revealed <= 0:
+def paint_word_reveal(item, painter: QPainter, row: QRectF, flags, text: str, revealed: float,
+                      *, highlight_ranges: tuple[tuple[float, float], ...] | None = None) -> None:
+    """Reuse shaped glyphs while supporting multiple simultaneously sung words."""
+    if revealed <= 0 and not highlight_ranges:
         return
     key = (painter.font().key(), text, row.width(), row.height(), str(flags), item._line_spacing(flags))
     cached = item._lyric_reveal_cache.get(key)
@@ -620,16 +644,34 @@ def paint_word_reveal(item, painter: QPainter, row: QRectF, flags, text: str, re
         cached = (tuple(positions), path)
         item._lyric_reveal_cache[key] = cached
     positions, path = cached
-    whole = min(len(text), int(revealed))
-    left, boundary = positions[0], positions[whole]
-    if whole < len(text):
-        boundary += (positions[whole + 1] - boundary) * (revealed - whole)
+    def cursor_x(position: float) -> float:
+        position = max(0.0, min(float(len(text)), position))
+        whole = int(position)
+        x = positions[whole]
+        return x + (positions[whole + 1] - x) * (position - whole) if whole < len(text) else x
+
     painter.save()
     painter.translate(row.topLeft())
-    if whole < len(text):
-        painter.setClipRect(QRectF(min(left, boundary), 0, abs(boundary - left), row.height()),
-                            Qt.ClipOperation.IntersectClip)
-    painter.fillPath(path, QColor(item.source.subtitle_accent_color))
+    if highlight_ranges is None:
+        # Preserve the established prefix renderer exactly for ordinary lyrics,
+        # including bidi text whose cursor endpoints do not bound the glyphs.
+        whole = min(len(text), int(revealed))
+        left, boundary = positions[0], positions[whole]
+        if whole < len(text):
+            boundary += (positions[whole + 1] - boundary) * (revealed - whole)
+            painter.setClipRect(QRectF(min(left, boundary), 0, abs(boundary - left), row.height()),
+                                Qt.ClipOperation.IntersectClip)
+        painter.fillPath(path, QColor(item.source.subtitle_accent_color))
+    else:
+        for start, end in highlight_ranges:
+            if end <= start:
+                continue
+            left, right = cursor_x(start), cursor_x(end)
+            painter.save()
+            painter.setClipRect(QRectF(min(left, right), 0, abs(right - left), row.height()),
+                                Qt.ClipOperation.IntersectClip)
+            painter.fillPath(path, QColor(item.source.subtitle_accent_color))
+            painter.restore()
     painter.restore()
 
 

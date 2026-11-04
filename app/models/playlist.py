@@ -132,7 +132,7 @@ class PlaylistTrack:
             words = cue.get("words", [])
             if not isinstance(words, list):
                 raise ValueError(f"Track '{track.title}' has invalid word timing data.")
-            previous_end, previous_offset = float(cue["start"]), 0
+            previous_start, previous_offset = float(cue["start"]), 0
             for word in words:
                 if not isinstance(word, dict) or not isinstance(word.get("text"), str) or not word["text"]:
                     raise ValueError(f"Track '{track.title}' contains an invalid lyric word.")
@@ -143,15 +143,14 @@ class PlaylistTrack:
                         raise ValueError(f"Track '{track.title}' has an invalid word timestamp.")
                 offset = word.get("offset")
                 if isinstance(offset, int) and "\n" in cue["text"][previous_offset:offset]:
-                    previous_end = float(cue["start"])
-                # Independently rounded source timestamps may overlap by 1 ms.
-                # Keep the source values; this tolerance must not admit words
-                # outside the cue, negative times, or reversed intervals.
+                    previous_start = float(cue["start"])
+                # Word intervals may overlap intentionally. Starts must remain
+                # chronological and each word must stay inside its cue.
                 if (not float(cue["start"]) <= word["start"] <= word["end"] <= float(cue["end"])
-                        or word["start"] + .001 + 1e-9 < previous_end
+                        or word["start"] + 1e-9 < previous_start
                         or not isinstance(offset, int) or isinstance(offset, bool) or offset < previous_offset
                         or cue["text"][offset:offset + len(word["text"])] != word["text"]):
                     raise ValueError(f"Track '{track.title}' has invalid word timing or text offsets.")
-                previous_end, previous_offset = word["end"], offset + len(word["text"])
+                previous_start, previous_offset = word["start"], offset + len(word["text"])
         track.lyrics.sort(key=lambda cue: (float(cue["start"]), float(cue["end"])))
         return track

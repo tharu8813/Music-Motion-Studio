@@ -637,6 +637,11 @@ class LyricsSearchDialog(QDialog):
             self.status.setText(self._tr("작업을 취소했습니다.", "Request cancelled."))
         elif worker.error:
             self.status.setText(worker.error)
+            if "Reversed KRC word timing" in worker.error:
+                QMessageBox.warning(
+                    self, self._tr("KRC 단어 시간 오류", "KRC word timing error"),
+                    worker.error,
+                )
         elif isinstance(worker.value, LyricsSearchBatch):
             self._show_results(worker.value)
         elif isinstance(worker.value, FoundLyrics):
