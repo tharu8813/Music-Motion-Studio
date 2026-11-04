@@ -6,9 +6,10 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event
+from urllib.error import URLError
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -26,6 +27,7 @@ from app.preview.canvas_snapshot import CanvasSnapshot
 from app.services.lyrics_translation_service import (
     LyricsTranslationService, TranslationCancelled, TranslationConfig, TranslationError,
     apply_translations, approved_translation, display_cue, request_json, validate_endpoint,
+    LOCAL_LLM_TRANSLATION_TIMEOUT,
 )
 from app.services.translation_credentials import TranslationCredentials, _SESSION, _crypt
 from app.utils.i18n import Translator
@@ -162,6 +164,57 @@ class TranslationServiceTests(unittest.TestCase):
         detail = next(e for e in events if e["stage"] == "diagnostic")
         self.assertEqual(detail["raw"], raw)
         self.assertEqual(detail["status"], "failed")
+
+    def test_local_llm_requests_have_longer_timeout_without_affecting_cloud(self):
+        timeouts = []
+        def transport(url, body=None, headers=None, **kwargs):
+            timeouts.append(kwargs.get("timeout"))
+            return {"choices": [{"finish_reason": "stop", "message": {"content":
+                json.dumps({"translations": [{"id": 0, "text": "안녕"}]})}}]}
+        cues = [{"text": "Hello"}]
+        for provider, expected in (("ollama", LOCAL_LLM_TRANSLATION_TIMEOUT),
+                                   ("lmstudio", LOCAL_LLM_TRANSLATION_TIMEOUT),
+                                   ("grok", None)):
+            with self.subTest(provider=provider):
+                config = TranslationConfig(provider, model="local-model" if provider != "grok" else "grok-model",
+                                           endpoint="http://localhost:11434/v1",
+                                           key="test" if provider == "grok" else "")
+                self.assertEqual(LyricsTranslationService(transport).translate(cues, config), ["안녕"])
+                self.assertEqual(timeouts.pop(), expected)
+        self.assertGreaterEqual(LOCAL_LLM_TRANSLATION_TIMEOUT, 180)
+
+    def test_request_errors_distinguish_local_timeout_refusal_and_crash(self):
+        opener = Mock()
+        with patch("app.services.lyrics_translation_service.build_opener", return_value=opener):
+            opener.open.side_effect = URLError(TimeoutError("timed out"))
+            with self.assertRaisesRegex(TranslationError, "240초 안에 응답하지 않았습니다"):
+                request_json("http://127.0.0.1:11434/v1/chat/completions", {},
+                             timeout=LOCAL_LLM_TRANSLATION_TIMEOUT)
+            self.assertEqual(opener.open.call_args.kwargs["timeout"], LOCAL_LLM_TRANSLATION_TIMEOUT)
+            opener.open.side_effect = URLError(ConnectionRefusedError(111, "refused"))
+            with self.assertRaisesRegex(TranslationError, "연결이 거부되었습니다"):
+                request_json("http://127.0.0.1:11434/v1/chat/completions", {})
+            opener.open.side_effect = URLError(ConnectionResetError(104, "reset"))
+            with self.assertRaisesRegex(TranslationError, "연결이 끊겼습니다"):
+                request_json("http://127.0.0.1:11434/v1/chat/completions", {})
+            opener.open.side_effect = URLError(TimeoutError("timed out"))
+            with self.assertRaisesRegex(TranslationError, "Cannot connect to the translation service"):
+                request_json("https://api.x.ai/v1/chat/completions", {})
+
+    def test_local_timeout_reaches_raw_output_diagnostic_without_lyric_leak(self):
+        events = []
+        message = "로컬 LLM이 240초 안에 응답하지 않았습니다."
+        def transport(*args, **kwargs):
+            raise TranslationError(message)
+        config = TranslationConfig("ollama", model="qwen2.5-coder:14b",
+                                   endpoint="http://localhost:11434/v1")
+        with self.assertRaisesRegex(TranslationError, "240초"):
+            LyricsTranslationService(transport).translate([{"text": "Private lyric line"}],
+                                                        config, activity=events.append)
+        detail = next(event for event in events if event["stage"] == "diagnostic")
+        self.assertEqual(detail["raw"], "")
+        self.assertIn("240초", detail["reason"])
+        self.assertNotIn("Private lyric line", detail["reason"])
 
     def test_local_llm_shows_exact_json_error_location(self):
         raw = '{"translations": ['

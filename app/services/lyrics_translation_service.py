@@ -37,6 +37,9 @@ CLOUD_LLM_PROVIDERS = frozenset({"chatgpt", "openai", "claude", "gemini", "grok"
 LLM_PROVIDERS = CLOUD_LLM_PROVIDERS | LOCAL_LLM_PROVIDERS
 LOCAL_PROVIDERS = frozenset({"ollama", "lmstudio", "local_nmt"})
 MAX_RESPONSE = 8 * 1024 * 1024
+# Local 14B+ models may need minutes to load and generate an entire lyric batch.
+# Cloud requests keep the shorter limit.
+LOCAL_LLM_TRANSLATION_TIMEOUT = 240
 
 
 class TranslationError(ValueError):
@@ -131,7 +134,7 @@ class _NoRedirect(HTTPRedirectHandler):
 
 
 def request_json(url: str, body=None, headers=None, *, form=False, stream=False,
-                 cancel: Event | None = None):
+                 cancel: Event | None = None, timeout=45):
     """Bounded requests; errors never expose keys, prompts or response bodies."""
     check_cancel(cancel)
     request_headers = {"Accept": "application/json", **(headers or {})}
@@ -140,7 +143,7 @@ def request_json(url: str, body=None, headers=None, *, form=False, stream=False,
         data = (urlencode(body).encode() if form else json.dumps(body, ensure_ascii=False).encode())
         request_headers["Content-Type"] = "application/x-www-form-urlencoded" if form else "application/json"
     try:
-        with build_opener(_NoRedirect()).open(Request(url, data=data, headers=request_headers), timeout=45) as response:
+        with build_opener(_NoRedirect()).open(Request(url, data=data, headers=request_headers), timeout=timeout) as response:
             if stream:
                 chunks, completed, total = [], False, 0
                 for raw in response:
@@ -175,6 +178,12 @@ def request_json(url: str, body=None, headers=None, *, form=False, stream=False,
                 raise TranslationError("번역 응답이 너무 큽니다. / Translation response is too large.")
             return json.loads(raw) if raw.strip() else {}
     except HTTPError as error:
+        if urlsplit(url).hostname in {"localhost", "127.0.0.1", "::1"} and error.code >= 500:
+            raise TranslationError(
+                f"로컬 AI 서버가 모델 처리에 실패했습니다(HTTP {error.code}). "
+                "Ollama/LM Studio 실행 상태와 사용 가능한 메모리를 확인하세요. / "
+                f"Local AI server failed to process the model (HTTP {error.code}); "
+                "check runtime logs and available memory.") from None
         messages = {
             400: "요청 설정·언어·모델을 확인하세요. / Check settings, language and model.",
             401: "로그인 또는 API 키를 확인하세요. / Check sign-in or API key.",
@@ -183,7 +192,21 @@ def request_json(url: str, body=None, headers=None, *, form=False, stream=False,
             456: "번역 사용량 한도에 도달했습니다. / Translation quota exhausted.",
         }
         raise TranslationError(f"HTTP {error.code}: " + messages.get(error.code, "번역 서비스 요청에 실패했습니다. / Translation request failed.")) from None
-    except (URLError, TimeoutError, OSError, HTTPException):
+    except (URLError, TimeoutError, OSError, HTTPException) as error:
+        if urlsplit(url).hostname in {"localhost", "127.0.0.1", "::1"}:
+            reason = getattr(error, "reason", error)
+            if isinstance(reason, TimeoutError):
+                raise TranslationError(
+                    f"로컬 LLM이 {timeout}초 안에 응답하지 않았습니다. 큰 모델의 첫 실행·CPU 처리·메모리 "
+                    "사용량을 확인하세요. / Local LLM response timed out after "
+                    f"{timeout}s; check model loading, CPU speed and available memory.") from None
+            if isinstance(reason, ConnectionRefusedError) or getattr(reason, "errno", None) in {10061, 111}:
+                raise TranslationError(
+                    "로컬 LLM 서버 연결이 거부되었습니다. Ollama/LM Studio를 실행하고 서버 주소를 "
+                    "확인하세요. / Local LLM connection refused; start the runtime and check its address.") from None
+            raise TranslationError(
+                "로컬 LLM 서버와 통신하다가 연결이 끊겼습니다. 서버 종료·메모리 부족·연결 상태를 "
+                "확인하세요. / Local LLM connection failed; check runtime crashes, memory and connectivity.") from None
         raise TranslationError("번역 서비스에 연결할 수 없습니다. / Cannot connect to the translation service.") from None
     except (UnicodeError, json.JSONDecodeError, TypeError, AttributeError):
         raise TranslationError("번역 서비스 응답을 읽을 수 없습니다. / Invalid translation response.") from None
@@ -381,6 +404,8 @@ class LyricsTranslationService:
 
         def req(url, body=None, headers=None, **kw):
             check_cancel(cancel)
+            if c.provider in LOCAL_LLM_PROVIDERS:
+                kw["timeout"] = LOCAL_LLM_TRANSLATION_TIMEOUT
             value = self.request(url, body, headers, cancel=cancel, **kw)
             check_cancel(cancel)
             return value
