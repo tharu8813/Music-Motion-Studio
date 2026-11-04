@@ -8,7 +8,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QPoint
-from PySide6.QtGui import QContextMenuEvent
+from pathlib import Path
+
+from app.preview.adaptive_quality import AdaptivePreviewQuality
+from app.video.decoder_backpressure import VideoDecoderBackpressure
 
 from app.canvas.live_canvas import CanvasScene
 from app.dialogs.export_preview_dialog import ExportPreviewDialog
@@ -64,6 +67,49 @@ class PreviewQualityPresetTests(unittest.TestCase):
             self.assertIsNone(preview._preview_proxy_cache)
             stop.assert_not_called()
             set_source.assert_not_called()
+
+    def test_resolution_priority_avoids_aggressive_scale_loss(self):
+        adaptive = AdaptivePreviewQuality(
+            1.0, downscale_samples=8, recovery_samples=3, minimum_factor=0.85,
+        )
+        for _ in range(200):
+            adaptive.observe(12, 60)
+        self.assertAlmostEqual(adaptive.scale, 0.85)
+        for _ in range(3):
+            state = adaptive.observe(60, 60)
+        self.assertEqual(state.scale, 1.0)
+
+    def test_decoder_reduces_fps_before_resolution_for_high_detail_modes(self):
+        decoder = VideoDecoderBackpressure(60, prefer_resolution=True)
+        for _ in range(3):
+            decoder.observe(
+                accepted_frames=1, pressure_drops=2,
+                pending_decoders=1, active_decoders=1,
+            )
+        self.assertEqual(decoder.resolution_factor, 1.0)
+        self.assertLess(decoder.fps_limit, 60)
+        locked = VideoDecoderBackpressure(
+            60, prefer_resolution=True, keep_resolution=True,
+        )
+        for _ in range(40):
+            locked.observe(
+                accepted_frames=1, pressure_drops=3,
+                pending_decoders=1, active_decoders=1,
+            )
+        self.assertEqual(locked.resolution_factor, 1.0)
+
+    def test_proxy_limits_follow_preset_and_quality_uses_original(self):
+        preview = self.preview()
+        with patch.object(preview, "_preview_proxy_ffmpeg", Path("ffmpeg")):
+            cache = preview._new_video_proxy_cache()
+            self.assertEqual((cache.spec.max_width, cache.spec.max_height), (1920, 1080))
+            with patch("app.dialogs.export_preview_dialog.save_preview_quality", side_effect=lambda value: value):
+                preview.set_preview_quality("frames")
+                self.assertEqual(preview._preview_proxy_cache.spec.max_height, 720)
+                preview.set_preview_quality("power")
+                self.assertEqual(preview._preview_proxy_cache.spec.max_height, 480)
+                preview.set_preview_quality("quality")
+                self.assertIsNone(preview._preview_proxy_cache)
 
     def test_quality_context_menu_is_exclusive_and_switches_mode(self):
         preview = self.preview()
