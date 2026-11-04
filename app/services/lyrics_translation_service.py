@@ -39,7 +39,12 @@ MAX_RESPONSE = 8 * 1024 * 1024
 
 
 class TranslationError(ValueError):
-    pass
+    """Translation error with validated rows that survived a partial batch."""
+
+    def __init__(self, message, *, partial=None, diagnosed=False):
+        super().__init__(message)
+        self.partial = partial or {}
+        self.diagnosed = diagnosed
 
 
 class TranslationCancelled(Exception):
@@ -297,13 +302,36 @@ class LyricsTranslationService:
                 activity({"stage": "working", "rows": [index for index, _text in batch]})
             try:
                 if config.provider in LLM_PROVIDERS:
-                    translated = self._translate_batch(batch, config, cancel,
+                    translated = self._translate_batch(batch, config, cancel, activity=activity,
                         neighbors=neighboring_context(cues, batch[0][0], batch[-1][0]),
                         references=reference_translations(batch, completed))
                 else:
                     translated = self._translate_batch(batch, config, cancel)
+            except TranslationError as error:
+                # Preserve valid rows already returned in an otherwise invalid batch.
+                valid_ids = {index for index, _text in batch}
+                for index, original in batch:
+                    if index not in error.partial:
+                        continue
+                    value = error.partial[index]
+                    if value is not None and not isinstance(value, str):
+                        continue
+                    final = translation_text(original, value) if value is not None else ""
+                    result[index] = final
+                    if activity:
+                        activity({"stage": "complete", "row": index, "text": final})
+                if activity:
+                    activity({"stage": "failure", "rows": sorted(valid_ids - set(error.partial)),
+                        "reason": str(error)})
+                    if config.provider in LOCAL_LLM_PROVIDERS and not error.diagnosed:
+                        activity({"stage": "diagnostic", "provider": config.provider, "model": config.model,
+                            "rows": sorted(valid_ids), "raw": "", "reason": str(error), "status": "failed"})
+                raise
             except (KeyError, TypeError, AttributeError, IndexError):
-                raise TranslationError("번역 서비스 응답 형식이 올바르지 않습니다. / Invalid translation service response.") from None
+                message = "번역 서비스 응답 형식이 올바르지 않습니다. / Invalid translation service response."
+                if activity:
+                    activity({"stage": "failure", "rows": [index for index, _text in batch], "reason": message})
+                raise TranslationError(message) from None
             # Only the in-process engine can explicitly mark a missing result.
             # Keep malformed/empty responses from other providers as errors.
             if len(translated) != len(batch) or not all(t is None or isinstance(t, str) and t.strip()
@@ -335,80 +363,129 @@ class LyricsTranslationService:
         check_cancel(cancel)
         return result
 
-    def _translate_batch(self, rows, c, cancel, *, neighbors=None, references=None):
+    def _translate_batch(self, rows, c, cancel, *, neighbors=None, references=None, activity=None):
         texts = [text for _index, text in rows]
         if c.provider == "local_nmt":
             if self.local_engine is None:
                 from app.services.local_translation_service import LocalTranslationEngine, LocalTranslationModels
                 self.local_engine = LocalTranslationEngine(self.local_models or LocalTranslationModels())
             return self.local_engine.translate(texts, c, cancel)
+
         def req(url, body=None, headers=None, **kw):
             check_cancel(cancel)
             value = self.request(url, body, headers, cancel=cancel, **kw)
             check_cancel(cancel)
             return value
+
         if c.provider in LLM_PROVIDERS:
             instruction, prompt = build_translation_prompt(rows, source_language=c.source,
                 target_language=c.target, preferences=c.instructions, neighbors=neighbors, references=references)
             headers = {"Authorization": "Bearer " + c.key} if c.key else {}
-            if c.provider in {"chatgpt", "openai"}:
-                raw = req("https://api.openai.com/v1/responses", {"model": c.model, "instructions": instruction,
-                    "input": [{"role": "user", "content": prompt}], "store": False, "stream": True}, headers, stream=True)
-            elif c.provider == "claude":
-                data = req("https://api.anthropic.com/v1/messages", {"model": c.model, "max_tokens": 8192,
-                    "system": instruction, "messages": [{"role": "user", "content": prompt}]},
-                    {"x-api-key": c.key, "anthropic-version": "2023-06-01"})
-                if data.get("stop_reason") not in {"end_turn", "stop_sequence"}:
-                    raise TranslationError("Claude 번역이 완료되지 않았습니다. / Claude translation is incomplete.")
-                raw = "".join(block.get("text", "") for block in data.get("content", []) if block.get("type") == "text")
-            elif c.provider == "gemini":
-                data = req("https://generativelanguage.googleapis.com/v1beta/models/" + quote(c.model, safe="") + ":generateContent",
-                    {"systemInstruction": {"parts": [{"text": instruction}]},
-                     "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                     "generationConfig": {"responseMimeType": "application/json"}}, {"x-goog-api-key": c.key})
-                candidates = data.get("candidates", [])
-                if not candidates or candidates[0].get("finishReason") != "STOP":
-                    raise TranslationError("Gemini 번역이 완료되지 않았습니다. / Gemini translation is incomplete.")
-                raw = "".join(p.get("text", "") for p in candidates[0].get("content", {}).get("parts", []) if not p.get("thought"))
-            else:
-                base = "https://api.x.ai/v1" if c.provider == "grok" else validate_endpoint(c.endpoint)
-                data = req(base + "/chat/completions", {"model": c.model, "stream": False,
-                    "messages": [{"role": "system", "content": instruction}, {"role": "user", "content": prompt}]}, headers)
-                choices = data.get("choices", [])
-                if not choices or choices[0].get("finish_reason") != "stop":
-                    raise TranslationError("AI 번역이 완료되지 않았습니다. / AI translation is incomplete.")
-                raw = choices[0].get("message", {}).get("content", "")
+            raw = None
+
+            def diagnostic(reason, status):
+                if c.provider not in LOCAL_LLM_PROVIDERS or activity is None:
+                    return
+                # Volatile diagnostics only: no prompts, API keys or persistent log files.
+                response = raw if isinstance(raw, str) else ""
+                limit = 128 * 1024
+                activity({"stage": "diagnostic", "provider": c.provider, "model": c.model,
+                    "rows": [index for index, _text in rows], "raw": response[:limit],
+                    "truncated": len(response) > limit, "reason": reason, "status": status})
+
             try:
-                raw = raw.strip()
-                if raw.startswith("```"):
-                    raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
-                document = json.loads(raw)
+                if c.provider in {"chatgpt", "openai"}:
+                    raw = req("https://api.openai.com/v1/responses", {"model": c.model, "instructions": instruction,
+                        "input": [{"role": "user", "content": prompt}], "store": False, "stream": True}, headers, stream=True)
+                elif c.provider == "claude":
+                    data = req("https://api.anthropic.com/v1/messages", {"model": c.model, "max_tokens": 8192,
+                        "system": instruction, "messages": [{"role": "user", "content": prompt}]},
+                        {"x-api-key": c.key, "anthropic-version": "2023-06-01"})
+                    if data.get("stop_reason") not in {"end_turn", "stop_sequence"}:
+                        raise TranslationError("Claude 번역이 완료되지 않았습니다. / Claude translation is incomplete.")
+                    raw = "".join(block.get("text", "") for block in data.get("content", []) if block.get("type") == "text")
+                elif c.provider == "gemini":
+                    data = req("https://generativelanguage.googleapis.com/v1beta/models/" + quote(c.model, safe="") + ":generateContent",
+                        {"systemInstruction": {"parts": [{"text": instruction}]},
+                         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                         "generationConfig": {"responseMimeType": "application/json"}}, {"x-goog-api-key": c.key})
+                    candidates = data.get("candidates", [])
+                    if not candidates or candidates[0].get("finishReason") != "STOP":
+                        raise TranslationError("Gemini 번역이 완료되지 않았습니다. / Gemini translation is incomplete.")
+                    raw = "".join(p.get("text", "") for p in candidates[0].get("content", {}).get("parts", []) if not p.get("thought"))
+                else:
+                    base = "https://api.x.ai/v1" if c.provider == "grok" else validate_endpoint(c.endpoint)
+                    body = {"model": c.model, "stream": False,
+                        "messages": [{"role": "system", "content": instruction}, {"role": "user", "content": prompt}]}
+                    # Ollama's OpenAI-compatible endpoint supports JSON mode.
+                    if c.provider == "ollama":
+                        body["response_format"] = {"type": "json_object"}
+                    data = req(base + "/chat/completions", body, headers)
+                    choices = data.get("choices", [])
+                    if not choices:
+                        raise TranslationError("LLM이 응답 후보를 반환하지 않았습니다. / No completion choices returned.")
+                    raw = choices[0].get("message", {}).get("content", "")
+                    finish = choices[0].get("finish_reason")
+                    if finish != "stop":
+                        raise TranslationError(
+                            f"LLM 생성이 정상 종료되지 않았습니다(finish_reason={finish!s}). / "
+                            f"Generation stopped unexpectedly (finish_reason={finish!s}).")
+                if not isinstance(raw, str):
+                    raise TranslationError("LLM 응답이 문자열이 아닙니다. / LLM response content is not text.")
+                cleaned = raw.strip()
+                if cleaned.startswith("```"):
+                    if "\n" not in cleaned:
+                        raise TranslationError("마크다운 코드 블록이 닫히지 않았습니다. / Unclosed markdown code block.")
+                    cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+                try:
+                    document = json.loads(cleaned)
+                except json.JSONDecodeError as error:
+                    raise TranslationError(
+                        f"JSON 파싱 오류({error.lineno}행 {error.colno}열): {error.msg}. / "
+                        f"Invalid JSON at line {error.lineno}, column {error.colno}: {error.msg}.") from None
                 if not isinstance(document, dict) or set(document) != {"translations"}:
-                    raise ValueError()
+                    raise TranslationError("JSON 최상위 객체에 translations 배열이 필요합니다. / Expected a translations array.")
                 parsed = document["translations"]
                 if not isinstance(parsed, list):
-                    raise ValueError()
+                    raise TranslationError("translations 값이 배열이 아닙니다. / translations must be an array.")
                 mapping = {}
                 for value in parsed:
                     if (not isinstance(value, dict) or set(value) != {"id", "text"}
-                            or not isinstance(value["id"], int) or isinstance(value["id"], bool)
-                            or value["id"] in mapping or not isinstance(value["text"], str)):
-                        raise ValueError()
+                            or type(value.get("id")) is not int or not isinstance(value.get("text"), str)
+                            or value["id"] in mapping):
+                        raise TranslationError(
+                            "JSON에 잘못된 ID·중복 ID·문자열이 아닌 번역문이 있습니다. / "
+                            "Invalid or duplicate ID, or non-string translation text.")
                     mapping[value["id"]] = value["text"]
-                if set(mapping) != {i for i, _text in rows}:
-                    raise ValueError()
+                expected = {index for index, _text in rows}
+                if set(mapping) - expected:
+                    raise TranslationError("요청하지 않은 가사 ID가 반환되었습니다. / Unexpected lyric IDs returned.")
+                partial, invalid = {}, []
                 for index, original in rows:
+                    if index not in mapping:
+                        invalid.append(index)
+                        continue
                     translated = mapping[index].strip().replace("\r\n", "\n").replace("\r", "\n")
                     if not translated or not translation_text(original, translated):
-                        mapping[index] = None  # Prompt contract: the entire cue needs no translation.
-                        continue
-                    if ([bool(line.strip()) for line in translated.splitlines()]
-                            != [bool(line.strip()) for line in original.splitlines()]):
-                        raise TranslationError("AI 번역이 원문의 줄바꿈을 변경했습니다. 다시 번역하세요. / AI changed lyric line breaks; translate again.")
-                    mapping[index] = translated
-                return [mapping[i] for i, _text in rows]
-            except TranslationError:
+                        partial[index] = None
+                    elif ([bool(line.strip()) for line in translated.splitlines()]
+                          != [bool(line.strip()) for line in original.splitlines()]):
+                        invalid.append(index)
+                    else:
+                        partial[index] = translated
+                if invalid:
+                    numbers = ", ".join(str(index + 1) for index in invalid[:20])
+                    raise TranslationError(
+                        f"번역 결과 누락 또는 줄바꿈 불일치: 가사 {numbers}번. / "
+                        f"Missing translations or incorrect line breaks: lyric rows {numbers}.", partial=partial)
+                diagnostic("JSON 형식 검증 통과 / Valid JSON response", "success")
+                return [partial[index] for index, _text in rows]
+            except TranslationError as error:
+                diagnostic(str(error), "failed")
+                error.diagnosed = c.provider in LOCAL_LLM_PROVIDERS and activity is not None
                 raise
-            except (ValueError, KeyError, TypeError, AttributeError, IndexError):
-                raise TranslationError("AI 번역의 줄 연결 정보를 확인할 수 없습니다. / AI returned invalid lyric row IDs.") from None
+            except (KeyError, TypeError, AttributeError, IndexError, ValueError) as error:
+                message = "LLM 응답 구조를 읽지 못했습니다. / Invalid LLM response structure."
+                diagnostic(f"{message} ({type(error).__name__})", "failed")
+                raise TranslationError(message, diagnosed=True) from None
         raise TranslationError("지원하지 않는 번역 서비스입니다. / Unsupported translation provider.")
