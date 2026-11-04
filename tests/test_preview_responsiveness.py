@@ -161,6 +161,10 @@ class PreviewResponsivenessTests(unittest.TestCase):
             def restart(self):
                 pass
 
+        # Adaptive downscaling belongs to frame/power modes; the default
+        # resolution preset deliberately keeps the canvas at 100%.
+        with patch("app.dialogs.export_preview_dialog.save_preview_quality", side_effect=lambda v: v):
+            preview.set_preview_quality("frames")
         rect = preview.scene.artboard_rect
         base = preview.preview_render_scale
         preview._playing = True

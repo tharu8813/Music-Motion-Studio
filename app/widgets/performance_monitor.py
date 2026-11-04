@@ -15,6 +15,8 @@ FIELDS = [
     ('scale', '미리보기 해상도', 'Preview resolution', 'render', True),
     ('frame_budget', '목표 프레임 간격', 'Target frame interval', 'render', False),
     ('quality', '자동 품질 단계', 'Adaptive quality level', 'render', False),
+    ('render_path', '캔버스 렌더 경로', 'Canvas render path', 'render', True),
+    ('canvas_render_ms', '캔버스 처리 시간', 'Canvas processing time', 'render', True),
     ('layers', '화면 레이어', 'Canvas layers', 'render', False),
     ('playback', '재생 상태', 'Playback', 'audio', True),
     ('track', '현재 곡', 'Current track', 'audio', False),
@@ -45,6 +47,7 @@ FIELDS = [
     ('proxies', '프록시 상태', 'Proxy status', 'video', False),
     ('image_cache', '합성 이미지 용량', 'Composition image bytes', 'cache', False),
     ('static_bands', '정적 레이어 캐시 적중 / 렌더', 'Static band cache hits / renders', 'cache', False),
+    ('ordered_cache', '순서형 Z 캐시 적중 / 렌더', 'Ordered Z cache hits / renders', 'cache', False),
     ('overlay_cache', '효과 이미지 용량', 'Overlay image bytes', 'cache', False),
     ('workers', '분석 / 효과 작업', 'Analysis / overlay workers', 'cache', False),
     ('refresh', '새 프레임 대기 / 지연', 'Queued / deferred refresh', 'cache', False),
@@ -302,6 +305,8 @@ class PerformanceMonitor(QFrame):
         values['frame_budget'] = f'{1000/max(1,p.presentation_fps):.2f} ms'
         quality = p._adaptive_quality
         values['quality'] = f'{quality.level} · {quality.factor:.0%}'
+        values['render_path'] = p._preview_render_path
+        values['canvas_render_ms'] = f'{p._canvas_render_last_ms:.1f} ms'
         values['layers'] = str(len(p.source_store.sources())) if p.source_store is not None else '—'
         values['playback'] = self.tr('재생 중', 'Playing') if p._playing else self.tr('일시정지', 'Paused')
         index = p._highlighted_track_index
@@ -341,6 +346,9 @@ class PerformanceMonitor(QFrame):
         values['image_cache'] = mb(p._image.sizeInBytes()+p._base_image.sizeInBytes())
         values['static_bands'] = (
             f'{p._static_band_cache_hits} / {p._static_band_cache_misses}'
+        )
+        values['ordered_cache'] = (
+            f'{p._ordered_cache_hits} / {p._ordered_cache_renders}'
         )
         # Memory enumeration is only needed when this optional diagnostic is shown.
         if self.enabled['overlay_cache']:

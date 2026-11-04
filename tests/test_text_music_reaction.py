@@ -275,14 +275,19 @@ class TextMusicReactionTests(unittest.TestCase):
         scene = CanvasScene(); scene.addItem(SourceItem(source)); scene.addItem(SourceItem(other))
         track = PlaylistTrack("", "Song", duration_seconds=4)
         renderer = PythonVisualizerRenderer(None)
-        levels = np.zeros((120, 24), dtype=np.float32); levels[20:35, :4] = 1
+        # The preview samples audio at 60 Hz; keep the synthetic pulse around
+        # elapsed=1s in the same sampling space (not the legacy 30 Hz index).
+        levels = np.zeros((240, 24), dtype=np.float32); levels[55:85, :4] = 1
         preview = ExportPreviewDialog(scene, [track], Translator(), preferred_backend="cpu")
         preview._refresh_source_partitions()
         preview.visualizer_renderer = renderer
-        cached = {"levels": levels, "bass": renderer.bass_envelope(levels), "processed": (), "meters": ()}
+        cached = {"levels": levels, "bass": renderer.bass_envelope(levels, preview.preview_fps), "processed": (), "meters": ()}
         preview._track_levels[track.id] = cached
         profiles = (source.music_reaction_profile, other.music_reaction_profile)
-        worker = AudioAnalysisWorker(renderer, track, 24, music_profiles=profiles, cached_analysis=cached)
+        worker = AudioAnalysisWorker(
+            renderer, track, 24, fps=preview.preview_fps,
+            music_profiles=profiles, cached_analysis=cached,
+        )
         worker.ready.connect(preview._store_track_levels)
         with patch.object(renderer, "_decode_mono_audio", side_effect=AssertionError("Re-decoded cached audio")):
             worker.run()

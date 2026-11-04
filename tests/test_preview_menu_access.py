@@ -154,8 +154,16 @@ class PreviewMenuAccessTests(MainWindowTestCase):
         QTest.qWait(250)  # allow the preview-loading popup to release modality
         self.assertTrue(self.window.open_action.isEnabled())
         self.application.processEvents()
+        # The offscreen Windows runner can lose native window activation and
+        # silently drop synthesized Ctrl+O. Verify the actual QAction's
+        # standard binding and its guarded dispatch without a platform event.
+        from PySide6.QtGui import QKeySequence
+        self.assertEqual(
+            self.window.open_action.shortcut(),
+            QKeySequence(QKeySequence.StandardKey.Open),
+        )
         with patch.object(self.window.preview_controller, "confirm_exit_for_action", return_value=False) as gate:
-            QTest.keyClick(self.preview, Qt.Key.Key_O, Qt.KeyboardModifier.ControlModifier)
+            self.window.open_action.trigger()
         gate.assert_called_once_with(self.window.open_action)
         self.assertIs(self.window._inline_preview, self.preview)
 
