@@ -358,9 +358,11 @@ class LyricsTranslationService:
             if progress:
                 progress(processed, len(rows))
             batch, length = [], 0
+        max_batch_rows = 1 if config.provider == "local_nmt" else 12 if config.provider in LOCAL_LLM_PROVIDERS else 20
+        max_batch_chars = 1800 if config.provider in LOCAL_LLM_PROVIDERS else 4000
         for index, text in rows:
             check_cancel(cancel)
-            if batch and (len(batch) >= (1 if config.provider == "local_nmt" else 20) or length + len(text) > 4000):
+            if batch and (len(batch) >= max_batch_rows or length + len(text) > max_batch_chars):
                 flush()
             batch.append((index, text))
             length += len(text)
