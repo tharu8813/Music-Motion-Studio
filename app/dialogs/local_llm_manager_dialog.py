@@ -1,5 +1,6 @@
 """Manage local LLMs without requiring users to work in a terminal."""
 import json
+from time import monotonic
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView, QInputDialog,
@@ -15,11 +16,18 @@ from app.services.translation_worker import TranslationWorker
 class LocalLLMManagerDialog(QDialog):
     busy_changed = Signal(bool)
 
-    def __init__(self, translator, parent=None, *, service=None):
+    def __init__(self, translator, parent=None, *, service=None, preferred_model=""):
         super().__init__(parent)
         self.translator, self.service = translator, service or LocalLLMService()
         self.worker, self._closing, self.selected_model = None, False, ""
         self.models = []
+        self.preferred_model = preferred_model
+        self._download_target = ""
+        self._before_download = set()
+        self._deleted_name = ""
+        self._download_sample = None
+        self._download_speed = None
+        self._updating_models = False
         self._discovered = False
         install_help_shortcut(self, ("lyrics_editor", "lyrics_translation"), translator=translator)
         self.setWindowTitle(self.tr_text("로컬 LLM 관리자", "Local LLM manager"))
@@ -48,6 +56,9 @@ class LocalLLMManagerDialog(QDialog):
         self.steps_label.setObjectName("panelTitle")
         self.steps_label.setWordWrap(True)
         root.addWidget(self.steps_label)
+        self.engine_state = QLabel(self.tr_text("로컬 AI 연결을 확인하는 중…", "Checking the local AI connection…"))
+        self.engine_state.setObjectName("panelTitle")
+        root.addWidget(self.engine_state)
         self.runtime_note = QLabel(self.tr_text(
             "처음이라면 ‘실행 구성요소 자동 설치·시작’을 누르세요. 공식 Ollama Windows x64 파일(수 GB)을 검증해 앱 전용 폴더에 설치합니다. 이미 실행 중인 Ollama는 그대로 사용합니다.",
             "New to local LLMs? Automatic setup verifies and installs the official Ollama Windows x64 runtime (several GB) in this app's folder. An existing Ollama server is reused.") if self.service.provider == "ollama" else self.tr_text(
@@ -94,13 +105,25 @@ class LocalLLMManagerDialog(QDialog):
         self.table.setMinimumHeight(180)
         self.table.setAccessibleName(self.tr_text("설치된 로컬 LLM", "Installed local LLMs"))
         installed_layout.addWidget(self.table)
+        self.installed_hint = QLabel(self.tr_text(
+            "설치된 모델을 선택하면 바로 사용할 수 있습니다. 모델이 없다면 추가하세요.",
+            "Choose an installed model to use it, or add your first model."))
+        self.installed_hint.setWordWrap(True)
+        installed_layout.addWidget(self.installed_hint)
+        installed_actions = QHBoxLayout()
+        self.use_button = QPushButton(self.tr_text("이 모델 사용", "Use this model"))
+        self.use_button.setProperty("primary", True)
+        self.add_model_button = QPushButton(self.tr_text("＋ 모델 추가", "＋ Add model"))
+        installed_actions.addWidget(self.use_button)
+        installed_actions.addWidget(self.add_model_button)
+        installed_layout.addLayout(installed_actions)
         advanced_actions = QGridLayout()
         self.load_button = QPushButton(self.tr_text("메모리에 로드", "Load into memory"))
         self.unload_button = QPushButton(self.tr_text("메모리 해제", "Unload from memory"))
         self.details_button = QPushButton(self.tr_text("상세 정보·라이선스", "Details / license"))
         self.alias_button = QPushButton(self.tr_text("별칭 만들기", "Create alias"))
         self.delete_button = QPushButton(self.tr_text("모델 삭제…", "Delete model…"))
-        for index, button in enumerate((self.load_button, self.unload_button, self.delete_button)):
+        for index, button in enumerate((self.load_button, self.unload_button)):
             advanced_actions.addWidget(button, index // 2, index % 2)
         advanced_layout.addLayout(advanced_actions)
         advanced_layout.addWidget(self.alias_button)
@@ -109,7 +132,11 @@ class LocalLLMManagerDialog(QDialog):
         advanced_layout.addWidget(self.metadata, 1)
         self.alias_button.setVisible(self.service.provider == "ollama")
         self.delete_button.setVisible(self.service.provider == "ollama")
-        installed_layout.addWidget(self.details_button)
+        installed_management = QHBoxLayout()
+        installed_management.addWidget(self.details_button)
+        installed_management.addWidget(self.delete_button)
+        installed_management.addStretch()
+        installed_layout.addLayout(installed_management)
         download_layout.addWidget(QLabel(self.tr_text(
             "모델 찾기 · 실제 가사 품질 순위가 아니며 코딩 모델도 번역 정확도를 보장하지 않습니다.",
             "Find models · not a lyric-quality ranking; coding models do not guarantee translation accuracy.")))
@@ -155,6 +182,11 @@ class LocalLLMManagerDialog(QDialog):
         download_layout.addWidget(self.download_name)
         self.download_button = QPushButton(self.tr_text("선택한 모델 다운로드·설치", "Download and install selected model"))
         download_layout.addWidget(self.download_button)
+        self.download_hint = QLabel(self.tr_text(
+            "다운로드 후 설치된 모델이 자동으로 선택됩니다. '이 모델 사용'을 눌러 번역에 적용하세요.",
+            "After download, the model is selected in Installed. Choose 'Use this model' to apply it to translations."))
+        self.download_hint.setWordWrap(True)
+        download_layout.addWidget(self.download_hint)
         self.tabs.addTab(installed_page, self.tr_text("설치된 모델", "Installed"))
         self.tabs.addTab(download_page, self.tr_text("모델 찾기·설치", "Find and install"))
         self.tabs.addTab(advanced_page, self.tr_text("고급 관리", "Advanced management"))
@@ -169,6 +201,11 @@ class LocalLLMManagerDialog(QDialog):
         self.progress = QProgressBar()
         self.progress.hide()
         outer.addWidget(self.progress)
+        self.download_detail = QLabel("")
+        self.download_detail.setWordWrap(True)
+        self.download_detail.setTextFormat(Qt.TextFormat.PlainText)
+        self.download_detail.hide()
+        outer.addWidget(self.download_detail)
         self.status = QLabel(self.tr_text("설치된 모델을 조회합니다. 모델이 없으면 다운로드 탭에서 준비하세요.",
             "Checking installed models. Use Download if none are installed."))
         self.status.setWordWrap(True)
@@ -177,17 +214,15 @@ class LocalLLMManagerDialog(QDialog):
         footer = QHBoxLayout()
         self.cancel_button = QPushButton(self.tr_text("작업 취소", "Cancel operation"))
         self.cancel_button.hide()
-        self.use_button = QPushButton(self.tr_text("선택한 모델 사용", "Use selected model"))
-        self.use_button.setProperty("primary", True)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         footer.addWidget(self.cancel_button)
         footer.addStretch()
-        footer.addWidget(self.use_button)
         footer.addWidget(buttons)
         outer.addLayout(footer)
         self.setup_button.clicked.connect(lambda: self._start("setup", lambda cancel, progress: self.service.ensure_running(install=True, cancel=cancel, progress=progress)))
         self.refresh_button.clicked.connect(self._refresh)
+        self.add_model_button.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
         self.table.itemSelectionChanged.connect(self._selection)
         self.table.itemDoubleClicked.connect(lambda *_: self._use())
         self.search.textChanged.connect(self._filter)
@@ -196,6 +231,7 @@ class LocalLLMManagerDialog(QDialog):
         self.catalog_category.currentIndexChanged.connect(self._filter_catalog)
         self.catalog_size.currentIndexChanged.connect(self._filter_catalog)
         self.manual_toggle.toggled.connect(self._manual_mode)
+        self.download_name.textChanged.connect(lambda *_: self._recommendation() if self.manual_toggle.isChecked() else None)
         self.tabs.currentChanged.connect(self._selection)
         self.download_button.clicked.connect(self._download)
         self.use_button.clicked.connect(self._use)
