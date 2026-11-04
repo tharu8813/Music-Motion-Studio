@@ -170,6 +170,27 @@ class TranslationWorkspaceTests(unittest.TestCase):
         self.assertFalse(review.table.isRowHidden(0))
         self.assertTrue(review.table.isRowHidden(1))
 
+    def test_real_second_batch_failure_keeps_first_batch_results(self):
+        self.cues = [{"text": f"Line {i}", "start": i} for i in range(21)]
+        calls = []
+        def transport(url, body=None, headers=None, **kwargs):
+            rows = json.loads(body["input"][0]["content"])["lyrics"]
+            calls.append([row["id"] for row in rows])
+            if len(calls) == 2:
+                raise TranslationError("Second batch disconnected")
+            return json.dumps({"translations": [
+                {"id": row["id"], "text": f"번역 {row['id']}"} for row in rows]})
+        dialog = self.dialog(service=LyricsTranslationService(transport))
+        dialog.workflow.translate()
+        self.until(lambda: dialog.worker is None)
+        self.assertEqual([len(x) for x in calls], [20, 1])
+        self.assertEqual(dialog.draft.rows[19].text, "번역 19")
+        self.assertEqual(dialog.draft.rows[19].status, "complete")
+        self.assertEqual(dialog.draft.rows[20].status, "failed")
+        self.assertFalse(dialog.draft.rows[20].checked)
+        self.assertTrue(dialog.draft.has_result)
+        self.assertIn("Second batch disconnected", dialog.workflow.status)
+
     def test_failed_translation_retains_finished_rows_and_ephemeral_llm_diagnostics(self):
         dialog = self.dialog()
         review = dialog.review_panel
