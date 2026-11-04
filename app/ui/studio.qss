@@ -364,6 +364,47 @@ QSlider::handle:horizontal:focus { border-color: @accent; }
 #visualTimeline { background: @field; border: 1px solid @border; border-radius: 4px; }
 #visualTimeline:focus { border-color: @accent; }
 
+/* --- Translation & custom-motion editor readability ----------------- */
+#lyricsTranslationDialog QFrame#card {
+    background: @panel;
+    border: 1px solid @border;
+    border-radius: 7px;
+}
+#lyricsTranslationDialog #translationSwapLanguages {
+    background: @field;
+    color: @text;
+    border: 1px solid @border;
+    border-radius: 5px;
+    font-size: 17px;
+    font-weight: 600;
+    min-height: 30px;
+    padding: 0;
+}
+#lyricsTranslationDialog #translationSwapLanguages:hover {
+    border-color: @accent;
+    background: @hover;
+}
+#translationReviewPanel QTableWidget {
+    background: @field;
+    border: 1px solid @border;
+    border-radius: 5px;
+    alternate-background-color: @alternate;
+    selection-background-color: @selection;
+}
+#translationReviewPanel QTableWidget::item { border: 0; padding: 6px 9px; }
+#translationReviewPanel QTableWidget::item:selected { background: @selection; color: @text; }
+#customMotionDialog #motionWorkspaceSplitter::handle {
+    background: @border;
+    height: 8px;
+}
+#customMotionDialog #motionWorkspaceSplitter::handle:hover {
+    background: @accent;
+}
+#customMotionDialog #motionWorkspaceSplitter QFrame#card {
+    border: 1px solid @border;
+    border-radius: 6px;
+}
+
 /* --- Preview stage -------------------------------------- */
 /* Short-motion editor uses the same surfaces and toolbar controls as Canvas. */
 #customMotionDialog QSplitter::handle { background: @window; width: 12px; }
