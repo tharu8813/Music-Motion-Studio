@@ -11,10 +11,11 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QRectF
-from PySide6.QtGui import QImage
+from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QApplication
 
 from app.canvas.live_canvas import CanvasScene
+from app.canvas.source_item import SourceItem
 from app.dialogs.export_preview_dialog import ExportPreviewDialog
 from app.models.playlist import PlaylistTrack
 from app.models.source import Source, SourceType
@@ -164,6 +165,47 @@ class GpuCompositorOptimizationTests(unittest.TestCase):
             )
         self.assertEqual((layers[1].target.x(), layers[1].target.y()), (40, 30))
         self.assertEqual((layers[1].target.width(), layers[1].target.height()), (100, 60))
+
+    def test_gpu_ordered_layers_match_full_scene_in_overlapping_z_case(self):
+        scene = CanvasScene()
+        scene.set_artboard_size(320, 180)
+        for source in (
+            Source(SourceType.SHAPE, "base", x=0, y=0, width=320, height=180,
+                   fill_color="#102030", z_index=0),
+            Source(SourceType.PROGRESS_BAR, "progress", x=20, y=35,
+                   width=200, height=30, z_index=1),
+            Source(SourceType.SHAPE, "foreground", x=150, y=40,
+                   width=80, height=75, fill_color="#44cc33", z_index=2),
+        ):
+            scene.addItem(SourceItem(source))
+        track = PlaylistTrack("missing.wav", "Preview", duration_seconds=30)
+        preview = ExportPreviewDialog(
+            scene, [track], Translator(), preferred_backend="cpu",
+        )
+        self.addCleanup(preview.deleteLater)
+        self.addCleanup(preview._stop_preview)
+        preview._refresh_source_partitions()
+        baseline = CanvasSnapshot.capture_track(
+            scene, track, 1, 1, 0.0,
+            elapsed_seconds=5.0, timeline_seconds=5.0,
+            playlist_duration_seconds=30.0, playlist_tracks=[track],
+            compiled_plan=preview._compiled_plan,
+        )
+        layers = preview._ordered_canvas_gpu_layers(
+            track, 0, 5.0, 0.0, frozenset(),
+        )
+        self.assertGreaterEqual(len(layers), 3)
+        assembled = QImage(320, 180, QImage.Format.Format_ARGB32_Premultiplied)
+        assembled.fill(0)
+        painter = QPainter(assembled)
+        for layer in layers:
+            painter.drawImage(layer.target, layer.image)
+        painter.end()
+        for point in ((12, 12), (30, 45), (170, 75), (275, 140)):
+            self.assertEqual(
+                assembled.pixelColor(*point), baseline.pixelColor(*point),
+                msg=f"Z-band pixel mismatch at {point}",
+            )
 
     def test_gpu_keyframe_uses_unchanged_texture_pixels(self):
         scene = CanvasScene()
