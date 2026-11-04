@@ -266,7 +266,8 @@ class LocalLLMManagerDialog(QDialog):
             name = guide["id"]
         else:
             name = guide["lmstudio"]
-        self.download_name.setText(name)
+        if not self.manual_toggle.isChecked():
+            self.download_name.setText(name)
         self.description.setPlainText(self.tr_text(f"{title}\n장점: {strength}\n주의: {limitation}\n{guide['size']} · 용량은 버전과 양자화에 따라 바뀔 수 있습니다.",
             f"{title}\nStrengths: {strength}\nLimitations: {limitation}\n{guide['size']} · Size varies with version and quantization."))
         self.source_link.setText(f'<a href="{guide["url"]}">' + self.tr_text("모델 공식 정보·이용 조건", "Official model information / terms") + "</a>")
