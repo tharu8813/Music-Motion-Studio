@@ -202,6 +202,7 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
     count = max(1, source.subtitle_current_line_count)
     has_current = 0 <= current < len(lines)
     anchor = item._subtitle_anchor_line
+    original_anchor = anchor
     anchored = 0 <= anchor < len(lines)
     anchor_count = max(1, item._subtitle_anchor_line_count)
     boundary = current if has_current else (anchor if anchored else -1)
@@ -254,6 +255,13 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         lines, layout = expanded, tuple(wrapped_layout)
     else:
         boundaries = list(range(len(lines) + 1))
+    # The active group holds all simultaneous phrases, but the newest one
+    # should occupy the normal current cue position, not the group's midpoint.
+    prior_rows = max(0, item._subtitle_overlap_prior_rows) if anchored and has_current else 0
+    if prior_rows:
+        first = max(0, original_anchor)
+        prior_rows = boundaries[min(len(boundaries) - 1, first + prior_rows)] - boundaries[first]
+    overlap_shift = prior_rows * height / 2
     axis = rect.width() if horizontal else rect.height()
     anchor_extent = layout[anchor][2] if anchored else (
         layout[current][2] if compact_layout and has_current else anchor_count)
@@ -262,6 +270,8 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         return max(guard, min(axis - guard, axis * source.subtitle_anchor))
 
     anchor_position = anchor_at(anchor_extent)
+    if not horizontal:
+        anchor_position -= overlap_shift
     alignment = _ALIGNMENTS.get(source.text_alignment, Qt.AlignmentFlag.AlignHCenter)
     flags = alignment | Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextSingleLine
     pixel_ratio = device_pixel_ratio(painter)
@@ -483,7 +493,7 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         layout_offset = 0.0 if intro is not None else offset
         if horizontal:
             x = rect.left() + anchor_position + sign * ((slot - anchor_slot) * step + scroll + layout_offset)
-            row = QRectF(x - width / 2, rect.center().y() + (inner - total / 2) * height, width, height)
+            row = QRectF(x - width / 2, rect.center().y() + (inner - total / 2) * height - overlap_shift, width, height)
         elif anchored:
             distance = (centers[slot] - centers[anchor_slot]) * height
             row = QRectF(rect.left() + 12, rect.top() + anchor_position + sign * (

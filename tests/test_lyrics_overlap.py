@@ -259,7 +259,7 @@ class LyricsOverlapTests(unittest.TestCase):
         self.assertEqual(LyricsService.active_cue_indices(cues, 4), (1,))
         self.assertEqual(PlaylistTrack.from_dict(PlaylistTrack("", "Song", lyrics=cues).to_dict()).lyrics, cues)
 
-    def test_active_group_is_centered_and_word_clocks_remain_independent(self):
+    def test_latest_overlapping_cue_takes_current_position_and_word_clocks_remain_independent(self):
         for direction in ("up", "down", "left", "right"):
             with self.subTest(direction=direction):
                 scene, item, track = self.scene(direction)
@@ -269,7 +269,8 @@ class LyricsOverlapTests(unittest.TestCase):
                 self.assertAlmostEqual(observed[0][1], 3)
                 self.assertAlmostEqual(observed[1][1], 5 / 3)
                 self.assertTrue(all(row[2] == 1 for row in observed))
-                self.assertAlmostEqual(sum(row[3].center().y() for row in observed) / 2, 150)
+                self.assertAlmostEqual(observed[1][3].center().y(), 150)
+                self.assertLess(observed[0][3].center().y(), observed[1][3].center().y())
                 after_short, _ = self.observe(scene, item, track, 7)
                 self.assertEqual([row[0] for row in after_short], ["Sustained"])
                 self.assertAlmostEqual(after_short[0][3].center().y(), 150)

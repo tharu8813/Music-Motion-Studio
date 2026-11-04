@@ -72,9 +72,23 @@ class KRCConversionTests(unittest.TestCase):
 
     def test_invalid_intervals_and_missing_lines_are_rejected(self):
         for text in ('[ti:Only metadata]', '[1,0]Text', '[-1,50]Text', '[1,200]<0,-1,0>Text',
-                     '[1,200]<0,300,0>Text', '[1,200]<100,100,0>A<0,50,0>B'):
+                     '[86399999,1]<0,2,0>Text', '[1,200]<100,100,0>A<0,50,0>B'):
             with self.subTest(text=text), self.assertRaises(KRCError):
                 krc_to_ttml(encoded_krc(text), max_bytes=10000)
+
+    def test_overlapping_words_remain_independent_and_extend_short_cue(self):
+        lyrics = '[1000,2000]<0,1800,0>Alpha <1200,1800,0>Beta'
+        cues = LyricsService.parse(krc_to_ttml(encoded_krc(lyrics), max_bytes=10000), '.ttml')
+        self.assertEqual((cues[0]['start'], cues[0]['end']), (1, 4))
+        self.assertEqual([(word['start'], word['end']) for word in cues[0]['words']],
+                         [(1, 2.8), (2.2, 4)])
+        PlaylistTrack.from_dict(PlaylistTrack('', 'Song', lyrics=cues).to_dict())
+        self.assertGreater(LyricsService.word_reveal(cues[0], 2.5)[0], len('Alpha '))
+
+    def test_reversed_word_starts_report_line_and_word(self):
+        lyrics = '[1000,3000]<900,1400,0>Alpha <800,2000,0>Beta'
+        with self.assertRaisesRegex(KRCError, 'line 1, word 2'):
+            krc_to_ttml(encoded_krc(lyrics), max_bytes=10000)
 
     def test_conversion_checks_cancellation(self):
         def cancel():
@@ -251,16 +265,22 @@ class WordProviderTests(unittest.TestCase):
         document = self.service.fetch(result)
         self.assertEqual(document.cues[0]['words'][1]['start'], 1.999)
         PlaylistTrack.from_dict(PlaylistTrack('', 'Song', lyrics=document.cues).to_dict())
-        for content in (ttml.replace('0.999s', '0.998s'), ttml.replace('end="2s"', 'end="0.5s"')):
-            with self.subTest(content=content), self.assertRaises(LyricsSearchError):
-                self.service.fetch(replace(result, payload={'ttml': content}))
+        overlapping = self.service.fetch(replace(result, payload={'ttml': ttml.replace('0.999s', '0.998s')}))
+        self.assertEqual(overlapping.cues[0]['words'][1]['start'], 1.998)
+        with self.assertRaises(LyricsSearchError):
+            self.service.fetch(replace(result, payload={'ttml': ttml.replace('end="2s"', 'end="0.5s"')}))
 
     def test_rounding_tolerance_does_not_admit_outside_cue_or_invalid_offsets(self):
         cue = {'start': 1, 'end': 3, 'text': 'ab', 'format': 'ttml', 'words': [
             {'start': 1, 'end': 2, 'offset': 0, 'text': 'a'},
             {'start': 1.999, 'end': 3, 'offset': 1, 'text': 'b'}]}
-        for changes in ({'start': .999}, {'end': 3.001}, {'offset': 0}, {'start': 1.998}, {'start': True}):
+        for changes in ({'start': .999}, {'end': 3.001}, {'offset': 0}, {'start': True}):
             value = copy.deepcopy(cue)
             value['words'][1].update(changes)
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 PlaylistTrack.from_dict(PlaylistTrack('', 'Song', lyrics=[value]).to_dict())
+        reversed_words = copy.deepcopy(cue)
+        reversed_words['words'][0]['start'] = 1.5
+        reversed_words['words'][1]['start'] = 1.4
+        with self.assertRaises(ValueError):
+            PlaylistTrack.from_dict(PlaylistTrack('', 'Song', lyrics=[reversed_words]).to_dict())
