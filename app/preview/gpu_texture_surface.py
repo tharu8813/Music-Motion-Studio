@@ -15,6 +15,7 @@ from typing import Hashable, Sequence
 import numpy as np
 
 from app.utils.performance import timed
+from app.preview.texture_fingerprint import image_content_signature
 
 from PySide6.QtCore import QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QImage, QOpenGLContext, QSurfaceFormat
@@ -112,6 +113,7 @@ class GpuUploadStats:
     filtered_layers: int = 0
     texture_allocations: int = 0
     presented_scene_frames: int = 0
+    content_reuses: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +126,7 @@ class _TextureEntry:
     last_used_frame: int
     aux_texture: object | None = None
     video_format: str = ""
+    fingerprint: object | None = None
 
 
 if GPU_TEXTURE_SURFACE_AVAILABLE:
@@ -160,6 +163,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
             self._texture_uploads = 0
             self._texture_allocations = 0
             self._texture_reuses = 0
+            self._content_reuses = 0
             self._uploaded_bytes = 0
             self._texture_evictions = 0
             self._allocated_bytes = 0
@@ -205,6 +209,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                 texture_uploads=self._texture_uploads,
                 texture_allocations=self._texture_allocations,
                 texture_reuses=self._texture_reuses,
+                content_reuses=self._content_reuses,
                 uploaded_bytes=self._uploaded_bytes,
                 texture_evictions=self._texture_evictions,
                 cached_textures=len(self._textures),
@@ -375,17 +380,32 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                 return
             cache_key = int(layer.image.cacheKey())
             existing = self._textures.get(layer.key)
-            if (
+            size_matches = (
                 existing is not None
-                and existing.cache_key == cache_key
+                and not existing.video_format
                 and existing.width == layer.image.width()
                 and existing.height == layer.image.height()
+            )
+            if size_matches and existing.cache_key == cache_key:
+                self._texture_reuses += 1
+                self._textures[layer.key] = replace(
+                    existing, last_used_frame=self._frame_serial,
+                )
+                return
+            # Some Qt raster renderers rewrite an otherwise identical bitmap
+            # into a reused QImage buffer every frame, changing cacheKey().
+            # Compare bounded content before costly RGBA conversion and GL
+            # transfer. Never hash a large full-canvas surface on each frame.
+            fingerprint = image_content_signature(layer.image)
+            if (
+                size_matches and fingerprint is not None
+                and existing.fingerprint == fingerprint
             ):
                 self._texture_reuses += 1
-                self._textures[layer.key] = _TextureEntry(
-                    existing.texture, existing.cache_key,
-                    existing.width, existing.height,
-                    existing.allocated_bytes, self._frame_serial,
+                self._content_reuses += 1
+                self._textures[layer.key] = replace(
+                    existing, cache_key=cache_key,
+                    last_used_frame=self._frame_serial,
                 )
                 return
             image = layer.image.convertToFormat(
@@ -393,6 +413,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
             )
             same_size = (
                 existing is not None
+                and not existing.video_format
                 and existing.texture.isCreated()
                 and existing.width == image.width()
                 and existing.height == image.height()
@@ -415,6 +436,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                     self._textures[layer.key] = _TextureEntry(
                         existing.texture, cache_key, image.width(), image.height(),
                         existing.allocated_bytes, self._frame_serial,
+                        fingerprint=fingerprint,
                     )
                     self._record_texture_upload(image)
                     return
@@ -434,6 +456,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
             self._textures[layer.key] = _TextureEntry(
                 texture, cache_key, image.width(), image.height(),
                 max(0, image.width() * image.height() * 4), self._frame_serial,
+                fingerprint=fingerprint,
             )
             allocation = max(0, image.width() * image.height() * 4)
             self._allocated_bytes += allocation

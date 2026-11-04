@@ -29,6 +29,7 @@ FIELDS = [
     ('gpu_peak', '최대 텍스처 메모리', 'Peak texture memory', 'gpu', False),
     ('textures', '캐시 / 할당 / 퇴출', 'Cached / allocated / evicted textures', 'gpu', False),
     ('uploads', '업로드 / 재사용', 'Uploads / reuses', 'gpu', False),
+    ('content_reuses', '동일 이미지 업로드 생략', 'Identical uploads skipped', 'gpu', False),
     ('upload_bytes', '누적 업로드 용량', 'Total uploaded bytes', 'gpu', False),
     ('gpu_frames', '제출 / 표시 / 드롭', 'Submitted / presented / dropped', 'gpu', False),
     ('scene_frames', '장면 표시 프레임', 'Presented scene frames', 'gpu', False),
@@ -314,7 +315,7 @@ class PerformanceMonitor(QFrame):
         health = p._gpu_health.stats
         def mb(n):
             return f'{n/1048576:.1f} MiB'
-        for key in ('latency','gpu','gpu_peak','textures','uploads','upload_bytes','gpu_frames','scene_frames','filters','stalls','awaiting'):
+        for key in ('latency','gpu','gpu_peak','textures','uploads','content_reuses','upload_bytes','gpu_frames','scene_frames','filters','stalls','awaiting'):
             values[key] = unavailable
         if p.gpu_preview_enabled:
             values['latency'] = f'{health.last_latency_ms:.1f} / {health.maximum_latency_ms:.1f} ms'
@@ -323,7 +324,9 @@ class PerformanceMonitor(QFrame):
         if gpu is not None:
             values.update(gpu=f'{mb(gpu.allocated_bytes)} / {mb(gpu.texture_budget_bytes)}',
                 gpu_peak=mb(gpu.peak_allocated_bytes), textures=f'{gpu.cached_textures} / {gpu.texture_allocations} / {gpu.texture_evictions}',
-                uploads=f'{gpu.texture_uploads} / {gpu.texture_reuses}', upload_bytes=mb(gpu.uploaded_bytes),
+                uploads=f'{gpu.texture_uploads} / {gpu.texture_reuses}',
+                content_reuses=str(gpu.content_reuses),
+                upload_bytes=mb(gpu.uploaded_bytes),
                 gpu_frames=f'{gpu.submitted_frames} / {gpu.presented_frames} / {gpu.dropped_pending_frames}',
                 scene_frames=str(gpu.presented_scene_frames), filters=str(gpu.filtered_layers))
         decoders = [item.video_decoder_stats() for item in p._cached_video_items if item._video_timeline_preview_active]
