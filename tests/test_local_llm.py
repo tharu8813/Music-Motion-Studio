@@ -79,6 +79,25 @@ class LocalLLMServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(TranslationError, "interrupted"):
             self.service.download("qwen3:4b")
 
+    def test_pull_exposes_phase_bytes_and_actionable_errors_without_changing_progress_api(self):
+        events, fractions = [], []
+        stream = (b'{"status":"pulling manifest"}\n'
+                  b'{"status":"pulling layer","total":1000,"completed":250}\n'
+                  b'{"status":"success"}\n')
+        self.respond(lambda request: stream if request.full_url.endswith("/api/pull")
+                     else {"models": [{"name": "qwen3:4b"}]})
+        self.service.download("qwen3:4b", progress=lambda *args: fractions.append(args),
+                              status=events.append)
+        self.assertEqual(fractions, [(25, 100)])
+        self.assertEqual([event["status"] for event in events],
+                         ["pulling manifest", "pulling layer", "success"])
+        self.assertEqual(events[1]["completed"], 250)
+        self.assertEqual(events[1]["total"], 1000)
+        self.respond(lambda request: b'{"error":"pull model manifest: file does not exist"}\n'
+                     if request.full_url.endswith("/api/pull") else {"models": []})
+        with self.assertRaisesRegex(TranslationError, "모델 이름을 찾을 수 없습니다"):
+            self.service.download("missing-model")
+
     def test_ollama_capabilities_hide_embeddings_and_cloud_aliases(self):
         def response(request):
             if request.full_url.endswith("/api/tags"):
@@ -307,6 +326,65 @@ class TranslationSetupUITests(unittest.TestCase):
         self.assertEqual(review.table.item(0, 3).text(), "검토 초안")
         self.assertTrue(review.isVisible())
         self.assertFalse(review.isWindow())
+
+    def test_manager_can_use_already_installed_catalog_model_without_redownloading(self):
+        service = Mock(provider="ollama")
+        service.discover.return_value = [installed_row("qwen2.5-coder:7b")]
+        manager = LocalLLMManagerDialog(Translator(), service=service,
+                                        preferred_model="qwen2.5-coder:7b")
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None and manager.table.rowCount() == 1)
+        manager.tabs.setCurrentIndex(1)
+        self.assertIn("설치됨", manager.recommended.item(0).text())
+        self.assertIn("바로 사용", manager.download_button.text())
+        manager._download()
+        self.assertEqual(manager.selected_model, "qwen2.5-coder:7b")
+        self.assertEqual(manager.result(), QDialog.DialogCode.Accepted)
+        service.download.assert_not_called()
+
+    def test_manager_missing_preference_does_not_silently_select_different_model(self):
+        service = Mock(provider="ollama")
+        service.discover.return_value = [installed_row("qwen3:4b")]
+        manager = LocalLLMManagerDialog(Translator(), service=service,
+                                        preferred_model="deleted:7b")
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None and manager.table.rowCount() == 1)
+        self.assertIsNone(manager._selected())
+        self.assertIn("전에 선택한 모델", manager.status.text())
+        manager.table.selectRow(0)
+        manager._refresh()
+        self.until(lambda: manager.worker is None)
+        self.assertEqual(manager._selected()["id"], "qwen3:4b")
+
+    def test_manager_delete_is_basic_action_with_confirmation_and_no_automatic_fallback(self):
+        service = Mock(provider="ollama")
+        service.discover.return_value = [installed_row("qwen3:4b"), installed_row("qwen2.5-coder:7b")]
+        service.delete.return_value = [installed_row("qwen2.5-coder:7b")]
+        manager = LocalLLMManagerDialog(Translator(), service=service)
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None and manager.table.rowCount() == 2)
+        self.assertIs(manager.delete_button.parentWidget(), manager.tabs.widget(0))
+        manager.table.selectRow(0)
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+            manager._delete()
+        self.until(lambda: manager.worker is None and manager.table.rowCount() == 1)
+        service.delete.assert_called_once()
+        self.assertEqual(service.delete.call_args.args[0], "qwen3:4b")
+        self.assertIsNone(manager._selected())
+        self.assertIn("다른 모델", manager.status.text())
+        manager.table.selectRow(0)
+        manager._use()
+        self.assertEqual(manager.selected_model, "qwen2.5-coder:7b")
+
+    def test_deleted_saved_model_is_not_replaced_with_first_model(self):
+        self.settings.setValue("translation/provider", "ollama")
+        self.settings.setValue("translation/config/ollama/model", "qwen3:8b")
+        service = Mock(provider="ollama")
+        service.discover.return_value = [installed_row("qwen3:4b")]
+        dialog = self.dialog(local_llm_factory=lambda *args: service)
+        self.until(lambda: dialog.worker is None and dialog.model_combo.count() == 1)
+        self.assertEqual(dialog.model_combo.currentIndex(), -1)
+        self.assertEqual(dialog._model_value(), "")
 
     def test_manager_shows_tradeoffs_downloads_and_selects_installed_model(self):
         service = Mock(provider="ollama")
