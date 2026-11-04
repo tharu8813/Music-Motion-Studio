@@ -580,10 +580,9 @@ class MainWindowPreviewTests(MainWindowTestCase):
         self.assertFalse(preview.track_list.isHidden())
         self.assertEqual(preview.frame_rate_label.toolTip(), "")
         self.assertTrue(preview.performance_scale_label.text())
-        # The preview renders below final resolution; tell the user the export
-        # will be sharper so a soft preview is not mistaken for a soft export.
+        # The scale is relative to the canvas and may drop under playback load.
         scale_tip = preview.performance_scale_label.toolTip()
-        self.assertTrue("또렷" in scale_tip or "sharper" in scale_tip)
+        self.assertTrue("캔버스 원본 크기" in scale_tip or "canvas dimensions" in scale_tip)
 
         preview.track_list.setCurrentRow(1)
         preview.track_list.itemClicked.emit(preview.track_list.item(1))

@@ -29,6 +29,22 @@ class PreviewResponsivenessTests(unittest.TestCase):
         self.addCleanup(preview._stop_preview)
         return preview
 
+    def test_display_refresh_controls_playback_and_decoder_but_not_audio_analysis(self):
+        preview = self.preview()
+        original_sampling_fps = preview.preview_fps
+        self.assertEqual(original_sampling_fps, 60)
+        self.assertEqual(preview._active_render_scale, 1.0)
+        with patch("app.dialogs.export_preview_dialog.screen_preview_fps", return_value=144):
+            preview._sync_presentation_cadence()
+        self.assertEqual(preview.play_timer.interval(), 7)
+        self.assertEqual(preview.presentation_fps, 144)
+        self.assertEqual(preview._decoder_backpressure.fps_limit, 144)
+        self.assertEqual(preview.preview_fps, original_sampling_fps)
+        with patch("app.dialogs.export_preview_dialog.screen_preview_fps", return_value=60):
+            preview._sync_presentation_cadence()
+        self.assertEqual(preview.play_timer.interval(), 17)
+        self.assertEqual(preview._decoder_backpressure.fps_limit, 60)
+
     def test_drag_coalesces_and_commits_the_latest_position_once(self):
         preview = self.preview()
         preview._playing = True
@@ -182,7 +198,7 @@ class PreviewResponsivenessTests(unittest.TestCase):
         preview.timeline.setSliderDown(True)
         with patch.object(preview, "_schedule_refresh") as refresh:
             preview._video_frame_ready()
-            refresh.assert_called_once_with(33)
+            refresh.assert_called_once_with(preview.play_timer.interval())
 
 
 if __name__ == "__main__":

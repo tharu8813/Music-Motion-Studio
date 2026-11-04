@@ -34,17 +34,16 @@ class PreviewProxyCancelled(PreviewProxyError):
 class PreviewProxySpec:
     """Stable preview limits included in every cache identity."""
 
-    max_width: int = 960
-    max_height: int = 540
-    max_fps: int = 30
-    crf: int = 28
-    version: int = 1
+    max_width: int = 1280
+    max_height: int = 720
+    crf: int = 23
+    version: int = 2
 
     @property
     def signature(self) -> str:
         return (
             f"v{self.version}-{self.max_width}x{self.max_height}-"
-            f"{self.max_fps}fps-crf{self.crf}"
+            f"source-fps-crf{self.crf}"
         )
 
 
@@ -146,7 +145,7 @@ class PreviewProxyWorker(QThread):
         self._cancel_event = threading.Event()
         self._process_lock = threading.Lock()
         self._process: subprocess.Popen[str] | None = None
-        self._target_fps = float(cache.spec.max_fps)
+        self._source_fps = 60.0
 
     def cancel(self) -> None:
         self._cancel_event.set()
@@ -175,8 +174,10 @@ class PreviewProxyWorker(QThread):
             temporary = self.cache.temporary_path(target)
             errors: list[str] = []
             for codec_arguments in (
-                ["-c:v", "libx264", "-preset", "veryfast", "-crf", str(self.cache.spec.crf)],
-                ["-c:v", "mpeg4", "-q:v", "5"],
+                ["-c:v", "libx264", "-preset", "veryfast", "-crf", str(self.cache.spec.crf),
+                 "-enc_time_base:v", "demux"],
+                # MPEG-4 Part 2 limits the time-base denominator to 65535.
+                ["-c:v", "mpeg4", "-q:v", "5", "-enc_time_base:v", "1:60000"],
             ):
                 temporary.unlink(missing_ok=True)
                 result = self._execute([
@@ -184,6 +185,7 @@ class PreviewProxyWorker(QThread):
                     "-nostdin", "-i", str(self.source_path),
                     "-map", "0:v:0", "-an", "-sn", "-dn",
                     "-vf", self._scale_filter(),
+                    "-fps_mode", "passthrough",
                     "-filter_threads", "1", "-threads", "2",
                     *codec_arguments,
                     "-pix_fmt", "yuv420p", "-g", str(self._gop_size()),
@@ -219,15 +221,13 @@ class PreviewProxyWorker(QThread):
 
     def _scale_filter(self) -> str:
         spec = self.cache.spec
-        target_fps = f"{self._target_fps:.3f}".rstrip("0").rstrip(".")
         return (
             f"scale=w='min({spec.max_width},iw)':h='min({spec.max_height},ih)':"
-            "force_original_aspect_ratio=decrease:force_divisible_by=2,"
-            f"fps=fps={target_fps}"
+            "force_original_aspect_ratio=decrease:force_divisible_by=2"
         )
 
     def _gop_size(self) -> int:
-        return max(1, round(self._target_fps))
+        return max(1, round(self._source_fps))
 
     def _needs_proxy(self) -> bool:
         probe = self._ffprobe_executable()
@@ -252,8 +252,8 @@ class PreviewProxyWorker(QThread):
             return False
         spec = self.cache.spec
         if fps > 0.0:
-            self._target_fps = min(float(spec.max_fps), fps)
-        return width > spec.max_width or height > spec.max_height or fps > spec.max_fps + 0.01
+            self._source_fps = fps
+        return width > spec.max_width or height > spec.max_height
 
     @staticmethod
     def _pixel_format_has_alpha(pixel_format: str) -> bool:

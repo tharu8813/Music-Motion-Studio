@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
 import multiprocessing
 import os
 from pathlib import Path
@@ -9,6 +10,27 @@ from queue import Empty, Full
 from time import monotonic
 
 from app.renderer.canvas_pipe import CanvasPipeCancelledError, CanvasPipeError, PipedCanvasStream
+from app.renderer.export_timeline import ExportFrameSample
+
+
+_SAMPLE_FIELDS = tuple(field.name for field in fields(ExportFrameSample) if field.name != 'track')
+
+
+def _pack_sample(sample: ExportFrameSample | None, track_indexes: dict[int, int]) -> tuple | None:
+    """Tracks already belong to the worker configuration, not every frame job."""
+    if sample is None:
+        return None
+    try:
+        index = track_indexes[id(sample.track)]
+    except KeyError as error:
+        raise ValueError('Canvas sample references an unregistered track') from error
+    return (index, *(getattr(sample, name) for name in _SAMPLE_FIELDS))
+
+
+def _unpack_sample(packet: tuple | None, tracks) -> ExportFrameSample | None:
+    if packet is None:
+        return None
+    return ExportFrameSample(tracks[packet[0]], *packet[1:])
 
 
 def parallel_canvas_supported(capturer, stream_count: int) -> bool:
@@ -108,7 +130,7 @@ def _render_band(jobs, replies, stop, status) -> None:
         while True:
             update_status()
             try:
-                sample = jobs.get(timeout=0.05)
+                sample = _unpack_sample(jobs.get(timeout=0.05), config['tracks'])
             except Empty:
                 continue
             if sample is None:
@@ -159,6 +181,7 @@ class CanvasProcessStream:
         self._stop = context.Event()
         self._status = context.Array('d', (monotonic(), 0, 0, 0))
         scene = capturer.scene
+        self._track_indexes = {id(track): index for index, track in enumerate(capturer.tracks)}
         sources = [item.source.to_dict() | {'visible': item.isVisible() and item.source.visible}
                    for item in scene.items() if isinstance(item, SourceItem)]
         config = dict(
@@ -255,9 +278,10 @@ class CanvasProcessStream:
 
     def submit_sample(self, sample):
         self._check()
+        packet = _pack_sample(sample, self._track_indexes)
         while True:
             try:
-                self._jobs.put(sample, timeout=0.05)
+                self._jobs.put(packet, timeout=0.05)
                 break
             except Full:
                 self._wait()

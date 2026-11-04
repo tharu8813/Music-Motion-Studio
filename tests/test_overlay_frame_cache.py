@@ -32,6 +32,15 @@ class OverlayFrameCacheTests(unittest.TestCase):
         self.assertEqual(cache.first_missing("a", (0,), 69, 1), 69)
         self.assertEqual(cache.first_missing("b", (0,), 50, 1), 50)
 
+    def test_skipped_frame_advances_to_the_newest_completed_overlay(self):
+        cache = OverlayFrameCache()
+        first, later = (object(),), (object(),)
+        cache.store("a", (0,), [(4, first), (7, later)])
+
+        self.assertEqual(cache.layers_for_frame("a", 4, (0,)), first)
+        self.assertEqual(cache.layers_for_frame("a", 8, (0,)), later)
+        self.assertEqual(cache.layers_for_frame("a", 9, (0,)), later)
+
     def test_clear_one_track_preserves_other_track_and_changes_revision(self):
         cache = OverlayFrameCache()
         layers = (object(),)

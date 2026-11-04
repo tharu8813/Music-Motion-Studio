@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtGui import QColor, QImage
+from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtMultimedia import QMediaPlayer, QVideoFrame, QVideoFrameFormat
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QEvent
@@ -50,6 +50,15 @@ class VideoFrameFilterTests(unittest.TestCase):
         self.assertAlmostEqual(color.red(), 119, delta=1)
         self.assertAlmostEqual(color.green(), 143, delta=1)
         self.assertAlmostEqual(color.blue(), 167, delta=1)
+
+    def test_small_clean_decoder_frame_keeps_its_native_pixels(self) -> None:
+        image = QImage(640, 360, QImage.Format.Format_RGBA8888)
+        image.fill(QColor(20, 40, 60, 255))
+
+        filtered = filter_video_frame(image, VideoFrameFilterSettings(1920, 1080))
+
+        self.assertEqual(filtered.size(), image.size())
+        self.assertEqual(filtered.pixelColor(0, 0), image.pixelColor(0, 0))
 
     def test_grayscale_and_saturation_are_applied_without_losing_alpha(self) -> None:
         image = QImage(8, 8, QImage.Format.Format_RGBA8888)
@@ -181,6 +190,31 @@ class VideoFrameFilterTests(unittest.TestCase):
         self.assertFalse(item.video_preview_frame().isNull())
         item.release_video_decoder()
         self.assertTrue(item.video_preview_frame().isNull())
+
+    def test_timeline_video_defers_pixmap_until_canvas_paint(self) -> None:
+        item = SourceItem(Source(SourceType.VIDEO, "Timeline frame", width=100, height=60))
+        frame = QImage(16, 9, QImage.Format.Format_RGBA8888)
+        frame.fill(QColor(12, 34, 56, 160))
+
+        def render() -> QImage:
+            target = QImage(100, 60, QImage.Format.Format_ARGB32_Premultiplied)
+            target.fill(QColor(60, 20, 80))
+            painter = QPainter(target)
+            try:
+                item.paint(painter, None)
+            finally:
+                painter.end()
+            return target
+
+        item._video_filter_finished(item._video_filter_key(), frame)
+        expected = render()
+        item.release_video_decoder()
+        item._video_timeline_preview_active = True
+        item._video_filter_finished(item._video_filter_key(), frame)
+
+        self.assertTrue(item._pixmap.isNull())
+        self.assertEqual(render(), expected)
+        self.assertFalse(item._pixmap.isNull())
 
     def test_supported_rhi_frame_is_retained_without_calling_to_image(self) -> None:
         class RhiFrame(QVideoFrame):
@@ -352,7 +386,7 @@ class VideoFrameFilterTests(unittest.TestCase):
         item = SourceItem(Source(SourceType.VIDEO, "Throttled"))
         item._video_timeline_preview_active = True
         item._video_preview_fps = 10
-        item._video_last_frame_accepted = float("inf")
+        item._video_next_frame_deadline = float("inf")
         image = QImage(8, 8, QImage.Format.Format_RGBA8888)
 
         item._video_frame_changed(QVideoFrame(image))
@@ -372,7 +406,7 @@ class VideoFrameFilterTests(unittest.TestCase):
                 item._video_timeline_preview_active = True
                 item._video_preview_fps = fps
                 item._video_filter_busy = True  # isolate scheduling from worker completion
-                item._video_last_frame_accepted = 10.0
+                item._video_next_frame_deadline = 10.0 + 1.0 / fps
                 try:
                     with patch("app.canvas.source_item.monotonic", return_value=10.0 + early_interval):
                         item._video_frame_changed(QVideoFrame(image))
@@ -384,6 +418,26 @@ class VideoFrameFilterTests(unittest.TestCase):
                     self.assertEqual(item.video_decoder_stats().pressure_drops, 0)
                 finally:
                     item.release_video_decoder()
+
+    def test_decoder_throttle_keeps_48_of_60_source_frames(self) -> None:
+        item = SourceItem(Source(SourceType.VIDEO, "48 FPS budget"))
+        self.addCleanup(item.release_video_decoder)
+        item._video_timeline_preview_active = True
+        item.set_video_preview_budget(1.0, 48)
+        image = QImage(8, 8, QImage.Format.Format_RGBA8888)
+        image.fill(QColor("#336699"))
+
+        with patch.object(item, "_start_next_video_filter"), \
+                patch("app.canvas.source_item.monotonic") as clock:
+            for index in range(60):
+                clock.return_value = 10.0 + index / 60
+                item._video_frame_changed(QVideoFrame(image))
+                item._video_pending_frame = None
+
+        stats = item.video_decoder_stats()
+        self.assertEqual(stats.accepted_frames, 48)
+        self.assertEqual(stats.throttled_frames, 12)
+        self.assertEqual(stats.pressure_drops, 0)
 
     def test_fps_backpressure_does_not_invalidate_resolution_filter(self) -> None:
         item = SourceItem(Source(SourceType.VIDEO, "Independent budgets"))
@@ -456,6 +510,15 @@ class VideoFrameFilterTests(unittest.TestCase):
         self.assertIsNotNone(item._video_player)
         self.assertIsNot(item._video_player, player)
         canvas.release_video_decoders()
+
+    def test_hidden_video_waits_to_create_decoder_until_shown(self) -> None:
+        source = Source(SourceType.VIDEO, "Hidden", visible=False)
+        item = SourceItem(source)
+        self.assertIsNone(item._video_player)
+        source.visible = True
+        item.apply_source()
+        self.assertIsNotNone(item._video_player)
+        item.release_video_decoder()
 
     def test_unreachable_retired_item_is_removed_from_the_scene(self) -> None:
         store = SourceStore()

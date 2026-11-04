@@ -482,13 +482,22 @@ class PythonVisualizerRenderer:
                 np.abs(np.fft.rfft(segments * window, axis=1))
                 / (self.fft_size / 2)
             )
-            for local_index, spectrum in enumerate(spectra):
-                values = self._frequency_band_values(
-                    spectrum, frequencies, bins, probes,
-                )
-                result[batch_start + local_index] = np.clip(
-                    values, 0.0, 2.0,
-                )
+            # Preserve np.interp's exact per-spectrum math, but reduce each
+            # frequency band across the batch instead of issuing a Python/NumPy
+            # reduction for every (frame, band) pair. Storage stays batch-bounded.
+            values = np.stack([
+                np.max(np.interp(probes.reshape(-1), frequencies, spectrum)
+                       .reshape(probes.shape), axis=1)
+                for spectrum in spectra
+            ])
+            for band_index, band in enumerate(bins):
+                if len(band):
+                    values[:, band_index] = np.maximum(
+                        values[:, band_index], np.max(spectra[:, band], axis=1),
+                    )
+            # The scalar reducer returned float32 before clipping. Keep that
+            # rounding order for byte-identical bass/music reaction envelopes.
+            result[batch_start:batch_end] = np.clip(values.astype(np.float32), 0.0, 2.0)
         return result
 
     @staticmethod

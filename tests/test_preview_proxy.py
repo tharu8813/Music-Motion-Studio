@@ -12,6 +12,37 @@ from app.video.preview_proxy import PreviewProxyCache, PreviewProxyWorker
 
 
 class PreviewProxyTests(unittest.TestCase):
+    @unittest.skipUnless(os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG"), "FFmpeg is required for real proxy checks")
+    def test_proxy_retains_source_frame_timestamps_for_high_rate_and_variable_rate(self) -> None:
+        ffmpeg = Path(os.environ["PLAYLIST_CANVAS_TEST_FFMPEG"])
+        with TemporaryDirectory(prefix="preview-proxy-timestamps-") as raw:
+            root = Path(raw)
+            for label, selection in (("high-rate", []), ("variable", ["-vf", "select='not(mod(n,3))+not(mod(n,5))'"])):
+                with self.subTest(source=label):
+                    source = root / f"{label}.mp4"
+                    worker = PreviewProxyWorker(ffmpeg, source, PreviewProxyCache(root / "cache"))
+                    ffprobe = worker._ffprobe_executable()
+                    if ffprobe is None:
+                        self.skipTest("FFprobe unavailable")
+                    subprocess.run([str(ffmpeg), "-v", "error", "-f", "lavfi", "-i",
+                                    "testsrc2=size=1360x768:rate=60000/1001", "-t", "0.6",
+                                    *selection, "-fps_mode", "passthrough", "-c:v", "libx264",
+                                    "-preset", "ultrafast", str(source)], check=True, timeout=20)
+                    worker.run()
+                    proxy = worker.cache.cached_path(source)
+                    self.assertIsNotNone(proxy)
+
+                    def timestamps(path):
+                        data = subprocess.check_output([str(ffprobe), "-v", "error", "-select_streams", "v:0",
+                                                        "-show_frames", "-show_entries", "frame=best_effort_timestamp_time",
+                                                        "-of", "json", str(path)], timeout=20)
+                        return [float(frame["best_effort_timestamp_time"]) for frame in json.loads(data)["frames"]]
+
+                    expected, actual = timestamps(source), timestamps(proxy)
+                    self.assertEqual(len(actual), len(expected))
+                    for before, after in zip(expected, actual, strict=True):
+                        self.assertAlmostEqual(before, after, places=5)
+
     def test_cache_identity_changes_when_original_media_changes(self) -> None:
         with TemporaryDirectory(prefix="preview-proxy-key-") as raw_directory:
             directory = Path(raw_directory)
@@ -48,7 +79,7 @@ class PreviewProxyTests(unittest.TestCase):
                 [], 0,
                 json.dumps({"streams": [{
                     "width": 640, "height": 360,
-                    "avg_frame_rate": "30/1",
+                    "avg_frame_rate": "120/1",
                 }]}),
                 "",
             )
@@ -105,9 +136,11 @@ class PreviewProxyTests(unittest.TestCase):
             self.assertIn("-threads", encode)
             self.assertEqual(encode[encode.index("-threads") + 1], "2")
             video_filter = encode[encode.index("-vf") + 1]
-            self.assertIn("min(960,iw)", video_filter)
-            self.assertIn("min(540,ih)", video_filter)
-            self.assertIn("fps=fps=30", video_filter)
+            self.assertIn("min(1280,iw)", video_filter)
+            self.assertIn("min(720,ih)", video_filter)
+            self.assertNotIn("fps=", video_filter)
+            self.assertEqual(encode[encode.index("-fps_mode") + 1], "passthrough")
+            self.assertEqual(encode[encode.index("-g") + 1], "60")
 
             cached_worker = PreviewProxyWorker(ffmpeg, source, cache)
             cached_ready: list[tuple[str, str, bool]] = []

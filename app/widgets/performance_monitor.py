@@ -295,9 +295,9 @@ class PerformanceMonitor(QFrame):
         unavailable = self.tr('— GPU 미사용', '— GPU inactive')
         values = {}
         values['backend'] = p.preview_mode_label.text()
-        values['fps'] = f'{p._actual_preview_fps:.1f} / {p.preview_fps}'
+        values['fps'] = f'{p._actual_preview_fps:.1f} / {p.presentation_fps}'
         values['scale'] = p.performance_scale_label.text()
-        values['frame_budget'] = f'{1000/max(1,p.preview_fps):.2f} ms'
+        values['frame_budget'] = f'{1000/max(1,p.presentation_fps):.2f} ms'
         quality = p._adaptive_quality
         values['quality'] = f'{quality.level} · {quality.factor:.0%}'
         values['layers'] = str(len(p.source_store.sources())) if p.source_store is not None else '—'

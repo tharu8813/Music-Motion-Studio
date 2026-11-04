@@ -33,6 +33,17 @@ class GpuTextureSurfaceTests(unittest.TestCase):
         self.assertEqual(info.label, "OpenGL 4.6 · Renderer")
 
     @unittest.skipUnless(GPU_TEXTURE_SURFACE_AVAILABLE, "Qt OpenGL unavailable")
+    def test_texture_eviction_accepts_mixed_layer_keys_from_the_same_frame(self) -> None:
+        surface = GpuTexturePreviewSurface()
+        self.addCleanup(surface.deleteLater)
+        surface._frame_serial = surface._texture_retention_frames + 1
+        entry = _TextureEntry(None, 0, 1, 1, 4, 1)
+        surface._textures.update({"canvas": entry, ("video", 1): entry})
+        with patch.object(surface, "_destroy_texture") as destroy:
+            surface._evict_texture_cache(set())
+        self.assertEqual([call.args[0] for call in destroy.call_args_list], ["canvas", ("video", 1)])
+
+    @unittest.skipUnless(GPU_TEXTURE_SURFACE_AVAILABLE, "Qt OpenGL unavailable")
     def test_repaint_swaps_do_not_count_as_new_scene_frames(self) -> None:
         surface = GpuTexturePreviewSurface()
         surface._frame_serial = 1

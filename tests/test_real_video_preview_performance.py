@@ -503,6 +503,7 @@ class RealVideoPreviewPerformanceTests(unittest.TestCase):
         if os.environ.get("PLAYLIST_CANVAS_RUN_PREVIEW_SOAK", "").strip() != "1":
             self.skipTest("Set PLAYLIST_CANVAS_RUN_PREVIEW_SOAK=1 for repeated real-media playback.")
         backend = os.environ.get("PLAYLIST_CANVAS_PREVIEW_SOAK_BACKEND", "gpu_layers").strip()
+        cycles = min(100, max(1, int(os.environ.get("PLAYLIST_CANVAS_PREVIEW_REPEAT_COUNT", "10"))))
         baseline_rss = None
         peak_rss = 0
         rss_samples = []
@@ -523,7 +524,7 @@ class RealVideoPreviewPerformanceTests(unittest.TestCase):
             )
             scene, tracks, store = item.scene(), preview.tracks, preview.source_store
             self.addCleanup(scene.deleteLater)
-            for cycle in range(10):
+            for cycle in range(cycles):
                 if cycle:
                     preview = ExportPreviewDialog(
                         scene, tracks, Translator(), source_store=store,
@@ -575,7 +576,7 @@ class RealVideoPreviewPerformanceTests(unittest.TestCase):
                         baseline_rss = current_rss
                     peak_rss = max(peak_rss, current_rss)
         print("PREVIEW_REPEAT " + json.dumps({
-            "backend": backend, "embedded": True, "cycles": 10, "rss_baseline_bytes": baseline_rss,
+            "backend": backend, "embedded": True, "cycles": cycles, "rss_baseline_bytes": baseline_rss,
             "rss_peak_bytes": peak_rss, "rss_end_bytes": _resident_set_bytes(),
             "rss_samples_bytes": rss_samples,
         }), flush=True)

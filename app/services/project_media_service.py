@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
 from app.models.project import ProjectDocument
@@ -48,9 +49,16 @@ class ProjectMediaService:
         """Relink simple project-local matches and return remaining unavailable assets."""
         directory = project_path.parent
         missing: list[MissingMedia] = []
+
+        @cache
+        def resolve(path: str) -> Path | None:
+            # The same media can appear in sources, tracks and the library.
+            # A new validation always checks the filesystem again.
+            return cls._resolve_existing_path(path, directory)
+
         for source in document.sources:
             if source.content_path and source.source_type is not SourceType.VIDEO:
-                resolved = cls._resolve_existing_path(source.content_path, directory)
+                resolved = resolve(source.content_path)
                 if resolved:
                     source.content_path = str(resolved)
                 else:
@@ -59,7 +67,7 @@ class ProjectMediaService:
                         original_path=source.content_path,
                     ))
             for index, video_path in enumerate(source.video_paths):
-                resolved_video = cls._resolve_existing_path(video_path, directory)
+                resolved_video = resolve(video_path)
                 if resolved_video:
                     source.video_paths[index] = str(resolved_video)
                 else:
@@ -69,7 +77,7 @@ class ProjectMediaService:
                         original_path=video_path,
                     ))
             if source.font_path:
-                resolved_font = cls._resolve_existing_path(source.font_path, directory)
+                resolved_font = resolve(source.font_path)
                 if resolved_font:
                     source.font_path = str(resolved_font)
                 else:
@@ -79,7 +87,7 @@ class ProjectMediaService:
                         original_path=source.font_path,
                     ))
         for track in document.playlist:
-            resolved = cls._resolve_existing_path(track.file_path, directory)
+            resolved = resolve(track.file_path)
             if resolved:
                 track.file_path = str(resolved)
             else:
@@ -88,7 +96,7 @@ class ProjectMediaService:
                     display_name=f"{track.artist} - {track.title}", original_path=track.file_path,
                 ))
             if track.cover_path:
-                cover = cls._resolve_existing_path(track.cover_path, directory)
+                cover = resolve(track.cover_path)
                 if cover:
                     track.cover_path = str(cover)
                 else:
@@ -98,7 +106,7 @@ class ProjectMediaService:
                         original_path=track.cover_path,
                     ))
             if track.lyrics_path:
-                lyrics = cls._resolve_existing_path(track.lyrics_path, directory)
+                lyrics = resolve(track.lyrics_path)
                 if lyrics:
                     track.lyrics_path = str(lyrics)
                 else:
@@ -108,7 +116,7 @@ class ProjectMediaService:
                         original_path=track.lyrics_path,
                     ))
             for index, video_path in enumerate(track.video_paths):
-                resolved_video = cls._resolve_existing_path(video_path, directory)
+                resolved_video = resolve(video_path)
                 if resolved_video:
                     track.video_paths[index] = str(resolved_video)
                 else:
@@ -121,7 +129,7 @@ class ProjectMediaService:
         for content in document.content_library:
             if not content.path:
                 continue
-            resolved_content = cls._resolve_existing_path(content.path, directory)
+            resolved_content = resolve(content.path)
             if resolved_content:
                 content.path = str(resolved_content)
             elif content.path.casefold() not in referenced_missing:

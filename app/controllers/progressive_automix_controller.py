@@ -151,15 +151,19 @@ def playlist_gain(executable: Path, tracks: list[PlaylistTrack], cancel_event: t
     from concurrent.futures import ThreadPoolExecutor
 
     enabled = [track for track in tracks if track.enabled]
-    # One decode per file, several at once (30 tracks: 5.4 s one by one).
+    # Deduplicate before the pool starts. Its cache alone cannot prevent two
+    # simultaneous cold scans of a file used by several playlist entries.
+    paths = list(dict.fromkeys(track.file_path for track in enabled))
     with ThreadPoolExecutor(max_workers=LEVEL_WORKERS, thread_name_prefix="preview-levels",
                             initializer=lower_thread_if_background) as pool:
-        measured = list(pool.map(lambda track: track_level(executable, track.file_path, cancel_event), enabled))
+        measured = dict(zip(paths, pool.map(lambda path: track_level(executable, path, cancel_event), paths)))
     if cancel_event.is_set():
         return None
     # ponytail: the track's own volume shifts its level; its EQ is not measured.
-    levels = {track.id: (loudness + track.volume_db, peak + track.volume_db)
-              for track, (loudness, peak) in zip(enabled, measured)}
+    levels = {}
+    for track in enabled:
+        loudness, peak = measured[track.file_path]
+        levels[track.id] = loudness + track.volume_db, peak + track.volume_db
     return preview_gain(levels, {track.id: track.duration_seconds for track in enabled})
 
 

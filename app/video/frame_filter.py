@@ -89,17 +89,26 @@ def _log_filter_failure(
 def filter_video_frame(
     image: QImage, settings: VideoFrameFilterSettings,
 ) -> QImage:
-    """Return a display-sized RGBA frame using vectorized color and blur math."""
+    """Return a preview RGBA frame within the useful display resolution."""
     if image.isNull():
         return QImage()
     target_width = max(8, min(1920, int(settings.width)))
     target_height = max(8, min(1080, int(settings.height)))
-    scaled = image.scaled(
-        target_width,
-        target_height,
-        Qt.AspectRatioMode.KeepAspectRatio,
-        Qt.TransformationMode.SmoothTransformation,
+    neutral = (
+        settings.brightness == 0.0 and settings.contrast == 0.0
+        and settings.saturation == 1.0 and not settings.grayscale
+        and settings.blur == 0.0
     )
+    # The compositor already scales a video into its destination rectangle.
+    # Keep native pixels when a clean frame is smaller than that rectangle.
+    scaled = image
+    if not neutral or image.width() > target_width or image.height() > target_height:
+        scaled = image.scaled(
+            target_width,
+            target_height,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
     return apply_color_filters(
         scaled,
         brightness=settings.brightness,

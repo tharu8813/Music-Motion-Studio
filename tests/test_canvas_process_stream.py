@@ -205,6 +205,15 @@ class CanvasProcessStreamTests(unittest.TestCase):
                          'Real FFmpeg pipe test is opt-in')
     def test_opaque_and_alpha_streams_match_serial_pixels_including_fonts(self):
         from app.animation.keyframes import Keyframe
+        self.track.lyrics = [
+            {"start": index / 24, "end": (index + 1) / 24,
+             "text": f"{index}: 가사 / lyrics"} for index in range(12)
+        ]
+        self.scene.addItem(SourceItem(Source(
+            SourceType.LYRICS, 'Transported lyrics', x=2, y=45, width=90, height=30,
+            font_size=10, z_index=2, subtitle_animation='none',
+            subtitle_context_lines=0, subtitle_next_lines=0, fill_color='#00000000',
+        )))
         # Exercise serialization into the independent Qt renderer, including
         # custom handles and nested properties, on opaque and alpha bands.
         for item in self.scene.items():

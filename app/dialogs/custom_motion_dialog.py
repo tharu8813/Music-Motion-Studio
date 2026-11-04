@@ -15,6 +15,7 @@ from app.dialogs.motion_canvas import MotionCanvas
 from app.dialogs.motion_timeline import MotionTimeline, MotionRuler
 from app.dialogs.motion_curve_presets import CurvePresetMenu, PRESETS, curve_icon, preset_name
 from app.models.playlist import PlaylistTrack
+from app.preview.cadence import preview_interval_ms, screen_preview_fps
 from app.ui.studio_icons import menu_icon
 
 
@@ -461,11 +462,11 @@ class CustomMotionDialog(AdaptiveDialog):
         outer.addWidget(self.buttons)
         self.timer = QTimer(self)
         self.timer.setTimerType(Qt.TimerType.PreciseTimer)
-        self.timer.setInterval(33)
+        self.timer.setInterval(preview_interval_ms(screen_preview_fps(self.screen())))
         self.elapsed = QElapsedTimer()
         self.render_timer = QTimer(self)
         self.render_timer.setSingleShot(True)
-        self.render_timer.setInterval(16)
+        self.render_timer.setInterval(self.timer.interval())
         self.render_timer.timeout.connect(self.render_now)
         self.timer.timeout.connect(self.tick)
         self.edge_combo.currentIndexChanged.connect(self.change_edge)
@@ -543,6 +544,7 @@ class CustomMotionDialog(AdaptiveDialog):
     def adapt_to_screen(self, *_):
         if self._closed:
             return
+        self._sync_preview_cadence()
         # Qt can place a new dialog on a different monitor from the one
         # reported before show(), so adapt to the actual window's screen.
         self.compact = self.screen().availableGeometry().height() < 800
@@ -928,7 +930,14 @@ class CustomMotionDialog(AdaptiveDialog):
             self.timer.start()
         self.refresh_values()
 
+    def _sync_preview_cadence(self):
+        interval = preview_interval_ms(screen_preview_fps(self.screen()))
+        if interval != self.timer.interval():
+            self.timer.setInterval(interval)
+            self.render_timer.setInterval(interval)
+
     def tick(self):
+        self._sync_preview_cadence()
         progress = self.progress + self.elapsed.restart() / 1000 / max(.1, self.durations[self.edge])
         if progress >= self.play_maximum:
             if self.loop.isChecked():

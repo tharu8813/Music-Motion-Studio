@@ -52,6 +52,7 @@ from app.models.playlist import PlaylistTrack
 from app.models.source import SourceType
 from app.preview.canvas_snapshot import CanvasSnapshot
 from app.preview.adaptive_quality import AdaptivePreviewQuality
+from app.preview.cadence import preview_interval_ms, screen_preview_fps
 from app.preview.gpu_texture_surface import (
     GPU_TEXTURE_SURFACE_AVAILABLE, GpuBackendInfo, GpuColorFilter, GpuPreviewLayer,
     GpuTexturePreviewSurface,
@@ -90,6 +91,8 @@ from app.widgets.automix_details_panel import AutoMixDetailsPanel, ready_through
 from app.widgets.transition_inspector import TransitionInspectorWindow
 
 TIMELINE_SCALE = 100
+PREVIEW_SAMPLE_FPS = 60
+PREVIEW_BASE_SCALE = 1.0
 VIDEO_PROXY_ACTIVITY = "preview_video_proxy"
 AUDIO_ANALYSIS_ACTIVITY = "preview_audio_analysis"
 _BLENDED_AUDIO_TRACK_INDEX = -2
@@ -763,8 +766,10 @@ class ExportPreviewDialog(QDialog):
         self._preview_error_signatures: list[tuple[str, str]] = []
         self._last_preview_error_title = ""
         self._last_preview_error_detail = ""
-        self.preview_fps = 30
-        self.preview_render_scale = 0.65
+        self.preview_fps = PREVIEW_SAMPLE_FPS  # Audio analysis and overlay sampling rate.
+        self.presentation_fps = screen_preview_fps(self.screen())
+        self._presentation_fps_override: int | None = None
+        self.preview_render_scale = PREVIEW_BASE_SCALE
         self.audio_output = QAudioOutput(self)
         saved_volume = preview_volume()
         self.audio_output.setVolume(saved_volume / 100.0)
@@ -780,7 +785,7 @@ class ExportPreviewDialog(QDialog):
             ) if not self._closing else None)
         self.play_timer = QTimer(self)
         self.play_timer.setTimerType(Qt.TimerType.PreciseTimer)
-        self.play_timer.setInterval(33)
+        self.play_timer.setInterval(preview_interval_ms(self.presentation_fps))
         self.play_timer.timeout.connect(self._advance_playback)
         self._gpu_health = GpuPreviewHealth(fallback_after_stalls=2)
         self._gpu_watchdog = QTimer(self)
@@ -889,12 +894,11 @@ class ExportPreviewDialog(QDialog):
         self.volume_value_label.setObjectName("previewValueLabel")
         self.volume_value_label.setMinimumWidth(42)
         self._adaptive_quality = AdaptivePreviewQuality(self.preview_render_scale)
-        self._decoder_backpressure = VideoDecoderBackpressure(self.preview_fps)
+        self._decoder_backpressure = VideoDecoderBackpressure(self.presentation_fps)
         self._last_decoder_accepted_frames = 0
         self._last_decoder_pressure_drops = 0
         self._last_active_decoder_count = 0
         self._last_gpu_dropped_frames = 0
-        self.play_timer.setInterval(max(8, round(1000 / self.preview_fps)))
         self.timeline = PlaylistTimeline(self._track_schedule, self._compiled_plan.audio.transitions)
         self.timeline.setObjectName("previewTimeline")
         self.timeline.setRange(0, max(1, ceil(self._playlist_duration() * TIMELINE_SCALE)))
@@ -1459,7 +1463,7 @@ class ExportPreviewDialog(QDialog):
             self._playhead_seconds = self.timeline.value() / TIMELINE_SCALE
             self._force_video_seek = True
             if self._scrubbing:
-                self._schedule_refresh(max(8, round(1000 / self.preview_fps)))
+                self._schedule_refresh(preview_interval_ms(self.presentation_fps))
                 return
             if getattr(self, "_progressive", False):
                 # A user seek restarts audio anyway: the natural moment to take
@@ -1748,13 +1752,13 @@ class ExportPreviewDialog(QDialog):
         timeline_seconds = self.timeline.value() / TIMELINE_SCALE
         # Decoder pixels have their own feedback loop. Canvas GPU pressure must
         # not silently alter decoder resolution, or the two controls oscillate.
-        display_scale = getattr(self, "preview_render_scale", 0.65)
+        display_scale = getattr(self, "preview_render_scale", PREVIEW_BASE_SCALE)
         decoder_backpressure = getattr(self, "_decoder_backpressure", None)
         if decoder_backpressure is not None:
             display_scale *= decoder_backpressure.resolution_factor
             decoder_fps = decoder_backpressure.fps_limit
         else:
-            decoder_fps = getattr(self, "preview_fps", 30)
+            decoder_fps = getattr(self, "preview_fps", PREVIEW_SAMPLE_FPS)
         unresolved_paths: list[str] = []
         video_items = getattr(self, "_cached_video_items", None)
         if video_items is None:
@@ -2051,7 +2055,7 @@ class ExportPreviewDialog(QDialog):
         if not self._playing:
             self._schedule_refresh()
         elif self._scrubbing:
-            self._schedule_refresh(max(8, round(1000 / self.preview_fps)))
+            self._schedule_refresh(preview_interval_ms(self.presentation_fps))
 
     def _refresh_source_partitions(self) -> None:
         """Cache source partitions; rebuilding them per playback frame is wasteful."""
@@ -2247,15 +2251,12 @@ class ExportPreviewDialog(QDialog):
             index for index, _overlay
             in self._active_overlay_entries(timeline_seconds)
         )
-        timeline_driven = bool(
-            phase is not None
-            or active_overlay_signature
-            or raster_dynamic_ids - dynamic_video_ids
-        )
-        cadence_key = (
-            round(timeline_seconds * self.preview_fps)
-            if timeline_driven else -1
-        )
+        if phase is not None or raster_dynamic_ids - dynamic_video_ids:
+            cadence_key = round(timeline_seconds * self.presentation_fps)
+        elif active_overlay_signature:
+            cadence_key = round(timeline_seconds * self.preview_fps)
+        else:
+            cadence_key = -1
         return (
             track.id,
             self._base_image.cacheKey(),
@@ -3541,9 +3542,18 @@ class ExportPreviewDialog(QDialog):
         self._start_audio_at_playhead()
         self._try_apply_pending_swap()  # a mix that arrived mid-swap waited for this
 
+    def _sync_presentation_cadence(self) -> None:
+        fps = self._presentation_fps_override or screen_preview_fps(self.preview_stack_host.screen())
+        if fps != self.presentation_fps:
+            self.presentation_fps = fps
+            self.play_timer.setInterval(preview_interval_ms(fps))
+            self._reset_decoder_backpressure()
+            self._reset_frame_statistics()
+
     def _advance_playback(self) -> None:
         if not self._playing or self._scrubbing:
             return
+        self._sync_presentation_cadence()
         elapsed_milliseconds = max(1, self.play_clock.restart())
         previous_seconds = self._playhead_seconds
         selected_before = self._track_at(previous_seconds)
@@ -3566,7 +3576,7 @@ class ExportPreviewDialog(QDialog):
             )
             # QMediaPlayer commonly reports position at roughly 10 Hz.  Use it
             # only to correct meaningful drift; the precise timer supplies the
-            # intermediate 30/60 FPS playhead positions.
+            # intermediate playhead positions at the presentation cadence.
             if abs(audio_seconds - predicted_seconds) > 0.18:
                 predicted_seconds = audio_seconds
         self._playhead_seconds = max(0.0, predicted_seconds)
@@ -3688,7 +3698,7 @@ class ExportPreviewDialog(QDialog):
             if previous is not None:
                 interval = now - previous
                 PROFILE.observe("preview.presentation_interval_seconds", interval)
-                PROFILE.observe("preview.late_interval", float(interval > 1.5 / self.preview_fps))
+                PROFILE.observe("preview.late_interval", float(interval > 1.5 / self.presentation_fps))
         self._presented_frames += 1
         elapsed = self._frame_stats_clock.elapsed()
         if elapsed < 500:
@@ -3704,8 +3714,15 @@ class ExportPreviewDialog(QDialog):
                     0, stats.dropped_pending_frames - self._last_gpu_dropped_frames,
                 )
                 self._last_gpu_dropped_frames = stats.dropped_pending_frames
+        timeline_seconds = self.timeline.value() / TIMELINE_SCALE
+        # Audio overlays generate their own frames. For source-driven scenes,
+        # a lower measured cadence can simply reflect the video frame rate.
+        has_audio_overlays = (
+            self.visualizer_renderer is not None and self._active_overlay_entries(timeline_seconds)
+        )
+        sample_fps = self.preview_fps if has_audio_overlays else 30
         state = self._adaptive_quality.observe(
-            self._actual_preview_fps, self.preview_fps,
+            self._actual_preview_fps, min(sample_fps, self.presentation_fps),
             dropped_frames=dropped,
         )
         if state.changed:
@@ -3716,7 +3733,7 @@ class ExportPreviewDialog(QDialog):
 
     def _reset_decoder_backpressure(self) -> None:
         """Reset decoder budgets and cumulative-stat baselines."""
-        self._decoder_backpressure.reset(self.preview_fps)
+        self._decoder_backpressure.reset(self.presentation_fps)
         active_stats = [
             item.video_decoder_stats()
             for item in self._cached_video_items
@@ -3779,7 +3796,7 @@ class ExportPreviewDialog(QDialog):
         korean = self.translator.is_korean
         actual = "--" if self._actual_preview_fps <= 0 else f"{self._actual_preview_fps:.0f}"
         self.frame_rate_label.setText(
-            f"FPS {actual} / {self.preview_fps}"
+            f"FPS {actual} / {self.presentation_fps}"
         )
         self.frame_rate_label.setToolTip("")
         factor = round(self._adaptive_quality.factor * 100)
@@ -3789,13 +3806,11 @@ class ExportPreviewDialog(QDialog):
             f"Render {factor}% · ×{self._active_render_scale:.3f}"
         )
         self.performance_scale_label.setToolTip(
-            "부드러운 재생을 위해 미리보기는 최종 해상도보다 낮게 렌더링됩니다. "
-            "내보낸 영상은 선택한 출력 해상도로 선명하게 렌더링되므로 실제 "
-            "결과물은 이 미리보기보다 또렷합니다."
+            "캔버스 원본 크기 기준의 렌더 배율입니다. 재생 부하가 커지면 "
+            "미리보기 배율을 자동으로 낮춥니다."
             if korean else
-            "The preview renders below the final resolution for smooth playback. "
-            "The exported video is rendered at the selected output resolution, so "
-            "the finished file is sharper than this preview."
+            "Render scale relative to the canvas dimensions. The preview "
+            "automatically lowers its scale when playback is under load."
         )
         stats = (
             getattr(self.gpu_surface, "upload_stats", None)

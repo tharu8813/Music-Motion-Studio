@@ -21,11 +21,12 @@ import os
 from pathlib import Path
 import re
 import shutil
+import statistics
 import subprocess
 import sys
 import tempfile
 import threading
-from time import monotonic
+from time import monotonic, process_time
 from unittest.mock import patch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +47,7 @@ class _DiskPeak:
     def __init__(self, roots: list[Path]) -> None:
         self.roots = roots
         self.peak = 0
+        self.rss_peak = 0
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
@@ -66,8 +68,10 @@ class _DiskPeak:
         return total
 
     def _run(self) -> None:
+        from app.utils.performance import resident_set_bytes
         while not self._stop.wait(0.1):
             self.peak = max(self.peak, self._size())
+            self.rss_peak = max(self.rss_peak, resident_set_bytes() or 0)
 
     def __enter__(self) -> "_DiskPeak":
         self._thread.start()
@@ -107,14 +111,23 @@ def _make_audio(ffmpeg: str, directory: Path, seconds: float) -> Path:
     return audio
 
 
-def _export(window, output: Path, piped: bool, application: QApplication) -> float:
+def _export(window, output: Path, piped: bool, application: QApplication,
+            resolution: tuple[int, int]) -> float:
     if piped:
         os.environ.pop(ENVIRONMENT_DISABLE, None)
     else:
         os.environ[ENVIRONMENT_DISABLE] = "1"
+    def accept_settings(dialog):
+        target = resolution
+        for index in range(dialog.resolution_combo.count()):
+            if tuple(dialog.resolution_combo.itemData(index)[:2]) == target:
+                dialog.resolution_combo.setCurrentIndex(index)
+                return QDialog.DialogCode.Accepted
+        raise ValueError(f"Requested benchmark resolution is unavailable: {target}")
+
     with (
         patch("app.controllers.export_controller.ExportSettingsDialog.exec",
-              return_value=QDialog.DialogCode.Accepted),
+              new=accept_settings),
         patch("app.controllers.export_controller.ExportSettingsDialog.output_path",
               new=output, create=True),
         patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes),
@@ -164,7 +177,12 @@ def main() -> int:
     parser.add_argument("--encoder", default="libx264")
     parser.add_argument("--preset", default="medium")
     parser.add_argument("--keep", type=Path, help="Keep both videos in this folder.")
+    parser.add_argument("--mode", choices=("both", "live", "intermediate"), default="both")
+    parser.add_argument("--rounds", type=int, default=1)
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
+    if args.rounds < 1:
+        parser.error("rounds must be positive")
 
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     application = QApplication.instance() or QApplication([])
@@ -215,23 +233,50 @@ def main() -> int:
 
         results = {}
         for label, piped in (("intermediate", False), ("live", True)):
+            if args.mode != "both" and args.mode != label:
+                continue
             output = work / f"{label}.mp4"
-            with _DiskPeak([Path(tempfile.gettempdir()), work]) as disk:
-                elapsed = _export(window, output, piped, application)
+            runs = []
+            for _ in range(args.rounds):
+                cpu = process_time()
+                # The fixture's work directory already lives inside the temp root.
+                with _DiskPeak([Path(tempfile.gettempdir())]) as disk:
+                    elapsed = _export(window, output, piped, application, (args.width, args.height))
+                runs.append(dict(seconds=elapsed, parent_cpu_seconds=process_time() - cpu,
+                                 parent_rss_peak=disk.rss_peak, peak_temp_bytes=disk.peak))
+                print(f"{label}: {elapsed:.3f}s", flush=True)
             results[label] = {
-                "seconds": round(elapsed, 2),
-                "peak_temp_bytes": disk.peak,
+                "seconds": statistics.median(run["seconds"] for run in runs),
+                "peak_temp_bytes": max(run["peak_temp_bytes"] for run in runs),
+                "runs": runs,
                 "frames": _frames(args.ffmpeg, output),
                 "bytes": output.stat().st_size,
             }
-        results["psnr_live_vs_intermediate"] = _psnr(
-            args.ffmpeg, work / "intermediate.mp4", work / "live.mp4",
-        )
+            decoded = subprocess.run([
+                args.ffmpeg, "-v", "error", "-i", str(output), "-frames:v", "1",
+                "-c:v", "png", "-f", "image2pipe", "pipe:1",
+            ], capture_output=True, check=True)
+            frame = QImage.fromData(decoded.stdout)
+            actual_size = (frame.width(), frame.height())
+            if actual_size != (args.width, args.height):
+                raise AssertionError(f"Output resolution {actual_size} differs from requested dimensions")
+            results[label]["decoded_size"] = list(actual_size)
+        if args.mode == "both":
+            results["psnr_live_vs_intermediate"] = _psnr(
+                args.ffmpeg, work / "intermediate.mp4", work / "live.mp4",
+            )
+        results["fixture"] = dict(width=args.width, height=args.height, fps=args.fps,
+                                  seconds=args.seconds, encoder=args.encoder, preset=args.preset,
+                                  limitation="Parent CPU/RSS excludes FFmpeg and Canvas child processes.")
+        if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(json.dumps(results, indent=2), encoding="utf-8")
         print(json.dumps(results, indent=2))
         if args.keep:
             args.keep.mkdir(parents=True, exist_ok=True)
             for label in ("intermediate", "live"):
-                shutil.copy2(work / f"{label}.mp4", args.keep / f"{label}.mp4")
+                if (work / f"{label}.mp4").exists():
+                    shutil.copy2(work / f"{label}.mp4", args.keep / f"{label}.mp4")
         window.project_session.dirty = False
         window.close()
         application.processEvents()
@@ -244,4 +289,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    import tests  # Isolate the benchmark parent; spawned Canvas workers inherit its profile.
     raise SystemExit(main())

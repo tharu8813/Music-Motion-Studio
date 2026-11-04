@@ -18,6 +18,7 @@ from app.dialogs.help_dialog import install_help_shortcut
 from app.models.playlist import PlaylistTrack
 from app.models.source import Source
 from app.preview.canvas_snapshot import CanvasSnapshot
+from app.preview.cadence import preview_interval_ms, screen_preview_fps
 from app.ui.design_system import COLORS
 from app.utils.i18n import Translator
 
@@ -317,7 +318,7 @@ class LyricsAnimationDialog(QDialog):
         self._elapsed_offset = 0.0
         self._paused_seconds = 0.0
         self._timer = QTimer(self)
-        self._timer.setInterval(33)
+        self._timer.setInterval(preview_interval_ms(screen_preview_fps(self.screen())))
         self._timer.timeout.connect(self._render_preview)
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
@@ -552,6 +553,9 @@ class LyricsAnimationDialog(QDialog):
                    max(1, self.preview.height()) / self._preview_source.height)
 
     def _render_preview(self, elapsed=None):
+        interval = preview_interval_ms(screen_preview_fps(self.screen()))
+        if interval != self._timer.interval():
+            self._timer.setInterval(interval)
         if self.tabs.currentIndex() == 3:
             self._render_intro_preview(elapsed)
             return

@@ -58,6 +58,16 @@ class ChunkingAndPeakTests(unittest.TestCase):
         beats, downbeats = beats_from_logits(np.full(100, -1.0), np.full(100, -1.0))
         self.assertEqual((len(beats), len(downbeats)), (0, 0))
 
+    def test_downbeat_snapping_matches_distance_matrix_including_ties_and_edges(self) -> None:
+        beats_logits = np.full(120, -5.0)
+        downbeats_logits = beats_logits.copy()
+        beats_logits[[25, 75]] = 4.0
+        downbeats_logits[[0, 30, 50, 90, 110]] = 2.0
+        beats, downbeats = beats_from_logits(beats_logits, downbeats_logits)
+        unsnapped = peak_times(downbeats_logits)
+        expected = np.unique(beats[np.abs(beats[None, :] - unsnapped[:, None]).argmin(axis=1)])
+        np.testing.assert_array_equal(downbeats, expected)
+
 
 @unittest.skipUnless(onnx_beats_available(), "onnxruntime or the Beat This ONNX model is not installed")
 class ShippedModelTests(unittest.TestCase):

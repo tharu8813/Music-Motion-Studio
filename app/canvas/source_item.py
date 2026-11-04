@@ -11,7 +11,6 @@ from pathlib import Path
 from time import monotonic
 
 import numpy as np
-from scipy.ndimage import gaussian_filter
 from PySide6.QtCore import QPointF, QRectF, QSizeF, Qt, QThreadPool, QUrl, Signal
 from PySide6.QtGui import (
     QColor, QBrush, QFont, QFontMetricsF, QImage, QLinearGradient, QPainter,
@@ -52,6 +51,7 @@ from app.utils.font_loader import load_application_font
 from app.utils.image_loader import load_pixmap
 from app.utils.level_meter_painter import paint_level_meter
 from app.utils.particle_painter import paint_particles
+from app.video.frame_mailbox import VideoFrameMailbox
 from app.video.frame_filter import (
     VideoFrameFilterSettings, VideoFrameFilterSignals, VideoFrameFilterTask,
     _rgb_pixels, apply_color_filters,
@@ -67,6 +67,13 @@ _CAPITALIZATION = {
     "capitalize": QFont.Capitalization.Capitalize,
     "small_caps": QFont.Capitalization.SmallCaps,
 }
+
+
+def gaussian_filter(*args, **kwargs):
+    """Load SciPy when a blur effect first needs it."""
+    from scipy.ndimage import gaussian_filter as apply_filter
+
+    return apply_filter(*args, **kwargs)
 
 
 class SourceItem(QGraphicsObject):
@@ -109,13 +116,14 @@ class SourceItem(QGraphicsObject):
         self._pixmap = QPixmap()
         self._video_player: QMediaPlayer | None = None
         self._video_sink: QVideoSink | None = None
+        self._video_frame_mailbox: VideoFrameMailbox | None = None
         self._video_preview_path = ""
         self._video_preview_suppressed = False
         self._video_timeline_preview_active = False
         self._video_editor_poster_pending = False
         self._video_display_scale = 1.0
         self._video_preview_fps = 30
-        self._video_last_frame_accepted = 0.0
+        self._video_next_frame_deadline = 0.0
         self._video_should_play = False
         self._video_applied_playback_rate: float | None = None
         self._video_loop_mode: QMediaPlayer.Loops | None = None
@@ -447,11 +455,16 @@ class SourceItem(QGraphicsObject):
         paths = self.source.video_paths
         path = paths[0] if paths else ""
         self._video_should_play = False
+        if not self.isVisible():
+            if self._video_player is not None:
+                self._video_player.stop()
+            self._video_editor_poster_pending = False
+            if self._video_frame_mailbox is not None:
+                self._video_frame_mailbox.discard()
+            return
         self._ensure_video_decoder()
         if path == self._video_preview_path:
-            if not self.isVisible():
-                self._video_player.stop()
-            elif path and self._pixmap.isNull() and not self._video_editor_poster_pending:
+            if path and self._pixmap.isNull() and not self._video_editor_poster_pending:
                 self._video_editor_poster_pending = True
                 self._set_video_loops(QMediaPlayer.Loops.Once)
                 self._video_player.setPosition(0)
@@ -461,10 +474,13 @@ class SourceItem(QGraphicsObject):
             return
         self._video_filter_generation += 1
         self._video_pending_frame = None
+        if self._video_frame_mailbox is not None:
+            self._video_frame_mailbox.discard()
+        self._video_last_raw_frame = QImage()
         self._video_preview_path = path
         self._video_timeline_preview_active = False
         self._video_editor_poster_pending = False
-        self._video_last_frame_accepted = 0.0
+        self._video_next_frame_deadline = 0.0
         self._video_last_seek_time = 0.0
         self._video_last_requested_target_ms = None
         self._video_last_request_time = 0.0
@@ -477,14 +493,10 @@ class SourceItem(QGraphicsObject):
             self._video_player.setSource(QUrl.fromLocalFile(str(Path(path).resolve())))
             self._set_video_loops(QMediaPlayer.Loops.Once)
             self._video_player.setPosition(0)
-            if self.isVisible():
-                # Qt Multimedia needs to start decoding before its first frame
-                # reaches QVideoSink.  _video_frame_changed pauses immediately
-                # after that poster frame is accepted.
-                self._video_editor_poster_pending = True
-                self._video_player.play()
-            else:
-                self._video_player.stop()
+            # Qt Multimedia needs to start decoding before its first frame
+            # reaches QVideoSink. Pause as soon as the poster is accepted.
+            self._video_editor_poster_pending = True
+            self._video_player.play()
         else:
             self._video_player.stop()
 
@@ -493,13 +505,29 @@ class SourceItem(QGraphicsObject):
         if self._video_player is None:
             self._video_player = QMediaPlayer(self)
             self._video_sink = QVideoSink(self)
-            self._video_sink.videoFrameChanged.connect(self._video_frame_changed)
+            self._video_frame_mailbox = VideoFrameMailbox(self._video_sink)
+            self._video_frame_mailbox.available.connect(
+                self._consume_video_frame, Qt.ConnectionType.QueuedConnection,
+            )
+            self._video_sink.videoFrameChanged.connect(
+                self._video_frame_mailbox.offer, Qt.ConnectionType.DirectConnection,
+            )
             self._video_player.setVideoOutput(self._video_sink)
             self._video_player.mediaStatusChanged.connect(
                 self._video_media_status_changed,
             )
             self._video_player.errorOccurred.connect(self._video_preview_error)
         return self._video_player
+
+    def _consume_video_frame(self) -> None:
+        mailbox = self._video_frame_mailbox
+        if mailbox is None:
+            return
+        frame, dropped = mailbox.take()
+        self._video_dropped_frames += dropped
+        self._video_pressure_drops += dropped
+        if frame is not None:
+            self._video_frame_changed(frame)
 
     def _video_preview_error(self, *_):
         if self._video_validate_timestamps:
@@ -535,7 +563,7 @@ class SourceItem(QGraphicsObject):
         self._video_last_seek_time = (
             monotonic() if request_time is None else float(request_time)
         )
-        self._video_last_frame_accepted = 0.0
+        self._video_next_frame_deadline = 0.0
         self._video_player.setPosition(max(0, int(target_ms)))
         self._video_seek_count += 1
         if self._video_should_play:
@@ -548,6 +576,8 @@ class SourceItem(QGraphicsObject):
 
     @timed("video.frame_callback_seconds")
     def _video_frame_changed(self, frame: QVideoFrame) -> None:
+        if self._video_preview_suppressed or not self.isVisible():
+            return
         now = monotonic()
         if self._video_validate_timestamps:
             if (self._video_preview_suppressed or not self._video_timeline_preview_active
@@ -564,15 +594,19 @@ class SourceItem(QGraphicsObject):
                     self.video_frame_ready.emit()
                 return
             self._video_timestamp_missing = False
+        next_deadline = 0.0
         if self._video_timeline_preview_active:
             minimum_interval = 1.0 / max(1, self._video_preview_fps)
-            # Qt's nominal 30/60 fps callbacks arrive a few milliseconds early.
-            # ponytail: soft cap allows 10% jitter; use accumulated deadlines if
-            # a strict rate cap is needed. Exact intervals dropped every other frame.
-            if now - self._video_last_frame_accepted < minimum_interval * 0.90:
+            deadline = self._video_next_frame_deadline
+            if now + minimum_interval * 0.10 < deadline:
                 self._video_dropped_frames += 1
                 self._video_throttled_frames += 1
                 return
+            # Carry timing across frames so a 48 FPS budget on 60 FPS input
+            # skips only the excess frames. Restart the clock after a stall.
+            if now - deadline >= minimum_interval:
+                deadline = now
+            next_deadline = deadline + minimum_interval
         try:
             handle = frame.handleType()
             self._video_frame_handle = handle.name
@@ -590,7 +624,7 @@ class SourceItem(QGraphicsObject):
             and not frame.mirrored()
             and int(frame.rotation().value) == 0
         ):
-            self._video_last_frame_accepted = now
+            self._video_next_frame_deadline = next_deadline
             self._video_accepted_frames += 1
             self._video_presented_gpu_frame = QVideoFrame(frame)
             self._video_presented_gpu_serial += 1
@@ -613,7 +647,7 @@ class SourceItem(QGraphicsObject):
             self._video_dropped_frames += 1
             self._video_pressure_drops += 1
             return
-        self._video_last_frame_accepted = now
+        self._video_next_frame_deadline = next_deadline
         self._video_accepted_frames += 1
         self._video_last_raw_frame = QImage(image)
         if self._video_editor_poster_pending and not self._video_timeline_preview_active:
@@ -634,7 +668,7 @@ class SourceItem(QGraphicsObject):
         if self._video_pending_frame is not None:
             self._video_dropped_frames += 1
             self._video_pressure_drops += 1
-        self._video_pending_frame = (QImage(image), generation)
+        self._video_pending_frame = (image, generation)
         self._start_next_video_filter()
 
     def _video_filter_key(self) -> tuple[object, ...]:
@@ -685,7 +719,9 @@ class SourceItem(QGraphicsObject):
                 and isinstance(image, QImage) and not image.isNull()
                 and not self._video_preview_suppressed and self.isVisible()):
             self._video_presented_frame = QImage(image)
-            self._pixmap = QPixmap.fromImage(image)
+            # GPU layers upload the image directly. Materialize a pixmap only
+            # if this timeline frame is painted through the Canvas.
+            self._pixmap = QPixmap() if self._video_timeline_preview_active else QPixmap.fromImage(image)
             self._video_presented_revision += 1
             self._video_frame_waiting = False
             self._video_presented_timestamp_ms = generation[10]/1000 if len(generation) > 10 else None
@@ -701,6 +737,8 @@ class SourceItem(QGraphicsObject):
         """Never publish a pre-seek filter task under the new playhead."""
         self._video_filter_generation += 1
         self._video_pending_frame = None
+        if self._video_frame_mailbox is not None:
+            self._video_frame_mailbox.discard()
         if self._video_validate_timestamps:
             self._video_frame_waiting = True
             self._video_timestamp_missing = False
@@ -793,13 +831,15 @@ class SourceItem(QGraphicsObject):
     def set_video_preview_budget(self, display_scale: float, fps: int) -> None:
         """Bound live-preview conversion work to the selected preview quality."""
         scale = max(0.25, min(1.0, float(display_scale)))
-        bounded_fps = max(10, min(60, int(fps)))
+        bounded_fps = max(1, int(fps))
         scale_changed = scale != self._video_display_scale
         fps_changed = bounded_fps != self._video_preview_fps
         if not scale_changed and not fps_changed:
             return
         self._video_display_scale = scale
         self._video_preview_fps = bounded_fps
+        if fps_changed:
+            self._video_next_frame_deadline = 0.0
         if scale_changed:
             self._video_filter_generation += 1
             self._video_pending_frame = None
@@ -875,8 +915,9 @@ class SourceItem(QGraphicsObject):
         self._video_last_request_time = request_time
         if path != self._video_preview_path:
             self._invalidate_video_seek_frame()
+            self._video_last_raw_frame = QImage()
             self._video_preview_path = path
-            self._video_last_frame_accepted = 0.0
+            self._video_next_frame_deadline = 0.0
             self._video_source_switches += 1
             self._video_pending_seek_ms = target
             self._video_player.setSource(QUrl.fromLocalFile(str(Path(path).resolve())))
@@ -901,7 +942,7 @@ class SourceItem(QGraphicsObject):
                 seek_applied = True
         else:
             # QMediaPlayer's position can update much less frequently than the
-            # 30 FPS preview timer. Re-seeking for each temporary discrepancy
+            # preview timer. Re-seeking for each temporary discrepancy
             # prevents a busy decoder from ever catching up, producing a
             # positive feedback loop of stalls and more seeks. During ordinary
             # playback, correct only substantial drift at a bounded cadence.
@@ -1008,7 +1049,7 @@ class SourceItem(QGraphicsObject):
         self._video_preview_suppressed = False
         self._video_timeline_preview_active = False
         self._video_editor_poster_pending = False
-        self._video_last_frame_accepted = 0.0
+        self._video_next_frame_deadline = 0.0
         self._video_pending_seek_ms = None
         self._video_last_seek_time = 0.0
         self._video_last_requested_target_ms = None
@@ -1036,9 +1077,13 @@ class SourceItem(QGraphicsObject):
             self._image_filter_key = None
         self._video_player = None
         self._video_sink = None
-        if sink is not None:
+        mailbox = self._video_frame_mailbox
+        self._video_frame_mailbox = None
+        if mailbox is not None:
+            mailbox.close()
+        if sink is not None and mailbox is not None:
             try:
-                sink.videoFrameChanged.disconnect(self._video_frame_changed)
+                sink.videoFrameChanged.disconnect(mailbox.offer)
             except (RuntimeError, TypeError):
                 pass
         if player is not None:
@@ -1713,6 +1758,11 @@ class SourceItem(QGraphicsObject):
         widget: object | None = None,
     ) -> None:
         """Dispatch through the source definition without changing legacy pixels."""
+        if (self.source.source_type is SourceType.VIDEO
+                and self._video_timeline_preview_active
+                and self._pixmap.isNull()
+                and not self._video_presented_frame.isNull()):
+            self._pixmap = QPixmap.fromImage(self._video_presented_frame)
         renderer = source_registry.get(self.source.source_type).renderer
         if renderer is None:
             raise RuntimeError(f"No renderer registered for {self.source.source_type.value}")

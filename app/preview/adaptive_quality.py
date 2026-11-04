@@ -16,7 +16,7 @@ class AdaptiveQualityState:
 class AdaptivePreviewQuality:
     """Reduce preview pixels under sustained load and recover conservatively."""
 
-    FACTORS = (1.0, 0.85, 0.70, 0.55)
+    FACTORS = (1.0, 0.85, 0.70, 0.55, 0.42, 0.35)
 
     def __init__(self, base_scale: float = 0.65) -> None:
         self.base_scale = max(0.3, min(1.0, float(base_scale)))

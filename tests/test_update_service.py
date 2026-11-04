@@ -143,7 +143,7 @@ class UpdateServiceTests(unittest.TestCase):
         root = Path("Program Files/Playlist Canvas").resolve()
         with patch("app.services.update_service.installation_root", return_value=root):
             arguments = automatic_setup_arguments(installer, snapshot, 1234, korean=True)
-        for flag in ("/SP-", "/SILENT", "/NORESTART",
+        for flag in ("/SP-", "/SILENT", "/NOCANCEL", "/NORESTART",
                      "/NOCLOSEAPPLICATIONS", "/NORESTARTAPPLICATIONS", "/AUTOMATICUPDATE=1"):
             self.assertIn(flag, arguments)
         self.assertNotIn("/VERYSILENT", arguments)

@@ -31,7 +31,9 @@ def run(screenshot=None):
     apply_studio_style(app)
     translator = Translator()
     translator.set_language(Language.KOREAN)
-    with tempfile.TemporaryDirectory() as directory:
+    # The isolated tests temp root is removed at exit. Windows Multimedia can
+    # keep the fixture open briefly after the preview widget has been deleted.
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as directory:
         audio = Path(directory) / "preview.wav"
         with wave.open(str(audio), "wb") as stream:
             stream.setnchannels(1)
@@ -87,6 +89,8 @@ def run(screenshot=None):
         preview._stop_preview()
         preview.close()
         preview.deleteLater()
+        # Destroy the media player before TemporaryDirectory unlinks its WAV.
+        app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         scene.clear()
         app.processEvents()
         return result

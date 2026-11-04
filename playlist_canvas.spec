@@ -94,6 +94,12 @@ analysis = Analysis(
     excludes=[*HEAVY_ANALYZER_PACKAGES, "sitecustomize", "usercustomize"],
     noarchive=False,
 )
+# collect_all also copies raw package data, independently of filter_submodules.
+# Remove dependency test fixtures there while retaining runtime source and models.
+analysis.datas = [
+    entry for entry in analysis.datas
+    if "tests" not in Path(entry[0]).parts
+]
 # Qt uses Windows' system ICU. An unrelated Poppler installation on the build
 # host can shadow it with a same-name DLL whose exports are incompatible.
 analysis.binaries = [

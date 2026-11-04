@@ -1,0 +1,3537 @@
+{
+  "baseline_commit": "755cdeb",
+  "environment": {
+    "platform": "Windows-11-10.0.26300-SP0",
+    "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "logical_cpus": 20,
+    "ffmpeg": "ffmpeg version 9.0.2-full_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers"
+  },
+  "working_tree_source_sha256": {
+    "app/canvas/source_item.py": "ad5812567c1dcef5d7c5f59eb631fbf53fe520a575226dc8d9e750f4356839c4",
+    "app/preview/canvas_process_stream.py": "66df54b2d70c31b4dffb27da484f047d34c979683d4eeb570c1b89adcd839b9c",
+    "app/preview/canvas_snapshot.py": "187672135adc633b700b282ed13149b8724acd812553ec9a4fad1eadb90c9c98",
+    "app/renderer/python_visualizer.py": "d42f02a5d02ffda6b7cb6cd3323b0159154ff05e8b8f7d478f3cb90eaaae3316",
+    "app/video/frame_mailbox.py": "c58711915e331ec9dc8a8a88b245801c46c6520a301aa774fa329e7d440344b7"
+  },
+  "component_measurements": {
+    "before": {
+      "python": "3.14.10",
+      "qt": "6.12.0",
+      "numpy": "2.5.4",
+      "platform": "Windows-11-10.0.26300-SP0",
+      "rounds": 3,
+      "fft_30_seconds_60fps_48bands": {
+        "runs": [
+          {
+            "wall_seconds": 0.1326799000016763,
+            "process_cpu_seconds": 0.125,
+            "rss_initial": 76787712,
+            "rss_sampled_peak": 82370560,
+            "rss_after": 78331904
+          },
+          {
+            "wall_seconds": 0.12856850000389386,
+            "process_cpu_seconds": 0.140625,
+            "rss_initial": 78336000,
+            "rss_sampled_peak": 81862656,
+            "rss_after": 78483456
+          },
+          {
+            "wall_seconds": 0.13135699999838835,
+            "process_cpu_seconds": 0.125,
+            "rss_initial": 78491648,
+            "rss_sampled_peak": 81768448,
+            "rss_after": 78548992
+          }
+        ],
+        "median_seconds": 0.13135699999838835,
+        "result": {
+          "shape": [
+            1800,
+            48
+          ],
+          "sha256": "02a35e14f2f6024a710be414e007309e25d0b62d59ecf7375c5c760439fce7c2"
+        }
+      },
+      "canvas_ipc_2000_cues": {
+        "runs": [
+          {
+            "wall_seconds": 0.28151729999808595,
+            "process_cpu_seconds": 0.28125,
+            "rss_initial": 79581184,
+            "rss_sampled_peak": 80199680,
+            "rss_after": 80171008
+          },
+          {
+            "wall_seconds": 0.2859648000012385,
+            "process_cpu_seconds": 0.265625,
+            "rss_initial": 80175104,
+            "rss_sampled_peak": 80211968,
+            "rss_after": 80183296
+          },
+          {
+            "wall_seconds": 0.2868522999997367,
+            "process_cpu_seconds": 0.28125,
+            "rss_initial": 80187392,
+            "rss_sampled_peak": 80228352,
+            "rss_after": 80207872
+          }
+        ],
+        "median_seconds": 0.2859648000012385,
+        "result": {
+          "messages": 1000,
+          "serialized_bytes": 173428000,
+          "sample_fields": [
+            "track",
+            "track_number",
+            "track_start_seconds",
+            "duration_seconds",
+            "elapsed_seconds",
+            "timeline_seconds",
+            "animation_phase",
+            "animation_progress",
+            "animation_phase_duration",
+            "junction",
+            "keyframe_active"
+          ]
+        }
+      },
+      "filtered_cache_16_1080p_images": {
+        "runs": [
+          {
+            "wall_seconds": 0.04638840000552591,
+            "process_cpu_seconds": 0.046875,
+            "rss_initial": 121761792,
+            "rss_sampled_peak": 239910912,
+            "rss_after": 254697472
+          },
+          {
+            "wall_seconds": 0.04879160000564298,
+            "process_cpu_seconds": 0.046875,
+            "rss_initial": 254701568,
+            "rss_sampled_peak": 254701568,
+            "rss_after": 254717952
+          },
+          {
+            "wall_seconds": 0.05022939999616938,
+            "process_cpu_seconds": 0.046875,
+            "rss_initial": 254717952,
+            "rss_sampled_peak": 254746624,
+            "rss_after": 254717952
+          }
+        ],
+        "median_seconds": 0.04879160000564298,
+        "result": {
+          "entries": 16,
+          "logical_pixel_bytes": 132710400
+        }
+      },
+      "capture_hash_1920_60frames": {
+        "runs": [
+          {
+            "wall_seconds": 0.37700800000311574,
+            "process_cpu_seconds": 0.359375,
+            "rss_initial": 122585088,
+            "rss_sampled_peak": 141094912,
+            "rss_after": 124469248
+          },
+          {
+            "wall_seconds": 0.3604819000029238,
+            "process_cpu_seconds": 0.359375,
+            "rss_initial": 124469248,
+            "rss_sampled_peak": 141115392,
+            "rss_after": 124493824
+          },
+          {
+            "wall_seconds": 0.3740691999992123,
+            "process_cpu_seconds": 0.375,
+            "rss_initial": 124497920,
+            "rss_sampled_peak": 141246464,
+            "rss_after": 124620800
+          }
+        ],
+        "median_seconds": 0.3740691999992123,
+        "result": {
+          "frames": 60,
+          "width": 1920,
+          "sha256": "0acecde16e91d8a29094e44ac45ad0dcaed2f20495a581994efafab119f7b1ad"
+        }
+      },
+      "capture_hash_3840_60frames": {
+        "runs": [
+          {
+            "wall_seconds": 1.5132840999940527,
+            "process_cpu_seconds": 1.46875,
+            "rss_initial": 124620800,
+            "rss_sampled_peak": 191340544,
+            "rss_after": 124948480
+          },
+          {
+            "wall_seconds": 1.5115612000008696,
+            "process_cpu_seconds": 1.5,
+            "rss_initial": 124948480,
+            "rss_sampled_peak": 191614976,
+            "rss_after": 125222912
+          },
+          {
+            "wall_seconds": 1.550258200004464,
+            "process_cpu_seconds": 1.5,
+            "rss_initial": 125222912,
+            "rss_sampled_peak": 191696896,
+            "rss_after": 125304832
+          }
+        ],
+        "median_seconds": 1.5132840999940527,
+        "result": {
+          "frames": 60,
+          "width": 3840,
+          "sha256": "f84c8709d9d968941bc0a689c8f6a6377be5d5c7225d33faa78c7dce54818b86"
+        }
+      },
+      "limitations": [
+        "CPU times and RSS cover this Python process only; exclude child processes and GPU.",
+        "Capture includes SHA256 reads; IPC measures serialization, not queue or rendering.",
+        "No real audio decode, end-to-end export, display latency or GPU timing in this tool."
+      ]
+    },
+    "after": {
+      "python": "3.14.10",
+      "qt": "6.12.0",
+      "numpy": "2.5.4",
+      "platform": "Windows-11-10.0.26300-SP0",
+      "rounds": 3,
+      "fft_30_seconds_60fps_48bands": {
+        "runs": [
+          {
+            "wall_seconds": 0.03223549999529496,
+            "process_cpu_seconds": 0.03125,
+            "rss_initial": 76836864,
+            "rss_sampled_peak": 81719296,
+            "rss_after": 78721024
+          },
+          {
+            "wall_seconds": 0.026065500002005138,
+            "process_cpu_seconds": 0.03125,
+            "rss_initial": 78729216,
+            "rss_sampled_peak": 82403328,
+            "rss_after": 78856192
+          },
+          {
+            "wall_seconds": 0.025636200000008103,
+            "process_cpu_seconds": 0.03125,
+            "rss_initial": 78860288,
+            "rss_sampled_peak": 82583552,
+            "rss_after": 79192064
+          }
+        ],
+        "median_seconds": 0.026065500002005138,
+        "result": {
+          "shape": [
+            1800,
+            48
+          ],
+          "sha256": "02a35e14f2f6024a710be414e007309e25d0b62d59ecf7375c5c760439fce7c2"
+        }
+      },
+      "canvas_ipc_2000_cues": {
+        "runs": [
+          {
+            "wall_seconds": 0.001254200004041195,
+            "process_cpu_seconds": 0.0,
+            "rss_initial": 80007168,
+            "rss_sampled_peak": 80007168,
+            "rss_after": 80011264
+          },
+          {
+            "wall_seconds": 0.0011793000012403354,
+            "process_cpu_seconds": 0.0,
+            "rss_initial": 80011264,
+            "rss_sampled_peak": 80011264,
+            "rss_after": 80011264
+          },
+          {
+            "wall_seconds": 0.0012305000054766424,
+            "process_cpu_seconds": 0.0,
+            "rss_initial": 80023552,
+            "rss_sampled_peak": 80023552,
+            "rss_after": 80027648
+          }
+        ],
+        "median_seconds": 0.0012305000054766424,
+        "result": {
+          "messages": 1000,
+          "serialized_bytes": 69000,
+          "sample_fields": [
+            "track",
+            "track_number",
+            "track_start_seconds",
+            "duration_seconds",
+            "elapsed_seconds",
+            "timeline_seconds",
+            "animation_phase",
+            "animation_progress",
+            "animation_phase_duration",
+            "junction",
+            "keyframe_active"
+          ]
+        }
+      },
+      "filtered_cache_16_1080p_images": {
+        "runs": [
+          {
+            "wall_seconds": 0.04678119999880437,
+            "process_cpu_seconds": 0.046875,
+            "rss_initial": 121978880,
+            "rss_sampled_peak": 199159808,
+            "rss_after": 188534784
+          },
+          {
+            "wall_seconds": 0.04894149999745423,
+            "process_cpu_seconds": 0.046875,
+            "rss_initial": 188534784,
+            "rss_sampled_peak": 201297920,
+            "rss_after": 188542976
+          },
+          {
+            "wall_seconds": 0.0526670000035665,
+            "process_cpu_seconds": 0.03125,
+            "rss_initial": 188542976,
+            "rss_sampled_peak": 199225344,
+            "rss_after": 188542976
+          }
+        ],
+        "median_seconds": 0.04894149999745423,
+        "result": {
+          "entries": 8,
+          "logical_pixel_bytes": 66355200
+        }
+      },
+      "capture_hash_1920_60frames": {
+        "runs": [
+          {
+            "wall_seconds": 0.36351579999609385,
+            "process_cpu_seconds": 0.359375,
+            "rss_initial": 122802176,
+            "rss_sampled_peak": 141254656,
+            "rss_after": 124674048
+          },
+          {
+            "wall_seconds": 0.36218319999898085,
+            "process_cpu_seconds": 0.34375,
+            "rss_initial": 124674048,
+            "rss_sampled_peak": 141303808,
+            "rss_after": 124686336
+          },
+          {
+            "wall_seconds": 0.3609345000004396,
+            "process_cpu_seconds": 0.359375,
+            "rss_initial": 124690432,
+            "rss_sampled_peak": 141430784,
+            "rss_after": 124805120
+          }
+        ],
+        "median_seconds": 0.36218319999898085,
+        "result": {
+          "frames": 60,
+          "width": 1920,
+          "sha256": "0acecde16e91d8a29094e44ac45ad0dcaed2f20495a581994efafab119f7b1ad"
+        }
+      },
+      "capture_hash_3840_60frames": {
+        "runs": [
+          {
+            "wall_seconds": 1.4641579000017373,
+            "process_cpu_seconds": 1.46875,
+            "rss_initial": 124805120,
+            "rss_sampled_peak": 191320064,
+            "rss_after": 124932096
+          },
+          {
+            "wall_seconds": 1.4635600999972667,
+            "process_cpu_seconds": 1.484375,
+            "rss_initial": 124936192,
+            "rss_sampled_peak": 191356928,
+            "rss_after": 124964864
+          },
+          {
+            "wall_seconds": 1.4782913000017288,
+            "process_cpu_seconds": 1.484375,
+            "rss_initial": 124964864,
+            "rss_sampled_peak": 191377408,
+            "rss_after": 124985344
+          }
+        ],
+        "median_seconds": 1.4641579000017373,
+        "result": {
+          "frames": 60,
+          "width": 3840,
+          "sha256": "f84c8709d9d968941bc0a689c8f6a6377be5d5c7225d33faa78c7dce54818b86"
+        }
+      },
+      "limitations": [
+        "CPU times and RSS cover this Python process only; exclude child processes and GPU.",
+        "Capture includes SHA256 reads; IPC measures serialization, not queue or rendering.",
+        "No real audio decode, end-to-end export, display latency or GPU timing in this tool."
+      ]
+    }
+  },
+  "export_live_1080p30": {
+    "before": {
+      "live": {
+        "seconds": 5.192480199999409,
+        "peak_temp_bytes": 3291768,
+        "runs": [
+          {
+            "seconds": 5.399197499995353,
+            "parent_cpu_seconds": 1.328125,
+            "parent_rss_peak": 215785472,
+            "peak_temp_bytes": 3291768
+          },
+          {
+            "seconds": 5.192480199999409,
+            "parent_cpu_seconds": 1.1875,
+            "parent_rss_peak": 221347840,
+            "peak_temp_bytes": 3291768
+          },
+          {
+            "seconds": 5.130018600000767,
+            "parent_cpu_seconds": 1.171875,
+            "parent_rss_peak": 227352576,
+            "peak_temp_bytes": 3291768
+          }
+        ],
+        "frames": 180,
+        "bytes": 1979948
+      },
+      "fixture": {
+        "width": 1920,
+        "height": 1080,
+        "fps": 30,
+        "seconds": 6.0,
+        "encoder": "libx264",
+        "preset": "medium",
+        "limitation": "Parent CPU/RSS excludes FFmpeg and Canvas child processes."
+      }
+    },
+    "after": {
+      "live": {
+        "seconds": 4.834587299999839,
+        "peak_temp_bytes": 4105840,
+        "runs": [
+          {
+            "seconds": 5.100136699998984,
+            "parent_cpu_seconds": 1.390625,
+            "parent_rss_peak": 216330240,
+            "peak_temp_bytes": 3291768
+          },
+          {
+            "seconds": 4.825897100003203,
+            "parent_cpu_seconds": 1.28125,
+            "parent_rss_peak": 220966912,
+            "peak_temp_bytes": 4105840
+          },
+          {
+            "seconds": 4.834587299999839,
+            "parent_cpu_seconds": 1.234375,
+            "parent_rss_peak": 227106816,
+            "peak_temp_bytes": 3291768
+          }
+        ],
+        "frames": 180,
+        "bytes": 1979948,
+        "decoded_size": [
+          1920,
+          1080
+        ]
+      },
+      "fixture": {
+        "width": 1920,
+        "height": 1080,
+        "fps": 30,
+        "seconds": 6.0,
+        "encoder": "libx264",
+        "preset": "medium",
+        "limitation": "Parent CPU/RSS excludes FFmpeg and Canvas child processes."
+      }
+    }
+  },
+  "export_live_4k60_initial": {
+    "before": {
+      "live": {
+        "seconds": 24.62169829999766,
+        "peak_temp_bytes": 11680376,
+        "runs": [
+          {
+            "seconds": 25.031755100004375,
+            "parent_cpu_seconds": 4.0,
+            "parent_rss_peak": 239644672,
+            "peak_temp_bytes": 11680376
+          },
+          {
+            "seconds": 24.62169829999766,
+            "parent_cpu_seconds": 4.3125,
+            "parent_rss_peak": 245166080,
+            "peak_temp_bytes": 11418232
+          },
+          {
+            "seconds": 24.312873100003344,
+            "parent_cpu_seconds": 3.34375,
+            "parent_rss_peak": 251121664,
+            "peak_temp_bytes": 11680376
+          }
+        ],
+        "frames": 360,
+        "bytes": 6331855,
+        "decoded_size": [
+          3840,
+          2160
+        ]
+      },
+      "fixture": {
+        "width": 3840,
+        "height": 2160,
+        "fps": 60,
+        "seconds": 6.0,
+        "encoder": "libx264",
+        "preset": "medium",
+        "limitation": "Parent CPU/RSS excludes FFmpeg and Canvas child processes."
+      }
+    },
+    "after": {
+      "live": {
+        "seconds": 27.680724500001816,
+        "peak_temp_bytes": 12507159,
+        "runs": [
+          {
+            "seconds": 27.680724500001816,
+            "parent_cpu_seconds": 4.84375,
+            "parent_rss_peak": 240062464,
+            "peak_temp_bytes": 12507159
+          },
+          {
+            "seconds": 27.750590600000578,
+            "parent_cpu_seconds": 4.5625,
+            "parent_rss_peak": 245743616,
+            "peak_temp_bytes": 12507159
+          },
+          {
+            "seconds": 27.67370050000318,
+            "parent_cpu_seconds": 4.4375,
+            "parent_rss_peak": 250552320,
+            "peak_temp_bytes": 11418232
+          }
+        ],
+        "frames": 360,
+        "bytes": 6331855,
+        "decoded_size": [
+          3840,
+          2160
+        ]
+      },
+      "fixture": {
+        "width": 3840,
+        "height": 2160,
+        "fps": 60,
+        "seconds": 6.0,
+        "encoder": "libx264",
+        "preset": "medium",
+        "limitation": "Parent CPU/RSS excludes FFmpeg and Canvas child processes."
+      }
+    }
+  },
+  "export_live_4k60_controlled_retest": {
+    "before": {
+      "live": {
+        "seconds": 27.590647699995316,
+        "peak_temp_bytes": 12809654,
+        "runs": [
+          {
+            "seconds": 27.75068669999746,
+            "parent_cpu_seconds": 4.078125,
+            "parent_rss_peak": 238379008,
+            "peak_temp_bytes": 10631800
+          },
+          {
+            "seconds": 27.590647699995316,
+            "parent_cpu_seconds": 4.984375,
+            "parent_rss_peak": 243683328,
+            "peak_temp_bytes": 12809654
+          },
+          {
+            "seconds": 27.504266700001608,
+            "parent_cpu_seconds": 4.9375,
+            "parent_rss_peak": 249475072,
+            "peak_temp_bytes": 10893944
+          }
+        ],
+        "frames": 360,
+        "bytes": 6331855,
+        "decoded_size": [
+          3840,
+          2160
+        ]
+      },
+      "fixture": {
+        "width": 3840,
+        "height": 2160,
+        "fps": 60,
+        "seconds": 6.0,
+        "encoder": "libx264",
+        "preset": "medium",
+        "limitation": "Parent CPU/RSS excludes FFmpeg and Canvas child processes."
+      }
+    },
+    "after": {
+      "live": {
+        "seconds": 27.830643100001907,
+        "peak_temp_bytes": 12507159,
+        "runs": [
+          {
+            "seconds": 27.830643100001907,
+            "parent_cpu_seconds": 4.34375,
+            "parent_rss_peak": 238321664,
+            "peak_temp_bytes": 12507159
+          },
+          {
+            "seconds": 27.33242049999535,
+            "parent_cpu_seconds": 4.5,
+            "parent_rss_peak": 244293632,
+            "peak_temp_bytes": 10631800
+          },
+          {
+            "seconds": 28.06562760000088,
+            "parent_cpu_seconds": 4.515625,
+            "parent_rss_peak": 248889344,
+            "peak_temp_bytes": 12507159
+          }
+        ],
+        "frames": 360,
+        "bytes": 6331855,
+        "decoded_size": [
+          3840,
+          2160
+        ]
+      },
+      "fixture": {
+        "width": 3840,
+        "height": 2160,
+        "fps": 60,
+        "seconds": 6.0,
+        "encoder": "libx264",
+        "preset": "medium",
+        "limitation": "Parent CPU/RSS excludes FFmpeg and Canvas child processes."
+      }
+    }
+  },
+  "export_baseline_mixed_live_and_intermediate_profile": {
+    "schema": 1,
+    "pid": 2880,
+    "metrics": {
+      "export.bass_prepare_seconds": {
+        "count": 2,
+        "total": 1.5500008885283023e-05,
+        "mean": 7.750004442641512e-06,
+        "min": 7.300004654098302e-06,
+        "max": 8.200004231184721e-06,
+        "last": 7.300004654098302e-06,
+        "recent_count": 2,
+        "recent_p50": 7.300004654098302e-06,
+        "recent_p95": 8.200004231184721e-06
+      },
+      "canvas.scene_render_seconds": {
+        "count": 241,
+        "total": 1.2764740999264177,
+        "mean": 0.005296573028740322,
+        "min": 0.0008561000067857094,
+        "max": 0.01741569999285275,
+        "last": 0.0015391999986604787,
+        "recent_count": 241,
+        "recent_p50": 0.004772000000230037,
+        "recent_p95": 0.010430800000904128
+      },
+      "canvas.capture_seconds": {
+        "count": 241,
+        "total": 1.942893899991759,
+        "mean": 0.008061800414903566,
+        "min": 0.0010387000002083369,
+        "max": 0.02425249999942025,
+        "last": 0.0018529000008129515,
+        "recent_count": 241,
+        "recent_p50": 0.007063199998810887,
+        "recent_p95": 0.018573699999251403
+      },
+      "export.frame_generation_seconds": {
+        "count": 277,
+        "total": 2.232160399973509,
+        "mean": 0.008058340794128191,
+        "min": 1.359999441774562e-05,
+        "max": 0.027777600000263192,
+        "last": 0.002170399995520711,
+        "recent_count": 277,
+        "recent_p50": 0.007385700002487283,
+        "recent_p95": 0.01920799999788869
+      },
+      "export.capture_session_seconds": {
+        "count": 1,
+        "total": 2.3283201000012923,
+        "mean": 2.3283201000012923,
+        "min": 2.3283201000012923,
+        "max": 2.3283201000012923,
+        "last": 2.3283201000012923,
+        "recent_count": 1,
+        "recent_p50": 2.3283201000012923,
+        "recent_p95": 2.3283201000012923
+      },
+      "ffmpeg.process_wall_seconds": {
+        "count": 8,
+        "total": 5.901857500000915,
+        "mean": 0.7377321875001144,
+        "min": 0.05675419999897713,
+        "max": 2.7113919999974314,
+        "last": 2.7113919999974314,
+        "recent_count": 8,
+        "recent_p50": 0.21734619999915594,
+        "recent_p95": 2.7113919999974314
+      },
+      "export.audio_prepare_seconds": {
+        "count": 2,
+        "total": 1.6304431999960798,
+        "mean": 0.8152215999980399,
+        "min": 0.32259219999832567,
+        "max": 1.3078509999977541,
+        "last": 0.32259219999832567,
+        "recent_count": 2,
+        "recent_p50": 0.32259219999832567,
+        "recent_p95": 1.3078509999977541
+      },
+      "audio.fft_levels_seconds": {
+        "count": 2,
+        "total": 0.27416689999517985,
+        "mean": 0.13708344999758992,
+        "min": 0.009896899995510466,
+        "max": 0.2642699999996694,
+        "last": 0.009896899995510466,
+        "recent_count": 2,
+        "recent_p50": 0.009896899995510466,
+        "recent_p95": 0.2642699999996694
+      },
+      "export.renderer_seconds": {
+        "count": 2,
+        "total": 28.065436500008218,
+        "mean": 14.032718250004109,
+        "min": 3.5645827000043937,
+        "max": 24.500853800003824,
+        "last": 3.5645827000043937,
+        "recent_count": 2,
+        "recent_p50": 3.5645827000043937,
+        "recent_p95": 24.500853800003824
+      },
+      "export.frame_queue_seconds": {
+        "count": 180,
+        "total": 1.6666037000104552,
+        "mean": 0.00925890944450253,
+        "min": 1.2700002116616815e-05,
+        "max": 0.039054200002283324,
+        "last": 0.02243319999979576,
+        "recent_count": 180,
+        "recent_p50": 0.007613399997353554,
+        "recent_p95": 0.02831289999448927
+      },
+      "export.frame_delivery_seconds": {
+        "count": 180,
+        "total": 2.2372962000081316,
+        "mean": 0.012429423333378509,
+        "min": 0.0009315999996033497,
+        "max": 0.042095500000868924,
+        "last": 0.024832099996274337,
+        "recent_count": 180,
+        "recent_p50": 0.010726200001954567,
+        "recent_p95": 0.032303899999533314
+      },
+      "export.piped_capture_session_seconds": {
+        "count": 1,
+        "total": 4.395722300003399,
+        "mean": 4.395722300003399,
+        "min": 4.395722300003399,
+        "max": 4.395722300003399,
+        "last": 4.395722300003399,
+        "recent_count": 1,
+        "recent_p50": 4.395722300003399,
+        "recent_p95": 4.395722300003399
+      }
+    }
+  },
+  "preview_three_4k_cpu": {
+    "before": [
+      {
+        "benchmark": "real_video_preview",
+        "backend": "cpu",
+        "python": "3.14.10",
+        "qt": "6.12.0",
+        "numpy": "2.5.4",
+        "platform": "Windows-11-10.0.26300-SP0",
+        "width": 3840,
+        "height": 2160,
+        "warmup_seconds": 2.0,
+        "video_count": 3,
+        "lyrics": false,
+        "gpu_backend": null,
+        "seconds": 11.50485800000024,
+        "target_fps": 60,
+        "presentation_callbacks": 1,
+        "average_fps": 0.0869198037907099,
+        "presented_scene_fps": 0.0869198037907099,
+        "scene_frame_time_mean_ms": null,
+        "scene_frame_time_p95_ms": null,
+        "scene_frame_time_p50_ms": null,
+        "scene_frame_time_p99_ms": null,
+        "late_scene_intervals": 0,
+        "decoder_fps": 13.298729979978615,
+        "decode_drops": 151,
+        "frame_time_mean_ms": null,
+        "frame_time_p95_ms": null,
+        "late_intervals": 0,
+        "heartbeat_max_ms": 0,
+        "decoder_start": {
+          "accepted_frames": 47,
+          "dropped_frames": 43,
+          "seek_count": 0,
+          "source_switches": 0,
+          "frame_handle": "NoHandle",
+          "gpu_backed_frame": false,
+          "throttled_frames": 0,
+          "pressure_drops": 43,
+          "filter_pending": true
+        },
+        "decoder_end": {
+          "accepted_frames": 200,
+          "dropped_frames": 194,
+          "seek_count": 1,
+          "source_switches": 0,
+          "frame_handle": "NoHandle",
+          "gpu_backed_frame": false,
+          "throttled_frames": 0,
+          "pressure_drops": 194,
+          "filter_pending": true
+        },
+        "gpu_start": null,
+        "gpu_end": null,
+        "queue_backlog_peak": 0,
+        "rss_start_bytes": 2806054912,
+        "rss_end_bytes": 9838534656,
+        "rss_peak_bytes": 9838534656,
+        "frame_buffer_peak_bytes": 14017536,
+        "analysis_workers": 0,
+        "analysis_finished_in_window": null,
+        "analysis_successes": null,
+        "analysis_failures": null,
+        "profile": {
+          "canvas.scene_render_seconds": {
+            "count": 5,
+            "total": 0.03241020000859862,
+            "mean": 0.006482040001719725,
+            "min": 0.00404290000005858,
+            "max": 0.010305200004950166,
+            "last": 0.010305200004950166,
+            "recent_count": 5,
+            "recent_p50": 0.004912000003969297,
+            "recent_p95": 0.010305200004950166
+          },
+          "canvas.capture_seconds": {
+            "count": 5,
+            "total": 0.03323829999862937,
+            "mean": 0.006647659999725874,
+            "min": 0.004182399999990594,
+            "max": 0.010639399995852727,
+            "last": 0.010639399995852727,
+            "recent_count": 5,
+            "recent_p50": 0.0050388000017846934,
+            "recent_p95": 0.010639399995852727
+          },
+          "preview.refresh_seconds": {
+            "count": 9,
+            "total": 0.2962270000134595,
+            "mean": 0.03291411111260661,
+            "min": 0.001822300000640098,
+            "max": 0.2299646000028588,
+            "last": 0.02136400000017602,
+            "recent_count": 9,
+            "recent_p50": 0.008986900000309106,
+            "recent_p95": 0.2299646000028588
+          },
+          "video.frame_callback_seconds": {
+            "count": 1509,
+            "total": 35.28842200002691,
+            "mean": 0.023385302849587085,
+            "min": 5.599998985417187e-06,
+            "max": 0.06691710000450257,
+            "last": 5.599998985417187e-06,
+            "recent_count": 1024,
+            "recent_p50": 0.023039600004267413,
+            "recent_p95": 0.024805900000501424
+          },
+          "video.cpu_filter_seconds": {
+            "count": 14,
+            "total": 0.24360460002935724,
+            "mean": 0.01740032857352552,
+            "min": 0.002716599999985192,
+            "max": 0.030547000002115965,
+            "last": 0.0029674000033992343,
+            "recent_count": 14,
+            "recent_p50": 0.023294900005566888,
+            "recent_p95": 0.030547000002115965
+          },
+          "preview.presentation_interval_seconds": {
+            "count": 1,
+            "total": 14.050586700002896,
+            "mean": 14.050586700002896,
+            "min": 14.050586700002896,
+            "max": 14.050586700002896,
+            "last": 14.050586700002896,
+            "recent_count": 1,
+            "recent_p50": 14.050586700002896,
+            "recent_p95": 14.050586700002896
+          },
+          "preview.late_interval": {
+            "count": 1,
+            "total": 1.0,
+            "mean": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "last": 1.0,
+            "recent_count": 1,
+            "recent_p50": 1.0,
+            "recent_p95": 1.0
+          },
+          "memory.rss_bytes": {
+            "count": 1,
+            "total": 9838534656.0,
+            "mean": 9838534656.0,
+            "min": 9838534656,
+            "max": 9838534656,
+            "last": 9838534656,
+            "recent_count": 1,
+            "recent_p50": 9838534656,
+            "recent_p95": 9838534656
+          },
+          "memory.frame_buffers_bytes": {
+            "count": 1,
+            "total": 14017536.0,
+            "mean": 14017536.0,
+            "min": 14017536,
+            "max": 14017536,
+            "last": 14017536,
+            "recent_count": 1,
+            "recent_p50": 14017536,
+            "recent_p95": 14017536
+          }
+        }
+      },
+      {
+        "benchmark": "real_video_preview",
+        "backend": "cpu",
+        "python": "3.14.10",
+        "qt": "6.12.0",
+        "numpy": "2.5.4",
+        "platform": "Windows-11-10.0.26300-SP0",
+        "width": 3840,
+        "height": 2160,
+        "warmup_seconds": 2.0,
+        "video_count": 3,
+        "lyrics": false,
+        "gpu_backend": null,
+        "seconds": 21.324813400002313,
+        "target_fps": 60,
+        "presentation_callbacks": 1,
+        "average_fps": 0.04689372803608643,
+        "presented_scene_fps": 0.04689372803608643,
+        "scene_frame_time_mean_ms": null,
+        "scene_frame_time_p95_ms": null,
+        "scene_frame_time_p50_ms": null,
+        "scene_frame_time_p99_ms": null,
+        "late_scene_intervals": 0,
+        "decoder_fps": 12.942668937959855,
+        "decode_drops": 271,
+        "frame_time_mean_ms": null,
+        "frame_time_p95_ms": null,
+        "late_intervals": 0,
+        "heartbeat_max_ms": 16742.68679999659,
+        "decoder_start": {
+          "accepted_frames": 28,
+          "dropped_frames": 23,
+          "seek_count": 2,
+          "source_switches": 0,
+          "frame_handle": "NoHandle",
+          "gpu_backed_frame": false,
+          "throttled_frames": 0,
+          "pressure_drops": 23,
+          "filter_pending": false
+        },
+        "decoder_end": {
+          "accepted_frames": 304,
+          "dropped_frames": 294,
+          "seek_count": 4,
+          "source_switches": 0,
+          "frame_handle": "NoHandle",
+          "gpu_backed_frame": false,
+          "throttled_frames": 0,
+          "pressure_drops": 294,
+          "filter_pending": true
+        },
+        "gpu_start": null,
+        "gpu_end": null,
+        "queue_backlog_peak": 0,
+        "rss_start_bytes": 1576800256,
+        "rss_end_bytes": 2165665792,
+        "rss_peak_bytes": 6489485312,
+        "frame_buffer_peak_bytes": 42052608,
+        "analysis_workers": 0,
+        "analysis_finished_in_window": null,
+        "analysis_successes": null,
+        "analysis_failures": null,
+        "profile": {
+          "canvas.scene_render_seconds": {
+            "count": 4,
+            "total": 0.03572609999537235,
+            "mean": 0.008931524998843088,
+            "min": 0.0057537999964552,
+            "max": 0.012156999997387175,
+            "last": 0.00902209999912884,
+            "recent_count": 4,
+            "recent_p50": 0.008793200002401136,
+            "recent_p95": 0.012156999997387175
+          },
+          "canvas.capture_seconds": {
+            "count": 4,
+            "total": 0.038023100001737475,
+            "mean": 0.009505775000434369,
+            "min": 0.007456100000126753,
+            "max": 0.012425499997334555,
+            "last": 0.009192600002279505,
+            "recent_count": 4,
+            "recent_p50": 0.008948900001996662,
+            "recent_p95": 0.012425499997334555
+          },
+          "preview.refresh_seconds": {
+            "count": 40,
+            "total": 0.3995165999949677,
+            "mean": 0.009987914999874193,
+            "min": 0.000738800001272466,
+            "max": 0.2901773999983561,
+            "last": 0.01973060000455007,
+            "recent_count": 40,
+            "recent_p50": 0.0009430999998585321,
+            "recent_p95": 0.01973060000455007
+          },
+          "video.frame_callback_seconds": {
+            "count": 930,
+            "total": 22.63744260000385,
+            "mean": 0.024341336129036398,
+            "min": 6.900001608300954e-06,
+            "max": 0.0654119000028004,
+            "last": 6.900001608300954e-06,
+            "recent_count": 930,
+            "recent_p50": 0.023144099999626633,
+            "recent_p95": 0.03033099999447586
+          },
+          "video.cpu_filter_seconds": {
+            "count": 18,
+            "total": 0.2932934999917052,
+            "mean": 0.016294083332872508,
+            "min": 0.0020814000017708167,
+            "max": 0.044637600003625266,
+            "last": 0.004343300002801698,
+            "recent_count": 18,
+            "recent_p50": 0.010243899996567052,
+            "recent_p95": 0.044637600003625266
+          },
+          "memory.rss_bytes": {
+            "count": 5,
+            "total": 14339006464.0,
+            "mean": 2867801292.8,
+            "min": 1881378816,
+            "max": 6489485312,
+            "last": 2165665792,
+            "recent_count": 5,
+            "recent_p50": 1904914432,
+            "recent_p95": 6489485312
+          },
+          "memory.frame_buffers_bytes": {
+            "count": 5,
+            "total": 182227968.0,
+            "mean": 36445593.6,
+            "min": 14017536,
+            "max": 42052608,
+            "last": 14017536,
+            "recent_count": 5,
+            "recent_p50": 42052608,
+            "recent_p95": 42052608
+          },
+          "preview.presentation_interval_seconds": {
+            "count": 1,
+            "total": 22.42370959999971,
+            "mean": 22.42370959999971,
+            "min": 22.42370959999971,
+            "max": 22.42370959999971,
+            "last": 22.42370959999971,
+            "recent_count": 1,
+            "recent_p50": 22.42370959999971,
+            "recent_p95": 22.42370959999971
+          },
+          "preview.late_interval": {
+            "count": 1,
+            "total": 1.0,
+            "mean": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "last": 1.0,
+            "recent_count": 1,
+            "recent_p50": 1.0,
+            "recent_p95": 1.0
+          }
+        }
+      },
+      {
+        "benchmark": "real_video_preview",
+        "backend": "cpu",
+        "python": "3.14.10",
+        "qt": "6.12.0",
+        "numpy": "2.5.4",
+        "platform": "Windows-11-10.0.26300-SP0",
+        "width": 3840,
+        "height": 2160,
+        "warmup_seconds": 2.0,
+        "video_count": 3,
+        "lyrics": false,
+        "gpu_backend": null,
+        "seconds": 9.571791100002883,
+        "target_fps": 60,
+        "presentation_callbacks": 1,
+        "average_fps": 0.1044736548836402,
+        "presented_scene_fps": 0.1044736548836402,
+        "scene_frame_time_mean_ms": null,
+        "scene_frame_time_p95_ms": null,
+        "scene_frame_time_p50_ms": null,
+        "scene_frame_time_p99_ms": null,
+        "late_scene_intervals": 0,
+        "decoder_fps": 17.760521330218833,
+        "decode_drops": 164,
+        "frame_time_mean_ms": null,
+        "frame_time_p95_ms": null,
+        "late_intervals": 0,
+        "heartbeat_max_ms": 6242.759200002183,
+        "decoder_start": {
+          "accepted_frames": 64,
+          "dropped_frames": 59,
+          "seek_count": 1,
+          "source_switches": 0,
+          "frame_handle": "NoHandle",
+          "gpu_backed_frame": false,
+          "throttled_frames": 0,
+          "pressure_drops": 59,
+          "filter_pending": true
+        },
+        "decoder_end": {
+          "accepted_frames": 234,
+          "dropped_frames": 223,
+          "seek_count": 4,
+          "source_switches": 0,
+          "frame_handle": "NoHandle",
+          "gpu_backed_frame": false,
+          "throttled_frames": 0,
+          "pressure_drops": 223,
+          "filter_pending": true
+        },
+        "gpu_start": null,
+        "gpu_end": null,
+        "queue_backlog_peak": 0,
+        "rss_start_bytes": 1867563008,
+        "rss_end_bytes": 1909497856,
+        "rss_peak_bytes": 1909497856,
+        "frame_buffer_peak_bytes": 42052608,
+        "analysis_workers": 0,
+        "analysis_finished_in_window": null,
+        "analysis_successes": null,
+        "analysis_failures": null,
+        "profile": {
+          "canvas.scene_render_seconds": {
+            "count": 5,
+            "total": 0.04119719998561777,
+            "mean": 0.008239439997123555,
+            "min": 0.00567859999864595,
+            "max": 0.010496399998373818,
+            "last": 0.00567859999864595,
+            "recent_count": 5,
+            "recent_p50": 0.007727699994575232,
+            "recent_p95": 0.010496399998373818
+          },
+          "canvas.capture_seconds": {
+            "count": 5,
+            "total": 0.04309780000039609,
+            "mean": 0.008619560000079218,
+            "min": 0.005845800005772617,
+            "max": 0.010675999998056795,
+            "last": 0.005845800005772617,
+            "recent_count": 5,
+            "recent_p50": 0.008054099998844322,
+            "recent_p95": 0.010675999998056795
+          },
+          "preview.refresh_seconds": {
+            "count": 16,
+            "total": 0.36148779999348335,
+            "mean": 0.02259298749959271,
+            "min": 0.000853999998071231,
+            "max": 0.2569571999993059,
+            "last": 0.012959300001966767,
+            "recent_count": 16,
+            "recent_p50": 0.00286950000008801,
+            "recent_p95": 0.2569571999993059
+          },
+          "video.frame_callback_seconds": {
+            "count": 548,
+            "total": 12.737154099915642,
+            "mean": 0.023242981934152633,
+            "min": 6.599999323952943e-06,
+            "max": 0.06938580000132788,
+            "last": 6.599999323952943e-06,
+            "recent_count": 548,
+            "recent_p50": 0.022289799999271054,
+            "recent_p95": 0.029086099995765835
+          },
+          "video.cpu_filter_seconds": {
+            "count": 23,
+            "total": 0.36378449999028817,
+            "mean": 0.015816717390882095,
+            "min": 0.0022123999951872975,
+            "max": 0.04375099999742815,
+            "last": 0.004969700006768107,
+            "recent_count": 23,
+            "recent_p50": 0.022102599999925587,
+            "recent_p95": 0.03090130000055069
+          },
+          "memory.rss_bytes": {
+            "count": 4,
+            "total": 7533068288.0,
+            "mean": 1883267072.0,
+            "min": 1858736128,
+            "max": 1909497856,
+            "last": 1909497856,
+            "recent_count": 4,
+            "recent_p50": 1874190336,
+            "recent_p95": 1909497856
+          },
+          "memory.frame_buffers_bytes": {
+            "count": 4,
+            "total": 140175360.0,
+            "mean": 35043840.0,
+            "min": 14017536,
+            "max": 42052608,
+            "last": 14017536,
+            "recent_count": 4,
+            "recent_p50": 42052608,
+            "recent_p95": 42052608
+          },
+          "preview.presentation_interval_seconds": {
+            "count": 1,
+            "total": 9.57075690000056,
+            "mean": 9.57075690000056,
+            "min": 9.57075690000056,
+            "max": 9.57075690000056,
+            "last": 9.57075690000056,
+            "recent_count": 1,
+            "recent_p50": 9.57075690000056,
+            "recent_p95": 9.57075690000056
+          },
+          "preview.late_interval": {
+            "count": 1,
+            "total": 1.0,
+            "mean": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "last": 1.0,
+            "recent_count": 1,
+            "recent_p50": 1.0,
+            "recent_p95": 1.0
+          }
+        }
+      }
+    ],
+    "after": [
+      {
+        "benchmark": "real_video_preview",
+        "backend": "cpu",
+        "python": "3.14.10",
+        "qt": "6.12.0",
+        "numpy": "2.5.4",
+        "platform": "Windows-11-10.0.26300-SP0",
+        "width": 3840,
+        "height": 2160,
+        "warmup_seconds": 2.0,
+        "video_count": 3,
+        "lyrics": false,
+        "gpu_backend": null,
+        "seconds": 8.164494199998444,
+        "target_fps": 60,
+        "presentation_callbacks": 52,
+        "average_fps": 6.369041207722324,
+        "presented_scene_fps": 6.369041207722324,
+        "scene_frame_time_mean_ms": 156.80291568623585,
+        "scene_frame_time_p95_ms": 167.53199999948265,
+        "scene_frame_time_p50_ms": 154.21920000517275,
+        "scene_frame_time_p99_ms": 205.58340000570752,
+        "late_scene_intervals": 51,
+        "decoder_fps": 12.738082415444648,
+        "decode_drops": 386,
+        "frame_time_mean_ms": 156.80291568623585,
+        "frame_time_p95_ms": 167.53199999948265,
+        "late_intervals": 51,
+        "heartbeat_max_ms": 169.44730000250274,
+        "decoder_start": {
+          "accepted_frames": 19,
+          "dropped_frames": 80,
+          "seek_count": 0,
+          "source_switches": 0,
+          "frame_handle": "NoHandle",
+          "gpu_backed_frame": false,
+          "throttled_frames": 0,
+          "pressure_drops": 80,
+          "filter_pending": true
+        },
+        "decoder_end": {
+          "accepted_frames": 123,
+          "dropped_frames": 466,
+          "seek_count": 1,
+          "source_switches": 0,
+          "frame_handle": "NoHandle",
+          "gpu_backed_frame": false,
+          "throttled_frames": 1,
+          "pressure_drops": 465,
+          "filter_pending": true
+        },
+        "gpu_start": null,
+        "gpu_end": null,
+        "queue_backlog_peak": 0,
+        "rss_start_bytes": 1349406720,
+        "rss_end_bytes": 1627885568,
+        "rss_peak_bytes": 1634111488,
+        "frame_buffer_peak_bytes": 20607612,
+        "analysis_workers": 0,
+        "analysis_finished_in_window": null,
+        "analysis_successes": null,
+        "analysis_failures": null,
+        "profile": {
+          "canvas.scene_render_seconds": {
+            "count": 123,
+            "total": 0.25392409995401977,
+            "mean": 0.0020644235768619494,
+            "min": 0.0011100999981863424,
+            "max": 0.008748399995965883,
+            "last": 0.0017978999967454001,
+            "recent_count": 123,
+            "recent_p50": 0.0014634000035584904,
+            "recent_p95": 0.0059056000027339906
+          },
+          "canvas.capture_seconds": {
+            "count": 123,
+            "total": 0.2681145000096876,
+            "mean": 0.0021797926830055903,
+            "min": 0.001204400003189221,
+            "max": 0.008960400002251845,
+            "last": 0.001895699999295175,
+            "recent_count": 123,
+            "recent_p50": 0.0015768000012030825,
+            "recent_p95": 0.006036299993866123
+          },
+          "preview.refresh_seconds": {
+            "count": 134,
+            "total": 0.9887732000206597,
+            "mean": 0.007378904477766117,
+            "min": 0.0008042000044952147,
+            "max": 0.23891459999867948,
+            "last": 0.006358400001772679,
+            "recent_count": 134,
+            "recent_p50": 0.0049479000008432195,
+            "recent_p95": 0.014123699998890515
+          },
+          "video.frame_callback_seconds": {
+            "count": 372,
+            "total": 8.203224199998658,
+            "mean": 0.02205167795698564,
+            "min": 5.899993993807584e-06,
+            "max": 0.033031799997843336,
+            "last": 0.03213310000137426,
+            "recent_count": 372,
+            "recent_p50": 0.02169040000444511,
+            "recent_p95": 0.024485599999025
+          },
+          "video.cpu_filter_seconds": {
+            "count": 358,
+            "total": 0.9474548001016956,
+            "mean": 0.002646521787993563,
+            "min": 0.0009810000046854839,
+            "max": 0.03441000000020722,
+            "last": 0.0033961000008275732,
+            "recent_count": 358,
+            "recent_p50": 0.0017775999949662946,
+            "recent_p95": 0.004596200000378303
+          },
+          "preview.presentation_interval_seconds": {
+            "count": 60,
+            "total": 9.611388199999055,
+            "mean": 0.1601898033333176,
+            "min": 0.148306600000069,
+            "max": 0.2056964000003063,
+            "last": 0.15601089999836404,
+            "recent_count": 60,
+            "recent_p50": 0.1556817999953637,
+            "recent_p95": 0.19177570000465494
+          },
+          "preview.late_interval": {
+            "count": 60,
+            "total": 60.0,
+            "mean": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "last": 1.0,
+            "recent_count": 60,
+            "recent_p50": 1.0,
+            "recent_p95": 1.0
+          },
+          "memory.rss_bytes": {
+            "count": 35,
+            "total": 50923831296.0,
+            "mean": 1454966608.4571428,
+            "min": 772198400,
+            "max": 1634111488,
+            "last": 1627885568,
+            "recent_count": 35,
+            "recent_p50": 1339363328,
+            "recent_p95": 1630711808
+          },
+          "memory.frame_buffers_bytes": {
+            "count": 35,
+            "total": 479787764.0,
+            "mean": 13708221.82857143,
+            "min": 6869204,
+            "max": 20607612,
+            "last": 12754500,
+            "recent_count": 35,
+            "recent_p50": 12754500,
+            "recent_p95": 20607612
+          }
+        }
+      },
+      {
+        "benchmark": "real_video_preview",
+        "backend": "cpu",
+        "python": "3.14.10",
+        "qt": "6.12.0",
+        "numpy": "2.5.4",
+        "platform": "Windows-11-10.0.26300-SP0",
+        "width": 3840,
+        "height": 2160,
+        "warmup_seconds": 2.0,
+        "video_count": 3,
+        "lyrics": false,
+        "gpu_backend": null,
+        "seconds": 8.214442800002871,
+        "target_fps": 60,
+        "presentation_callbacks": 51,
+        "average_fps": 6.208576922585933,
+        "presented_scene_fps": 6.208576922585933,
+        "scene_frame_time_mean_ms": 162.56280999994488,
+        "scene_frame_time_p95_ms": 180.31570000312058,
+        "scene_frame_time_p50_ms": 159.46220000478206,
+        "scene_frame_time_p99_ms": 263.03030000417493,
+        "late_scene_intervals": 50,
+        "decoder_fps": 12.417153845171866,
+        "decode_drops": 393,
+        "frame_time_mean_ms": 162.56280999994488,
+        "frame_time_p95_ms": 180.31570000312058,
+        "late_intervals": 50,
+        "heartbeat_max_ms": 172.19230000046082,
+        "decoder_start": {
+          "accepted_frames": 20,
+          "dropped_frames": 80,
+          "seek_count": 0,
+          "source_switches": 0,
+          "frame_handle": "NoHandle",
+          "gpu_backed_frame": false,
+          "throttled_frames": 0,
+          "pressure_drops": 80,
+          "filter_pending": true
+        },
+        "decoder_end": {
+          "accepted_frames": 122,
+          "dropped_frames": 473,
+          "seek_count": 1,
+          "source_switches": 0,
+          "frame_handle": "NoHandle",
+          "gpu_backed_frame": false,
+          "throttled_frames": 0,
+          "pressure_drops": 473,
+          "filter_pending": true
+        },
+        "gpu_start": null,
+        "gpu_end": null,
+        "queue_backlog_peak": 0,
+        "rss_start_bytes": 1398583296,
+        "rss_end_bytes": 1539747840,
+        "rss_peak_bytes": 1542725632,
+        "frame_buffer_peak_bytes": 20607612,
+        "analysis_workers": 0,
+        "analysis_finished_in_window": null,
+        "analysis_successes": null,
+        "analysis_failures": null,
+        "profile": {
+          "canvas.scene_render_seconds": {
+            "count": 123,
+            "total": 0.2530156000648276,
+            "mean": 0.0020570373989010375,
+            "min": 0.0009716999993543141,
+            "max": 0.008489799998642411,
+            "last": 0.002490600003511645,
+            "recent_count": 123,
+            "recent_p50": 0.0016264000005321577,
+            "recent_p95": 0.004540000001725275
+          },
+          "canvas.capture_seconds": {
+            "count": 123,
+            "total": 0.26780509993841406,
+            "mean": 0.002177277235271659,
+            "min": 0.001070300000719726,
+            "max": 0.008805099998426158,
+            "last": 0.002594399993540719,
+            "recent_count": 123,
+            "recent_p50": 0.0017480999958934262,
+            "recent_p95": 0.004749799998535309
+          },
+          "preview.refresh_seconds": {
+            "count": 131,
+            "total": 0.9894169000035618,
+            "mean": 0.007552800763385967,
+            "min": 0.0007830000031390227,
+            "max": 0.24306200000137324,
+            "last": 0.0045335000031627715,
+            "recent_count": 131,
+            "recent_p50": 0.005303199999616481,
+            "recent_p95": 0.012021700000332203
+          },
+          "video.frame_callback_seconds": {
+            "count": 366,
+            "total": 8.274158000007446,
+            "mean": 0.022606989071058597,
+            "min": 0.019248399999924004,
+            "max": 0.034638400000403635,
+            "last": 0.023618000006536022,
+            "recent_count": 366,
+            "recent_p50": 0.02219160000095144,
+            "recent_p95": 0.02564909999637166
+          },
+          "video.cpu_filter_seconds": {
+            "count": 350,
+            "total": 1.0312598999662441,
+            "mean": 0.0029464568570464118,
+            "min": 0.0010333000027458183,
+            "max": 0.026542699997662567,
+            "last": 0.004767700003867503,
+            "recent_count": 350,
+            "recent_p50": 0.0019858999949065037,
+            "recent_p95": 0.004956600001605693
+          },
+          "preview.presentation_interval_seconds": {
+            "count": 59,
+            "total": 9.71518030000152,
+            "mean": 0.1646640728813817,
+            "min": 0.14994060000026366,
+            "max": 0.2631450999979279,
+            "last": 0.16007420000096317,
+            "recent_count": 59,
+            "recent_p50": 0.16120460000092862,
+            "recent_p95": 0.18932740000309423
+          },
+          "preview.late_interval": {
+            "count": 59,
+            "total": 59.0,
+            "mean": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "last": 1.0,
+            "recent_count": 59,
+            "recent_p50": 1.0,
+            "recent_p95": 1.0
+          },
+          "memory.rss_bytes": {
+            "count": 34,
+            "total": 48837910528.0,
+            "mean": 1436409133.1764705,
+            "min": 810651648,
+            "max": 1542725632,
+            "last": 1539747840,
+            "recent_count": 34,
+            "recent_p50": 1387696128,
+            "recent_p95": 1542705152
+          },
+          "memory.frame_buffers_bytes": {
+            "count": 34,
+            "total": 472918560.0,
+            "mean": 13909369.411764706,
+            "min": 12754500,
+            "max": 20607612,
+            "last": 12754500,
+            "recent_count": 34,
+            "recent_p50": 12754500,
+            "recent_p95": 20607612
+          }
+        }
+      },
+      {
+        "benchmark": "real_video_preview",
+        "backend": "cpu",
+        "python": "3.14.10",
+        "qt": "6.12.0",
+        "numpy": "2.5.4",
+        "platform": "Windows-11-10.0.26300-SP0",
+        "width": 3840,
+        "height": 2160,
+        "warmup_seconds": 2.0,
+        "video_count": 3,
+        "lyrics": false,
+        "gpu_backend": null,
+        "seconds": 8.13012400000298,
+        "target_fps": 60,
+        "presentation_callbacks": 51,
+        "average_fps": 6.272967054374732,
+        "presented_scene_fps": 6.272967054374732,
+        "scene_frame_time_mean_ms": 160.92122800007928,
+        "scene_frame_time_p95_ms": 177.82699999952456,
+        "scene_frame_time_p50_ms": 157.12770000391174,
+        "scene_frame_time_p99_ms": 234.10729999886826,
+        "late_scene_intervals": 50,
+        "decoder_fps": 12.545934108749464,
+        "decode_drops": 386,
+        "frame_time_mean_ms": 160.92122800007928,
+        "frame_time_p95_ms": 177.82699999952456,
+        "late_intervals": 50,
+        "heartbeat_max_ms": 185.42759999400005,
+        "decoder_start": {
+          "accepted_frames": 20,
+          "dropped_frames": 83,
+          "seek_count": 0,
+          "source_switches": 0,
+          "frame_handle": "NoHandle",
+          "gpu_backed_frame": false,
+          "throttled_frames": 0,
+          "pressure_drops": 83,
+          "filter_pending": true
+        },
+        "decoder_end": {
+          "accepted_frames": 122,
+          "dropped_frames": 469,
+          "seek_count": 1,
+          "source_switches": 0,
+          "frame_handle": "NoHandle",
+          "gpu_backed_frame": false,
+          "throttled_frames": 0,
+          "pressure_drops": 469,
+          "filter_pending": true
+        },
+        "gpu_start": null,
+        "gpu_end": null,
+        "queue_backlog_peak": 0,
+        "rss_start_bytes": 1401876480,
+        "rss_end_bytes": 1564258304,
+        "rss_peak_bytes": 1566773248,
+        "frame_buffer_peak_bytes": 20607612,
+        "analysis_workers": 0,
+        "analysis_finished_in_window": null,
+        "analysis_successes": null,
+        "analysis_failures": null,
+        "profile": {
+          "canvas.scene_render_seconds": {
+            "count": 122,
+            "total": 0.24339729996427195,
+            "mean": 0.001995059835772721,
+            "min": 0.0009843000007094815,
+            "max": 0.008013800004846416,
+            "last": 0.0011913999987882562,
+            "recent_count": 122,
+            "recent_p50": 0.0014530999978887849,
+            "recent_p95": 0.00518010000087088
+          },
+          "canvas.capture_seconds": {
+            "count": 122,
+            "total": 0.2570696999973734,
+            "mean": 0.0021071286885030608,
+            "min": 0.0010813999979291111,
+            "max": 0.008141199999954551,
+            "last": 0.0012875999964307994,
+            "recent_count": 122,
+            "recent_p50": 0.0015550000025541522,
+            "recent_p95": 0.005332500004442409
+          },
+          "preview.refresh_seconds": {
+            "count": 132,
+            "total": 0.9549239999614656,
+            "mean": 0.0072342727269808,
+            "min": 0.0007693000006838702,
+            "max": 0.24758360000123503,
+            "last": 0.005147000003489666,
+            "recent_count": 132,
+            "recent_p50": 0.004856300001847558,
+            "recent_p95": 0.012789899999916088
+          },
+          "video.frame_callback_seconds": {
+            "count": 366,
+            "total": 8.22280760002468,
+            "mean": 0.02246668743176142,
+            "min": 0.020431099997949786,
+            "max": 0.032533000005059876,
+            "last": 0.02449480000359472,
+            "recent_count": 366,
+            "recent_p50": 0.022112500002549496,
+            "recent_p95": 0.025050099997315556
+          },
+          "video.cpu_filter_seconds": {
+            "count": 354,
+            "total": 0.9296512998771504,
+            "mean": 0.0026261336154721764,
+            "min": 0.0010197000010521151,
+            "max": 0.03257030000531813,
+            "last": 0.0030280999999376945,
+            "recent_count": 354,
+            "recent_p50": 0.0019361999948159792,
+            "recent_p95": 0.004340700004831888
+          },
+          "preview.presentation_interval_seconds": {
+            "count": 59,
+            "total": 9.636475899998914,
+            "mean": 0.16333009999998158,
+            "min": 0.14917720000084955,
+            "max": 0.2341085000007297,
+            "last": 0.1542531999948551,
+            "recent_count": 59,
+            "recent_p50": 0.15858229999867035,
+            "recent_p95": 0.1859243999933824
+          },
+          "preview.late_interval": {
+            "count": 59,
+            "total": 59.0,
+            "mean": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "last": 1.0,
+            "recent_count": 59,
+            "recent_p50": 1.0,
+            "recent_p95": 1.0
+          },
+          "memory.rss_bytes": {
+            "count": 34,
+            "total": 49269800960.0,
+            "mean": 1449111792.9411764,
+            "min": 809676800,
+            "max": 1566773248,
+            "last": 1564258304,
+            "recent_count": 34,
+            "recent_p50": 1390567424,
+            "recent_p95": 1566760960
+          },
+          "memory.frame_buffers_bytes": {
+            "count": 34,
+            "total": 465065448.0,
+            "mean": 13678395.529411765,
+            "min": 12754500,
+            "max": 20607612,
+            "last": 12754500,
+            "recent_count": 34,
+            "recent_p50": 12754500,
+            "recent_p95": 20607612
+          }
+        }
+      }
+    ]
+  },
+  "preview_three_4k_windows_gpu_baseline": {
+    "benchmark": "real_video_preview",
+    "backend": "gpu_layers",
+    "python": "3.14.10",
+    "qt": "6.12.0",
+    "numpy": "2.5.4",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "width": 3840,
+    "height": 2160,
+    "warmup_seconds": 3.0,
+    "video_count": 3,
+    "lyrics": false,
+    "gpu_backend": "OpenGL 3.3 · NVIDIA GeForce RTX 5060/PCIe/SSE2",
+    "seconds": 20.445116800001415,
+    "target_fps": 60,
+    "presentation_callbacks": 1,
+    "average_fps": 0.04891143493002353,
+    "presented_scene_fps": 0.04891143493002353,
+    "scene_frame_time_mean_ms": null,
+    "scene_frame_time_p95_ms": null,
+    "scene_frame_time_p50_ms": null,
+    "scene_frame_time_p99_ms": null,
+    "late_scene_intervals": 0,
+    "decoder_fps": 9.195349766844423,
+    "decode_drops": 187,
+    "frame_time_mean_ms": null,
+    "frame_time_p95_ms": null,
+    "late_intervals": 0,
+    "heartbeat_max_ms": 0,
+    "decoder_start": {
+      "accepted_frames": 74,
+      "dropped_frames": 70,
+      "seek_count": 0,
+      "source_switches": 0,
+      "frame_handle": "NoHandle",
+      "gpu_backed_frame": false,
+      "throttled_frames": 0,
+      "pressure_drops": 70,
+      "filter_pending": true
+    },
+    "decoder_end": {
+      "accepted_frames": 262,
+      "dropped_frames": 257,
+      "seek_count": 0,
+      "source_switches": 0,
+      "frame_handle": "NoHandle",
+      "gpu_backed_frame": false,
+      "throttled_frames": 0,
+      "pressure_drops": 257,
+      "filter_pending": true
+    },
+    "gpu_start": {
+      "submitted_frames": 3,
+      "presented_frames": 3,
+      "dropped_pending_frames": 0,
+      "texture_uploads": 4,
+      "texture_reuses": 1,
+      "uploaded_bytes": 42684864,
+      "texture_evictions": 0,
+      "cached_textures": 4,
+      "allocated_bytes": 42684864,
+      "peak_allocated_bytes": 42684864,
+      "texture_budget_bytes": 268435456,
+      "filtered_layers": 0,
+      "texture_allocations": 4,
+      "presented_scene_frames": 2
+    },
+    "gpu_end": {
+      "submitted_frames": 3,
+      "presented_frames": 4,
+      "dropped_pending_frames": 0,
+      "texture_uploads": 7,
+      "texture_reuses": 2,
+      "uploaded_bytes": 57988032,
+      "texture_evictions": 0,
+      "cached_textures": 6,
+      "allocated_bytes": 49693632,
+      "peak_allocated_bytes": 49693632,
+      "texture_budget_bytes": 268435456,
+      "filtered_layers": 0,
+      "texture_allocations": 6,
+      "presented_scene_frames": 3
+    },
+    "queue_backlog_peak": 0,
+    "rss_start_bytes": 5548244992,
+    "rss_end_bytes": 34681090048,
+    "rss_peak_bytes": 34681090048,
+    "frame_buffer_peak_bytes": 0,
+    "analysis_workers": 0,
+    "analysis_finished_in_window": null,
+    "analysis_successes": null,
+    "analysis_failures": null,
+    "profile": {
+      "canvas.scene_render_seconds": {
+        "count": 3,
+        "total": 0.014551699990988709,
+        "mean": 0.004850566663662903,
+        "min": 0.0028667000005953014,
+        "max": 0.006434199996874668,
+        "last": 0.0028667000005953014,
+        "recent_count": 3,
+        "recent_p50": 0.00525079999351874,
+        "recent_p95": 0.006434199996874668
+      },
+      "canvas.capture_seconds": {
+        "count": 3,
+        "total": 0.014978799998061731,
+        "mean": 0.004992933332687244,
+        "min": 0.003020600001036655,
+        "max": 0.006548699995619245,
+        "last": 0.003020600001036655,
+        "recent_count": 3,
+        "recent_p50": 0.005409500001405831,
+        "recent_p95": 0.006548699995619245
+      },
+      "preview.refresh_seconds": {
+        "count": 7,
+        "total": 0.03151200000138488,
+        "mean": 0.004501714285912125,
+        "min": 1.2500000593718141e-05,
+        "max": 0.013375400005315896,
+        "last": 1.2500000593718141e-05,
+        "recent_count": 7,
+        "recent_p50": 0.004045199995744042,
+        "recent_p95": 0.013375400005315896
+      },
+      "preview.texture_prepare_upload_seconds": {
+        "count": 9,
+        "total": 0.019861600012518466,
+        "mean": 0.002206844445835385,
+        "min": 1.6400001186411828e-05,
+        "max": 0.006204500001331326,
+        "last": 0.002821800000674557,
+        "recent_count": 9,
+        "recent_p50": 0.0017718000017339364,
+        "recent_p95": 0.006204500001331326
+      },
+      "preview.gl_submission_seconds": {
+        "count": 4,
+        "total": 0.021552800004428718,
+        "mean": 0.0053882000011071796,
+        "min": 8.150000212481245e-05,
+        "max": 0.011191199999302626,
+        "last": 0.006821000002673827,
+        "recent_count": 4,
+        "recent_p50": 0.003459100000327453,
+        "recent_p95": 0.011191199999302626
+      },
+      "video.frame_callback_seconds": {
+        "count": 4497,
+        "total": 93.71797260014137,
+        "mean": 0.020840109539724563,
+        "min": 5.49999822396785e-06,
+        "max": 1.0707490999993752,
+        "last": 1.9700004486367106e-05,
+        "recent_count": 1024,
+        "recent_p50": 0.01724600000306964,
+        "recent_p95": 0.02024600000004284
+      },
+      "video.cpu_filter_seconds": {
+        "count": 15,
+        "total": 0.17982579999807058,
+        "mean": 0.011988386666538038,
+        "min": 0.0023578999971505255,
+        "max": 0.030278600002930034,
+        "last": 0.0190433000025223,
+        "recent_count": 15,
+        "recent_p50": 0.003489999995508697,
+        "recent_p95": 0.030278600002930034
+      },
+      "preview.presentation_interval_seconds": {
+        "count": 2,
+        "total": 24.532573199998296,
+        "mean": 12.266286599999148,
+        "min": 1.2209417999983998,
+        "max": 23.311631399999897,
+        "last": 23.311631399999897,
+        "recent_count": 2,
+        "recent_p50": 1.2209417999983998,
+        "recent_p95": 23.311631399999897
+      },
+      "preview.late_interval": {
+        "count": 2,
+        "total": 2.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "last": 1.0,
+        "recent_count": 2,
+        "recent_p50": 1.0,
+        "recent_p95": 1.0
+      },
+      "preview.deferred_refresh": {
+        "count": 1,
+        "total": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "last": 1.0,
+        "recent_count": 1,
+        "recent_p50": 1.0,
+        "recent_p95": 1.0
+      },
+      "memory.rss_bytes": {
+        "count": 1,
+        "total": 34681090048.0,
+        "mean": 34681090048.0,
+        "min": 34681090048,
+        "max": 34681090048,
+        "last": 34681090048,
+        "recent_count": 1,
+        "recent_p50": 34681090048,
+        "recent_p95": 34681090048
+      },
+      "memory.frame_buffers_bytes": {
+        "count": 1,
+        "total": 0.0,
+        "mean": 0.0,
+        "min": 0,
+        "max": 0,
+        "last": 0,
+        "recent_count": 1,
+        "recent_p50": 0,
+        "recent_p95": 0
+      }
+    }
+  },
+  "preview_three_4k_windows_gpu_single_run": {
+    "benchmark": "real_video_preview",
+    "backend": "gpu_layers",
+    "python": "3.14.10",
+    "qt": "6.12.0",
+    "numpy": "2.5.4",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "width": 3840,
+    "height": 2160,
+    "warmup_seconds": 2.0,
+    "video_count": 3,
+    "lyrics": false,
+    "gpu_backend": "OpenGL 3.3 · NVIDIA GeForce RTX 5060/PCIe/SSE2",
+    "seconds": 8.189877700002398,
+    "target_fps": 60,
+    "presentation_callbacks": 69,
+    "average_fps": 8.425034234635737,
+    "presented_scene_fps": 8.425034234635737,
+    "scene_frame_time_mean_ms": 117.89547647052079,
+    "scene_frame_time_p95_ms": 141.64159999927506,
+    "scene_frame_time_p50_ms": 114.91380000370555,
+    "scene_frame_time_p99_ms": 151.0827000020072,
+    "late_scene_intervals": 68,
+    "decoder_fps": 16.850068469271474,
+    "decode_drops": 373,
+    "frame_time_mean_ms": 117.89547647052079,
+    "frame_time_p95_ms": 141.64159999927506,
+    "late_intervals": 68,
+    "heartbeat_max_ms": 148.8725000017439,
+    "decoder_start": {
+      "accepted_frames": 31,
+      "dropped_frames": 93,
+      "seek_count": 0,
+      "source_switches": 0,
+      "frame_handle": "NoHandle",
+      "gpu_backed_frame": false,
+      "throttled_frames": 0,
+      "pressure_drops": 93,
+      "filter_pending": false
+    },
+    "decoder_end": {
+      "accepted_frames": 169,
+      "dropped_frames": 466,
+      "seek_count": 1,
+      "source_switches": 0,
+      "frame_handle": "NoHandle",
+      "gpu_backed_frame": false,
+      "throttled_frames": 0,
+      "pressure_drops": 466,
+      "filter_pending": false
+    },
+    "gpu_start": {
+      "submitted_frames": 16,
+      "presented_frames": 19,
+      "dropped_pending_frames": 0,
+      "texture_uploads": 46,
+      "texture_reuses": 15,
+      "uploaded_bytes": 248563700,
+      "texture_evictions": 0,
+      "cached_textures": 6,
+      "allocated_bytes": 43481288,
+      "peak_allocated_bytes": 49693632,
+      "texture_budget_bytes": 268435456,
+      "filtered_layers": 0,
+      "texture_allocations": 9,
+      "presented_scene_frames": 16
+    },
+    "gpu_end": {
+      "submitted_frames": 86,
+      "presented_frames": 88,
+      "dropped_pending_frames": 0,
+      "texture_uploads": 253,
+      "texture_reuses": 84,
+      "uploaded_bytes": 701950836,
+      "texture_evictions": 0,
+      "cached_textures": 6,
+      "allocated_bytes": 30303828,
+      "peak_allocated_bytes": 49693632,
+      "texture_budget_bytes": 268435456,
+      "filtered_layers": 0,
+      "texture_allocations": 17,
+      "presented_scene_frames": 85
+    },
+    "queue_backlog_peak": 1,
+    "rss_start_bytes": 1710211072,
+    "rss_end_bytes": 2024984576,
+    "rss_peak_bytes": 2030202880,
+    "frame_buffer_peak_bytes": 6869204,
+    "analysis_workers": 0,
+    "analysis_finished_in_window": null,
+    "analysis_successes": null,
+    "analysis_failures": null,
+    "profile": {
+      "canvas.scene_render_seconds": {
+        "count": 6,
+        "total": 0.020838199998252094,
+        "mean": 0.0034730333330420158,
+        "min": 0.0009738000007928349,
+        "max": 0.008140299993101507,
+        "last": 0.0009738000007928349,
+        "recent_count": 6,
+        "recent_p50": 0.0026294999988749623,
+        "recent_p95": 0.008140299993101507
+      },
+      "canvas.capture_seconds": {
+        "count": 6,
+        "total": 0.021795300002850126,
+        "mean": 0.003632550000475021,
+        "min": 0.0010734000024967827,
+        "max": 0.008279900001070928,
+        "last": 0.0010734000024967827,
+        "recent_count": 6,
+        "recent_p50": 0.0028425999989849515,
+        "recent_p95": 0.008279900001070928
+      },
+      "preview.refresh_seconds": {
+        "count": 255,
+        "total": 0.19164049996470567,
+        "mean": 0.0007515313724106104,
+        "min": 1.800006430130452e-06,
+        "max": 0.014060800000152085,
+        "last": 1.1900003300979733e-05,
+        "recent_count": 255,
+        "recent_p50": 1.219999830937013e-05,
+        "recent_p95": 0.003394599996681791
+      },
+      "preview.texture_prepare_upload_seconds": {
+        "count": 337,
+        "total": 0.1167590999539243,
+        "mean": 0.0003464661719701018,
+        "min": 3.0999945010989904e-06,
+        "max": 0.005946499994024634,
+        "last": 0.00017210000078193843,
+        "recent_count": 337,
+        "recent_p50": 0.0001866999955382198,
+        "recent_p95": 0.001068899997335393
+      },
+      "preview.gl_submission_seconds": {
+        "count": 86,
+        "total": 0.21755519998259842,
+        "mean": 0.0025297116277046327,
+        "min": 7.679999544052407e-05,
+        "max": 0.010949700001219753,
+        "last": 0.0038127000007079914,
+        "recent_count": 86,
+        "recent_p50": 0.002343199994356837,
+        "recent_p95": 0.005257900003925897
+      },
+      "preview.presentation_interval_seconds": {
+        "count": 86,
+        "total": 10.176076399999147,
+        "mean": 0.11832646976743194,
+        "min": 0.034123199999157805,
+        "max": 0.16403999999602092,
+        "last": 0.11507220000203233,
+        "recent_count": 86,
+        "recent_p50": 0.11571239999466343,
+        "recent_p95": 0.14436279999790713
+      },
+      "preview.late_interval": {
+        "count": 86,
+        "total": 86.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "last": 1.0,
+        "recent_count": 86,
+        "recent_p50": 1.0,
+        "recent_p95": 1.0
+      },
+      "video.frame_callback_seconds": {
+        "count": 508,
+        "total": 8.660373899932893,
+        "mean": 0.017047980117978135,
+        "min": 0.014557199996488634,
+        "max": 0.05301550000149291,
+        "last": 0.02309419999801321,
+        "recent_count": 508,
+        "recent_p50": 0.016289299994241446,
+        "recent_p95": 0.020970300000044517
+      },
+      "video.cpu_filter_seconds": {
+        "count": 436,
+        "total": 1.9919131999267847,
+        "mean": 0.004568608256712809,
+        "min": 0.0010172999973292463,
+        "max": 0.0334517999945092,
+        "last": 0.004096899996511638,
+        "recent_count": 436,
+        "recent_p50": 0.0020027999999001622,
+        "recent_p95": 0.018788299996231217
+      },
+      "preview.deferred_refresh": {
+        "count": 164,
+        "total": 164.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "last": 1.0,
+        "recent_count": 164,
+        "recent_p50": 1.0,
+        "recent_p95": 1.0
+      },
+      "memory.rss_bytes": {
+        "count": 36,
+        "total": 65065537536.0,
+        "mean": 1807376042.6666667,
+        "min": 1116024832,
+        "max": 2030202880,
+        "last": 2024984576,
+        "recent_count": 36,
+        "recent_p50": 1712066560,
+        "recent_p95": 2026119168
+      },
+      "memory.frame_buffers_bytes": {
+        "count": 36,
+        "total": 159273316.0,
+        "mean": 4424258.777777778,
+        "min": 0,
+        "max": 6869204,
+        "last": 4251500,
+        "recent_count": 36,
+        "recent_p50": 4251500,
+        "recent_p95": 6869204
+      }
+    }
+  },
+  "project_io_and_startup": {
+    "before": {
+      "startup_runs": [
+        {
+          "seconds": 2.0099563999974634,
+          "ready": true,
+          "rss": 191463424,
+          "launch_through_exit_seconds": 2.272235600001295
+        },
+        {
+          "seconds": 2.02872539999953,
+          "ready": true,
+          "rss": 192245760,
+          "launch_through_exit_seconds": 2.2933462000000873
+        },
+        {
+          "seconds": 1.9945713999986765,
+          "ready": true,
+          "rss": 192126976,
+          "launch_through_exit_seconds": 2.276458799999091
+        }
+      ],
+      "startup_median_seconds": 2.0099563999974634,
+      "project_runs": [
+        {
+          "save_seconds": 0.640092800000275,
+          "open_seconds": 0.24404890000005253
+        },
+        {
+          "save_seconds": 0.1234416000006604,
+          "open_seconds": 0.2982237999967765
+        },
+        {
+          "save_seconds": 0.1718948999987333,
+          "open_seconds": 0.2694610999969882
+        },
+        {
+          "save_seconds": 0.09893340000417084,
+          "open_seconds": 0.2250119000018458
+        },
+        {
+          "save_seconds": 0.14684300000226358,
+          "open_seconds": 0.2984624000018812
+        },
+        {
+          "save_seconds": 0.12314779999724124,
+          "open_seconds": 0.3013490000012098
+        },
+        {
+          "save_seconds": 0.10848509999777889,
+          "open_seconds": 0.2796077000020887
+        },
+        {
+          "save_seconds": 0.1096423999988474,
+          "open_seconds": 0.26699619999999413
+        },
+        {
+          "save_seconds": 0.09111920000577811,
+          "open_seconds": 0.22702440000284696
+        },
+        {
+          "save_seconds": 0.11557139999786159,
+          "open_seconds": 0.3147882999983267
+        }
+      ],
+      "project_bytes": 124055,
+      "open_median_seconds": 0.27453439999953844,
+      "save_median_seconds": 0.11935959999755141,
+      "rss_after_each_iteration": [
+        49983488,
+        52240384,
+        51613696,
+        52240384,
+        51634176,
+        51687424,
+        51658752,
+        51847168,
+        51822592,
+        51724288,
+        51621888
+      ],
+      "limitation": "Synthetic small assets; persistence only. Startup excludes Python process launch; launch-through-exit recorded separately."
+    },
+    "after": {
+      "startup_runs": [
+        {
+          "seconds": 1.9601249000043026,
+          "ready": true,
+          "rss": 191827968,
+          "launch_through_exit_seconds": 2.227226500006509
+        },
+        {
+          "seconds": 2.0176100000026054,
+          "ready": true,
+          "rss": 191156224,
+          "launch_through_exit_seconds": 2.2737567000003764
+        },
+        {
+          "seconds": 2.0357694999984233,
+          "ready": true,
+          "rss": 192245760,
+          "launch_through_exit_seconds": 2.3087111999993795
+        }
+      ],
+      "startup_median_seconds": 2.0176100000026054,
+      "project_runs": [
+        {
+          "save_seconds": 0.18699819999892497,
+          "open_seconds": 0.24414850000175647
+        },
+        {
+          "save_seconds": 0.10130820000631502,
+          "open_seconds": 0.27882949999911943
+        },
+        {
+          "save_seconds": 0.16925780000019586,
+          "open_seconds": 0.3071109000011347
+        },
+        {
+          "save_seconds": 0.19963109999662265,
+          "open_seconds": 0.29151780000393046
+        },
+        {
+          "save_seconds": 0.10960960000375053,
+          "open_seconds": 0.27000840000255266
+        },
+        {
+          "save_seconds": 0.13046510000276612,
+          "open_seconds": 0.2821962000016356
+        },
+        {
+          "save_seconds": 0.150794399996812,
+          "open_seconds": 0.2733777999965241
+        },
+        {
+          "save_seconds": 0.1045047000006889,
+          "open_seconds": 0.33640140000352403
+        },
+        {
+          "save_seconds": 0.11950359999900684,
+          "open_seconds": 0.23399939999944763
+        },
+        {
+          "save_seconds": 0.0967873999979929,
+          "open_seconds": 0.24943640000128653
+        }
+      ],
+      "project_bytes": 124056,
+      "open_median_seconds": 0.2761036499978218,
+      "save_median_seconds": 0.12498435000088648,
+      "rss_after_each_iteration": [
+        49496064,
+        51204096,
+        51253248,
+        51277824,
+        51408896,
+        51421184,
+        51589120,
+        51466240,
+        51597312,
+        51613696,
+        51617792
+      ],
+      "limitation": "Synthetic small assets; persistence only. Startup excludes Python process launch; launch-through-exit recorded separately."
+    }
+  },
+  "automix_basic": {
+    "before": {
+      "benchmark": "automix_basic_analysis_and_cache",
+      "audio_seconds": 30,
+      "track_entries": 2,
+      "unique_files": 1,
+      "runs": [
+        {
+          "cache_miss_seconds": 9.317658699997992,
+          "cache_hit_seconds": 0.007264699997904245,
+          "bpm": [
+            119.99361295676403,
+            119.99361295676403
+          ]
+        },
+        {
+          "cache_miss_seconds": 0.21480580000206828,
+          "cache_hit_seconds": 0.0028363999954308383,
+          "bpm": [
+            119.99361295676403,
+            119.99361295676403
+          ]
+        },
+        {
+          "cache_miss_seconds": 0.2430203999974765,
+          "cache_hit_seconds": 0.005530499998712912,
+          "bpm": [
+            119.99361295676403,
+            119.99361295676403
+          ]
+        }
+      ],
+      "cache_miss_median_seconds": 0.2430203999974765,
+      "cache_hit_median_seconds": 0.005530499998712912,
+      "limitation": "Basic provider, synthetic audio. Excludes Beat This/ONNX and mix planning."
+    },
+    "after": {
+      "benchmark": "automix_basic_analysis_and_cache",
+      "audio_seconds": 30,
+      "track_entries": 2,
+      "unique_files": 1,
+      "runs": [
+        {
+          "cache_miss_seconds": 3.787436400001752,
+          "cache_hit_seconds": 0.009689300000900403,
+          "bpm": [
+            119.99361295676403,
+            119.99361295676403
+          ]
+        },
+        {
+          "cache_miss_seconds": 0.2164903000011691,
+          "cache_hit_seconds": 0.002802700000756886,
+          "bpm": [
+            119.99361295676403,
+            119.99361295676403
+          ]
+        },
+        {
+          "cache_miss_seconds": 0.21259390000341227,
+          "cache_hit_seconds": 0.0032983999990392476,
+          "bpm": [
+            119.99361295676403,
+            119.99361295676403
+          ]
+        }
+      ],
+      "cache_miss_median_seconds": 0.2164903000011691,
+      "cache_hit_median_seconds": 0.0032983999990392476,
+      "limitation": "Basic provider, synthetic audio. Excludes Beat This/ONNX and mix planning."
+    }
+  },
+  "export_music_reaction_prep": {
+    "before": [
+      {
+        "benchmark": "export_bass_preparation",
+        "audio_seconds": 600,
+        "fps": 60,
+        "preparation_seconds": 1.8457261999938055,
+        "heartbeat_interval_ms": 20,
+        "heartbeat_count": 91,
+        "max_heartbeat_gap_ms": 36.678799995570444,
+        "envelope_frames": 36000,
+        "envelope_sha256": "fc80fa41fb15503a262f3a465485691b647c2ba2bb32f7c422f8a21869708e50",
+        "cancelled": false,
+        "cancel_request_ms": null,
+        "cancel_completion_ms": null,
+        "python": "3.14.10",
+        "platform": "Windows-11-10.0.26300-SP0"
+      },
+      {
+        "benchmark": "export_bass_preparation",
+        "audio_seconds": 600,
+        "fps": 60,
+        "preparation_seconds": 1.8053160999988904,
+        "heartbeat_interval_ms": 20,
+        "heartbeat_count": 89,
+        "max_heartbeat_gap_ms": 28.867699998954777,
+        "envelope_frames": 36000,
+        "envelope_sha256": "fc80fa41fb15503a262f3a465485691b647c2ba2bb32f7c422f8a21869708e50",
+        "cancelled": false,
+        "cancel_request_ms": null,
+        "cancel_completion_ms": null,
+        "python": "3.14.10",
+        "platform": "Windows-11-10.0.26300-SP0"
+      },
+      {
+        "benchmark": "export_bass_preparation",
+        "audio_seconds": 600,
+        "fps": 60,
+        "preparation_seconds": 1.7377316999991308,
+        "heartbeat_interval_ms": 20,
+        "heartbeat_count": 86,
+        "max_heartbeat_gap_ms": 29.634699996677227,
+        "envelope_frames": 36000,
+        "envelope_sha256": "fc80fa41fb15503a262f3a465485691b647c2ba2bb32f7c422f8a21869708e50",
+        "cancelled": false,
+        "cancel_request_ms": null,
+        "cancel_completion_ms": null,
+        "python": "3.14.10",
+        "platform": "Windows-11-10.0.26300-SP0"
+      }
+    ],
+    "after": [
+      {
+        "benchmark": "export_bass_preparation",
+        "audio_seconds": 600,
+        "fps": 60,
+        "preparation_seconds": 0.5658694999947329,
+        "heartbeat_interval_ms": 20,
+        "heartbeat_count": 28,
+        "max_heartbeat_gap_ms": 21.744699995906558,
+        "envelope_frames": 36000,
+        "envelope_sha256": "fc80fa41fb15503a262f3a465485691b647c2ba2bb32f7c422f8a21869708e50",
+        "cancelled": false,
+        "cancel_request_ms": null,
+        "cancel_completion_ms": null,
+        "python": "3.14.10",
+        "platform": "Windows-11-10.0.26300-SP0"
+      },
+      {
+        "benchmark": "export_bass_preparation",
+        "audio_seconds": 600,
+        "fps": 60,
+        "preparation_seconds": 0.5804260000004433,
+        "heartbeat_interval_ms": 20,
+        "heartbeat_count": 28,
+        "max_heartbeat_gap_ms": 20.701400004327297,
+        "envelope_frames": 36000,
+        "envelope_sha256": "fc80fa41fb15503a262f3a465485691b647c2ba2bb32f7c422f8a21869708e50",
+        "cancelled": false,
+        "cancel_request_ms": null,
+        "cancel_completion_ms": null,
+        "python": "3.14.10",
+        "platform": "Windows-11-10.0.26300-SP0"
+      },
+      {
+        "benchmark": "export_bass_preparation",
+        "audio_seconds": 600,
+        "fps": 60,
+        "preparation_seconds": 0.5833343999984208,
+        "heartbeat_interval_ms": 20,
+        "heartbeat_count": 28,
+        "max_heartbeat_gap_ms": 21.139900003618095,
+        "envelope_frames": 36000,
+        "envelope_sha256": "fc80fa41fb15503a262f3a465485691b647c2ba2bb32f7c422f8a21869708e50",
+        "cancelled": false,
+        "cancel_request_ms": null,
+        "cancel_completion_ms": null,
+        "python": "3.14.10",
+        "platform": "Windows-11-10.0.26300-SP0"
+      }
+    ]
+  },
+  "notes": [
+    "The original export probe that requested 4K but decoded 1080p is excluded.",
+    "Historical peak_temp_bytes values could double-count files under the benchmark work directory.",
+    "The native GPU baseline recorded only one scene callback and exceeded the nominal measurement window. The GPU pair is one run per revision.",
+    "Percentiles summarize presentation intervals, not time from input to on-screen presentation.",
+    "4K retest used git-show snapshots of the four modified original runtime modules in both parent and spawned processes.",
+    "No claims for system-wide CPU peaks, GPU busy time, whole-device VRAM or disk throughput."
+  ],
+  "decoded_media_equivalence": {
+    "1080p30": {
+      "before": {
+        "container_sha256": "9b1633055bada140d6aa5d6219eb45f5acda8ded37b6d85730354efc03df1306",
+        "probe": {
+          "programs": [],
+          "stream_groups": [],
+          "streams": [
+            {
+              "codec_name": "h264",
+              "width": 1920,
+              "height": 1080,
+              "pix_fmt": "yuv420p",
+              "r_frame_rate": "30/1",
+              "avg_frame_rate": "30/1",
+              "start_time": "0.000000",
+              "duration": "6.000000",
+              "nb_frames": "180"
+            },
+            {
+              "codec_name": "aac",
+              "sample_rate": "48000",
+              "channels": 2,
+              "r_frame_rate": "0/0",
+              "avg_frame_rate": "0/0",
+              "start_time": "0.000000",
+              "duration": "6.000000",
+              "nb_frames": "283"
+            }
+          ],
+          "format": {
+            "duration": "6.000000"
+          }
+        },
+        "video_frame_count": 180,
+        "video_framemd5_sha256": "59a34acd2fd8802e839814a047f98c5a864d5c998c439020b7d84e7b58fe306e",
+        "first_frame": "0,          0,          0,        1,  3110400, 52392e491932305324a7a4feb4e7d62c",
+        "middle_frame": "0,         90,         90,        1,  3110400, dab9d7d454819df5d09996edee12072f",
+        "last_frame": "0,        179,        179,        1,  3110400, db639709e7975f7a7d136998fcf6f2b7",
+        "pcm_sha256": "6c9b09ebdaeaffd5f0448d3844b2f6322f7e64ca4a440ba87347d8fdee4acbe7",
+        "samples_per_channel": 288000,
+        "peak_int16": 10474,
+        "rms_int16": 5109.0359439834565,
+        "peak_clip_values": 0,
+        "first_nonzero_sample_frame": 0
+      },
+      "after": {
+        "container_sha256": "9b1633055bada140d6aa5d6219eb45f5acda8ded37b6d85730354efc03df1306",
+        "probe": {
+          "programs": [],
+          "stream_groups": [],
+          "streams": [
+            {
+              "codec_name": "h264",
+              "width": 1920,
+              "height": 1080,
+              "pix_fmt": "yuv420p",
+              "r_frame_rate": "30/1",
+              "avg_frame_rate": "30/1",
+              "start_time": "0.000000",
+              "duration": "6.000000",
+              "nb_frames": "180"
+            },
+            {
+              "codec_name": "aac",
+              "sample_rate": "48000",
+              "channels": 2,
+              "r_frame_rate": "0/0",
+              "avg_frame_rate": "0/0",
+              "start_time": "0.000000",
+              "duration": "6.000000",
+              "nb_frames": "283"
+            }
+          ],
+          "format": {
+            "duration": "6.000000"
+          }
+        },
+        "video_frame_count": 180,
+        "video_framemd5_sha256": "59a34acd2fd8802e839814a047f98c5a864d5c998c439020b7d84e7b58fe306e",
+        "first_frame": "0,          0,          0,        1,  3110400, 52392e491932305324a7a4feb4e7d62c",
+        "middle_frame": "0,         90,         90,        1,  3110400, dab9d7d454819df5d09996edee12072f",
+        "last_frame": "0,        179,        179,        1,  3110400, db639709e7975f7a7d136998fcf6f2b7",
+        "pcm_sha256": "6c9b09ebdaeaffd5f0448d3844b2f6322f7e64ca4a440ba87347d8fdee4acbe7",
+        "samples_per_channel": 288000,
+        "peak_int16": 10474,
+        "rms_int16": 5109.0359439834565,
+        "peak_clip_values": 0,
+        "first_nonzero_sample_frame": 0
+      },
+      "equal": true
+    },
+    "4k60": {
+      "before": {
+        "container_sha256": "c9d2089a9f30081ee7b8e503be5863a8fabbc94a2eeb2e5319e2135ccb737e5c",
+        "probe": {
+          "programs": [],
+          "stream_groups": [],
+          "streams": [
+            {
+              "codec_name": "h264",
+              "width": 3840,
+              "height": 2160,
+              "pix_fmt": "yuv420p",
+              "r_frame_rate": "60/1",
+              "avg_frame_rate": "60/1",
+              "start_time": "0.000000",
+              "duration": "6.000000",
+              "nb_frames": "360"
+            },
+            {
+              "codec_name": "aac",
+              "sample_rate": "48000",
+              "channels": 2,
+              "r_frame_rate": "0/0",
+              "avg_frame_rate": "0/0",
+              "start_time": "0.000000",
+              "duration": "6.000000",
+              "nb_frames": "283"
+            }
+          ],
+          "format": {
+            "duration": "6.000000"
+          }
+        },
+        "video_frame_count": 360,
+        "video_framemd5_sha256": "eaad8d087fac3b151aee3017ebc5b0c64b4120d03f837878b713416f50da513b",
+        "first_frame": "0,          0,          0,        1, 12441600, da99c864d300067b6d110af0fa97f88a",
+        "middle_frame": "0,        180,        180,        1, 12441600, 2d75c8added2fe71e15023dd137d6562",
+        "last_frame": "0,        359,        359,        1, 12441600, 8af58796778ae07a889ab69a4775ce8c",
+        "pcm_sha256": "6c9b09ebdaeaffd5f0448d3844b2f6322f7e64ca4a440ba87347d8fdee4acbe7",
+        "samples_per_channel": 288000,
+        "peak_int16": 10474,
+        "rms_int16": 5109.0359439834565,
+        "peak_clip_values": 0,
+        "first_nonzero_sample_frame": 0
+      },
+      "after": {
+        "container_sha256": "c9d2089a9f30081ee7b8e503be5863a8fabbc94a2eeb2e5319e2135ccb737e5c",
+        "probe": {
+          "programs": [],
+          "stream_groups": [],
+          "streams": [
+            {
+              "codec_name": "h264",
+              "width": 3840,
+              "height": 2160,
+              "pix_fmt": "yuv420p",
+              "r_frame_rate": "60/1",
+              "avg_frame_rate": "60/1",
+              "start_time": "0.000000",
+              "duration": "6.000000",
+              "nb_frames": "360"
+            },
+            {
+              "codec_name": "aac",
+              "sample_rate": "48000",
+              "channels": 2,
+              "r_frame_rate": "0/0",
+              "avg_frame_rate": "0/0",
+              "start_time": "0.000000",
+              "duration": "6.000000",
+              "nb_frames": "283"
+            }
+          ],
+          "format": {
+            "duration": "6.000000"
+          }
+        },
+        "video_frame_count": 360,
+        "video_framemd5_sha256": "eaad8d087fac3b151aee3017ebc5b0c64b4120d03f837878b713416f50da513b",
+        "first_frame": "0,          0,          0,        1, 12441600, da99c864d300067b6d110af0fa97f88a",
+        "middle_frame": "0,        180,        180,        1, 12441600, 2d75c8added2fe71e15023dd137d6562",
+        "last_frame": "0,        359,        359,        1, 12441600, 8af58796778ae07a889ab69a4775ce8c",
+        "pcm_sha256": "6c9b09ebdaeaffd5f0448d3844b2f6322f7e64ca4a440ba87347d8fdee4acbe7",
+        "samples_per_channel": 288000,
+        "peak_int16": 10474,
+        "rms_int16": 5109.0359439834565,
+        "peak_clip_values": 0,
+        "first_nonzero_sample_frame": 0
+      },
+      "equal": true
+    }
+  },
+  "repository_test_suite": {
+    "discovered": 2422,
+    "run": 2419,
+    "failures": [
+      "tests.test_local_llm.TranslationSetupUITests.test_languages_filter_models_and_inline_install_preserves_selected_languages",
+      "tests.test_local_llm.TranslationSetupUITests.test_manager_shows_tradeoffs_downloads_and_selects_installed_model",
+      "tests.test_local_llm.TranslationSetupUITests.test_three_modes_and_saved_local_llm_are_restored_with_installed_combo",
+      "tests.test_local_translation.TranslationActivityTests.test_incomplete_local_rows_are_visible_and_preserve_saved_translations_on_apply",
+      "tests.test_local_translation.TranslationActivityTests.test_live_results_remain_unapplied_and_cancel_restores_prior_review",
+      "tests.test_performance_monitor.PerformanceMonitorTests.test_preset_tab_and_every_preset"
+    ],
+    "errors": [],
+    "skipped": [
+      [
+        "tests.test_automix_beat_this_real_model.RealBeatThisModelTests.test_accented_four_four_track_is_detected_as_a_reliable_meter",
+        "Set PLAYLIST_CANVAS_TEST_BEAT_THIS=1 to run against the real beat_this/torch model."
+      ],
+      [
+        "tests.test_automix_beat_this_real_model.RealBeatThisModelTests.test_compiles_into_a_valid_automix_plan_and_selects_beat_match",
+        "Set PLAYLIST_CANVAS_TEST_BEAT_THIS=1 to run against the real beat_this/torch model."
+      ],
+      [
+        "tests.test_automix_beat_this_real_model.RealBeatThisModelTests.test_two_tracks_at_different_bpm_are_both_measured_accurately",
+        "Set PLAYLIST_CANVAS_TEST_BEAT_THIS=1 to run against the real beat_this/torch model."
+      ],
+      [
+        "tests.test_automix_structure_real_model.RealSonaraStructureTests.test_cache_identity_reflects_the_installed_package",
+        "Set PLAYLIST_CANVAS_TEST_SONARA=1 to run against the real sonara dependency."
+      ],
+      [
+        "tests.test_automix_structure_real_model.RealSonaraStructureTests.test_structure_analysis_produces_sane_results",
+        "Set PLAYLIST_CANVAS_TEST_SONARA=1 to run against the real sonara dependency."
+      ],
+      [
+        "tests.test_custom_motion.MotionGpuTests.test_custom_visualizer_gpu_layers_match_cpu_composition",
+        "Requires native Windows OpenGL"
+      ],
+      [
+        "tests.test_export_session.PipedExportSessionTests.test_a_busy_pipe_stall_is_not_hidden_by_another_active_pipe",
+        "POSIX FIFO checks"
+      ],
+      [
+        "tests.test_export_session.PipedExportSessionTests.test_all_invariant_streams_leave_nothing_to_pipe",
+        "POSIX FIFO checks"
+      ],
+      [
+        "tests.test_export_session.PipedExportSessionTests.test_cancel_during_live_capture_stops_pipes",
+        "POSIX FIFO checks"
+      ],
+      [
+        "tests.test_export_session.PipedExportSessionTests.test_encoder_that_stops_reading_is_reported_as_a_stall",
+        "POSIX FIFO checks"
+      ],
+      [
+        "tests.test_export_session.PipedExportSessionTests.test_failed_final_render_stops_capture",
+        "POSIX FIFO checks"
+      ],
+      [
+        "tests.test_export_session.PipedExportSessionTests.test_final_render_starts_with_pipe_inputs_and_receives_every_frame",
+        "POSIX FIFO checks"
+      ],
+      [
+        "tests.test_gpu_texture_surface.GpuTextureSurfaceTests.test_same_size_dynamic_layer_updates_existing_texture_storage",
+        "OpenGL context unavailable"
+      ],
+      [
+        "tests.test_gpu_texture_surface.GpuTextureSurfaceTests.test_texture_cache_evicts_inactive_layer_when_budget_is_exceeded",
+        "OpenGL context unavailable"
+      ],
+      [
+        "tests.test_gpu_texture_surface.GpuTextureSurfaceTests.test_visible_surface_allocates_one_texture_per_layer",
+        "OpenGL context unavailable"
+      ],
+      [
+        "tests.test_keyframe_advanced.NativeKeyframeGpuTests.test_actual_gpu_framebuffer_matches_animated_canvas_frames",
+        "Requires native Windows OpenGL"
+      ],
+      [
+        "tests.test_real_video_preview_performance.RealVideoPreviewPerformanceTests.test_long_real_mp4_preview_remains_bounded_and_responsive",
+        "Set PLAYLIST_CANVAS_RUN_PREVIEW_SOAK=1 for the long soak test."
+      ],
+      [
+        "tests.test_real_video_preview_performance.RealVideoPreviewPerformanceTests.test_repeated_open_pause_seek_resume_close_releases_preview",
+        "Set PLAYLIST_CANVAS_RUN_PREVIEW_SOAK=1 for repeated real-media playback."
+      ]
+    ],
+    "excluded": [
+      "tests.test_chatgpt_auth.ChatGPTAuthTests.test_dynamic_registration_pkce_verified_identity_and_stable_host",
+      "tests.test_chatgpt_auth.ChatGPTAuthTests.test_identity_without_plan_permission_cannot_translate",
+      "tests.test_chatgpt_auth.ChatGPTAuthTests.test_invalid_nonce_and_audience_never_save_credentials"
+    ],
+    "expected_failures": [],
+    "unexpected_successes": []
+  },
+  "explicit_nvenc_smoke": {
+    "live": {
+      "seconds": 4.576878700000009,
+      "peak_temp_bytes": 2451601,
+      "runs": [
+        {
+          "seconds": 4.576878700000009,
+          "parent_cpu_seconds": 1.265625,
+          "parent_rss_peak": 214917120,
+          "peak_temp_bytes": 2451601
+        }
+      ],
+      "frames": 180,
+      "bytes": 2235579,
+      "decoded_size": [
+        1920,
+        1080
+      ]
+    },
+    "fixture": {
+      "width": 1920,
+      "height": 1080,
+      "fps": 30,
+      "seconds": 6.0,
+      "encoder": "h264_nvenc",
+      "preset": "medium",
+      "limitation": "Parent CPU/RSS excludes FFmpeg and Canvas child processes."
+    },
+    "output_encoder_probe": {
+      "streams": [
+        {
+          "tags": {
+            "encoder": "Lavc63.1.102 h264_nvenc"
+          }
+        }
+      ]
+    }
+  },
+  "cancel_music_reaction_prep": {
+    "benchmark": "export_bass_preparation",
+    "audio_seconds": 600,
+    "fps": 60,
+    "preparation_seconds": 0.05473999999998114,
+    "heartbeat_interval_ms": 20,
+    "heartbeat_count": 2,
+    "max_heartbeat_gap_ms": 20.958500000006097,
+    "envelope_frames": null,
+    "envelope_sha256": null,
+    "cancelled": true,
+    "cancel_request_ms": 51.60260000002381,
+    "cancel_completion_ms": 3.1373999999573243,
+    "python": "3.14.10",
+    "platform": "Windows-11-10.0.26300-SP0"
+  },
+  "final_three_4k_cpu_verification": {
+    "benchmark": "real_video_preview",
+    "backend": "cpu",
+    "python": "3.14.10",
+    "qt": "6.12.0",
+    "numpy": "2.5.4",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "width": 3840,
+    "height": 2160,
+    "warmup_seconds": 2.0,
+    "video_count": 3,
+    "lyrics": false,
+    "gpu_backend": null,
+    "seconds": 8.238827999999955,
+    "target_fps": 60,
+    "process_cpu_seconds": 13.15625,
+    "mean_parent_cpu_percent_of_one_core": 159.68594076730417,
+    "presentation_callbacks": 49,
+    "average_fps": 5.947447865157552,
+    "presented_scene_fps": 5.947447865157552,
+    "scene_frame_time_mean_ms": 167.9524895833341,
+    "scene_frame_time_p95_ms": 181.32149999996727,
+    "scene_frame_time_p50_ms": 166.39950000001136,
+    "scene_frame_time_p99_ms": 355.341199999998,
+    "late_scene_intervals": 47,
+    "decoder_fps": 11.773519243271073,
+    "decode_drops": 397,
+    "decoder_sources": [
+      {
+        "accepted_frames": 97,
+        "dropped_frames": 397,
+        "pressure_drops": 397,
+        "seek_count": 2
+      },
+      {
+        "accepted_frames": 97,
+        "dropped_frames": 395,
+        "pressure_drops": 395,
+        "seek_count": 2
+      },
+      {
+        "accepted_frames": 97,
+        "dropped_frames": 395,
+        "pressure_drops": 395,
+        "seek_count": 2
+      }
+    ],
+    "frame_time_mean_ms": 167.9524895833341,
+    "frame_time_p95_ms": 181.32149999996727,
+    "late_intervals": 47,
+    "heartbeat_max_ms": 174.71630000000005,
+    "decoder_start": {
+      "accepted_frames": 20,
+      "dropped_frames": 85,
+      "seek_count": 0,
+      "source_switches": 0,
+      "frame_handle": "NoHandle",
+      "gpu_backed_frame": false,
+      "throttled_frames": 0,
+      "pressure_drops": 85,
+      "filter_pending": true
+    },
+    "decoder_end": {
+      "accepted_frames": 117,
+      "dropped_frames": 482,
+      "seek_count": 2,
+      "source_switches": 0,
+      "frame_handle": "NoHandle",
+      "gpu_backed_frame": false,
+      "throttled_frames": 0,
+      "pressure_drops": 482,
+      "filter_pending": true
+    },
+    "gpu_start": null,
+    "gpu_end": null,
+    "queue_backlog_peak": 0,
+    "rss_start_bytes": 1338048512,
+    "rss_end_bytes": 1760428032,
+    "rss_peak_bytes": 1764368384,
+    "frame_buffer_peak_bytes": 20607612,
+    "analysis_workers": 0,
+    "analysis_finished_in_window": null,
+    "analysis_successes": null,
+    "analysis_failures": null,
+    "profile": {
+      "canvas.scene_render_seconds": {
+        "count": 117,
+        "total": 0.2560925999998176,
+        "mean": 0.002188825641024082,
+        "min": 0.001119799999969473,
+        "max": 0.00845070000002579,
+        "last": 0.002357999999958338,
+        "recent_count": 117,
+        "recent_p50": 0.0016087999999854219,
+        "recent_p95": 0.005292999999994663
+      },
+      "canvas.capture_seconds": {
+        "count": 117,
+        "total": 0.2699832000003539,
+        "mean": 0.0023075487179517427,
+        "min": 0.0012137999999595195,
+        "max": 0.008606200000031095,
+        "last": 0.0024665999999911037,
+        "recent_count": 117,
+        "recent_p50": 0.0017153999999663938,
+        "recent_p95": 0.0054192000000057305
+      },
+      "preview.refresh_seconds": {
+        "count": 132,
+        "total": 1.0019403000000011,
+        "mean": 0.007590456818181827,
+        "min": 0.0007463000000029751,
+        "max": 0.2235749000000169,
+        "last": 0.005794299999990926,
+        "recent_count": 132,
+        "recent_p50": 0.005644299999971736,
+        "recent_p95": 0.0150712000000226
+      },
+      "video.frame_callback_seconds": {
+        "count": 351,
+        "total": 8.292258800000013,
+        "mean": 0.023624668945868985,
+        "min": 0.020956200000000536,
+        "max": 0.03785369999997101,
+        "last": 0.027704900000003363,
+        "recent_count": 351,
+        "recent_p50": 0.022987000000000535,
+        "recent_p95": 0.028314600000044265
+      },
+      "video.cpu_filter_seconds": {
+        "count": 339,
+        "total": 0.9661540999999261,
+        "mean": 0.0028500120943950624,
+        "min": 0.0010406999999759137,
+        "max": 0.04032980000005182,
+        "last": 0.0036119999999755237,
+        "recent_count": 339,
+        "recent_p50": 0.001884500000016942,
+        "recent_p95": 0.004596300000002884
+      },
+      "preview.presentation_interval_seconds": {
+        "count": 57,
+        "total": 9.707915300000025,
+        "mean": 0.17031430350877236,
+        "min": 0.016925599999979113,
+        "max": 0.35523750000004384,
+        "last": 0.16651569999999083,
+        "recent_count": 57,
+        "recent_p50": 0.16768319999999903,
+        "recent_p95": 0.1981488999999783
+      },
+      "preview.late_interval": {
+        "count": 57,
+        "total": 56.0,
+        "mean": 0.9824561403508771,
+        "min": 0.0,
+        "max": 1.0,
+        "last": 1.0,
+        "recent_count": 57,
+        "recent_p50": 1.0,
+        "recent_p95": 1.0
+      },
+      "memory.rss_bytes": {
+        "count": 33,
+        "total": 49015398400.0,
+        "mean": 1485315103.030303,
+        "min": 767049728,
+        "max": 1764368384,
+        "last": 1760428032,
+        "recent_count": 33,
+        "recent_p50": 1329635328,
+        "recent_p95": 1762078720
+      },
+      "memory.frame_buffers_bytes": {
+        "count": 33,
+        "total": 452310948.0,
+        "mean": 13706392.363636363,
+        "min": 12754500,
+        "max": 20607612,
+        "last": 12754500,
+        "recent_count": 33,
+        "recent_p50": 12754500,
+        "recent_p95": 20607612
+      }
+    }
+  },
+  "final_three_4k_native_gpu_verification": {
+    "benchmark": "real_video_preview",
+    "backend": "gpu_layers",
+    "python": "3.14.10",
+    "qt": "6.12.0",
+    "numpy": "2.5.4",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "width": 3840,
+    "height": 2160,
+    "warmup_seconds": 3.0,
+    "video_count": 3,
+    "lyrics": false,
+    "gpu_backend": "OpenGL 3.3 · NVIDIA GeForce RTX 5060/PCIe/SSE2",
+    "seconds": 10.02814219999999,
+    "target_fps": 60,
+    "process_cpu_seconds": 16.421875,
+    "mean_parent_cpu_percent_of_one_core": 163.7578992447875,
+    "presentation_callbacks": 94,
+    "average_fps": 9.373620569520853,
+    "presented_scene_fps": 8.476146259673111,
+    "scene_frame_time_mean_ms": 117.89363452380928,
+    "scene_frame_time_p95_ms": 124.92140000000518,
+    "scene_frame_time_p50_ms": 115.71340000000419,
+    "scene_frame_time_p99_ms": 243.96699999999782,
+    "late_scene_intervals": 84,
+    "decoder_fps": 16.752853783824502,
+    "decode_drops": 460,
+    "decoder_sources": [
+      {
+        "accepted_frames": 168,
+        "dropped_frames": 460,
+        "pressure_drops": 460,
+        "seek_count": 2
+      },
+      {
+        "accepted_frames": 167,
+        "dropped_frames": 453,
+        "pressure_drops": 453,
+        "seek_count": 2
+      },
+      {
+        "accepted_frames": 168,
+        "dropped_frames": 455,
+        "pressure_drops": 455,
+        "seek_count": 2
+      }
+    ],
+    "frame_time_mean_ms": 106.48457311827936,
+    "frame_time_p95_ms": 123.29710000000205,
+    "late_intervals": 86,
+    "heartbeat_max_ms": 155.5466000000365,
+    "decoder_start": {
+      "accepted_frames": 45,
+      "dropped_frames": 142,
+      "seek_count": 0,
+      "source_switches": 0,
+      "frame_handle": "NoHandle",
+      "gpu_backed_frame": false,
+      "throttled_frames": 0,
+      "pressure_drops": 142,
+      "filter_pending": true
+    },
+    "decoder_end": {
+      "accepted_frames": 213,
+      "dropped_frames": 602,
+      "seek_count": 2,
+      "source_switches": 0,
+      "frame_handle": "NoHandle",
+      "gpu_backed_frame": false,
+      "throttled_frames": 0,
+      "pressure_drops": 602,
+      "filter_pending": true
+    },
+    "gpu_start": {
+      "submitted_frames": 23,
+      "presented_frames": 26,
+      "dropped_pending_frames": 0,
+      "texture_uploads": 67,
+      "texture_reuses": 22,
+      "uploaded_bytes": 316736752,
+      "texture_evictions": 0,
+      "cached_textures": 6,
+      "allocated_bytes": 36675140,
+      "peak_allocated_bytes": 49693632,
+      "texture_budget_bytes": 268435456,
+      "filtered_layers": 0,
+      "texture_allocations": 13,
+      "presented_scene_frames": 23
+    },
+    "gpu_end": {
+      "submitted_frames": 108,
+      "presented_frames": 120,
+      "dropped_pending_frames": 0,
+      "texture_uploads": 319,
+      "texture_reuses": 110,
+      "uploaded_bytes": 812126204,
+      "texture_evictions": 2,
+      "cached_textures": 4,
+      "allocated_bytes": 9930900,
+      "peak_allocated_bytes": 49693632,
+      "texture_budget_bytes": 268435456,
+      "filtered_layers": 0,
+      "texture_allocations": 17,
+      "presented_scene_frames": 108
+    },
+    "queue_backlog_peak": 1,
+    "rss_start_bytes": 1674596352,
+    "rss_end_bytes": 2112593920,
+    "rss_peak_bytes": 2112593920,
+    "frame_buffer_peak_bytes": 6869204,
+    "analysis_workers": 0,
+    "analysis_finished_in_window": null,
+    "analysis_successes": null,
+    "analysis_failures": null,
+    "profile": {
+      "canvas.scene_render_seconds": {
+        "count": 6,
+        "total": 0.0216010000000324,
+        "mean": 0.0036001666666720666,
+        "min": 0.001271500000029846,
+        "max": 0.009379899999998997,
+        "last": 0.001271500000029846,
+        "recent_count": 6,
+        "recent_p50": 0.0022963999999774387,
+        "recent_p95": 0.009379899999998997
+      },
+      "canvas.capture_seconds": {
+        "count": 6,
+        "total": 0.02249040000003788,
+        "mean": 0.0037484000000063133,
+        "min": 0.0013693999999873085,
+        "max": 0.009586300000023584,
+        "last": 0.0013693999999873085,
+        "recent_count": 6,
+        "recent_p50": 0.0024376999999731197,
+        "recent_p95": 0.009586300000023584
+      },
+      "preview.refresh_seconds": {
+        "count": 329,
+        "total": 0.25160440000013296,
+        "mean": 0.0007647550151979725,
+        "min": 1.7000000411826477e-06,
+        "max": 0.015731999999957225,
+        "last": 3.3999999686784577e-06,
+        "recent_count": 329,
+        "recent_p50": 1.020000001972221e-05,
+        "recent_p95": 0.003174399999977595
+      },
+      "preview.texture_prepare_upload_seconds": {
+        "count": 429,
+        "total": 0.1232765999996559,
+        "mean": 0.00028735804195723986,
+        "min": 1.8999999724655936e-06,
+        "max": 0.0065442000000075495,
+        "last": 7.449999998243584e-05,
+        "recent_count": 429,
+        "recent_p50": 0.00011189999997895939,
+        "recent_p95": 0.000983700000006138
+      },
+      "preview.gl_submission_seconds": {
+        "count": 109,
+        "total": 0.2488271999999938,
+        "mean": 0.0022828183486237963,
+        "min": 0.00010949999995091275,
+        "max": 0.013101599999970404,
+        "last": 0.0008007999999790627,
+        "recent_count": 109,
+        "recent_p50": 0.0021148000000152933,
+        "recent_p95": 0.005254699999966306
+      },
+      "preview.presentation_interval_seconds": {
+        "count": 118,
+        "total": 13.036500900000021,
+        "mean": 0.11047882118644085,
+        "min": 0.004716999999970994,
+        "max": 0.16451530000000503,
+        "last": 0.11675639999998566,
+        "recent_count": 118,
+        "recent_p50": 0.11624779999999646,
+        "recent_p95": 0.14154569999999467
+      },
+      "preview.late_interval": {
+        "count": 118,
+        "total": 111.0,
+        "mean": 0.940677966101695,
+        "min": 0.0,
+        "max": 1.0,
+        "last": 1.0,
+        "recent_count": 118,
+        "recent_p50": 1.0,
+        "recent_p95": 1.0
+      },
+      "video.frame_callback_seconds": {
+        "count": 639,
+        "total": 11.080536599998993,
+        "mean": 0.01734043286384819,
+        "min": 0.015184400000009646,
+        "max": 0.05796989999998914,
+        "last": 0.02503299999995079,
+        "recent_count": 639,
+        "recent_p50": 0.016773599999964972,
+        "recent_p95": 0.020339400000011665
+      },
+      "video.cpu_filter_seconds": {
+        "count": 544,
+        "total": 2.129392499999767,
+        "mean": 0.003914324448528983,
+        "min": 0.0010168000000021493,
+        "max": 0.041901800000005096,
+        "last": 0.0036322000000268417,
+        "recent_count": 544,
+        "recent_p50": 0.001670900000021902,
+        "recent_p95": 0.018676099999993312
+      },
+      "preview.deferred_refresh": {
+        "count": 203,
+        "total": 203.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "last": 1.0,
+        "recent_count": 203,
+        "recent_p50": 1.0,
+        "recent_p95": 1.0
+      },
+      "memory.rss_bytes": {
+        "count": 43,
+        "total": 80654675968.0,
+        "mean": 1875690138.7906976,
+        "min": 1103495168,
+        "max": 2112593920,
+        "last": 2112593920,
+        "recent_count": 43,
+        "recent_p50": 1984167936,
+        "recent_p95": 2068656128
+      },
+      "memory.frame_buffers_bytes": {
+        "count": 43,
+        "total": 185432204.0,
+        "mean": 4312376.837209302,
+        "min": 4251500,
+        "max": 6869204,
+        "last": 4251500,
+        "recent_count": 43,
+        "recent_p50": 4251500,
+        "recent_p95": 4251500
+      }
+    }
+  },
+  "scrub_workflow": {
+    "before": {
+      "fixture": "CPU Qt preview, 1280x720, 2000 bilingual cues, 60 drag moves",
+      "drag_burst_ms": 21.580900000003567,
+      "preview_refresh_calls": 1,
+      "audio_seek_requests": 1,
+      "final_seconds": 95.96,
+      "expected_seconds_approx": 96.0,
+      "playing_after_release": true
+    },
+    "after": {
+      "fixture": "CPU Qt preview, 1280x720, 2000 bilingual cues, 60 drag moves",
+      "drag_burst_ms": 18.904299999974228,
+      "preview_refresh_calls": 1,
+      "audio_seek_requests": 1,
+      "final_seconds": 95.96,
+      "expected_seconds_approx": 96.0,
+      "playing_after_release": true
+    }
+  },
+  "final_targeted_test_summary": [
+    "Ran 25 tests in 8.066s",
+    "OK"
+  ],
+  "language_test_recheck": {
+    "en": {
+      "before": {
+        "run": 6,
+        "language": "en",
+        "failures": [
+          "tests.test_local_llm.TranslationSetupUITests.test_languages_filter_models_and_inline_install_preserves_selected_languages",
+          "tests.test_local_llm.TranslationSetupUITests.test_manager_shows_tradeoffs_downloads_and_selects_installed_model",
+          "tests.test_local_llm.TranslationSetupUITests.test_three_modes_and_saved_local_llm_are_restored_with_installed_combo",
+          "tests.test_local_translation.TranslationActivityTests.test_incomplete_local_rows_are_visible_and_preserve_saved_translations_on_apply",
+          "tests.test_local_translation.TranslationActivityTests.test_live_results_remain_unapplied_and_cancel_restores_prior_review",
+          "tests.test_performance_monitor.PerformanceMonitorTests.test_preset_tab_and_every_preset"
+        ],
+        "errors": [],
+        "skipped": 0
+      },
+      "after": {
+        "run": 6,
+        "language": "en",
+        "failures": [
+          "tests.test_local_llm.TranslationSetupUITests.test_languages_filter_models_and_inline_install_preserves_selected_languages",
+          "tests.test_local_llm.TranslationSetupUITests.test_manager_shows_tradeoffs_downloads_and_selects_installed_model",
+          "tests.test_local_llm.TranslationSetupUITests.test_three_modes_and_saved_local_llm_are_restored_with_installed_combo",
+          "tests.test_local_translation.TranslationActivityTests.test_incomplete_local_rows_are_visible_and_preserve_saved_translations_on_apply",
+          "tests.test_local_translation.TranslationActivityTests.test_live_results_remain_unapplied_and_cancel_restores_prior_review",
+          "tests.test_performance_monitor.PerformanceMonitorTests.test_preset_tab_and_every_preset"
+        ],
+        "errors": [],
+        "skipped": 0
+      }
+    },
+    "ko": {
+      "before": {
+        "run": 6,
+        "language": "ko",
+        "failures": [],
+        "errors": [],
+        "skipped": 0
+      },
+      "after": {
+        "run": 6,
+        "language": "ko",
+        "failures": [],
+        "errors": [],
+        "skipped": 0
+      }
+    }
+  },
+  "native_cursor_test_recheck": {
+    "before": [
+      "ERROR: test_overlay_reparent_enter_does_not_reveal_idle_cursor (tests.test_preview_presentation.PreviewPresentationTests.test_overlay_reparent_enter_does_not_reveal_idle_cursor)",
+      "AttributeError: 'NoneType' object has no attribute 'shape'",
+      "Ran 1 test in 0.608s",
+      "FAILED (errors=1)"
+    ],
+    "after": [
+      "ERROR: test_overlay_reparent_enter_does_not_reveal_idle_cursor (tests.test_preview_presentation.PreviewPresentationTests.test_overlay_reparent_enter_does_not_reveal_idle_cursor)",
+      "AttributeError: 'NoneType' object has no attribute 'shape'",
+      "Ran 1 test in 0.618s",
+      "FAILED (errors=1)"
+    ]
+  },
+  "native_qt_test_suite": {
+    "PREVIEW_DEVICE": {
+      "backend_info": {
+        "api": "OpenGL",
+        "version": "3.3",
+        "vendor": "NVIDIA Corporation",
+        "renderer": "NVIDIA GeForce RTX 5060/PCIe/SSE2"
+      },
+      "keyframe_fixture": true,
+      "source_count": 4
+    },
+    "PREVIEW_SOAK": {
+      "backend": "gpu_layers",
+      "seconds": 60.0,
+      "loop_wraps": 14,
+      "accepted_frames": 1200,
+      "pressure_drops": 5,
+      "seek_count": 16,
+      "heartbeats": 549,
+      "heartbeat_max_ms": 131.4017999999919,
+      "rss_baseline_bytes": 507916288,
+      "rss_peak_bytes": 517808128,
+      "rss_end_bytes": 514924544,
+      "gpu_start": {
+        "submitted_frames": 207,
+        "presented_frames": 213,
+        "dropped_pending_frames": 0,
+        "texture_uploads": 208,
+        "texture_reuses": 206,
+        "uploaded_bytes": 80990208,
+        "texture_evictions": 0,
+        "cached_textures": 2,
+        "allocated_bytes": 778752,
+        "peak_allocated_bytes": 778752,
+        "texture_budget_bytes": 268435456,
+        "filtered_layers": 0,
+        "texture_allocations": 2,
+        "presented_scene_frames": 207
+      },
+      "gpu_end": {
+        "submitted_frames": 1975,
+        "presented_frames": 2032,
+        "dropped_pending_frames": 0,
+        "texture_uploads": 1976,
+        "texture_reuses": 1974,
+        "uploaded_bytes": 769406976,
+        "texture_evictions": 0,
+        "cached_textures": 2,
+        "allocated_bytes": 778752,
+        "peak_allocated_bytes": 778752,
+        "texture_budget_bytes": 268435456,
+        "filtered_layers": 0,
+        "texture_allocations": 2,
+        "presented_scene_frames": 1975
+      }
+    },
+    "PREVIEW_STATE": {
+      "backend": "gpu_layers",
+      "timeline_seconds": 66.75,
+      "timeline_max_seconds": 75.0,
+      "playing": true,
+      "timer_active": true,
+      "video_active": true,
+      "video_suppressed": false,
+      "video_position": 733,
+      "video_state": "PlayingState",
+      "video_status": "BufferedMedia",
+      "video_error": "",
+      "decoder": {
+        "accepted_frames": 1347,
+        "dropped_frames": 670,
+        "seek_count": 18,
+        "source_switches": 0,
+        "frame_handle": "NoHandle",
+        "gpu_backed_frame": false,
+        "throttled_frames": 662,
+        "pressure_drops": 8,
+        "filter_pending": false
+      },
+      "gpu_enabled": true,
+      "gpu_health": {
+        "presented_frames": 2032,
+        "total_stalls": 0,
+        "consecutive_stalls": 0,
+        "last_latency_ms": 2.01750000002221,
+        "maximum_latency_ms": 94.54759999999851,
+        "awaiting_frame": false
+      },
+      "duration_cache_seconds": [
+        6.0
+      ]
+    },
+    "PREVIEW_REPEAT": {
+      "backend": "gpu_layers",
+      "embedded": true,
+      "cycles": 20,
+      "rss_baseline_bytes": 513351680,
+      "rss_peak_bytes": 579182592,
+      "rss_end_bytes": 579182592,
+      "rss_samples_bytes": [
+        513351680,
+        522076160,
+        526245888,
+        528887808,
+        533131264,
+        539996160,
+        545603584,
+        548196352,
+        556388352,
+        559128576,
+        561684480,
+        563810304,
+        567619584,
+        570351616,
+        573296640,
+        574750720,
+        577318912,
+        579170304,
+        576225280,
+        579182592
+      ]
+    },
+    "runner_summary": [
+      "ERROR: test_overlay_reparent_enter_does_not_reveal_idle_cursor (tests.test_preview_presentation.PreviewPresentationTests.test_overlay_reparent_enter_does_not_reveal_idle_cursor)",
+      "Ran 35 tests in 89.260s",
+      "FAILED (errors=1)"
+    ]
+  }
+}

@@ -84,6 +84,14 @@ ChangesAssociations=yes
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
+[CustomMessages]
+korean.UpdateInstalling=Music Motion Studio 업데이트 설치
+korean.UpdateClosingEditor=작업을 저장하고 편집기가 종료되기를 기다리는 중입니다.
+korean.OldFileStillPresent=이전 프로그램 파일을 지우지 못했습니다. Music Motion Studio와 파일을 사용 중인 프로그램을 닫고 다시 설치해 주세요.%n%n%1
+english.UpdateInstalling=Installing the Music Motion Studio update
+english.UpdateClosingEditor=Saving the workspace and waiting for the editor to close.
+english.OldFileStillPresent=An old application file could not be removed. Close Music Motion Studio and any program using the file, then run Setup again.%n%n%1
+
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
@@ -99,16 +107,18 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Check: UpdateDesktopShortcut
 
 [InstallDelete]
-; Replace only the PyInstaller-managed runtime of a recognized existing install.
-; Never wipe {app}: it may contain user files, and preserving the same AppId
-; keeps Inno Setup's upgrade/uninstall history intact.
-; This entry MUST precede the old EXE deletion so its Check sees the marker.
-Type: filesandordirs; Name: "{app}\_internal"; Check: IsExistingManagedInstallation
+; Replace the shipped application payload before copying the new version.
+; Keep the installation directory, user files, and Inno's uninstall records.
+Type: filesandordirs; Name: "{app}\_internal"; Check: IsExistingManagedInstallation; AfterInstall: VerifyOldFileRemoved('_internal')
+Type: files; Name: "{app}\project_file_icon.ico"; Check: IsExistingManagedInstallation; AfterInstall: VerifyOldFileRemoved('project_file_icon.ico')
+Type: files; Name: "{app}\LICENSE.txt"; Check: IsExistingManagedInstallation; AfterInstall: VerifyOldFileRemoved('LICENSE.txt')
+Type: files; Name: "{app}\{#MyAppExeName}"; Check: IsExistingManagedInstallation; AfterInstall: VerifyOldFileRemoved('{#MyAppExeName}')
 ; Remove stale launchers after the product/EXE name change.
-Type: files; Name: "{app}\{#PreviousAppName}.exe"
-Type: files; Name: "{app}\Playlist.Canvas.exe"
-Type: files; Name: "{app}\Playlist-Canvas.exe"
-Type: files; Name: "{app}\PlaylistCanvas.exe"
+Type: files; Name: "{app}\{#PreviousAppName}.exe"; Check: IsExistingManagedInstallation; AfterInstall: VerifyOldFileRemoved('{#PreviousAppName}.exe')
+Type: files; Name: "{app}\Playlist.Canvas.exe"; Check: IsExistingManagedInstallation; AfterInstall: VerifyOldFileRemoved('Playlist.Canvas.exe')
+Type: files; Name: "{app}\Playlist-Canvas.exe"; Check: IsExistingManagedInstallation; AfterInstall: VerifyOldFileRemoved('Playlist-Canvas.exe')
+Type: files; Name: "{app}\PlaylistCanvas.exe"; Check: IsExistingManagedInstallation; AfterInstall: VerifyOldFileRemoved('PlaylistCanvas.exe')
+Type: files; Name: "{app}\integrity.json"; Check: IsExistingManagedInstallation; AfterInstall: VerifyOldFileRemoved('integrity.json')
 Type: files; Name: "{userdesktop}\{#PreviousAppName}.lnk"
 Type: files; Name: "{commondesktop}\{#PreviousAppName}.lnk"
 Type: files; Name: "{userprograms}\{#PreviousAppName}\*.lnk"
@@ -137,6 +147,8 @@ Type: dirifempty; Name: "{app}"
 [Code]
 var
   HadDesktopShortcut: Boolean;
+  ManagedInstallationDir: String;
+  UpdatePreparationPage: TOutputMarqueeProgressWizardPage;
 
 function InitializeSetup(): Boolean;
 begin
@@ -161,16 +173,46 @@ begin
   Result := ExpandConstant('{param:AUTOMATICUPDATE|0}') = '1';
 end;
 
-function IsExistingManagedInstallation(): Boolean;
+procedure InitializeWizard();
 begin
-  { Only remove a PyInstaller runtime if a known application EXE and the
-    shipped integrity manifest are present in the selected install folder. }
-  Result :=
-    FileExists(ExpandConstant('{app}\integrity.json')) and
-    (FileExists(ExpandConstant('{app}\{#PreviousAppName}.exe')) or
-     FileExists(ExpandConstant('{app}\{#MyAppExeName}')));
+  if IsAutomaticUpdate() then begin
+    WizardForm.Caption := CustomMessage('UpdateInstalling');
+    UpdatePreparationPage := CreateOutputMarqueeProgressPage(
+      CustomMessage('UpdateInstalling'), CustomMessage('UpdateClosingEditor'));
+  end;
 end;
 
+function IsExistingManagedInstallation(): Boolean;
+var
+  AppDir, RegisteredDir, UninstallKey: String;
+begin
+  AppDir := ExpandConstant('{app}');
+  UninstallKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\' +
+    ExpandConstant('{#MyAppGUID}_is1');
+  { Keep the result for this directory as InstallDelete removes the markers. }
+  Result :=
+    (CompareText(AppDir, ManagedInstallationDir) = 0) or
+    ((RegQueryStringValue(HKLM64, UninstallKey, 'InstallLocation', RegisteredDir) or
+      RegQueryStringValue(HKLM32, UninstallKey, 'InstallLocation', RegisteredDir)) and
+     (CompareText(AddBackslash(RegisteredDir), AddBackslash(AppDir)) = 0)) or
+    (FileExists(AddBackslash(AppDir) + 'integrity.json') and
+     (FileExists(AddBackslash(AppDir) + '{#PreviousAppName}.exe') or
+      FileExists(AddBackslash(AppDir) + '{#MyAppExeName}') or
+      FileExists(AddBackslash(AppDir) + 'Playlist.Canvas.exe') or
+      FileExists(AddBackslash(AppDir) + 'Playlist-Canvas.exe') or
+      FileExists(AddBackslash(AppDir) + 'PlaylistCanvas.exe')));
+  if Result then
+    ManagedInstallationDir := AppDir;
+end;
+
+procedure VerifyOldFileRemoved(FileName: String);
+var
+  Path: String;
+begin
+  Path := AddBackslash(ExpandConstant('{app}')) + FileName;
+  if DirExists(Path) or FileExists(Path) then
+    RaiseException(FmtMessage(CustomMessage('OldFileStillPresent'), [Path]));
+end;
 
 function UpdateDesktopShortcut(): Boolean;
 begin
@@ -184,21 +226,16 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  ParentId: Integer;
+  ParentId, Poll: Integer;
   ParentHandle: THandle;
   ReadyPath: String;
+  WaitResult: Cardinal;
 begin
   Result := '';
   if not IsAutomaticUpdate() then Exit;
   ParentId := StrToIntDef(ExpandConstant('{param:UPDATEPID|0}'), 0);
   if ParentId <= 0 then begin
     Result := 'The update parent process is missing.';
-    Exit;
-  end;
-  ReadyPath := ExpandConstant('{param:UPDATEREADY|}');
-  { Older updaters already close before launching Setup and have no ready signal. }
-  if (ReadyPath <> '') and not SaveStringToFile(ReadyPath, 'ready', False) then begin
-    Result := 'Could not notify Music Motion Studio that Setup is ready.';
     Exit;
   end;
   ParentHandle := OpenProcess($00100000, 0, ParentId);
@@ -209,8 +246,25 @@ begin
     Exit;
   end;
   try
-    if WaitForSingleObject(ParentHandle, 120000) <> 0 then
+    UpdatePreparationPage.Show;
+    WizardForm.Show;
+    try
+      { Older updaters may have no ready signal. }
+      ReadyPath := ExpandConstant('{param:UPDATEREADY|}');
+      if (ReadyPath <> '') and not SaveStringToFile(ReadyPath, 'ready', False) then begin
+        Result := 'Could not notify Music Motion Studio that Setup is ready.';
+        Exit;
+      end;
+      for Poll := 1 to 480 do begin
+        WaitResult := WaitForSingleObject(ParentHandle, 250);
+        if WaitResult = 0 then Exit;
+        if WaitResult <> 258 then Break;
+        UpdatePreparationPage.Animate;
+      end;
       Result := 'Music Motion Studio did not finish closing. No update was installed.';
+    finally
+      UpdatePreparationPage.Hide;
+    end;
   finally
     CloseHandle(ParentHandle);
   end;

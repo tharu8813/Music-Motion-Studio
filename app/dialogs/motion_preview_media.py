@@ -4,6 +4,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication
 
+from app.preview.cadence import screen_preview_fps
 from app.video.timeline import resolve_video_position, source_video_paths
 from app.video.preview_proxy import PreviewProxyCache
 
@@ -31,20 +32,24 @@ class MotionPreviewMedia(QObject):
     def sync(self, track, local, global_time, track_start, *, playing=False, enabled=True, scale=1, clock_rate=1):
         if self.closed:
             return
+        parent = self.parent()
+        fps = screen_preview_fps(parent.screen() if hasattr(parent, "screen") else None)
         for item in self.items:
             source = item.source
             self.states[source.id] = "active"
-            item.set_video_preview_budget(scale, 30)
-            item.set_video_preview_playback(playing and enabled, source.video_speed*clock_rate)
             if not enabled:
+                item.set_video_preview_playback(False, source.video_speed*clock_rate)
                 self.states[source.id] = "still"
                 continue  # Keep the last frame as the explicit still fallback.
-            if not source.visible or not item.isVisible():
-                self.states[source.id] = "inactive"
-                item.set_video_preview_position(None)
-                continue
             outside = global_time < source.timeline_start or (source.timeline_duration > 0 and
                 global_time >= source.timeline_start + source.timeline_duration)
+            if outside or not source.visible or not item.isVisible():
+                self.states[source.id] = "inactive"
+                self.last_requests.pop(source.id, None)
+                item.set_video_preview_position(None)
+                continue
+            item.set_video_preview_budget(scale, fps)
+            item.set_video_preview_playback(playing, source.video_speed*clock_rate)
             paths = source_video_paths(source, track.video_paths)
             for path in paths:
                 if path not in self.durations and path not in self.queue and (self.worker is None or self.worker.path != path):
@@ -53,20 +58,18 @@ class MotionPreviewMedia(QObject):
                     else:
                         self.durations[path] = 0
             elapsed = global_time - max(track_start, source.timeline_start) if source.video_timing_mode == "track" else global_time-source.timeline_start
-            position = None if outside else resolve_video_position(source, paths, self.durations, elapsed)
+            position = resolve_video_position(source, paths, self.durations, elapsed)
             # While a duration is being probed, retain the seeded poster. Once
             # known, the production scheduler owns loop/once/rate decisions.
-            if not outside and paths and any(path not in self.durations for path in paths):
+            if paths and any(path not in self.durations for path in paths):
                 self.states[source.id] = "loading"
                 continue
-            if not outside and paths and all(self.durations.get(path, 0) <= 0 for path in paths):
+            if paths and all(self.durations.get(path, 0) <= 0 for path in paths):
                 self.states[source.id] = "unsupported"
                 item.set_video_preview_playback(False, source.video_speed)
                 continue  # Unreadable metadata keeps the poster/placeholder.
             request = (position.path, position.seconds) if position else (None, 0)
-            if outside:
-                self.states[source.id] = "inactive"
-            elif not paths:
+            if not paths:
                 self.states[source.id] = "unsupported"
             previous = self.last_requests.get(source.id)
             force = previous != request and (not playing or previous is None or request[0] != previous[0] or request[1] < previous[1])

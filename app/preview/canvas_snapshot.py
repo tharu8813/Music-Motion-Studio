@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.utils.performance import timed
 
+from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from contextlib import ExitStack
 from dataclasses import replace
@@ -66,7 +67,14 @@ _MAX_CAPTURE_SCALE = 64.0
 # Track-driven album covers and ambient backgrounds are re-injected on every
 # captured frame. Filtering them there would re-run the colour/blur pass in the
 # playback loop, so the filtered result is memoised per (artwork, filter) key.
-_FILTERED_TRACK_PIXMAP_CACHE: dict[tuple, QPixmap] = {}
+_FILTERED_TRACK_PIXMAP_CACHE: OrderedDict[tuple, QPixmap] = OrderedDict()
+_FILTERED_TRACK_PIXMAP_BUDGET = 64 * 1024 * 1024
+
+
+def _pixmap_bytes(pixmap: QPixmap) -> int:
+    # Logical storage estimate; Qt/driver bookkeeping and external references
+    # are not included. Round each pixel up for low-depth platform pixmaps.
+    return pixmap.width() * pixmap.height() * ((pixmap.depth() + 7) // 8)
 
 
 def _lyric_cue_line_count(cue: dict[str, object], graphics_item: SourceItem | None = None) -> int:
@@ -135,14 +143,22 @@ def _filtered_track_pixmap(
     """
     cached = _FILTERED_TRACK_PIXMAP_CACHE.get(key)
     if cached is not None:
+        _FILTERED_TRACK_PIXMAP_CACHE.move_to_end(key)
         return cached
     source_pixmap = base() if callable(base) else base
     result = source_pixmap if prefiltered else graphics_item._apply_image_filters(
         source_pixmap, include_blur=include_blur,
     )
-    if len(_FILTERED_TRACK_PIXMAP_CACHE) > 96:
-        _FILTERED_TRACK_PIXMAP_CACHE.clear()
-    _FILTERED_TRACK_PIXMAP_CACHE[key] = result
+    size = _pixmap_bytes(result)
+    if size <= _FILTERED_TRACK_PIXMAP_BUDGET:
+        retained = sum(_pixmap_bytes(pixmap) for pixmap in _FILTERED_TRACK_PIXMAP_CACHE.values())
+        while _FILTERED_TRACK_PIXMAP_CACHE and (
+            len(_FILTERED_TRACK_PIXMAP_CACHE) >= 96
+            or retained + size > _FILTERED_TRACK_PIXMAP_BUDGET
+        ):
+            _, removed = _FILTERED_TRACK_PIXMAP_CACHE.popitem(last=False)
+            retained -= _pixmap_bytes(removed)
+        _FILTERED_TRACK_PIXMAP_CACHE[key] = result
     return result
 
 

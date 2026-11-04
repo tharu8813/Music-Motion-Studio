@@ -45,14 +45,14 @@ class ProjectContentService(QObject):
             # without touching the disk again.
             if str(raw_path) in self._listed:
                 continue
-            if existing is None:
-                existing = {self._key(item.path) for item in self._items}
             path = Path(raw_path).expanduser()
             media_type = self.classify(path)
-            if not path.is_file() or media_type is None:
+            if media_type is None or not path.is_file():
                 continue
             resolved = str(path.resolve())
-            key = self._key(resolved)
+            key = resolved.casefold()
+            if existing is None:
+                existing = {self._key(item.path) for item in self._items}
             self._listed.add(str(raw_path))
             if key in existing:
                 continue

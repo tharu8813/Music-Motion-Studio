@@ -90,8 +90,15 @@ def peak_times(logits: np.ndarray) -> np.ndarray:
 
 def beats_from_logits(beat_logits: np.ndarray, downbeat_logits: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     beats, downbeats = peak_times(beat_logits), peak_times(downbeat_logits)
-    if len(beats) and len(downbeats):  # every downbeat sits on its nearest beat
-        downbeats = np.unique(beats[np.abs(beats[None, :] - downbeats[:, None]).argmin(axis=1)])
+    if len(beats) and len(downbeats):
+        # The peaks are sorted. Only the two neighboring beats can be nearest.
+        # Choose the earlier beat on ties, as argmin did in the full distance matrix.
+        insertion = np.searchsorted(beats, downbeats)
+        left = beats[np.maximum(insertion - 1, 0)]
+        right = beats[np.minimum(insertion, len(beats) - 1)]
+        downbeats = np.unique(np.where(
+            np.abs(right - downbeats) < np.abs(left - downbeats), right, left,
+        ))
     return beats, downbeats
 
 

@@ -17,6 +17,7 @@ class OverlayFrameCache:
         self._last_layers: tuple[QImage, ...] = ()
         self._last_track_id = ""
         self._last_signature: OverlaySignature = ()
+        self._last_frame_index = -1
         self.revision = 0
 
     def images(self) -> Iterator[QImage]:
@@ -35,23 +36,26 @@ class OverlayFrameCache:
         self.revision += 1
 
     def layers_for_frame(self, track_id: str, frame_index: int, signature: OverlaySignature) -> tuple[QImage, ...]:
-        """Prefer the exact frame, then the last displayed frame, then the newest prior frame."""
+        """Use the exact frame or advance to the newest completed prior frame."""
         layers = self._frames.get((track_id, signature, frame_index))
         if layers is None or len(layers) != len(signature):
-            if (self._last_track_id == track_id and self._last_signature == signature
-                    and len(self._last_layers) == len(signature)):
-                return self._last_layers
-            prior = [
+            same_overlay = self._last_track_id == track_id and self._last_signature == signature
+            last_index = self._last_frame_index if same_overlay else -1
+            prior = (
                 (index, cached) for (track, cached_signature, index), cached in self._frames.items()
-                if track == track_id and cached_signature == signature and index < frame_index
-                and len(cached) == len(signature)
-            ]
-            if not prior:
+                if track == track_id and cached_signature == signature
+                and last_index < index < frame_index and len(cached) == len(signature)
+            )
+            frame_index, layers = max(
+                prior, key=lambda entry: entry[0],
+                default=(last_index, self._last_layers if same_overlay else ()),
+            )
+            if not layers:
                 return ()
-            _index, layers = max(prior, key=lambda entry: entry[0])
         self._last_layers = layers
         self._last_track_id = track_id
         self._last_signature = signature
+        self._last_frame_index = frame_index
         return layers
 
     def trim(self, active_track_id: str, current_frame: int, prefetch_count: int) -> None:
@@ -73,3 +77,4 @@ class OverlayFrameCache:
             self._last_layers = ()
             self._last_track_id = ""
             self._last_signature = ()
+            self._last_frame_index = -1

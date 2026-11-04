@@ -22,6 +22,20 @@ from app.services.project_media_service import ProjectMediaService
 
 
 class ProjectServiceTests(unittest.TestCase):
+    def test_shared_media_resolves_once_and_rechecks_after_file_removal(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            media = root / "shared.wav"
+            media.write_bytes(b"fixture")
+            document = ProjectDocument(playlist=[PlaylistTrack(str(media), f"Track {i}") for i in range(3)])
+            with patch.object(ProjectMediaService, "_resolve_existing_path",
+                              wraps=ProjectMediaService._resolve_existing_path) as resolve:
+                self.assertEqual(ProjectMediaService.validate(document, root / "fixture.pvsproj"), [])
+                resolve.assert_called_once()
+            media.unlink()
+            missing = ProjectMediaService.validate(document, root / "fixture.pvsproj")
+            self.assertEqual([entry.identifier for entry in missing], [track.id for track in document.playlist])
+
     def test_package_save_enforces_the_same_limits_as_load_before_replacing_a_file(self):
         with TemporaryDirectory() as raw:
             root = Path(raw)

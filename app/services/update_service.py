@@ -81,7 +81,7 @@ def automatic_setup_arguments(installer: Path, recovery_path: Path, parent_pid: 
     """Show Setup progress while replacing the installation and restoring this workspace."""
     root = installation_root()
     return [
-        "/SP-", "/SILENT", "/NORESTART",
+        "/SP-", "/SILENT", "/NOCANCEL", "/NORESTART",
         "/NOCLOSEAPPLICATIONS", "/NORESTARTAPPLICATIONS",
         "/AUTOMATICUPDATE=1", f"/UPDATEPID={parent_pid}",
         f"/UPDATERECOVERY={recovery_path.resolve()}",

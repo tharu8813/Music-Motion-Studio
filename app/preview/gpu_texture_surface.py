@@ -648,6 +648,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                     for key, entry in self._textures.items()
                     if key not in active_keys
                 ),
+                key=lambda candidate: candidate[0],
             )
             for last_used, key in candidates:
                 expired = (

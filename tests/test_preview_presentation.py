@@ -7,7 +7,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt, QTimer, Signal
-from PySide6.QtGui import QContextMenuEvent, QEnterEvent, QImage, QMouseEvent
+from PySide6.QtGui import QContextMenuEvent, QCursor, QEnterEvent, QImage, QMouseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget
 
@@ -259,10 +259,10 @@ class PreviewPresentationTests(unittest.TestCase):
         controller.hide_controls()
         controller.controls_animation.setCurrentTime(controller.controls_animation.duration())
         self.assertEqual(QApplication.overrideCursor().shape(), Qt.CursorShape.BlankCursor)
-        # Offscreen/native backends may update the desktop pointer without
-        # delivering a QWidget MouseMove. The polling fallback must still recover.
-        QTest.mouseMove(preview.preview_label, QPoint(631, 97))
-        QTest.qWait(130)
+        # Supply a changed desktop position without delivering a QWidget event.
+        # QTest.mouseMove cannot move the desktop pointer in some Windows sessions.
+        with patch.object(QCursor, "pos", return_value=controller._last_pointer_position + QPoint(8, 3)):
+            QTest.qWait(130)
         self.assertEqual(preview.preview_label.cursor().shape(), Qt.CursorShape.ArrowCursor)
         self.assertEqual(controller.window.windowHandle().cursor().shape(), Qt.CursorShape.ArrowCursor)
         self.assertTrue(controller._controls_shown)

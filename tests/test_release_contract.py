@@ -198,13 +198,26 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn(r"DefaultDirName={commonpf}\{#MyAppName}", installer)
         self.assertNotIn("UnInstallOldVersion", installer)
         self.assertNotIn("taskkill", installer)
-        self.assertIn("WaitForSingleObject(ParentHandle, 120000)", installer)
+        self.assertIn("WaitForSingleObject(ParentHandle, 250)", installer)
+        self.assertIn("for Poll := 1 to 480 do", installer)
+        self.assertIn("UpdatePreparationPage.Show", installer)
+        self.assertIn("WizardForm.Show", installer)
+        self.assertIn("UpdatePreparationPage.Hide", installer)
         self.assertIn("Flags: nowait runasoriginaluser; Check: IsAutomaticUpdate", installer)
         self.assertIn("--resume-update", installer)
         self.assertIn("{param:UPDATEREADY|}", installer)
         self.assertIn("SaveStringToFile(ReadyPath", installer)
         self.assertNotIn('Type: filesandordirs; Name: "{app}"', installer)
         self.assertIn('Type: dirifempty; Name: "{app}"', installer)
+
+    def test_reinstall_clears_the_shipped_payload_and_checks_deletion(self) -> None:
+        installer = (ROOT / "setup.iss").read_text(encoding="utf-8")
+        delete_entries = installer.split("[InstallDelete]", 1)[1].split("[Registry]", 1)[0]
+        for filename in ("_internal", "{#MyAppExeName}", "integrity.json", "project_file_icon.ico", "LICENSE.txt"):
+            with self.subTest(filename=filename):
+                entry = next(line for line in delete_entries.splitlines() if f'Name: "{{app}}\\{filename}"' in line)
+                self.assertIn("Check: IsExistingManagedInstallation", entry)
+                self.assertIn(f"AfterInstall: VerifyOldFileRemoved('{filename}')", entry)
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ class VideoDecoderBackpressure:
     FPS_FACTORS = (1.0, 0.80, 0.60, 0.40)
 
     def __init__(self, base_fps: int = 30) -> None:
-        self.base_fps = max(10, min(60, int(base_fps)))
+        self.base_fps = max(1, int(base_fps))
         self.resolution_level = 0
         self.fps_level = 0
         self._resolution_pressure = 0
@@ -35,12 +35,12 @@ class VideoDecoderBackpressure:
 
     @property
     def fps_limit(self) -> int:
-        return max(10, round(self.base_fps * self.FPS_FACTORS[self.fps_level]))
+        return min(self.base_fps, max(10, round(self.base_fps * self.FPS_FACTORS[self.fps_level])))
 
     def reset(self, base_fps: int | None = None) -> DecoderBackpressureState:
         previous = (self.resolution_factor, self.fps_limit)
         if base_fps is not None:
-            self.base_fps = max(10, min(60, int(base_fps)))
+            self.base_fps = max(1, int(base_fps))
         self.resolution_level = 0
         self.fps_level = 0
         self._resolution_pressure = 0
