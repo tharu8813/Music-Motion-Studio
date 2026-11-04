@@ -179,9 +179,10 @@ class GpuCompositorOptimizationTests(unittest.TestCase):
         ):
             scene.addItem(SourceItem(source))
         track = PlaylistTrack("missing.wav", "Preview", duration_seconds=30)
-        preview = ExportPreviewDialog(
-            scene, [track], Translator(), preferred_backend="cpu",
-        )
+        with patch("app.dialogs.export_preview_dialog.load_preview_quality", return_value="resolution"):
+            preview = ExportPreviewDialog(
+                scene, [track], Translator(), preferred_backend="cpu",
+            )
         self.addCleanup(preview.deleteLater)
         self.addCleanup(preview._stop_preview)
         preview._refresh_source_partitions()
