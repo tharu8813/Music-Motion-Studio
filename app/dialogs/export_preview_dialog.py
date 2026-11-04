@@ -1655,6 +1655,7 @@ class ExportPreviewDialog(QDialog):
             and not self._requires_z_band_composition(audio_overlays)
         )
         if video_z_banded:
+            self._preview_render_path = "GPU video Z-bands"
             self._ensure_video_z_band_cache(
                 track, track_index, start, static_hidden_ids,
                 direct_video_ids,
@@ -1687,6 +1688,9 @@ class ExportPreviewDialog(QDialog):
             self._base_hidden_source_ids = frozenset(audio_dynamic_ids)
             self._foreground_bands = []
         elif not ordered_gpu_fast_path:
+            self._preview_render_path = (
+                "GPU dirty regions" if use_gpu_layers else "CPU dirty regions"
+            )
             refresh_base = (
                 self._base_image.isNull()
                 or self._base_track_id != track.id
@@ -1730,6 +1734,7 @@ class ExportPreviewDialog(QDialog):
                     else self._base_image.copy()
                 )
             if raster_dynamic_ids and not full_canvas_ordered_required:
+                capture_started = perf_counter()
                 painter = None if use_gpu_layers else QPainter(self._image)
                 for source_ids, capture_rect in self._dynamic_capture_regions(
                     raster_dynamic_ids,
@@ -1778,6 +1783,9 @@ class ExportPreviewDialog(QDialog):
                         )
                 if painter is not None:
                     painter.end()
+                self._canvas_render_last_ms = (perf_counter() - capture_started) * 1000
+                if PROFILE_ENABLED:
+                    PROFILE.observe("preview.dirty_region_capture_seconds", self._canvas_render_last_ms / 1000)
             dynamic_layers = [
                 layer for _z_index, _kind, layer in sorted(
                     ordered_dynamic_layers,
