@@ -521,6 +521,38 @@ class CanvasSnapshot:
         }
 
     @staticmethod
+    def source_is_preview_track_static(source: Source) -> bool:
+        """A source whose pixels remain stable within one preview track.
+
+        Track-specific covers and personal colours are safe because each
+        track receives a separate cache. Timelines, custom motion, lyrics,
+        reactive sources and time-dependent text are never cached.
+        """
+        if (
+            source.animation_in != "none"
+            or source.animation_out != "none"
+            or source.loop_motion != "none"
+            or source.keyframes.animated
+            or source.uses_bass_reaction
+            or source.timeline_start > 0.0
+            or source.timeline_duration > 0.0
+        ):
+            return False
+        if source.source_type is SourceType.TEXT:
+            return "%" not in source.text
+        if source.source_type is SourceType.BACKGROUND:
+            return not (
+                source.background_ambient
+                or source.background_bass_reactive
+                or source.background_track_transition
+            )
+        return source.source_type in {
+            SourceType.ALBUM_COVER,
+            SourceType.IMAGE, SourceType.SHAPE,
+            SourceType.LOGO, SourceType.WATERMARK,
+        }
+
+    @staticmethod
     def split_mixed_capture_bands(
         scene: CanvasScene,
         dynamic_source_ids: set[str],
@@ -528,6 +560,7 @@ class CanvasSnapshot:
         playlist_duration_seconds: float,
         *,
         max_streams: int = 12,
+        preview_track: bool = False,
     ) -> list[tuple[float | None, float | None]]:
         """Split broad Z bands into consecutive invariant/dynamic sublayers.
 
@@ -563,9 +596,11 @@ class CanvasSnapshot:
             z_values = sorted(grouped)
             group_states = [
                 all(
-                    CanvasSnapshot.source_is_capture_invariant(
-                        source, playlist_duration_seconds,
-                    )
+                    (CanvasSnapshot.source_is_preview_track_static(source)
+                     if preview_track else
+                     CanvasSnapshot.source_is_capture_invariant(
+                         source, playlist_duration_seconds,
+                     ))
                     for source in grouped[z_value]
                 )
                 for z_value in z_values
@@ -650,6 +685,7 @@ class CanvasSnapshot:
         dynamic_source_ids: set[str],
         z_bands: list[tuple[float | None, float | None]],
         playlist_duration_seconds: float,
+        *, preview_track: bool = False,
     ) -> set[str]:
         """Find complete Z bands that are safe to capture only once.
 
@@ -673,9 +709,11 @@ class CanvasSnapshot:
                 and (z_max is None or source.z_index <= z_max)
             ]
             if all(
-                CanvasSnapshot.source_is_capture_invariant(
-                    source, playlist_duration_seconds,
-                )
+                (CanvasSnapshot.source_is_preview_track_static(source)
+                 if preview_track else
+                 CanvasSnapshot.source_is_capture_invariant(
+                     source, playlist_duration_seconds,
+                 ))
                 for source in sources
             ):
                 invariant.add("base" if index == 0 else f"layer:{index - 1}")

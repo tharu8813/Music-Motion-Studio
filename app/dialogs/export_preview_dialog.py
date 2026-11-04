@@ -718,6 +718,12 @@ class ExportPreviewDialog(QDialog):
         self._foreground_bands: list[tuple[float, QImage]] = []
         self._video_z_band_key: tuple[object, ...] | None = None
         self._video_z_band_layers: list[tuple[float, int, GpuPreviewLayer]] = []
+        # GPU audio Z-band compositor: stable track-local raster bands survive
+        # across frames; only genuinely animated bands are recaptured.
+        self._gpu_static_band_cache: dict[int, QImage] = {}
+        self._gpu_static_band_cache_key: tuple[object, ...] | None = None
+        self._static_band_cache_hits = 0
+        self._static_band_cache_misses = 0
         self._last_composition_key: tuple[object, ...] | None = None
         self._active_overlay_cache_seconds: float | None = None
         self._active_overlay_cache: tuple[tuple[int, VisualizerOverlay], ...] = ()
@@ -1803,6 +1809,8 @@ class ExportPreviewDialog(QDialog):
         self._dynamic_region_buffers.clear()
         self._video_z_band_key = None
         self._video_z_band_layers.clear()
+        self._gpu_static_band_cache.clear()
+        self._gpu_static_band_cache_key = None
         self._last_composition_key = None
 
     def _sync_video_sources(
@@ -2680,7 +2688,7 @@ class ExportPreviewDialog(QDialog):
             return False
         try:
             active_overlays, overlay_images = self._prepared_overlay_images(
-                track, elapsed,
+                track, elapsed, apply_keyframes=False,
             )
             if active_overlays and self._requires_z_band_composition(active_overlays):
                 layers = self._gpu_z_band_layers(
@@ -2725,7 +2733,8 @@ class ExportPreviewDialog(QDialog):
             return False
 
     def _prepared_overlay_images(
-        self, track: PlaylistTrack, elapsed: float,
+        self, track: PlaylistTrack, elapsed: float, *,
+        apply_keyframes: bool = True,
     ) -> tuple[list[VisualizerOverlay], tuple[QImage, ...]]:
         """Return the current audio-reactive layers for either compositor."""
         if self.visualizer_renderer is None:
@@ -2762,23 +2771,40 @@ class ExportPreviewDialog(QDialog):
         if len(images) != len(active_overlays):
             return [], ()
         images = self._animated_overlay_images(active_overlays, images, timeline_seconds)
+        if not apply_keyframes:
+            # GPU compositing applies geometry/opacity in its shader instead
+            # of resampling and fading QImages on the GUI thread per frame.
+            return active_overlays, images
         return self._apply_overlay_keyframes(active_overlays, images, timeline_seconds)
 
+    def _overlay_keyframe_values(self, binding, timeline_seconds: float):
+        """Resolve the same motion windows for CPU and GPU overlay paths."""
+        plan = getattr(self, "_compiled_plan", None)
+        if plan:
+            from app.animation.keyframe_render import keyframe_windows
+            from app.animation.custom_motion_render import (
+                CustomMotionRenderBinding, motion_windows,
+            )
+            if isinstance(binding, CustomMotionRenderBinding):
+                sources = [
+                    item.source for item in self.scene.items()
+                    if isinstance(item, SourceItem)
+                ]
+                windows = motion_windows(binding.source, plan, sources)
+            else:
+                windows = keyframe_windows(plan)
+            binding = replace(binding, windows=windows)
+        return binding.values(timeline_seconds), binding.source, binding.output_scale
+
     def _apply_overlay_keyframes(self, active_overlays, images, timeline_seconds):
-        """Shared keyed geometry/alpha for both CPU and GPU composition."""
+        """Preserve existing CPU/export-equivalent pixel transformation."""
         result_overlays, result_images = [], []
         for overlay, image in zip(active_overlays, images, strict=True):
             binding = overlay.keyframe_binding
             if binding and not image.isNull():
-                plan = getattr(self, "_compiled_plan", None)
-                from app.animation.keyframe_render import keyframe_windows
-                if plan:
-                    from app.animation.custom_motion_render import CustomMotionRenderBinding, motion_windows
-                    scene = getattr(self, "scene", None)
-                    sources = [item.source for item in scene.items() if isinstance(item, SourceItem)] if scene else ()
-                    windows = motion_windows(binding.source, plan, sources) if isinstance(binding, CustomMotionRenderBinding) else keyframe_windows(plan)
-                    binding = replace(binding, windows=windows)
-                values, source = binding.values(timeline_seconds), binding.source
+                values, source, output_scale = self._overlay_keyframe_values(
+                    binding, timeline_seconds,
+                )
                 ratio = values.get("scale", source.scale) / (source.scale or 1)
                 image = image.scaled(max(1, round(image.width() * ratio)), max(1, round(image.height() * ratio)),
                                      Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
@@ -2793,8 +2819,8 @@ class ExportPreviewDialog(QDialog):
                     image = faded
                 new_width, new_height = overlay.width * ratio, overlay.height * ratio
                 overlay = replace(overlay, width=round(new_width), height=round(new_height),
-                    x=round((values.get("x", source.x) + source.width / 2) * binding.output_scale - new_width / 2),
-                    y=round((values.get("y", source.y) + source.height / 2) * binding.output_scale - new_height / 2),
+                    x=round((values.get("x", source.x) + source.width / 2) * output_scale - new_width / 2),
+                    y=round((values.get("y", source.y) + source.height / 2) * output_scale - new_height / 2),
                     rotation=values.get("rotation", source.rotation))
             result_overlays.append(overlay)
             result_images.append(image)
@@ -2833,23 +2859,42 @@ class ExportPreviewDialog(QDialog):
     def _gpu_audio_layers(
         self, overlays: list[VisualizerOverlay], images: tuple[QImage, ...],
     ) -> list[GpuPreviewLayer]:
-        """Map visualizer images into scaled Canvas coordinates."""
+        """Keep keyed audio overlays GPU-resident instead of scaling/fading pixels."""
         if len(overlays) != len(images):
             return []
-        return [
-            GpuPreviewLayer(
+        scale = self._active_render_scale
+        timeline_seconds = self.timeline.value() / TIMELINE_SCALE
+        result: list[GpuPreviewLayer] = []
+        for index, (overlay, image) in enumerate(zip(overlays, images, strict=True)):
+            left, top = overlay.x, overlay.y
+            width, height = image.width(), image.height()
+            opacity, rotation = 1.0, overlay.rotation
+            binding = overlay.keyframe_binding
+            if binding is not None and not image.isNull():
+                values, source, output_scale = self._overlay_keyframe_values(
+                    binding, timeline_seconds,
+                )
+                ratio = values.get("scale", source.scale) / (source.scale or 1)
+                canvas_width = round(overlay.width * ratio)
+                canvas_height = round(overlay.height * ratio)
+                left = round(
+                    (values.get("x", source.x) + source.width / 2)
+                    * output_scale - canvas_width / 2
+                )
+                top = round(
+                    (values.get("y", source.y) + source.height / 2)
+                    * output_scale - canvas_height / 2
+                )
+                width = max(1, round(width * ratio))
+                height = max(1, round(height * ratio))
+                opacity = min(1.0, max(0.0, values.get("opacity", source.opacity)))
+                rotation = values.get("rotation", source.rotation)
+            result.append(GpuPreviewLayer(
                 ("audio-overlay", index), image,
-                QRectF(
-                    round(overlay.x * self._active_render_scale),
-                    round(overlay.y * self._active_render_scale),
-                    image.width(), image.height(),
-                ),
-                rotation=overlay.rotation,
-            )
-            for index, (overlay, image) in enumerate(
-                zip(overlays, images, strict=True)
-            )
-        ]
+                QRectF(round(left * scale), round(top * scale), width, height),
+                opacity=opacity, rotation=rotation,
+            ))
+        return result
 
     def _gpu_z_band_layers(
         self, track: PlaylistTrack, track_index: int, elapsed: float, start: float,
@@ -2867,10 +2912,32 @@ class ExportPreviewDialog(QDialog):
                 GpuPreviewLayer("canvas-base", self._base_image, canvas_rect),
                 *self._gpu_audio_layers(overlays, images),
             ]
+
+        # Preserve the original relative Z order, but separate immutable
+        # backgrounds/covers/shapes from animated lyrics and progress items.
+        # Mixed static+dynamic bands previously re-rendered their full area for
+        # every audio visualizer frame even though almost all pixels were still.
+        duration = self._playlist_duration()
+        z_bands = CanvasSnapshot.split_mixed_capture_bands(
+            self.scene, audio_ids, z_bands, duration, preview_track=True,
+        )
+        invariant = CanvasSnapshot.invariant_stream_keys(
+            self.scene, audio_ids, z_bands, duration, preview_track=True,
+        )
+        cache_key = (
+            track.id, track_index, start, self._active_render_scale,
+            id(getattr(self, "_compiled_plan", None)), tuple(z_bands),
+        )
+        if cache_key != self._gpu_static_band_cache_key:
+            self._gpu_static_band_cache.clear()
+            self._gpu_static_band_cache_key = cache_key
+        cache_safe = (
+            phase is None and getattr(self, "_frame_junction", None) is None
+        )
         common = dict(
             elapsed_seconds=elapsed,
             hide_visualizers=audio_ids,
-            playlist_duration_seconds=self._playlist_duration(),
+            playlist_duration_seconds=duration,
             playlist_tracks=self.tracks,
             output_scale=self._active_render_scale,
             timeline_seconds=self.timeline.value() / TIMELINE_SCALE,
@@ -2881,10 +2948,24 @@ class ExportPreviewDialog(QDialog):
             bass_level=self._bass_level(track, elapsed),
             music_levels=self._music_reaction_levels(track, elapsed),
         )
-        base = CanvasSnapshot.capture_track(
-            self.scene, track, track_index + 1, len(self.tracks), start,
-            phase, phase_progress, z_max=z_bands[0][1], **common,
-        )
+
+        def capture_band(index: int, z_min, z_max) -> QImage:
+            stream_key = "base" if index == 0 else f"layer:{index - 1}"
+            can_cache = cache_safe and stream_key in invariant
+            if can_cache and index in self._gpu_static_band_cache:
+                self._static_band_cache_hits += 1
+                return self._gpu_static_band_cache[index]
+            self._static_band_cache_misses += 1
+            captured = CanvasSnapshot.capture_track(
+                self.scene, track, track_index + 1, len(self.tracks), start,
+                phase, phase_progress, z_min=z_min, z_max=z_max,
+                transparent=index > 0, **common,
+            )
+            if can_cache:
+                self._gpu_static_band_cache[index] = captured
+            return captured
+
+        base = capture_band(0, *z_bands[0])
         canvas_rect = QRectF(0.0, 0.0, base.width(), base.height())
         layers: list[GpuPreviewLayer] = [
             GpuPreviewLayer(("z-base", z_bands[0][1]), base, canvas_rect),
@@ -2893,11 +2974,7 @@ class ExportPreviewDialog(QDialog):
         for index, layer in enumerate(self._gpu_audio_layers(overlays, images)):
             ordered.append((overlays[index].z_index, 0, layer))
         for index, (z_min, z_max) in enumerate(z_bands[1:]):
-            foreground = CanvasSnapshot.capture_track(
-                self.scene, track, track_index + 1, len(self.tracks), start,
-                phase, phase_progress, z_min=z_min, z_max=z_max,
-                transparent=True, **common,
-            )
+            foreground = capture_band(index + 1, z_min, z_max)
             ordered.append((
                 z_min if z_min is not None else -10_000.0,
                 1,
@@ -2906,7 +2983,11 @@ class ExportPreviewDialog(QDialog):
                     QRectF(0.0, 0.0, foreground.width(), foreground.height()),
                 ),
             ))
-        layers.extend(layer for _z, _kind, layer in sorted(ordered, key=lambda value: (value[0], value[1])))
+        layers.extend(
+            layer for _z, _kind, layer in sorted(
+                ordered, key=lambda value: (value[0], value[1]),
+            )
+        )
         return layers
 
     def _composite_export_overlays(
@@ -3865,6 +3946,8 @@ class ExportPreviewDialog(QDialog):
         self._dynamic_region_buffers.clear()
         self._video_z_band_key = None
         self._video_z_band_layers.clear()
+        self._gpu_static_band_cache.clear()
+        self._gpu_static_band_cache_key = None
         self._clear_overlay_frames()
 
     def _update_frame_rate_label(self) -> None:

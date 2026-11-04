@@ -68,16 +68,18 @@ class PreviewQualityPresetTests(unittest.TestCase):
             stop.assert_not_called()
             set_source.assert_not_called()
 
-    def test_resolution_priority_avoids_aggressive_scale_loss(self):
+    def test_resolution_priority_keeps_full_canvas_resolution_under_load(self):
+        preset = PREVIEW_QUALITY_PRESETS["resolution"]
         adaptive = AdaptivePreviewQuality(
-            1.0, downscale_samples=8, recovery_samples=3, minimum_factor=0.85,
+            preset.canvas_scale,
+            downscale_samples=preset.downscale_samples,
+            recovery_samples=preset.recovery_samples,
+            minimum_factor=preset.minimum_factor,
         )
         for _ in range(200):
-            adaptive.observe(12, 60)
-        self.assertAlmostEqual(adaptive.scale, 0.85)
-        for _ in range(3):
-            state = adaptive.observe(60, 60)
-        self.assertEqual(state.scale, 1.0)
+            state = adaptive.observe(12, 60)
+            self.assertEqual(state.scale, 1.0)
+        self.assertEqual(adaptive.level, 0)
 
     def test_decoder_reduces_fps_before_resolution_for_high_detail_modes(self):
         decoder = VideoDecoderBackpressure(60, prefer_resolution=True)
