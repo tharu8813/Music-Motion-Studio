@@ -409,7 +409,18 @@ class MotionDialogTests(TestCase):
                     f"timestamp_missing={clone._video_timestamp_missing}, "
                     f"filter_busy={clone._video_filter_busy}, "
                     f"state={clone.video_frame_state}, "
-                    f"durations={dialog.canvas.media.durations}"
+                    f"durations={dialog.canvas.media.durations}, "
+                    f"media_states={dialog.canvas.media.states}, "
+                    f"probe_queue={dialog.canvas.media.queue}, "
+                    f"probe_worker={getattr(dialog.canvas.media.worker, 'path', None)}, "
+                    f"video_sync={dialog.canvas.video_sync}, "
+                    f"source_type={clone.source.source_type}, "
+                    f"source_paths={clone.source.video_paths}, "
+                    f"track_paths={dialog.tracks[0].video_paths}, "
+                    f"timing_mode={clone.source.video_timing_mode}, "
+                    f"source_visible={clone.source.visible}, "
+                    f"item_visible={clone.isVisible()}, "
+                    f"tracked_items={len(dialog.canvas.media.items)}"
                 )
             wait_for(lambda: str(path) in dialog.canvas.media.durations and not clone.video_preview_frame().isNull())
             dialog.seek(0)
