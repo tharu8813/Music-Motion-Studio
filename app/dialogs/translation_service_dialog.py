@@ -339,7 +339,9 @@ class TranslationServiceDialog(QDialog):
         for model in models:
             self.model_combo.addItem(model["id"], model["id"])
         index = self.model_combo.findData(selected)
-        self.model_combo.setCurrentIndex(max(0, index))
+        # A previously configured model may have been deleted externally.
+        # Do not silently substitute a different model on the next translation.
+        self.model_combo.setCurrentIndex(-1 if selected and index < 0 else max(0, index))
         self.model_combo.setPlaceholderText(self.tr_text("관리자에서 모델을 설치하세요", "Install a model in the manager"))
 
     def _load_models(self):
@@ -373,7 +375,8 @@ class TranslationServiceDialog(QDialog):
         previous = getattr(self, "manager", None)
         if previous:
             previous.deleteLater()
-        self.manager = LocalLLMManagerDialog(self.translator, self.parentWidget(), service=service)
+        self.manager = LocalLLMManagerDialog(self.translator, self.parentWidget(), service=service,
+                                             preferred_model=self._model_value())
         dialog = self.manager
         provider = self._provider
         signature = self.connection_signature()
@@ -382,6 +385,8 @@ class TranslationServiceDialog(QDialog):
             if self._provider == provider:
                 if dialog._discovered:
                     self._populate_llm_models(dialog.models, dialog.selected_model or self._model_value())
+                    if not self._model_value():
+                        self.settings.remove("translation/config/" + provider + "/model")
                     if signature == self.connection_signature():
                         self.record_connection(True, [model["id"] for model in dialog.models])
                 try:

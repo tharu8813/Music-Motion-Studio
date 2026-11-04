@@ -1,5 +1,6 @@
 """Manage local LLMs without requiring users to work in a terminal."""
 import json
+from time import monotonic
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView, QInputDialog,
@@ -15,11 +16,18 @@ from app.services.translation_worker import TranslationWorker
 class LocalLLMManagerDialog(QDialog):
     busy_changed = Signal(bool)
 
-    def __init__(self, translator, parent=None, *, service=None):
+    def __init__(self, translator, parent=None, *, service=None, preferred_model=""):
         super().__init__(parent)
         self.translator, self.service = translator, service or LocalLLMService()
         self.worker, self._closing, self.selected_model = None, False, ""
         self.models = []
+        self.preferred_model = preferred_model
+        self._download_target = ""
+        self._before_download = set()
+        self._deleted_name = ""
+        self._download_sample = None
+        self._download_speed = None
+        self._updating_models = False
         self._discovered = False
         install_help_shortcut(self, ("lyrics_editor", "lyrics_translation"), translator=translator)
         self.setWindowTitle(self.tr_text("로컬 LLM 관리자", "Local LLM manager"))
@@ -48,6 +56,9 @@ class LocalLLMManagerDialog(QDialog):
         self.steps_label.setObjectName("panelTitle")
         self.steps_label.setWordWrap(True)
         root.addWidget(self.steps_label)
+        self.engine_state = QLabel(self.tr_text("로컬 AI 연결을 확인하는 중…", "Checking the local AI connection…"))
+        self.engine_state.setObjectName("panelTitle")
+        root.addWidget(self.engine_state)
         self.runtime_note = QLabel(self.tr_text(
             "처음이라면 ‘실행 구성요소 자동 설치·시작’을 누르세요. 공식 Ollama Windows x64 파일(수 GB)을 검증해 앱 전용 폴더에 설치합니다. 이미 실행 중인 Ollama는 그대로 사용합니다.",
             "New to local LLMs? Automatic setup verifies and installs the official Ollama Windows x64 runtime (several GB) in this app's folder. An existing Ollama server is reused.") if self.service.provider == "ollama" else self.tr_text(
@@ -94,13 +105,25 @@ class LocalLLMManagerDialog(QDialog):
         self.table.setMinimumHeight(180)
         self.table.setAccessibleName(self.tr_text("설치된 로컬 LLM", "Installed local LLMs"))
         installed_layout.addWidget(self.table)
+        self.installed_hint = QLabel(self.tr_text(
+            "설치된 모델을 선택하면 바로 사용할 수 있습니다. 모델이 없다면 추가하세요.",
+            "Choose an installed model to use it, or add your first model."))
+        self.installed_hint.setWordWrap(True)
+        installed_layout.addWidget(self.installed_hint)
+        installed_actions = QHBoxLayout()
+        self.use_button = QPushButton(self.tr_text("이 모델 사용", "Use this model"))
+        self.use_button.setProperty("primary", True)
+        self.add_model_button = QPushButton(self.tr_text("＋ 모델 추가", "＋ Add model"))
+        installed_actions.addWidget(self.use_button)
+        installed_actions.addWidget(self.add_model_button)
+        installed_layout.addLayout(installed_actions)
         advanced_actions = QGridLayout()
         self.load_button = QPushButton(self.tr_text("메모리에 로드", "Load into memory"))
         self.unload_button = QPushButton(self.tr_text("메모리 해제", "Unload from memory"))
         self.details_button = QPushButton(self.tr_text("상세 정보·라이선스", "Details / license"))
         self.alias_button = QPushButton(self.tr_text("별칭 만들기", "Create alias"))
         self.delete_button = QPushButton(self.tr_text("모델 삭제…", "Delete model…"))
-        for index, button in enumerate((self.load_button, self.unload_button, self.delete_button)):
+        for index, button in enumerate((self.load_button, self.unload_button)):
             advanced_actions.addWidget(button, index // 2, index % 2)
         advanced_layout.addLayout(advanced_actions)
         advanced_layout.addWidget(self.alias_button)
@@ -109,7 +132,11 @@ class LocalLLMManagerDialog(QDialog):
         advanced_layout.addWidget(self.metadata, 1)
         self.alias_button.setVisible(self.service.provider == "ollama")
         self.delete_button.setVisible(self.service.provider == "ollama")
-        installed_layout.addWidget(self.details_button)
+        installed_management = QHBoxLayout()
+        installed_management.addWidget(self.details_button)
+        installed_management.addWidget(self.delete_button)
+        installed_management.addStretch()
+        installed_layout.addLayout(installed_management)
         download_layout.addWidget(QLabel(self.tr_text(
             "모델 찾기 · 실제 가사 품질 순위가 아니며 코딩 모델도 번역 정확도를 보장하지 않습니다.",
             "Find models · not a lyric-quality ranking; coding models do not guarantee translation accuracy.")))
@@ -155,6 +182,11 @@ class LocalLLMManagerDialog(QDialog):
         download_layout.addWidget(self.download_name)
         self.download_button = QPushButton(self.tr_text("선택한 모델 다운로드·설치", "Download and install selected model"))
         download_layout.addWidget(self.download_button)
+        self.download_hint = QLabel(self.tr_text(
+            "다운로드 후 설치된 모델이 자동으로 선택됩니다. '이 모델 사용'을 눌러 번역에 적용하세요.",
+            "After download, the model is selected in Installed. Choose 'Use this model' to apply it to translations."))
+        self.download_hint.setWordWrap(True)
+        download_layout.addWidget(self.download_hint)
         self.tabs.addTab(installed_page, self.tr_text("설치된 모델", "Installed"))
         self.tabs.addTab(download_page, self.tr_text("모델 찾기·설치", "Find and install"))
         self.tabs.addTab(advanced_page, self.tr_text("고급 관리", "Advanced management"))
@@ -169,6 +201,11 @@ class LocalLLMManagerDialog(QDialog):
         self.progress = QProgressBar()
         self.progress.hide()
         outer.addWidget(self.progress)
+        self.download_detail = QLabel("")
+        self.download_detail.setWordWrap(True)
+        self.download_detail.setTextFormat(Qt.TextFormat.PlainText)
+        self.download_detail.hide()
+        outer.addWidget(self.download_detail)
         self.status = QLabel(self.tr_text("설치된 모델을 조회합니다. 모델이 없으면 다운로드 탭에서 준비하세요.",
             "Checking installed models. Use Download if none are installed."))
         self.status.setWordWrap(True)
@@ -177,17 +214,15 @@ class LocalLLMManagerDialog(QDialog):
         footer = QHBoxLayout()
         self.cancel_button = QPushButton(self.tr_text("작업 취소", "Cancel operation"))
         self.cancel_button.hide()
-        self.use_button = QPushButton(self.tr_text("선택한 모델 사용", "Use selected model"))
-        self.use_button.setProperty("primary", True)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         footer.addWidget(self.cancel_button)
         footer.addStretch()
-        footer.addWidget(self.use_button)
         footer.addWidget(buttons)
         outer.addLayout(footer)
         self.setup_button.clicked.connect(lambda: self._start("setup", lambda cancel, progress: self.service.ensure_running(install=True, cancel=cancel, progress=progress)))
         self.refresh_button.clicked.connect(self._refresh)
+        self.add_model_button.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
         self.table.itemSelectionChanged.connect(self._selection)
         self.table.itemDoubleClicked.connect(lambda *_: self._use())
         self.search.textChanged.connect(self._filter)
@@ -196,6 +231,7 @@ class LocalLLMManagerDialog(QDialog):
         self.catalog_category.currentIndexChanged.connect(self._filter_catalog)
         self.catalog_size.currentIndexChanged.connect(self._filter_catalog)
         self.manual_toggle.toggled.connect(self._manual_mode)
+        self.download_name.textChanged.connect(lambda *_: self._recommendation() if self.manual_toggle.isChecked() else None)
         self.tabs.currentChanged.connect(self._selection)
         self.download_button.clicked.connect(self._download)
         self.use_button.clicked.connect(self._use)
@@ -215,15 +251,42 @@ class LocalLLMManagerDialog(QDialog):
     def tr_text(self, ko, en):
         return ko if self.translator.is_korean else en
 
+    @staticmethod
+    def _model_key(name):
+        return name.casefold().removesuffix(":latest") if isinstance(name, str) else ""
+
+    def _installed_index(self, name):
+        key = self._model_key(name)
+        return next((i for i, row in enumerate(self.models)
+                     if self._model_key(row["id"]) == key), -1) if key else -1
+
+    def _sync_catalog(self):
+        for i in range(self.recommended.count()):
+            item = self.recommended.item(i)
+            guide = item.data(Qt.ItemDataRole.UserRole)
+            title = guide["ko" if self.translator.is_korean else "en"][0]
+            kind = self.tr_text("코딩", "Coding") if guide["focus"] == "coder" else self.tr_text("다국어", "Multilingual")
+            installed = self._installed_index(guide["id"]) >= 0
+            suffix = " · " + self.tr_text("설치됨", "Installed") if installed else ""
+            item.setText(f"{title} · {guide['size']} · {kind}{suffix}")
+        self._recommendation()
+
     def _selected(self):
         row = self.table.currentRow()
-        return self.models[row] if 0 <= row < len(self.models) and not self.table.isRowHidden(row) else None
+        return (self.models[row] if self.table.selectedItems() and 0 <= row < len(self.models)
+                and not self.table.isRowHidden(row) else None)
 
     def _selection(self, *_args):
+        if self._updating_models:
+            return
         row = self._selected()
-        self.use_button.setVisible(self.tabs.currentIndex() == 0)
         for button in (self.use_button, self.load_button, self.unload_button, self.details_button, self.alias_button, self.delete_button):
             button.setEnabled(self.worker is None and row is not None)
+        self.installed_hint.setText(self.tr_text(
+            f"선택한 모델: {row['id']} · '이 모델 사용'을 누르면 번역에 적용됩니다." if row
+            else "설치된 모델을 선택하세요. 모델이 없다면 '모델 추가'로 시작할 수 있습니다.",
+            f"Selected: {row['id']} · click 'Use this model' to apply it to translations." if row
+            else "Choose an installed model. Use 'Add model' if none are installed."))
         if row and self.tabs.currentIndex() == 0:
             strength, limitation = model_guide(row["id"], self.translator.is_korean)
             self.description.setPlainText(self.tr_text(
@@ -257,10 +320,17 @@ class LocalLLMManagerDialog(QDialog):
     def _recommendation(self, *_args):
         item = self.recommended.currentItem()
         if not item or item.isHidden():
-            self.download_button.setEnabled(False)
+            self.download_button.setEnabled(self.worker is None and self.manual_toggle.isChecked()
+                                            and bool(self.download_name.text().strip()))
             return
-        self.download_button.setEnabled(True)
         guide = item.data(Qt.ItemDataRole.UserRole)
+        installed = self._installed_index(guide["id"]) >= 0
+        self.download_button.setEnabled(self.worker is None)
+        self.download_button.setText(self.tr_text(
+            "입력한 모델 다운로드·설치" if self.manual_toggle.isChecked() else
+            "설치된 모델 바로 사용" if installed else "선택한 모델 다운로드·설치",
+            "Download entered model" if self.manual_toggle.isChecked() else
+            "Use installed model" if installed else "Download and install selected model"))
         title, strength, limitation = guide["ko" if self.translator.is_korean else "en"]
         if self.service.provider == "ollama":
             name = guide["id"]
@@ -283,16 +353,26 @@ class LocalLLMManagerDialog(QDialog):
     def _manual_mode(self, manual):
         self.manual_label.setVisible(manual)
         self.download_name.setVisible(manual)
-        self.download_button.setText(self.tr_text("입력한 모델 다운로드·설치", "Download entered model")
-            if manual else self.tr_text("선택한 모델 다운로드·설치", "Download and install selected model"))
-        if not manual:
-            self._recommendation()
+        self._recommendation()
 
     def _download(self):
+        if self.worker:
+            return
         name = self.download_name.text().strip()
         if not name:
             self.status.setText(self.tr_text("설치할 모델을 선택하거나 이름을 입력하세요.",
                 "Choose a model or enter its name before installing."))
+            return
+        installed_index = self._installed_index(
+            name if self.manual_toggle.isChecked() else
+            (self.recommended.currentItem().data(Qt.ItemDataRole.UserRole)["id"]
+             if self.recommended.currentItem() and not self.recommended.currentItem().isHidden()
+             else name))
+        if installed_index >= 0:
+            self.search.clear()
+            self.tabs.setCurrentIndex(0)
+            self.table.selectRow(installed_index)
+            self._use()
             return
         if not self.manual_toggle.isChecked():
             item = self.recommended.currentItem()
@@ -304,7 +384,10 @@ class LocalLLMManagerDialog(QDialog):
                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
                         QMessageBox.StandardButton.Cancel) != QMessageBox.StandardButton.Yes:
                     return
-        self._start("download", lambda cancel, progress: self.service.download(name, cancel, progress))
+        self._download_target = name
+        self._before_download = {row["id"] for row in self.models}
+        self._start("download", lambda cancel, progress: self.service.download(
+            name, cancel, progress, status=lambda event: self._emit_download_status(event)))
 
     def _delete(self):
         row = self._selected()
@@ -313,6 +396,7 @@ class LocalLLMManagerDialog(QDialog):
                 f"Delete {row['id']}? This also affects other apps using the same Ollama server."),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
                 QMessageBox.StandardButton.Cancel) == QMessageBox.StandardButton.Yes:
+            self._deleted_name = row["id"]
             self._start("delete", lambda cancel, _progress: self.service.delete(row["id"], cancel))
 
     def _alias(self):
@@ -338,20 +422,86 @@ class LocalLLMManagerDialog(QDialog):
             self.selected_model = row["id"]
             self.accept()
 
+    def _emit_download_status(self, event):
+        # Called from the worker thread. Only emit a Qt signal here.
+        worker = self.worker
+        if worker is not None:
+            worker.activity.emit(event)
+
+    @staticmethod
+    def _bytes(size):
+        if size >= 1024 ** 3:
+            return f"{size / 1024 ** 3:.1f} GiB"
+        return f"{size / 1024 ** 2:.1f} MiB"
+
+    def _download_activity(self, event):
+        if not isinstance(event, dict) or self.operation != "download":
+            return
+        label = str(event.get("status", "")).strip()
+        done = event.get("completed", 0)
+        total = event.get("total", 0)
+        if not isinstance(done, (int, float)) or not isinstance(total, (int, float)):
+            return
+        if self.translator.is_korean:
+            lowered = label.casefold()
+            if lowered.startswith("pulling manifest"):
+                message = "모델 정보를 확인하는 중"
+            elif lowered.startswith("pulling "):
+                message = "모델 파일을 다운로드하는 중"
+            elif lowered.startswith("verifying"):
+                message = "다운로드 파일을 검증하는 중"
+            elif lowered.startswith("writing"):
+                message = "모델 설치를 마무리하는 중"
+            elif lowered in {"downloading", "download"}:
+                message = "모델 다운로드 중"
+            elif lowered in {"success", "completed", "already_downloaded"}:
+                message = "다운로드 완료"
+            else:
+                message = label or "다운로드 중"
+        else:
+            message = label or "Downloading"
+        if total > 0:
+            now = monotonic()
+            sample = self._download_sample
+            if sample and done > sample[0] and now > sample[1] + 0.25:
+                current_speed = (done - sample[0]) / (now - sample[1])
+                self._download_speed = (current_speed if self._download_speed is None
+                                        else self._download_speed * 0.7 + current_speed * 0.3)
+                self._download_sample = (done, now)
+            elif sample is None or done < sample[0]:
+                self._download_sample = (done, now)
+                self._download_speed = None
+            message += f" · {self._bytes(done)} / {self._bytes(total)}"
+            if self._download_speed and self._download_speed > 0:
+                remaining = max(0, int((total - done) / self._download_speed))
+                message += self.tr_text(
+                    f" · {self._bytes(self._download_speed)}/초 · 약 {remaining // 60}분 {remaining % 60}초 남음",
+                    f" · {self._bytes(self._download_speed)}/s · ~{remaining // 60}m {remaining % 60}s left")
+        self.download_detail.setText(message)
+
     def _start(self, operation, work):
         if self.worker:
             return
         self.operation = operation
+        self._download_sample = None
+        self._download_speed = None
         self.worker = TranslationWorker(work, self)
         self.worker.finished.connect(self._finished)
         self.worker.progress.connect(self._progress)
+        self.worker.activity.connect(self._download_activity)
         for widget in (self.tabs, self.setup_button, self.refresh_button, self.use_button):
             widget.setEnabled(False)
         self.progress.setRange(0, 0)
         self.progress.show()
+        self.download_detail.setText("")
+        self.download_detail.setVisible(operation == "download")
         self.cancel_button.show()
         self.cancel_button.setEnabled(True)
-        self.status.setText(self.tr_text("처리 중… 처음 다운로드는 오래 걸릴 수 있습니다.", "Working… the first download may take a while."))
+        self.status.setText(self.tr_text(
+            "모델을 다운로드하는 중… 취소하거나 완료 후 바로 선택할 수 있습니다." if operation == "download"
+            else "연결 및 모델 목록을 확인 중…",
+            "Downloading model… you can cancel, or select it once complete." if operation == "download"
+            else "Checking connection and installed models…"))
         self.worker.start()
         self.busy_changed.emit(True)
 
@@ -367,7 +517,13 @@ class LocalLLMManagerDialog(QDialog):
         self.progress.hide()
         self.cancel_button.hide()
         if worker.error:
-            self.status.setText(worker.error)
+            if self.operation in {"refresh", "setup"}:
+                self.engine_state.setText(self.tr_text(
+                    "로컬 AI 연결 실패 · 실행 환경을 준비하거나 연결 주소를 확인하세요.",
+                    "Local AI unavailable · prepare the engine or check the server address."))
+            self.status.setText(worker.error + (self.tr_text(
+                " · 같은 모델을 다시 선택해 재시도할 수 있습니다.",
+                " · Select the same model to retry.") if self.operation == "download" else ""))
         elif worker.cancel.is_set():
             self.status.setText(self.tr_text("취소했습니다.", "Cancelled.") + (self.tr_text(
                 " LM Studio 다운로드는 서버에서 계속될 수 있습니다. LM Studio에서 확인하세요.",
@@ -378,29 +534,72 @@ class LocalLLMManagerDialog(QDialog):
             self.tabs.setCurrentIndex(2)
             self.status.setText(self.tr_text("서버가 제공한 모델 정보입니다.", "Model information returned by the local server."))
         else:
+            first_discovery = not self._discovered
             self._discovered = True
             previous = self._selected()
+            self._updating_models = True
             self.models = worker.value or []
-            self.table.setRowCount(len(self.models))
-            for index, row in enumerate(self.models):
-                size = f"{row['size'] / 1024**3:.2f} GiB" if isinstance(row["size"], (int, float)) and row["size"] else "—"
-                for column, text in enumerate((row["id"], size, row["parameters"] or "—", row["quantization"] or "—")):
-                    self.table.setItem(index, column, QTableWidgetItem(str(text)))
-            self._filter(self.search.text())
-            if self.models:
-                requested = self.download_name.text().strip() if self.operation == "download" else (previous or {}).get("id", "")
-                selected = next((i for i, row in enumerate(self.models) if row["id"] == requested), 0)
-                self.table.selectRow(selected)
-                if self.operation == "download":
-                    self.tabs.setCurrentIndex(0)
-            elif self.operation in {"setup", "refresh"}:
+            self.table.blockSignals(True)
+            try:
+                self.table.setRowCount(len(self.models))
+                for index, row in enumerate(self.models):
+                    size = f"{row['size'] / 1024**3:.2f} GiB" if isinstance(row["size"], (int, float)) and row["size"] else "—"
+                    for column, value in enumerate((row["id"], size, row["parameters"] or "—", row["quantization"] or "—")):
+                        self.table.setItem(index, column, QTableWidgetItem(str(value)))
+                for index, row in enumerate(self.models):
+                    self.table.setRowHidden(index, self.search.text().casefold() not in row["id"].casefold())
+                requested = (self._download_target if self.operation == "download" else
+                             self.preferred_model if first_discovery and self.operation in {"refresh", "setup"} and self.preferred_model
+                             else (previous or {}).get("id", ""))
+                selected = self._installed_index(requested)
+                if self.operation == "download" and selected < 0:
+                    new_rows = [i for i, row in enumerate(self.models)
+                                if row["id"] not in self._before_download]
+                    if len(new_rows) == 1:
+                        selected = new_rows[0]
+                if self.operation == "delete" and self._model_key(requested) == self._model_key(self._deleted_name):
+                    selected = -1
+                if selected < 0 and not requested and self.models and self.operation not in {"delete", "download"}:
+                    selected = 0
+                self.table.clearSelection()
+                if selected >= 0 and not self.table.isRowHidden(selected):
+                    self.table.selectRow(selected)
+            finally:
+                self.table.blockSignals(False)
+                self._updating_models = False
+            self._sync_catalog()
+            self.engine_state.setText(self.tr_text(
+                f"로컬 AI 연결됨 · 설치된 모델 {len(self.models)}개",
+                f"Local AI connected · {len(self.models)} installed models"))
+            if self.operation == "download":
+                self.tabs.setCurrentIndex(0)
+                self.status.setText(self.tr_text(
+                    "모델 다운로드 완료! 선택한 모델을 확인하고 '이 모델 사용'을 누르세요."
+                    if self._selected() else "다운로드가 끝났습니다. 설치된 모델 목록에서 사용할 모델을 선택하세요.",
+                    "Download complete! Review the selected model and click 'Use this model'."
+                    if self._selected() else "Download finished. Choose the model from Installed."))
+            elif self.operation == "delete":
+                self.status.setText(self.tr_text(
+                    f"{self._deleted_name} 삭제 완료 · 다른 모델을 사용하려면 직접 선택하세요.",
+                    f"{self._deleted_name} deleted · choose another model explicitly."))
+                self._deleted_name = ""
+            elif not self.models:
                 self.tabs.setCurrentIndex(1)
-            self.status.setText(self.tr_text(f"설치된 모델 {len(self.models)}개 · 사용할 모델을 선택한 뒤 '선택한 모델 사용'을 누르세요.",
-                f"{len(self.models)} installed models · select one and click 'Use selected model'.") if self.models else self.tr_text(
-                "모델이 아직 없습니다. '모델 찾기·설치'에서 모델을 선택하고 다운로드하세요.",
-                "No model installed yet. Choose and download one under 'Find and install'."))
+                self.status.setText(self.tr_text(
+                    "설치된 모델이 없습니다. 추천 목록에서 모델을 받아보세요.",
+                    "No models installed. Choose one from the catalog to get started."))
+            elif requested and not self._selected():
+                self.status.setText(self.tr_text(
+                    "전에 선택한 모델이 설치되어 있지 않습니다. 다른 모델을 직접 선택하세요.",
+                    "The previously selected model is missing. Choose another model explicitly."))
+            else:
+                self.status.setText(self.tr_text(
+                    f"설치된 모델 {len(self.models)}개 · 모델을 선택한 뒤 '이 모델 사용'을 누르세요.",
+                    f"{len(self.models)} installed models · select one and click 'Use this model'."))
         if self.operation != "details":
             self._selection()
+            if self.tabs.currentIndex() == 1:
+                self._recommendation()
         worker.deleteLater()
         self.busy_changed.emit(False)
         if self._closing:

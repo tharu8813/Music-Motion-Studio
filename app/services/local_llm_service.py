@@ -86,7 +86,7 @@ class LocalLLMService:
         self.root = Path(root) if root is not None else Path(os.environ.get("LOCALAPPDATA", Path.home())) / "PlaylistCanvas" / "local-llm"
         self._capabilities = {}
 
-    def _request(self, path, body=None, *, method=None, cancel=None, stream=False, progress=None, timeout=45):
+    def _request(self, path, body=None, *, method=None, cancel=None, stream=False, progress=None, status=None, timeout=45):
         check_cancel(cancel)
         headers = {"Content-Type": "application/json"}
         if self.key:
@@ -106,8 +106,22 @@ class LocalLLMService:
                             raise ValueError("Oversized progress record")
                         row = json.loads(line)
                         if row.get("error"):
-                            raise TranslationError("모델 다운로드에 실패했습니다. 모델 이름·디스크 공간을 확인하세요. / Model download failed; check its name and disk space.")
-                        total, done = int(row.get("total", 0)), int(row.get("completed", 0))
+                            detail = str(row["error"])[:300]
+                            if re.search(r"manifest|not found|file does not exist", detail, re.I):
+                                reason = "모델 이름을 찾을 수 없습니다. / Model not found."
+                            elif re.search(r"no space|disk full|not enough space", detail, re.I):
+                                reason = "디스크 공간이 부족합니다. / Insufficient disk space."
+                            else:
+                                reason = "서버에서 다운로드 오류를 반환했습니다. / The server reported a download error."
+                            raise TranslationError(f"{reason} ({detail})")
+                        try:
+                            total = max(0, int(row.get("total") or 0))
+                            done = max(0, int(row.get("completed") or 0))
+                        except (TypeError, ValueError):
+                            total, done = 0, 0
+                        if status:
+                            status({"phase": "download", "status": str(row.get("status", ""))[:120],
+                                    "completed": done, "total": total})
                         if progress and total > 0:
                             progress(min(100, max(0, round(done / total * 100))), 100)
                         success = row.get("status") == "success"
@@ -175,7 +189,7 @@ class LocalLLMService:
             return data
         return next((row["metadata"] for row in self.list_models(cancel) if row["id"] == name), {})
 
-    def download(self, name, cancel=None, progress=None):
+    def download(self, name, cancel=None, progress=None, status=None):
         if self.provider == "lmstudio" and isinstance(name, str) and name.startswith("https://"):
             address = urlsplit(name)
             if (address.hostname != "huggingface.co" or address.username or address.password
@@ -187,7 +201,7 @@ class LocalLLMService:
             validate_local_model(name)
         if self.provider == "ollama":
             self.ensure_running(cancel=cancel)
-            self._request("/api/pull", {"model": name, "stream": True}, stream=True, cancel=cancel, progress=progress)
+            self._request("/api/pull", {"model": name, "stream": True}, stream=True, cancel=cancel, progress=progress, status=status)
         else:
             data = self._request("/api/v1/models/download", {"model": name}, cancel=cancel)
             while data.get("status") not in {"completed", "already_downloaded"}:
@@ -200,6 +214,9 @@ class LocalLLMService:
                 check_cancel(cancel)
                 data = self._request("/api/v1/models/download/status/" + quote(data["job_id"], safe=""), cancel=cancel)
                 total, done = data.get("total_size_bytes", 0), data.get("downloaded_bytes", 0)
+                if status:
+                    status({"phase": "download", "status": str(data.get("status", ""))[:120],
+                            "completed": done, "total": total})
                 if progress and total:
                     progress(min(100, round(done / total * 100)), 100)
         return self.list_models(cancel)
