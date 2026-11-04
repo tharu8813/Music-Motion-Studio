@@ -18,8 +18,14 @@ class AdaptivePreviewQuality:
 
     FACTORS = (1.0, 0.85, 0.70, 0.55, 0.42, 0.35)
 
-    def __init__(self, base_scale: float = 0.65) -> None:
+    def __init__(
+        self, base_scale: float = 0.65, *, downscale_samples: int = 2,
+        recovery_samples: int = 6, minimum_factor: float = 0.35,
+    ) -> None:
         self.base_scale = max(0.3, min(1.0, float(base_scale)))
+        self.downscale_samples = max(1, int(downscale_samples))
+        self.recovery_samples = max(1, int(recovery_samples))
+        self.minimum_factor = max(0.35, min(1.0, float(minimum_factor)))
         self.level = 0
         self._overloaded_samples = 0
         self._stable_samples = 0
@@ -62,13 +68,17 @@ class AdaptivePreviewQuality:
         if overloaded:
             self._overloaded_samples += 1
             self._stable_samples = 0
-            if self._overloaded_samples >= 2 and self.level < len(self.FACTORS) - 1:
-                self.level += 1
+            if self._overloaded_samples >= self.downscale_samples:
+                if (
+                    self.level < len(self.FACTORS) - 1
+                    and self.FACTORS[self.level + 1] >= self.minimum_factor
+                ):
+                    self.level += 1
                 self._overloaded_samples = 0
         elif stable:
             self._stable_samples += 1
             self._overloaded_samples = 0
-            if self._stable_samples >= 6 and self.level > 0:
+            if self._stable_samples >= self.recovery_samples and self.level > 0:
                 self.level -= 1
                 self._stable_samples = 0
         else:

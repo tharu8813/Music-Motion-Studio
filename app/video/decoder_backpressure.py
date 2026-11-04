@@ -20,8 +20,14 @@ class VideoDecoderBackpressure:
     RESOLUTION_FACTORS = (1.0, 0.82, 0.67, 0.52)
     FPS_FACTORS = (1.0, 0.80, 0.60, 0.40)
 
-    def __init__(self, base_fps: int = 30) -> None:
+    def __init__(
+        self, base_fps: int = 30, *,
+        prefer_resolution: bool = False,
+        keep_resolution: bool = False,
+    ) -> None:
         self.base_fps = max(1, int(base_fps))
+        self.prefer_resolution = bool(prefer_resolution)
+        self.keep_resolution = bool(keep_resolution)
         self.resolution_level = 0
         self.fps_level = 0
         self._resolution_pressure = 0
@@ -58,7 +64,13 @@ class VideoDecoderBackpressure:
         active = max(0, int(active_decoders))
         pressure = max(0, int(pressure_drops)) > 0 or pending_decoders > 0
 
-        if pressure:
+        # Resolution-oriented modes give the decoder time to reduce cadence
+        # before sacrificing pixel detail. Quality mode never shrinks video.
+        reduce_resolution = (
+            pressure and not self.keep_resolution
+            and (not self.prefer_resolution or self.fps_level >= 2)
+        )
+        if reduce_resolution:
             self._resolution_pressure += 1
             self._resolution_stable = 0
             if (
@@ -76,7 +88,10 @@ class VideoDecoderBackpressure:
 
         # Cadence backs off more slowly than resolution. Persistent queue
         # pressure can lower FPS too, but only after resolution already yielded.
-        fps_overloaded = pressure and active > 0 and self.resolution_level >= 1
+        fps_overloaded = (
+            pressure and active > 0
+            and (self.prefer_resolution or self.resolution_level >= 1)
+        )
         if fps_overloaded:
             self._fps_pressure += 1
             self._fps_stable = 0
