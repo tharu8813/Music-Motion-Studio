@@ -58,7 +58,7 @@ class CustomMotionDialog(AdaptiveDialog):
         self.setObjectName("customMotionDialog")
         self.setWindowTitle("사용자 지정 애니메이션" if self.korean else "Custom animation")
         self.compact = self.screen().availableGeometry().height() < 800
-        self.resize(1180, 880)
+        self.resize(1200, 880)
         self.setMinimumSize(840, 600 if self.compact else 720)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(*(16, 8, 16, 8) if self.compact else (24, 20, 24, 20))
@@ -81,18 +81,35 @@ class CustomMotionDialog(AdaptiveDialog):
         self.edge_combo.addItem("곡 시작 애니메이션" if self.korean else "Track entrance", "in")
         self.edge_combo.addItem("곡 끝 애니메이션" if self.korean else "Track exit", "out")
         self.edge_combo.setCurrentIndex(0 if edge == "in" else 1)
-        header.addWidget(self.edge_combo)
-        header.addWidget(QLabel("지속 시간" if self.korean else "Duration"))
+        # Keep the frequently used animation scope in its own compact row;
+        # mixing it into the window title row made everything feel equal.
+        self.animation_toolbar = QFrame()
+        self.animation_toolbar.setObjectName("card")
+        animation_layout = QHBoxLayout(self.animation_toolbar)
+        animation_layout.setContentsMargins(12, 8, 12, 8)
+        animation_layout.setSpacing(9)
+        animation_label = QLabel("편집 구간" if self.korean else "Editing")
+        animation_label.setBuddy(self.edge_combo)
+        animation_layout.addWidget(animation_label)
+        animation_layout.addWidget(self.edge_combo)
+        duration_label = QLabel("지속 시간" if self.korean else "Duration")
+        animation_layout.addWidget(duration_label)
         self.duration = QDoubleSpinBox()
         self.duration.setRange(.1, 10)
         self.duration.setDecimals(3)
         self.duration.setSingleStep(.05)
         self.duration.setSuffix(" s")
         self.duration.setKeyboardTracking(False)
-        header.addWidget(self.duration)
+        duration_label.setBuddy(self.duration)
+        animation_layout.addWidget(self.duration)
+        animation_layout.addStretch()
         outer.addLayout(header)
-        self.instructions = QLabel("화면에서 요소를 조작하고, 아래 트랙에서 속성별 타이밍과 곡선을 조절하세요."
-            if self.korean else "Arrange the source on the canvas, then refine timing and curves in the tracks below.")
+        outer.addWidget(self.animation_toolbar)
+        self.instructions = QLabel(
+            "① 타임라인에서 시점 선택   ② 미리보기에서 이동·크기 조절   ③ 재생 후 적용"
+            if self.korean else
+            "① Choose a time   ② Move or resize in the preview   ③ Play, then apply"
+        )
         self.instructions.setObjectName("mutedLabel")
         self.instructions.setWordWrap(True)
         outer.addWidget(self.instructions)
@@ -206,6 +223,14 @@ class CustomMotionDialog(AdaptiveDialog):
         names = {"dx": ("X 이동량", "X offset"), "dy": ("Y 이동량", "Y offset"), "scale": ("크기", "Scale"),
                  "rotation": ("회전", "Rotation"), "opacity": ("투명도", "Opacity")}
         for name, (low, high, default) in MOTION_FIELDS.items():
+            if name in ("dx", "scale"):
+                group_label = QLabel(
+                    ("위치" if name == "dx" else "크기와 모양")
+                    if self.korean else
+                    ("Position" if name == "dx" else "Size and appearance")
+                )
+                group_label.setObjectName("motionColumnHeading")
+                form.addRow(group_label)
             spin = QDoubleSpinBox()
             percent = name in {"scale", "opacity"}
             spin.setRange(low * (100 if percent else 1), high * (100 if percent else 1))
@@ -261,7 +286,7 @@ class CustomMotionDialog(AdaptiveDialog):
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
         splitter.setSizes([800, 340])
-        outer.addWidget(splitter, 1)
+        self.preview_splitter = splitter
         lanes_host = QFrame()
         lanes_host.setObjectName("card")
         lane_layout = QVBoxLayout(lanes_host)
@@ -271,9 +296,17 @@ class CustomMotionDialog(AdaptiveDialog):
         lane_title = QLabel("키프레임" if self.korean else "Keyframes")
         lane_title.setObjectName("panelTitle")
         lane_heading.addWidget(lane_title)
+        mode_label = QLabel("편집 수준" if self.korean else "Editor level")
+        lane_heading.addWidget(mode_label)
         self.mode_combo = QComboBox()
         self.mode_combo.addItem("간단 모드" if self.korean else "Simple mode", False)
         self.mode_combo.addItem("고급 모드" if self.korean else "Advanced mode", True)
+        mode_label.setBuddy(self.mode_combo)
+        self.mode_combo.setToolTip(
+            "간단 모드는 공통 시점을, 고급 모드는 속성별 곡선·보간을 편집합니다."
+            if self.korean else
+            "Simple: shared keyframes. Advanced: per-property curves and easing."
+        )
         lane_heading.addWidget(self.mode_combo)
         lane_hint = QLabel()
         self.lane_hint = lane_hint
@@ -312,7 +345,17 @@ class CustomMotionDialog(AdaptiveDialog):
         self.simple_delete.clicked.connect(lambda: self.delete_common_point(self.progress))
         self.simple_previous.clicked.connect(lambda: self.navigate_common(-1))
         self.simple_next.clicked.connect(lambda: self.navigate_common(1))
-        for button in (self.simple_add, self.simple_delete, self.simple_previous, self.simple_next):
+        # The two most important actions deserve readable labels instead of
+        # four equally weighted unlabeled icons.
+        for button, ko, en, width in (
+            (self.simple_add, "자세 추가", "Add pose", 96),
+            (self.simple_delete, "삭제", "Delete", 76),
+        ):
+            button.setText(ko if self.korean else en)
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            button.setFixedSize(width, 30)
+        for button in (self.simple_previous, self.simple_next,
+                       self.simple_add, self.simple_delete):
             simple_row.addWidget(button)
         simple_layout.addLayout(simple_row, 1, 1)
         self.simple_host.setToolTip("값 입력·화면 조작은 바꾼 속성에만 점을 만듭니다. 자세 추가는 켜진 모든 속성, 삭제·이동은 해당 시점의 켜진 점에 적용합니다."
@@ -399,9 +442,18 @@ class CustomMotionDialog(AdaptiveDialog):
         self.lane_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.lane_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.lane_scroll.setWidget(grid_host)
-        self.lane_scroll.setFixedHeight(84 if self.compact else 214)
+        self.lane_scroll.setFixedHeight(125 if self.compact else 245)
         lane_layout.addWidget(self.lane_scroll)
-        outer.addWidget(lanes_host)
+        self.timeline_host = lanes_host
+        self.workspace_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.workspace_splitter.setObjectName("motionWorkspaceSplitter")
+        self.workspace_splitter.setChildrenCollapsible(False)
+        self.workspace_splitter.addWidget(self.preview_splitter)
+        self.workspace_splitter.addWidget(self.timeline_host)
+        self.workspace_splitter.setStretchFactor(0, 3)
+        self.workspace_splitter.setStretchFactor(1, 1)
+        self.workspace_splitter.setSizes([570, 190])
+        outer.addWidget(self.workspace_splitter, 1)
         self.activate_field("dx")
         playback = QHBoxLayout()
         self.restart = self.icon_button(QStyle.StandardPixmap.SP_MediaSkipBackward, "처음으로" if self.korean else "Go to start")
@@ -554,7 +606,7 @@ class CustomMotionDialog(AdaptiveDialog):
         root.setSpacing(8 if self.compact else 12)
         self.setMinimumHeight(600 if self.compact else 720)
         self.canvas.setMinimumHeight(204 if self.compact else 240)
-        self.lane_scroll.setFixedHeight(84 if self.compact else 214)
+        self.lane_scroll.setFixedHeight(125 if self.compact else 245)
         self.instructions.setVisible(not self.compact)
         self.relative_note.setVisible(not self.compact)
         self.limitations.setVisible(bool(self.limitations.text()))
@@ -572,12 +624,18 @@ class CustomMotionDialog(AdaptiveDialog):
             self.mode_combo.setCurrentIndex(int(self.advanced))
         self.lane_scroll.setVisible(self.advanced)
         self.simple_host.setVisible(not self.advanced)
-        self.lane_hint.setText(("구간을 선택해 곡선을 편집하세요." if self.korean else "Select an interval to edit its curve.") if self.advanced else
-            ("시간 선택 → 화면에서 조작 → 재생" if self.korean else "Choose time → arrange → play"))
-        self.instructions.setText(("화면에서 요소를 조작하고, 아래 트랙에서 속성별 타이밍과 곡선을 조절하세요."
-            if self.korean else "Arrange the source, then refine each property's timing and curves below.") if self.advanced else
-            ("시간을 선택하고 화면에서 요소를 움직여 보세요. 바꾼 속성에만 키프레임이 생깁니다."
-            if self.korean else "Choose a time and arrange the source. Only changed properties receive keyframes."))
+        self.lane_hint.setText(
+            ("속성별 키프레임과 곡선" if self.korean else "Per-property timing and easing")
+            if self.advanced else
+            ("현재 시점의 자세 편집" if self.korean else "Edit the pose at the playhead")
+        )
+        self.instructions.setText(
+            ("① 속성별 타임라인 선택   ② 곡선 편집   ③ 미리보기로 확인"
+             if self.korean else "① Select a property   ② Edit its curve   ③ Preview")
+            if self.advanced else
+            ("① 시점 선택   ② 미리보기에서 위치·크기 조절   ③ 재생 후 적용"
+             if self.korean else "① Pick a time   ② Adjust position or size   ③ Play, then apply")
+        )
         self.refresh_values()
 
     def draft_source(self):

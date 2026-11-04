@@ -1,7 +1,7 @@
 """Unified translation and review workspace with separate technical settings."""
 from copy import deepcopy
 from PySide6.QtCore import QSettings, QTimer, Qt, Signal
-from PySide6.QtWidgets import (QComboBox, QDialog, QGridLayout, QHBoxLayout,
+from PySide6.QtWidgets import (QComboBox, QDialog, QFrame, QGridLayout, QHBoxLayout,
     QLabel, QProgressBar, QPushButton, QVBoxLayout, QSizePolicy)
 from app.dialogs.help_dialog import install_help_shortcut
 from app.dialogs.translation_service_dialog import TranslationServiceDialog
@@ -34,13 +34,31 @@ class LyricsTranslationDialog(QDialog):
         self.setMinimumSize(800, 580)
         install_help_shortcut(self, ("lyrics_editor", "lyrics_translation"), translator=translator)
         root = QVBoxLayout(self)
-        root.setContentsMargins(22, 18, 22, 18)
+        root.setContentsMargins(18, 16, 18, 16)
         root.setSpacing(10)
+        heading = QHBoxLayout()
         title = QLabel(self.tr_text("가사 번역", "Translate lyrics"))
         title.setObjectName("dialogTitle")
-        root.addWidget(title)
+        heading.addWidget(title)
+        heading.addStretch()
+        self.workspace_hint = QLabel(self.tr_text(
+            "언어 설정 → 번역 → 검토 및 적용",
+            "Set languages → Translate → Review and apply",
+        ))
+        self.workspace_hint.setObjectName("mutedLabel")
+        heading.addWidget(self.workspace_hint)
+        root.addLayout(heading)
+        self.translation_settings_card = QFrame(self)
+        self.translation_settings_card.setObjectName("card")
+        settings_layout = QVBoxLayout(self.translation_settings_card)
+        settings_layout.setContentsMargins(14, 12, 14, 12)
+        settings_layout.setSpacing(8)
+        self.settings_section_title = QLabel(self.tr_text("1. 번역 설정", "1. Translation settings"))
+        self.settings_section_title.setObjectName("panelTitle")
+        settings_layout.addWidget(self.settings_section_title)
         controls = QGridLayout()
-        controls.setHorizontalSpacing(16)
+        controls.setHorizontalSpacing(10)
+        controls.setVerticalSpacing(5)
         self.mode_combo = QComboBox()
         for ko, en, value in (("클라우드 LLM", "Cloud LLM", "cloud_llm"), ("로컬 LLM", "Local LLM", "local_llm"),
                               ("로컬 번역 모델", "Local translation model", "local")):
@@ -63,9 +81,11 @@ class LyricsTranslationDialog(QDialog):
         self.source_combo.setCurrentIndex(0)
 
 
-        for column, (ko, en, widget) in enumerate((("원문 언어", "Source language", self.source_combo),
-                                                  ("번역 언어", "Target language", self.target_combo),
-                                                  ("번역 방식", "Translation mode", self.mode_combo))):
+        for column, (ko, en, widget) in (
+            (0, ("원문 언어", "Original language", self.source_combo)),
+            (2, ("번역 언어", "Translate into", self.target_combo)),
+            (3, ("번역 방식", "Translation method", self.mode_combo)),
+        ):
             label = QLabel(self.tr_text(ko, en))
             label.setBuddy(widget)
             widget.setAccessibleName(label.text())
@@ -75,7 +95,16 @@ class LyricsTranslationDialog(QDialog):
             controls.addWidget(label, 0, column)
             controls.addWidget(widget, 1, column)
             controls.setColumnStretch(column, 1)
-        root.addLayout(controls)
+        self.swap_languages_button = QPushButton("⇄")
+        self.swap_languages_button.setObjectName("translationSwapLanguages")
+        self.swap_languages_button.setAccessibleName(self.tr_text("원문과 번역 언어 교환", "Swap source and target languages"))
+        self.swap_languages_button.setToolTip(self.tr_text(
+            "원문 언어가 자동 감지일 때는 먼저 언어를 지정하세요.",
+            "Choose a source language before swapping.",
+        ))
+        self.swap_languages_button.setFixedWidth(38)
+        controls.addWidget(self.swap_languages_button, 1, 1)
+        settings_layout.addLayout(controls)
         actions = QHBoxLayout()
         self.selection_summary = QLabel()
         self.selection_summary.setWordWrap(True)
@@ -89,24 +118,26 @@ class LyricsTranslationDialog(QDialog):
         actions.addWidget(self.setup_button)
         actions.addWidget(self.translate_button)
         actions.addWidget(self.cancel_request_button)
-        root.addLayout(actions)
+        settings_layout.addLayout(actions)
         self.readiness_label = QLabel()
         self.readiness_label.setWordWrap(True)
         self.readiness_label.setTextFormat(Qt.TextFormat.PlainText)
-        root.addWidget(self.readiness_label)
+        self.readiness_label.setObjectName("mutedLabel")
+        settings_layout.addWidget(self.readiness_label)
         self.privacy_note = QLabel()
         self.privacy_note.setWordWrap(True)
         self.privacy_note.setObjectName("mutedLabel")
-        root.addWidget(self.privacy_note)
+        settings_layout.addWidget(self.privacy_note)
         self.progress = QProgressBar()
         self.progress.hide()
-        root.addWidget(self.progress)
+        settings_layout.addWidget(self.progress)
         self.status_label = QLabel()
         self.status_label.setWordWrap(True)
         self.status_label.setTextFormat(Qt.TextFormat.PlainText)
         self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.status_label.hide()
-        root.addWidget(self.status_label)
+        settings_layout.addWidget(self.status_label)
+        root.addWidget(self.translation_settings_card)
         self.draft = TranslationDraft(cues, self.settings, identity=draft_key, parent=self)
         self.service_dialog = TranslationServiceDialog(translator, self, service=self.service,
             auth=self.auth, settings=self.settings, local_llm_factory=local_llm_factory or LocalLLMService,
@@ -121,6 +152,7 @@ class LyricsTranslationDialog(QDialog):
         self.setup_button.clicked.connect(lambda: self._show_window(self.service_dialog))
         self.translate_button.clicked.connect(lambda: self.workflow.translate())
         self.cancel_request_button.clicked.connect(self.workflow.cancel)
+        self.swap_languages_button.clicked.connect(self._swap_languages)
         self.service_dialog.advanced_requested.connect(lambda: self._show_window(self.advanced_dialog))
         self.review_panel.retry_requested.connect(self.workflow.translate)
         self.review_panel.applied.connect(self._applied)
@@ -197,12 +229,37 @@ class LyricsTranslationDialog(QDialog):
         window.raise_()
         window.activateWindow()
 
+    def _swap_languages(self):
+        """Swap two explicitly chosen languages without overwriting auto-detect."""
+        source = self.service_dialog._language_value(self.source_combo)
+        target = self.service_dialog._language_value(self.target_combo)
+        if source == "auto" or not source or not target or source == target:
+            return
+        from PySide6.QtCore import QSignalBlocker
+        with QSignalBlocker(self.source_combo), QSignalBlocker(self.target_combo):
+            self.service_dialog._set_language(self.source_combo, target)
+            self.service_dialog._set_language(self.target_combo, source)
+        # Notify the engine once after both combos agree; a local model's
+        # available language pair must refresh together with the labels.
+        self.service_dialog._pair_changed()
+        self._refresh_summary()
+
     def _refresh_summary(self, *_args):
         s = self.service_dialog
         if not s._provider:
             return
+        source_code = s._language_value(self.source_combo)
+        target_code = s._language_value(self.target_combo)
+        self.swap_languages_button.setEnabled(
+            source_code not in ("", "auto") and bool(target_code)
+            and source_code != target_code and self.worker is None
+        )
         config = s._config()
-        self.selection_summary.setText(s.provider_combo.currentText() + " · " + (s.model_combo.currentText() or self.tr_text("모델 선택 필요", "Choose a model")))
+        self.selection_summary.setText(
+            self.tr_text("사용 서비스: ", "Service: ")
+            + s.provider_combo.currentText() + " · "
+            + (s.model_combo.currentText() or self.tr_text("모델 선택 필요", "Choose a model"))
+        )
         try:
             if config.provider == "chatgpt" and not config.same_language:
                 profile = self.auth.profile()
@@ -267,6 +324,7 @@ class LyricsTranslationDialog(QDialog):
             window.progress.setVisible(busy)
             window.progress.setRange(0, 0)
         self.mode_combo.setEnabled(not busy)
+        self.swap_languages_button.setEnabled(not busy and self.source_combo.currentData() != "auto")
         self.source_combo.setEnabled(not busy)
         self.target_combo.setEnabled(not busy)
         self.advanced_dialog.setEnabled(not busy)
