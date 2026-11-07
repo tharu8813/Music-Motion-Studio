@@ -8,12 +8,31 @@ import unittest
 from unittest.mock import patch
 
 from tools.export_bottleneck_profile import (
-    classify_process, load_stage_profiles, parse_gpu_output, summarize,
+    assess_capture, classify_process, load_stage_profiles, parse_gpu_output, summarize,
 )
 from app.utils import performance
 
 
 class ExportBottleneckProfileTests(unittest.TestCase):
+    def test_crashed_target_is_not_reported_as_a_successful_export(self) -> None:
+        status, warning = assess_capture(1, [{"process_counts": {}, "gpu": [
+            {"gpu_percent": 30, "encoder_percent": 40}]}], {"stages": {}})
+        self.assertEqual(status, "target_failed")
+        self.assertIn("code 1", warning)
+
+    def test_idle_gpu_is_not_evidence_of_export(self) -> None:
+        status, warning = assess_capture(0, [{"process_counts": {}, "gpu": [
+            {"gpu_percent": 30, "encoder_percent": 40}]}], {"stages": {}})
+        self.assertEqual(status, "no_export_observed")
+        self.assertIn("No FFmpeg", warning)
+
+    def test_detects_an_export_from_ffmpeg_or_stage_timing(self) -> None:
+        self.assertEqual(assess_capture(None, [{"process_counts": {"ffmpeg": 1}}],
+                                        {"stages": {}}), ("export_observed", None))
+        self.assertEqual(assess_capture(0, [], {"stages": {
+            "export.piped_capture_session_seconds": {"calls": 12}}}),
+            ("export_observed", None))
+
     def test_process_classification(self) -> None:
         self.assertEqual(classify_process("Music Motion Studio.exe", [], True), "editor")
         self.assertEqual(classify_process("ffmpeg.exe", ["-i", "pipe"], False), "ffmpeg")
