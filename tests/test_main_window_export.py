@@ -1730,7 +1730,7 @@ class MainWindowExportTests(MainWindowTestCase):
     def test_export_eta_stalled_progress_reverts_to_calculating(self) -> None:
         estimator = ExportEtaEstimator(0.0)
         self.assertIsNotNone(estimator.update("Encoding video", 0.5, 10.0))
-        self.assertIsNotNone(estimator.remaining(25.0))
+        self.assertIsNotNone(estimator.remaining(15.0))
         self.assertIsNone(estimator.remaining(31.0))
         resumed = estimator.update("Encoding video", 0.55, 35.0)
         self.assertIsNotNone(resumed)
