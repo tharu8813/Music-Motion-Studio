@@ -45,7 +45,7 @@ class SubtitleTimingTests(unittest.TestCase):
         cues = SubtitleExportService.cues([track], compile_playlist([track]))
         self.assertEqual(cues, [
             SubtitleCue(0, 5, "First"),
-            SubtitleCue(5, 6, "- First\\n- Later"),
+            SubtitleCue(5, 6, "- First\n- Later"),
             SubtitleCue(6, 10, "First"),
         ])
 
@@ -65,7 +65,7 @@ class SubtitleTimingTests(unittest.TestCase):
         plan = compile_playlist([track])
         expected = [
             SubtitleCue(1, 2, "First"),
-            SubtitleCue(2, 3, "- First\\n- Second"),
+            SubtitleCue(2, 3, "- First\n- Second"),
             SubtitleCue(3, 4, "First"),
         ]
         self.assertEqual(SubtitleExportService.cues([track], plan), expected)
@@ -78,7 +78,7 @@ class SubtitleTimingTests(unittest.TestCase):
                     )
                     exported = LyricsService.load(output)
                     self.assertEqual(LyricsService.current_text(exported, 1.5), "First")
-                    self.assertEqual(LyricsService.current_text(exported, 2.5), "- First\\n- Second")
+                    self.assertEqual(LyricsService.current_text(exported, 2.5), "- First\n- Second")
                     self.assertEqual(LyricsService.current_text(exported, 3.5), "First")
                     self.assertEqual(LyricsService.current_text(exported, 4.5), "")
 
@@ -123,7 +123,7 @@ class SubtitleTimingTests(unittest.TestCase):
                 target = service.export(tracks, Path(directory) / f"mix.{extension}", plan)
                 text = target.read_text(encoding="utf-8")
                 self.assertIn("- a 가사\n- b 가사", text)
-                self.assertNotIn("\\n", text)
+                self.assertNotIn("\n", text)
                 parsed = LyricsService.load(target)
                 self.assertEqual(LyricsService.current_text(parsed, 9), "- a 가사\n- b 가사")
                 self.assertEqual(LyricsService.current_text(parsed, 10), "b 가사")
