@@ -158,17 +158,23 @@ def observe_tree(psutil, root, last_cpu: dict, interval: float) -> dict:
     }
 
 
-def collect(psutil, pid: int, seconds: float | None, interval: float) -> tuple[list[dict], str]:
+def collect(psutil, pid: int, seconds: float | None, interval: float,
+            samples: list[dict] | None = None) -> tuple[list[dict], str]:
     root = psutil.Process(pid)
     start = time.monotonic()
     previous_tick = start
     last_cpu: dict = {}
-    samples: list[dict] = []
+    samples = [] if samples is None else samples
     next_gpu_at = start
     while True:
         tick = time.monotonic()
-        if (seconds is not None and tick - start >= seconds) or not root.is_running():
-            return samples, "duration_limit" if seconds is not None and tick - start >= seconds else "process_exited"
+        expired = seconds is not None and tick - start >= seconds
+        try:
+            alive = root.is_running() and root.status() != psutil.STATUS_ZOMBIE
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            alive = False
+        if expired or not alive:
+            return samples, "duration_limit" if expired else "process_exited"
         # Account for sampler overhead and the actual interval between observations.
         delta = max(0.001, tick - previous_tick)
         sample = observe_tree(psutil, root, last_cpu, delta)
@@ -206,6 +212,9 @@ def main(argv: list[str] | None = None) -> int:
     timings = args.output.with_suffix(".timings.json")
     process = None
     if command:
+        # Prevent old worker files from being counted in a subsequent run.
+        if timings.exists() or next(timings.parent.glob(f"{timings.stem}.worker-*{timings.suffix}"), None):
+            timings = timings.with_name(f"{timings.stem}.{os.getpid()}-{int(time.time())}{timings.suffix}")
         env = os.environ.copy()
         env.pop("PLAYLIST_CANVAS_PROFILE_ROOT_PID", None)
         env["PLAYLIST_CANVAS_PROFILE"] = str(timings.resolve())
@@ -216,13 +225,14 @@ def main(argv: list[str] | None = None) -> int:
         pid = args.pid
         print(f"Sampling running editor PID {pid}. Stage timings require PLAYLIST_CANVAS_PROFILE at launch.")
 
+    samples: list[dict] = []
     try:
-        samples, ended = collect(psutil, pid, args.duration, args.interval)
+        samples, ended = collect(psutil, pid, args.duration, args.interval, samples=samples)
     except (psutil.NoSuchProcess, psutil.AccessDenied) as error:
         print(f"Cannot inspect the target process: {error}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
-        samples, ended = [], "interrupted"
+        ended = "interrupted"
     if process is not None and process.poll() is not None:
         process.wait()
 
