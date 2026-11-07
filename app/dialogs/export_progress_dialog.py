@@ -10,7 +10,7 @@ from pathlib import Path
 import re
 from time import monotonic
 
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtCore import Signal, Qt, QTimer
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QDialog,
@@ -212,6 +212,10 @@ class ExportProgressDialog(QDialog):
         self.resize(700, 620)
         self._started_at = monotonic()
         self._eta_estimator = ExportEtaEstimator(self._started_at)
+        self._time_refresh_timer = QTimer(self)
+        self._time_refresh_timer.setInterval(1000)
+        self._time_refresh_timer.timeout.connect(self._refresh_remaining_time)
+        self._time_refresh_timer.start()
         self._cancelling = False
         self._allow_close = False
         self._last_log = ""
@@ -724,6 +728,11 @@ class ExportProgressDialog(QDialog):
             "Complete": "complete",
         }.get(stage, "visuals")
 
+    def _refresh_remaining_time(self) -> None:
+        """Refresh elapsed time and ETA even when FFmpeg is quiet for a second."""
+        now = monotonic()
+        self._update_time_label(self._eta_estimator.remaining(now), now - self._started_at)
+
     def _update_time_label(
         self, remaining: float | None, elapsed: float | None = None,
     ) -> None:
@@ -774,6 +783,7 @@ class ExportProgressDialog(QDialog):
     def complete(self, accepted: bool) -> None:
         """Close the dialog after the worker has reached a terminal state."""
         self._allow_close = True
+        self._time_refresh_timer.stop()
         if accepted:
             self.accept()
         else:
