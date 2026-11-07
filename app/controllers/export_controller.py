@@ -2100,6 +2100,10 @@ class ExportOrchestrator:
         self.clear_audio_staging()
         QTimer.singleShot(0, window._release_render_worker)
         window._resume_close_after_export_cancel()
+        # Make current export timings available without closing the editor.
+        # With profiling disabled, this is an immediate no-op.
+        from app.utils.performance import save as save_profile
+        save_profile()
         if completed_result is not None:
             QTimer.singleShot(
                 0,

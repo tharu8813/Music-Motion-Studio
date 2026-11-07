@@ -25,6 +25,10 @@ P = ParamSpec("P")
 T = TypeVar("T")
 OUTPUT = os.environ.get("PLAYLIST_CANVAS_PROFILE", "").strip()
 ENABLED = bool(OUTPUT)
+# Children inherit this value and write separate timing files instead of
+# overwriting the editor's report at shutdown.
+_ROOT_PID_KEY = "PLAYLIST_CANVAS_PROFILE_ROOT_PID"
+ROOT_PID = os.environ.setdefault(_ROOT_PID_KEY, str(os.getpid())) if ENABLED else ""
 
 
 @dataclass(slots=True)
@@ -133,6 +137,8 @@ def save() -> None:
         return
     try:
         output = Path(OUTPUT)
+        if ROOT_PID and ROOT_PID != str(os.getpid()):
+            output = output.with_name(f"{output.stem}.worker-{os.getpid()}{output.suffix}")
         output.parent.mkdir(parents=True, exist_ok=True)
         temporary = output.with_name(output.name + f".{os.getpid()}.tmp")
         temporary.write_text(json.dumps({
