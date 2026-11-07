@@ -215,6 +215,20 @@ def collect(psutil, pid: int, seconds: float | None, interval: float,
         time.sleep(interval)
 
 
+def resolve_app_command(command: list[str], interpreter: str | None = None) -> list[str]:
+    """Run bare 'python' with the profiler's interpreter, including its venv.
+
+    On Windows the executable found by CreateProcess for a bare name can
+    differ from the Python command selected by the interactive shell. Keep
+    explicit paths and non-Python commands exactly as the caller provided.
+    """
+    if not command:
+        return command
+    if command[0].lower() not in {"python", "python.exe"}:
+        return command
+    return [interpreter or sys.executable, *command[1:]]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pid", type=int, help="Attach to a running editor (stage timers need prior opt-in)")
@@ -224,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", nargs=argparse.REMAINDER, help="Use '-- python main.py' or '-- app.exe'")
     args = parser.parse_args(argv)
     command = args.command[1:] if args.command and args.command[0] == "--" else args.command
+    command = resolve_app_command(command)
     if (args.pid is None) == (not bool(command)):
         parser.error("Provide either --pid or an app command after '--'.")
     if args.interval < 0.1 or (args.duration is not None and args.duration <= 0):
@@ -245,9 +260,10 @@ def main(argv: list[str] | None = None) -> int:
         env = os.environ.copy()
         env.pop("PLAYLIST_CANVAS_PROFILE_ROOT_PID", None)
         env["PLAYLIST_CANVAS_PROFILE"] = str(timings.resolve())
+        print(f"Launching editor with: {command[0]}", flush=True)
         process = subprocess.Popen(command, env=env)
         pid = process.pid
-        print(f"Profiling editor PID {pid}. Export a project, then close the editor to flush timings.")
+        print(f"Profiling editor PID {pid}. Export a project, then close the editor to flush timings.", flush=True)
     else:
         pid = args.pid
         print(f"Sampling running editor PID {pid}. Stage timings require PLAYLIST_CANVAS_PROFILE at launch.")
