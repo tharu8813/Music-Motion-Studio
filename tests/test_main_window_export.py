@@ -1714,6 +1714,28 @@ class MainWindowExportTests(MainWindowTestCase):
 
         self.assertEqual(estimator.update("Complete", 1.0, 60.0), 0.0)
 
+    def test_export_eta_uses_one_encoder_speed_across_finalizing_stage(self) -> None:
+        estimator = ExportEtaEstimator(0.0)
+        estimator.update("Preparing audio", 0.25, 20.0)
+        estimator.update("Encoding video", 0.76, 30.0)
+        estimator.update("Encoding video", 0.77, 40.0)
+        before = estimator.update("Finalizing export", 0.78, 50.0)
+        self.assertIsNotNone(before)
+        self.assertEqual(estimator._samples[-1].stage, "encode")
+        self.assertGreaterEqual(
+            len([sample for sample in estimator._samples if sample.stage == "encode"]), 3,
+        )
+        self.assertGreater(before, 0.0)
+
+    def test_export_eta_stalled_progress_reverts_to_calculating(self) -> None:
+        estimator = ExportEtaEstimator(0.0)
+        self.assertIsNotNone(estimator.update("Encoding video", 0.5, 10.0))
+        self.assertIsNotNone(estimator.remaining(25.0))
+        self.assertIsNone(estimator.remaining(31.0))
+        resumed = estimator.update("Encoding video", 0.55, 35.0)
+        self.assertIsNotNone(resumed)
+        self.assertGreater(resumed, 0.0)
+
     def test_export_progress_keeps_selected_settings_visible(self) -> None:
         dialog = ExportProgressDialog(self.window)
         dialog.set_korean(True)
