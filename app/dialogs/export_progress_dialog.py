@@ -10,7 +10,7 @@ from pathlib import Path
 import re
 from time import monotonic
 
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtCore import Signal, Qt, QTimer
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QDialog,
@@ -69,6 +69,7 @@ class ExportEtaEstimator:
         self._samples.append(_EtaSample(self.started_at, 0.0, ""))
         self._last_fraction = 0.0
         self._last_observed_at = self.started_at
+        self._last_progress_at = self.started_at
         self._predicted_finish_at: float | None = None
 
     def update(self, stage: str, fraction: float, now: float) -> float | None:
@@ -86,9 +87,17 @@ class ExportEtaEstimator:
             self._last_observed_at = now
             return self.remaining(now)
 
-        sample = _EtaSample(now, fraction, stage)
+        # The final encoder can switch its UI label to "Finalizing export"
+        # near the end without changing the underlying rendering workload.
+        # Retain one rate history across that purely presentational boundary.
+        rate_stage = ("encode" if stage in {
+            "Encoding video", "Encoding audio", "Capturing and encoding",
+            "Finalizing export",
+        } else stage)
+        sample = _EtaSample(now, fraction, rate_stage)
         self._samples.append(sample)
         self._last_fraction = fraction
+        self._last_progress_at = now
         previous_observed_at = self._last_observed_at
         self._last_observed_at = now
 
@@ -101,7 +110,7 @@ class ExportEtaEstimator:
 
         stage_samples = [
             entry for entry in self._samples
-            if entry.stage == stage and now - entry.timestamp <= self._WINDOW_SECONDS
+            if entry.stage == rate_stage and now - entry.timestamp <= self._WINDOW_SECONDS
         ]
         stage_rate: float | None = None
         stage_elapsed = 0.0
@@ -110,7 +119,7 @@ class ExportEtaEstimator:
             first = stage_samples[0]
             stage_elapsed = now - first.timestamp
             stage_delta = fraction - first.fraction
-            if stage_elapsed >= 0.5 and stage_delta >= 0.002:
+            if stage_elapsed >= 2.0 and stage_delta >= 0.002:
                 stage_rate = stage_delta / stage_elapsed
 
         rate = overall_rate
@@ -118,12 +127,15 @@ class ExportEtaEstimator:
             # Require several seconds and measurable progress before trusting a
             # stage-local speed. Near completion it receives more weight because
             # the active encoder normally owns nearly all remaining work.
-            confidence = min(0.70, stage_elapsed / 12.0, stage_delta / 0.06)
-            if fraction >= 0.80:
-                confidence = min(0.82, confidence + 0.12)
+            confidence = min(0.65, stage_elapsed / 12.0, stage_delta / 0.05)
+            if rate_stage == "encode":
+                # Render progress is the closest proxy for real work (encoded
+                # seconds/total seconds). Once measured, favor that throughput
+                # over early preparation percentages weighted for the UI.
+                confidence = min(0.93, stage_elapsed / 12.0, stage_delta / 0.015)
             bounded_stage_rate = max(
-                overall_rate * 0.20,
-                min(overall_rate * 5.0, stage_rate),
+                overall_rate * 0.03,
+                min(overall_rate * 8.0, stage_rate),
             )
             rate = overall_rate * (1.0 - confidence) + bounded_stage_rate * confidence
 
@@ -135,7 +147,8 @@ class ExportEtaEstimator:
             # Smooth the completion timestamp, not the duration. This lets the
             # displayed ETA count down naturally between slightly noisy samples.
             delta_seconds = max(0.0, now - previous_observed_at)
-            alpha = min(0.42, max(0.16, 0.18 + delta_seconds / 30.0))
+            alpha = min(0.55 if rate_stage == "encode" else 0.42,
+                        max(0.16, 0.18 + delta_seconds / 24.0))
             self._predicted_finish_at = (
                 self._predicted_finish_at * (1.0 - alpha)
                 + raw_finish_at * alpha
@@ -145,6 +158,11 @@ class ExportEtaEstimator:
     def remaining(self, now: float) -> float | None:
         """Count down the last prediction while progress is temporarily busy."""
         if self._predicted_finish_at is None:
+            return None
+        # An encoder may stop reporting progress while FFmpeg stalls. Don't
+        # continue promising a near-zero ETA based on a long-dead measurement.
+        if self._last_fraction < 1.0 and float(now) - self._last_progress_at > 20.0:
+            self._predicted_finish_at = None
             return None
         remaining = self._predicted_finish_at - float(now)
         if remaining <= 0.0 and self._last_fraction < 1.0:
@@ -194,6 +212,10 @@ class ExportProgressDialog(QDialog):
         self.resize(700, 620)
         self._started_at = monotonic()
         self._eta_estimator = ExportEtaEstimator(self._started_at)
+        self._time_refresh_timer = QTimer(self)
+        self._time_refresh_timer.setInterval(1000)
+        self._time_refresh_timer.timeout.connect(self._refresh_remaining_time)
+        self._time_refresh_timer.start()
         self._cancelling = False
         self._allow_close = False
         self._last_log = ""
@@ -706,6 +728,11 @@ class ExportProgressDialog(QDialog):
             "Complete": "complete",
         }.get(stage, "visuals")
 
+    def _refresh_remaining_time(self) -> None:
+        """Refresh elapsed time and ETA even when FFmpeg is quiet for a second."""
+        now = monotonic()
+        self._update_time_label(self._eta_estimator.remaining(now), now - self._started_at)
+
     def _update_time_label(
         self, remaining: float | None, elapsed: float | None = None,
     ) -> None:
@@ -756,6 +783,7 @@ class ExportProgressDialog(QDialog):
     def complete(self, accepted: bool) -> None:
         """Close the dialog after the worker has reached a terminal state."""
         self._allow_close = True
+        self._time_refresh_timer.stop()
         if accepted:
             self.accept()
         else:

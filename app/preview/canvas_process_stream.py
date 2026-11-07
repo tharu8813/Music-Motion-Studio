@@ -154,6 +154,11 @@ def _render_band(jobs, replies, stop, status) -> None:
             pipe.cancel()
         if scene is not None:
             scene.clear()
+        # Spawned multiprocessing workers may bypass Python's atexit hooks.
+        # Flush opt-in timings explicitly, under their own worker PID filename.
+        from app.utils.performance import ENABLED as PROFILE_ENABLED, save as save_profile
+        if PROFILE_ENABLED:
+            save_profile()
 
 
 class CanvasProcessStream:
