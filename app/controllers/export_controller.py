@@ -83,6 +83,7 @@ from app.services.export_policy import ExportPolicy
 from app.services.export_storage_service import ExportStorageMonitor, estimate_export_storage
 from app.services.export_storage_service import estimate_audio_export_storage
 from app.services.export_formats import is_audio_export, is_subtitle_export
+from app.services.export_file_naming import project_export_stem
 from app.services.subtitle_export_service import SubtitleExportService
 from app.services.lyrics_service import LyricsError
 from app.services.playlist_service import PlaylistService
@@ -921,7 +922,7 @@ class ExportOrchestrator:
             len(active_tracks),
             window._playlist_duration(active_tracks),
             window.translator,
-            default_directory / "playlist.mp4",
+            default_directory / f"{project_export_stem(window.project_settings.title)}.mp4",
             window,
             canvas_size=(
                 round(window.canvas.scene_model.artboard_rect.width()),

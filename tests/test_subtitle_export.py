@@ -35,7 +35,7 @@ def overlapping_tracks():
 
 
 class SubtitleTimingTests(unittest.TestCase):
-    def test_superseded_lyrics_do_not_reappear_after_a_shorter_cue_ends(self):
+    def test_overlapping_lyrics_within_a_track_remain_visible_until_each_end(self):
         track = PlaylistTrack("song.wav", "Song", duration_seconds=10, lyrics=[
             {"start": 0, "end": 10, "text": "First"},
             {"start": 5, "end": 6, "text": "Later"},
@@ -43,10 +43,44 @@ class SubtitleTimingTests(unittest.TestCase):
         from app.timeline.compiler import compile_playlist
 
         cues = SubtitleExportService.cues([track], compile_playlist([track]))
-        self.assertEqual(cues, [SubtitleCue(0, 5, "First"), SubtitleCue(5, 6, "Later")])
-        for cue in cues:
-            self.assertEqual(LyricsService.current_text(track.lyrics, (cue.start + cue.end) / 2), cue.text)
-        self.assertFalse(any(cue.start <= 7 < cue.end for cue in cues))
+        self.assertEqual(cues, [
+            SubtitleCue(0, 5, "First"),
+            SubtitleCue(5, 6, "- First\n- Later"),
+            SubtitleCue(6, 10, "First"),
+        ])
+
+    def test_ttml_word_timed_track_exports_as_lrc_and_srt_with_overlapping_lines(self):
+        from app.timeline.compiler import compile_playlist
+
+        source = (
+            '<tt xmlns="http://www.w3.org/ns/ttml"><body>'
+            '<p begin="1s" end="4s"><span begin="0s" end="1s">First</span></p>'
+            '<p begin="2s" end="3s"><span begin="0s" end="1s">Second</span></p>'
+            '</body></tt>'
+        )
+        lyrics = LyricsService.parse(source, ".ttml")
+        self.assertEqual(len(lyrics), 2)
+        self.assertTrue(all(cue.get("words") for cue in lyrics))
+        track = PlaylistTrack("song.wav", "TTML Track", duration_seconds=6, lyrics=lyrics)
+        plan = compile_playlist([track])
+        expected = [
+            SubtitleCue(1, 2, "First"),
+            SubtitleCue(2, 3, "- First\n- Second"),
+            SubtitleCue(3, 4, "First"),
+        ]
+        self.assertEqual(SubtitleExportService.cues([track], plan), expected)
+        with TemporaryDirectory() as directory:
+            for extension in ("lrc", "srt"):
+                with self.subTest(extension=extension):
+                    output = SubtitleExportService().export(
+                        [track], Path(directory) / f"TTML Track.{extension}",
+                        plan, title="TTML Track",
+                    )
+                    exported = LyricsService.load(output)
+                    self.assertEqual(LyricsService.current_text(exported, 1.5), "First")
+                    self.assertEqual(LyricsService.current_text(exported, 2.5), "- First\n- Second")
+                    self.assertEqual(LyricsService.current_text(exported, 3.5), "First")
+                    self.assertEqual(LyricsService.current_text(exported, 4.5), "")
 
     def test_overlap_is_outgoing_above_incoming_then_returns_to_single_line(self):
         tracks, plan = overlapping_tracks()
@@ -89,7 +123,7 @@ class SubtitleTimingTests(unittest.TestCase):
                 target = service.export(tracks, Path(directory) / f"mix.{extension}", plan)
                 text = target.read_text(encoding="utf-8")
                 self.assertIn("- a 가사\n- b 가사", text)
-                self.assertNotIn("\\n", text)
+                self.assertNotIn("\n", text)
                 parsed = LyricsService.load(target)
                 self.assertEqual(LyricsService.current_text(parsed, 9), "- a 가사\n- b 가사")
                 self.assertEqual(LyricsService.current_text(parsed, 10), "b 가사")
