@@ -14,6 +14,8 @@ python -m pip install psutil
 
 ```powershell
 python tools/export_bottleneck_profile.py --output build/export-bottleneck.json -- python main.py
+
+이 명령의 마지막 `python`은 진단 도구를 실행한 `sys.executable`(현재 가상환경의 Python)로 자동 치환한다. Windows에서 셸과 자식 프로세스가 서로 다른 Python을 선택하는 문제를 방지한다. 이미 Python 경로를 명시했거나 패키지 실행 파일을 지정했다면 해당 경로를 그대로 사용한다.
 ```
 
 설치된 실행 파일을 측정할 때는 마지막 명령을 해당 실행 파일 경로로 바꾼다.
