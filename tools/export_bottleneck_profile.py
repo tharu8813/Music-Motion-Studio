@@ -128,6 +128,33 @@ def summarize(samples: list[dict], profiles: dict) -> dict:
     }
 
 
+def assess_capture(target_exit_code: int | None, samples: list[dict],
+                   profiles: dict) -> tuple[str, str | None]:
+    """Distinguish a real export from a failed or idle app launch.
+
+    The sampler may miss short FFmpeg processes; known export stage timers
+    provide a second signal. GPU utilization alone is never proof of export.
+    """
+    if target_exit_code is not None and target_exit_code != 0:
+        return ("target_failed",
+                f"Target application exited with code {target_exit_code}. "
+                "Its startup error is shown above; no valid export benchmark was recorded. "
+                "Check the selected Python environment and install project dependencies.")
+    observed_ffmpeg = any(
+        sample.get("process_counts", {}).get("ffmpeg", 0) > 0
+        for sample in samples
+    )
+    stage_names = profiles.get("stages", {})
+    observed_export_timing = any(
+        name.startswith(("export.", "ffmpeg.")) for name in stage_names
+    )
+    if observed_ffmpeg or observed_export_timing:
+        return "export_observed", None
+    return ("no_export_observed",
+            "No FFmpeg process or export timing was observed. The samples may "
+            "only describe app startup or idle GPU activity; export metrics are not validated.")
+
+
 def observe_tree(psutil, root, last_cpu: dict, interval: float) -> dict:
     """One process-tree sample. CPU is measured in logical core equivalents."""
     cpu_cores = defaultdict(float)
@@ -235,10 +262,14 @@ def main(argv: list[str] | None = None) -> int:
         ended = "interrupted"
     if process is not None and process.poll() is not None:
         process.wait()
+    target_exit_code = process.returncode if process is not None else None
 
     profiles = load_stage_profiles(timings)
+    capture_status, warning = assess_capture(target_exit_code, samples, profiles)
     report = {
         "schema": 1,
+        "capture_status": capture_status,
+        "target_exit_code": target_exit_code,
         "collected_at": datetime.now().astimezone().isoformat(),
         "target_pid": pid,
         "ended": ended,
@@ -251,10 +282,15 @@ def main(argv: list[str] | None = None) -> int:
             "Attach mode cannot enable code timings retroactively; editor/worker timing files appear on flush.",
         ],
     }
+    if warning:
+        report["warning"] = warning
     args.output.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"Export diagnostics written: {args.output}")
-    print(json.dumps(report["summary"], indent=2, ensure_ascii=False))
-    return 0
+    if warning:
+        print(f"WARNING: {warning}", file=sys.stderr)
+    if capture_status == "export_observed":
+        print(json.dumps(report["summary"], indent=2, ensure_ascii=False))
+    return 1 if capture_status == "target_failed" else 0
 
 
 if __name__ == "__main__":
