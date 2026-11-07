@@ -79,14 +79,36 @@ class ExportDestinationTests(unittest.TestCase):
             warning.assert_called_once()
             self.assertEqual(self.dialog.result(), QDialog.DialogCode.Rejected)
 
-    def test_overwrite_confirmation_uses_selected_audio_extension(self):
+    def test_colliding_names_receive_numbers_for_the_selected_format(self):
         self.dialog.export_type_combo.setCurrentIndex(1)
-        output = Path(self.directory.name) / "playlist.mp3"
-        output.write_bytes(b"existing")
-        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No) as question:
-            self.dialog._accept_if_valid()
-        self.assertIn("playlist.mp3", question.call_args.args[2])
-        self.assertEqual(output.read_bytes(), b"existing")
+        root = Path(self.directory.name)
+        (root / "playlist.mp3").write_bytes(b"original")
+        (root / "playlist (2).mp3").write_bytes(b"second")
+        self.assertEqual(self.dialog.output_path, (root / "playlist (3).mp3").resolve())
+        self.assertIn("playlist (3).mp3", self.dialog.output_filename_label.text())
+        self.dialog._accept_if_valid()
+        self.assertEqual(self.dialog.result(), QDialog.DialogCode.Accepted)
+        self.assertEqual(self.dialog.output_path, (root / "playlist (3).mp3").resolve())
+        self.assertEqual((root / "playlist.mp3").read_bytes(), b"original")
+        self.assertEqual((root / "playlist (2).mp3").read_bytes(), b"second")
+
+    def test_changing_folder_updates_name_preview_without_overwriting(self):
+        root = Path(self.directory.name)
+        (root / "playlist.mp4").write_bytes(b"existing")
+        self.assertIn("playlist (2).mp4", self.dialog.output_filename_label.text())
+        alternate = root / "other"
+        alternate.mkdir()
+        self.dialog.output_path_edit.setText(str(alternate))
+        self.assertEqual(self.dialog.output_path, alternate / "playlist.mp4")
+        self.assertIn("playlist.mp4", self.dialog.output_filename_label.text())
+        self.assertNotIn("playlist (2).mp4", self.dialog.output_filename_label.text())
+
+    def test_manual_filename_is_kept_and_collision_is_numbered(self):
+        root = Path(self.directory.name)
+        self.dialog.filename_edit.setText("My custom mix")
+        (root / "My custom mix.mp4").write_bytes(b"existing")
+        self.assertEqual(self.dialog.filename_edit.text(), "My custom mix")
+        self.assertEqual(self.dialog.output_path, (root / "My custom mix (2).mp4").resolve())
 
     def test_audio_progress_and_completion_offer_audio_actions(self):
         progress = ExportProgressDialog()
