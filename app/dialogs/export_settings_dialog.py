@@ -38,6 +38,7 @@ from app.services.video_encoder_service import AUTO_VIDEO_ENCODER
 from app.services.export_validation_service import EXPORT_FPS_OPTIONS
 from app.utils.time_format import format_clock
 from app.services.export_formats import VIDEO_FORMATS, AUDIO_FORMATS, SUBTITLE_FORMATS
+from app.services.export_file_naming import available_export_path
 
 
 class ExportSettingsDialog(AdaptiveDialog):
@@ -90,6 +91,7 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.audio_bitrate_combo.setCurrentText(settings.audio_bitrate)
         self.advanced_check = QCheckBox()
         default_path = Path(default_output_path).expanduser().resolve()
+        self._confirmed_output_path: Path | None = None
         self.export_type_combo = QComboBox()
         self.export_type_combo.addItem("", "video")
         self.export_type_combo.addItem("", "audio")
@@ -225,6 +227,7 @@ class ExportSettingsDialog(AdaptiveDialog):
         )
         self.fps_combo.currentIndexChanged.connect(self._update_workload_hint)
         self.filename_edit.textChanged.connect(self._update_output_filename)
+        self.output_path_edit.textChanged.connect(self._update_output_filename)
         self.format_combo.currentIndexChanged.connect(self._format_changed)
         self.export_type_combo.currentIndexChanged.connect(self._export_type_changed)
         self.setTabOrder(self.export_type_combo, self.format_combo)
@@ -493,7 +496,9 @@ class ExportSettingsDialog(AdaptiveDialog):
         suffix = Path(name).suffix.lower().lstrip(".")
         if suffix in VIDEO_FORMATS + AUDIO_FORMATS + SUBTITLE_FORMATS:
             name = name[:-(len(suffix) + 1)]
-        return (folder / f"{name}.{self.output_format}").resolve()
+        if self._confirmed_output_path is not None:
+            return self._confirmed_output_path
+        return available_export_path((folder / f"{name}.{self.output_format}").resolve())
 
     @property
     def audio_only(self) -> bool:
@@ -593,20 +598,9 @@ class ExportSettingsDialog(AdaptiveDialog):
             )
             return
         output = self.output_path
-        if output.exists():
-            answer = QMessageBox.question(
-                self,
-                "파일 덮어쓰기" if korean else "Replace existing file",
-                f"{output.name} 파일을 덮어쓸까요?"
-                if korean else f"Replace the existing file '{output.name}'?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            # Native Windows dialogs may return either the StandardButton enum
-            # or its integer value depending on the PySide/Python build. Object
-            # identity rejects the latter even after the user clicks Yes.
-            if answer != QMessageBox.StandardButton.Yes:
-                return
+        # Select an unused filename rather than prompting to replace a prior export.
+        # Freeze it at acceptance so later path reads cannot choose another number.
+        self._confirmed_output_path = output
         self.output_path_edit.setText(str(output.parent))
         self.accept()
 
