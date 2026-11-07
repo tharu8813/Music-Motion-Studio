@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from tools.export_bottleneck_profile import (
-    assess_capture, classify_process, load_stage_profiles, parse_gpu_output, summarize,
+    assess_capture, classify_process, load_stage_profiles, parse_gpu_output, resolve_app_command, summarize,
 )
 from app.utils import performance
 
@@ -32,6 +32,19 @@ class ExportBottleneckProfileTests(unittest.TestCase):
         self.assertEqual(assess_capture(0, [], {"stages": {
             "export.piped_capture_session_seconds": {"calls": 12}}}),
             ("export_observed", None))
+
+    def test_bare_python_uses_the_profiler_virtualenv_interpreter(self) -> None:
+        self.assertEqual(resolve_app_command(["python", "main.py"], r"C:\\proj\\.venv\\Scripts\\python.exe"),
+                         [r"C:\\proj\\.venv\\Scripts\\python.exe", "main.py"])
+        self.assertEqual(resolve_app_command(["python.exe", "-m", "app"], r"C:\\venv\\python.exe"),
+                         [r"C:\\venv\\python.exe", "-m", "app"])
+
+    def test_explicit_executable_and_packaged_app_are_preserved(self) -> None:
+        self.assertEqual(resolve_app_command([r".\\.venv\\Scripts\\python.exe", "main.py"], "other"),
+                         [r".\\.venv\\Scripts\\python.exe", "main.py"])
+        self.assertEqual(resolve_app_command(["Music Motion Studio.exe"], "other"),
+                         ["Music Motion Studio.exe"])
+        self.assertEqual(resolve_app_command([], "other"), [])
 
     def test_process_classification(self) -> None:
         self.assertEqual(classify_process("Music Motion Studio.exe", [], True), "editor")
