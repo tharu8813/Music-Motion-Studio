@@ -31,8 +31,8 @@ class SubtitleExportService:
         if not isfinite(timing_offset):
             raise LyricsError("Subtitle timing offset must be finite.")
         track_by_id = {track.id: track for track in tracks if track.enabled}
-        # Each clip owns at most one current lyric. Newer lyrics take precedence
-        # within a track, while different clips remain visible together.
+        # All independently timed cues remain visible until their actual end,
+        # including overlapping lines within the same TTML/LRC track.
         events: dict[int, list[tuple[bool, int, int, str]]] = {}
         clip_order = sorted(enumerate(plan.audio.clips), key=lambda item: (item[1].timeline_start, item[0]))
         for clip_index, (_original_index, clip) in enumerate(clip_order):
@@ -44,9 +44,6 @@ class SubtitleExportService:
             for cue_index, cue in enumerate(ordered_cues):
                 source_start = float(cue.get("start", 0)) - offset
                 source_end = float(cue.get("end", float(cue.get("start", 0)) + 8)) - offset
-                if cue_index + 1 < len(ordered_cues):
-                    # A superseded cue never returns after the newer cue ends, matching Preview.
-                    source_end = min(source_end, float(ordered_cues[cue_index + 1].get("start", 0)) - offset)
                 text = "\n".join(
                     line.strip() for line in LyricsService.decode_line_breaks(cue.get("text", "")).splitlines()
                     if line.strip()
@@ -75,7 +72,11 @@ class SubtitleExportService:
                     clip_cues.pop(cue_index, None)
                 if not clip_cues:
                     active.pop(clip_index, None)
-            lines = [cues[max(cues)] for _clip_index, cues in sorted(active.items()) if cues]
+            lines = [
+                text
+                for _clip_index, clip_cues in sorted(active.items())
+                for _cue_index, text in sorted(clip_cues.items())
+            ]
             if not lines:
                 continue
             text = "\n".join(f"- {line}" for line in lines) if len(lines) > 1 else lines[0]
