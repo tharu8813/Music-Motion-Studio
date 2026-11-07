@@ -312,42 +312,20 @@ class MainWindowExportTests(MainWindowTestCase):
         finally:
             dialog.close()
 
-    def test_export_existing_file_accepts_native_yes_button_value(self) -> None:
-        with TemporaryDirectory(prefix="pvs-export-overwrite-") as raw_directory:
+    def test_export_existing_file_is_numbered_instead_of_overwritten(self) -> None:
+        with TemporaryDirectory(prefix="pvs-export-numbered-") as raw_directory:
             output = Path(raw_directory) / "existing.mp4"
             output.write_bytes(b"existing video")
             dialog = ExportSettingsDialog(
                 AppSettings(), 1, 60.0, self.window.translator, output,
             )
             try:
-                with patch.object(
-                    QMessageBox, "question",
-                    return_value=QMessageBox.StandardButton.Yes.value,
-                ) as confirmation:
+                with patch.object(QMessageBox, "question") as confirmation:
                     dialog._accept_if_valid()
-
-                confirmation.assert_called_once()
+                confirmation.assert_not_called()
                 self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
-                self.assertEqual(dialog.output_path, output.resolve())
-            finally:
-                dialog.close()
-
-    def test_export_existing_file_no_keeps_settings_dialog_open(self) -> None:
-        with TemporaryDirectory(prefix="pvs-export-no-overwrite-") as raw_directory:
-            output = Path(raw_directory) / "existing.mp4"
-            output.write_bytes(b"existing video")
-            dialog = ExportSettingsDialog(
-                AppSettings(), 1, 60.0, self.window.translator, output,
-            )
-            try:
-                with patch.object(
-                    QMessageBox, "question",
-                    return_value=QMessageBox.StandardButton.No,
-                ):
-                    dialog._accept_if_valid()
-
-                self.assertEqual(dialog.result(), QDialog.DialogCode.Rejected)
-                self.assertTrue(output.is_file())
+                self.assertEqual(dialog.output_path, output.with_name("existing (2).mp4").resolve())
+                self.assertEqual(output.read_bytes(), b"existing video")
             finally:
                 dialog.close()
 
