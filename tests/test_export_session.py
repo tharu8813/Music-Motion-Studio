@@ -392,9 +392,9 @@ class CanvasWorkerEofOrderingTests(unittest.TestCase):
 
         session = ExportSession.__new__(ExportSession)
         pipes = {
-                "base": _WorkerPipe("base", 60),
-                "layer:0": _WorkerPipe("layer:0", 60),
-                "layer:1": _WorkerPipe("layer:1", 12),
+            "base": _WorkerPipe("base", 60),
+            "layer:0": _WorkerPipe("layer:0", 60),
+            "layer:1": _WorkerPipe("layer:1", 12),
         }
         session._pipes = pipes
         with patch.object(export_session_module, "CanvasProcessStream", _WorkerPipe):
@@ -413,9 +413,13 @@ class CanvasWorkerEofOrderingTests(unittest.TestCase):
         session = ExportSession.__new__(ExportSession)
         legacy = SimpleNamespace(pipe_fps=60)
         session._pipes = {"base": legacy}
-        with patch.object(export_session_module, "CanvasProcessStream") as worker:
+        class _WorkerPipe:
+            pass
+
+        with patch.object(export_session_module, "CanvasProcessStream", _WorkerPipe):
+            # The legacy serial pipe has no request_finish() method.
+            # A mistaken call would raise instead of silently succeeding.
             session._request_worker_eofs(["base"])
-            worker.assert_not_called()
 
 
 
