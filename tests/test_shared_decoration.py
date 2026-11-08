@@ -89,9 +89,9 @@ class SharedDecorationTests(unittest.TestCase):
             inspector.deleteLater()
 
     @staticmethod
-    def render(source):
+    def render(source, width=100, height=80):
         item = SourceItem(source)
-        image = QImage(100, 80, QImage.Format.Format_ARGB32_Premultiplied)
+        image = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
         image.fill(0)
         painter = QPainter(image)
         try:
@@ -150,7 +150,7 @@ class SharedDecorationTests(unittest.TestCase):
                         line_width=source.visualizer_line_width,
                         flip_vertical=vertical,
                     )
-                    canvas = self.render(source).convertToFormat(QImage.Format.Format_RGBA8888)
+                    canvas = self.render(source, 120, 90).convertToFormat(QImage.Format.Format_RGBA8888)
                     exported = PythonVisualizerRenderer._draw_frame(120, 90, overlay, values)
                     # The alpha silhouette must match independently of the
                     # premultiplied colour representation of the QImage.
