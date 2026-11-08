@@ -332,3 +332,59 @@ to a separate FFmpeg process is not a correct interoperability mechanism.
 
 Production PySide6/Qt rendering, audio, encoder arguments and the
 `music-motion-native 0.3.0` Python extension remain unchanged.
+
+
+## Milestone 6: bounded native NV12 GPU frame ring and adapter identity
+
+The user's RTX 5060 native D3D11 test confirmed:
+- `status: measured` on **NVIDIA GeForce RTX 5060**, DXGI vendor
+  `0x10DE`, device `0x2D05`.
+- 20 consecutive **1920×1080** native `DXGI_FORMAT_NV12` textures,
+  all Y/UV bytes unchanged after CPU staging → GPU copy → diagnostic readback.
+- **1.46915ms** median per frame including CPU NV12 upload and mandatory
+  verification readback. This is not an NVENC zero-copy measurement.
+
+A new Windows-only Rust module, `d3d11_frame_pool`, builds a bounded ring
+of **2–8 persistent NV12 textures on one D3D11 device**. Each enqueued frame
+uses GPU `CopyResource` to a free texture; there is **no CPU readback
+between the staging upload and GPU texture copy**. Frames carry strictly
+increasing presentation timestamps; the oldest ready frame is reserved
+first and an in-flight texture cannot be reused until explicitly marked
+completed. A full ring reports backpressure instead of overwriting data.
+
+Resource lifecycle is explicit but **hardware encoder integration and
+completion fences remain unimplemented**. `complete_encode()` is invoked
+only by the diagnostic test, after validation. In a real encoder, calling
+it without a confirmed GPU completion event could corrupt subsequent
+frames. Never promote these primitives to production without a verified
+encode-completion fence and resource-ownership contract.
+
+The diagnostic compares D3D11's DXGI vendor/device IDs to those returned
+by the separate Rust `wgpu` GPU adapter. **Matching PCI IDs are only a
+guard**, not evidence that a Vulkan storage buffer can be shared with
+a D3D11 texture. Exact adapter LUID and interop synchronization will
+be required before cross-API memory sharing.
+
+Run on the RTX 5060:
+
+```powershell
+git pull
+cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_nv12_frame_pool_probe -- --width 1920 --height 1080 --frames 30 --slots 3 --output rust-d3d11-frame-pool-local.json
+```
+
+The report shows adapter identity, whether vendor/device IDs match,
+completed frames, backpressure safety, per-frame Y/UV byte parity, and
+`median_cpu_staging_upload_plus_gpu_copy_enqueue_seconds`. The timing
+is **CPU submission only** and cannot be interpreted as GPU completion
+or encoding duration. Each frame is separately verified by a diagnostic
+readback outside the timing.
+
+Remaining major milestones:
+- Connect the GPU composition output to a native D3D11 texture on the
+  same device, rather than uploading CPU NV12 bytes.
+- Implement an **in-process encoder** with real D3D11 texture ownership
+  through FFmpeg AVHWFramesContext or NVIDIA Video Codec SDK.
+- Add GPU completion fences and bounded asynchronous presentation-time
+  scheduling, test real H.264 frames and exact timestamp/visual parity.
+- Integrate gradually with the existing Qt Canvas+lyrics exports only
+  after a same-project performance and fidelity A/B comparison.
