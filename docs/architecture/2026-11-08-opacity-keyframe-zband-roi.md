@@ -1,0 +1,62 @@
+# 5단계: opacity-only 키프레임의 Canvas/FFmpeg 투명 Z-band ROI 최적화
+
+## 근거
+
+실제 13곡 내보내기에서는 Canvas Z-band의 프레임 생성 및 FFmpeg 합성·전송이 동시에 CPU/메모리 대역폭을 사용한다. 기존 구현은 **위치·크기·회전 등의 키프레임이 없는** 투명 Z-band만 고정 크롭으로 내보내고 있었다.
+
+투명도(`opacity`) 키프레임은 픽셀의 **위치와 최대 점유 영역을 바꾸지 않는다**. 그런데도 기존의 `source.keyframes.animated` 검사는 투명도만 변하는 레이어를 고정 크롭 대상에서 제외했다. 이 때문에 작은 타이틀, 자막, 모양의 투명도 페이드에 대해 매번 전체 캔버스를 별도 RGBA 파이프와 FFmpeg 오버레이로 전달할 수 있었다.
+
+## 변경
+
+1. `CanvasSnapshot._keyframes_change_capture_bounds`: 모든 키프레임 저장 범위(global/single-track/per-track)를 보수적으로 확인한다. 활성 애니메이션에서 `opacity`만 변경되는 경우에만 고정 영역 크롭을 허용한다.
+2. `band_capture_envelope` 및 일반 `_dynamic_band_capture_rect`에서 해당 안전 판정을 사용한다. `x/y/scale/rotation/width/height/blur/shadow` 등 다른 키프레임이나 custom motion이 있으면 **기존 전체 프레임 경로를 유지**한다.
+3. 새로 허용된 투명도 키프레임 밴드의 크롭은 실제 출력 픽셀 2×2 경계에 맞춘다. FFmpeg의 기본 `yuv420p` 오버레이가 홀수 좌표를 짝수 경계로 내리는 경우 생길 수 있는 색상/위치 오차를 방지한다.
+4. 파이프 종료 로그에 출력 프레임 수·크기·총 raw MiB를 추가해 내보내기 전후의 합성 입력 비용을 확인할 수 있다.
+
+다른 레이어 타입의 전송, 오디오, 하드웨어 인코더, 영상 화질/프레임 수, 비주얼라이저 방향, 레이어 Z 순서는 변경하지 않았다.
+
+## 데이터 감소 예시 (모델 계산, 실측 성능이 아님)
+
+320×180 캔버스에서 88×40 크롭된 한 RGBA 레이어를 한 프레임에 전달하면:
+
+- 기존 전체 RGBA 레이어: `320 × 180 × 4 = 230,400 bytes`
+- 크롭 RGBA 레이어: `88 × 40 × 4 = 14,080 bytes`
+- 해당 레이어 파이프의 원시 픽셀 전송량 약 **93.9% 감소**
+
+실제 감소량은 레이어 수·크기·애니메이션과 크롭 자격에 달려 있다. 모든 레이어가 같은 비율로 줄어드는 것은 아니다. 이 수치가 전체 내보내기 시간을 93.9% 단축한다는 뜻도 아니다.
+
+## 검증
+
+- `tests/test_opacity_keyframe_zband.py`: 투명도 키프레임은 크롭 가능, 위치·크기·블러·그림자 키프레임은 기존 fallback 유지, 1×/1.5× 출력 해상도에서 짝수 픽셀 좌표 적용, 시간별 전체/크롭 Canvas 픽셀 동등성 비교.
+- 실제 FFmpeg 7.1.5의 320×180 배경 + 4단계 opacity 프레임에서 88×40 RGBA 크롭 레이어와 전체 RGBA 레이어를 합성한 `yuv420p` 4프레임 바이트가 **완전히 동일**했다. 동일 FFmpeg 비교를 Windows CI 회귀 테스트에도 추가했다.
+- **사용자 1080p60 장시간 내보내기의 성능 향상 폭은 아직 측정하지 않았다.** 전체 CI 및 사용자 프로젝트 렌더 전후 비교가 필요하다.
+
+## 이전 방식과 비교
+
+동일 버전에서 환경변수만 변경해 구버전 전체 프레임과 새 고정 크롭을 비교할 수 있다. 아래 두 명령은 **각각 별도로** 실행하고, 두 내보내기 모두 완료한 뒤 프로그램을 종료해야 한다.
+
+이전 동작(투명도 키프레임도 전체 프레임):
+
+```powershell
+$env:PLAYLIST_CANVAS_DISABLE_OPACITY_KEYFRAME_ROI = "1"
+python tools/export_bottleneck_profile.py --output build/opacity-roi-before.json -- python main.py
+```
+
+최적화된 동작:
+
+```powershell
+Remove-Item Env:PLAYLIST_CANVAS_DISABLE_OPACITY_KEYFRAME_ROI -ErrorAction SilentlyContinue
+python tools/export_bottleneck_profile.py --output build/opacity-roi-after.json -- python main.py
+```
+
+실제 속도·CPU 측정은 동일한 프로젝트, 출력 FPS/해상도, 파이프 크기·FFmpeg 최적화 옵션, PC 전원 설정에서 진행해야 한다.
+
+업데이트된 버전을 동일 설정의 프로젝트에서 렌더링한 뒤, 로그의
+
+`Canvas pipe drained: ... size=... raw_mib=...`
+
+필드를 확인하면 된다. 투명도만 애니메이션되는 작은 Z-band에서 `size`가 전체 캔버스보다 작고 `raw_mib`가 감소해야 한다. 움직이는 키프레임이 포함된 레이어는 크롭되지 않는 것이 정상이다.
+
+사전 최적화 비교는 바로 앞 커밋을 동일 환경에서 실행해 측정할 수 있다. 구버전 결과의 FFmpeg 버전, NVENC 설정, output FPS, 파이프 최적화 환경변수도 같아야 의미 있는 비교가 된다.
+
+실측에서 위치·색상 차이가 나타나면 해당 커밋을 롤백할 수 있도록 이 변경은 별도 PR로 격리했다.

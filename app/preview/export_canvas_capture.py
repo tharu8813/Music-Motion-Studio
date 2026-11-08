@@ -106,7 +106,21 @@ class ExportCanvasCapturer:
                 self.scene, z_min, z_max,
             )
             if capture_rect is not None:
-                self._stream_capture_rects[f"layer:{index}"] = capture_rect
+                stream_key = f"layer:{index}"
+                if any(
+                    item.source.keyframes.animated
+                    and not CanvasSnapshot._keyframes_change_capture_bounds(item.source)
+                    for item in self._stream_source_items[stream_key]
+                ):
+                    # FFmpeg's default yuv420 overlay snaps coordinates to
+                    # chroma-subsampled pixels. For newly eligible opacity
+                    # keyframes, align their fixed ROI to the final 2x2 pixel
+                    # grid to avoid one-pixel shifts and colour changes.
+                    capture_rect = CanvasSnapshot.align_preview_crop(
+                        capture_rect, self.scene.artboard_rect, self.output_scale,
+                        tile=2,
+                    )
+                self._stream_capture_rects[stream_key] = capture_rect
         self.partial_render_capture_count = 0
         self.scene_render_source_pixels = 0
         self.full_frame_source_pixels = 0
