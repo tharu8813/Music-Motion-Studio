@@ -131,14 +131,14 @@ class SharedDecorationTests(unittest.TestCase):
         # Use the editor's documented placeholder levels for both renderers;
         # only the audio amplitude may differ in a real playback session.
         for style in ("bars", "center", "capsule", "dots", "led", "mirror", "line", "wave"):
-            for vertical in (False, True):
-                with self.subTest(style=style, vertical=vertical):
+            for horizontal, vertical in ((False, False), (True, False), (False, True), (True, True)):
+                with self.subTest(style=style, horizontal=horizontal, vertical=vertical):
                     source = Source(
                         SourceType.AUDIO_VISUALIZER, "Parity",
                         width=120, height=90, visualizer_style=style,
                         visualizer_bars=9, visualizer_min_level=0.02,
                         visualizer_max_level=0.94, visualizer_curve=1.0,
-                        fill_color="#EE77CC", flip_vertical=vertical,
+                        fill_color="#EE77CC", flip_horizontal=horizontal, flip_vertical=vertical,
                     )
                     values = np.array([
                         0.02 + 0.92 * (0.16 + 0.76 * abs(sin(i * 0.61 + 0.8)))
@@ -148,7 +148,7 @@ class SharedDecorationTests(unittest.TestCase):
                         0, 0, 120, 90, style, source.fill_color,
                         bar_count=source.visualizer_bars,
                         line_width=source.visualizer_line_width,
-                        flip_vertical=vertical,
+                        flip_horizontal=horizontal, flip_vertical=vertical,
                     )
                     canvas = self.render(source, 120, 90).convertToFormat(QImage.Format.Format_RGBA8888)
                     exported = PythonVisualizerRenderer._draw_frame(120, 90, overlay, values)
@@ -158,6 +158,17 @@ class SharedDecorationTests(unittest.TestCase):
                     exported_alpha = np.frombuffer(exported.constBits(), np.uint8).reshape(90, 120, 4)[:, :, 3]
                     mismatch = np.mean((canvas_alpha > 32) != (exported_alpha > 32))
                     self.assertLess(mismatch, 0.015, (style, vertical, mismatch))
+
+    def test_visualizer_vertical_flip_is_applied_exactly_once(self):
+        overlay = VisualizerOverlay(
+            0, 0, 120, 90, "center", "#EE77CC", bar_count=5,
+        )
+        levels = np.array([0.05, 0.5, 0.95, 0.25, 0.75])
+        normal = PythonVisualizerRenderer._draw_frame(120, 90, overlay, levels)
+        flipped = PythonVisualizerRenderer._draw_frame(
+            120, 90, replace(overlay, flip_vertical=True), levels,
+        )
+        self.assert_images_close(normal.flipped(Qt.Orientation.Vertical), flipped)
 
     def test_visualizer_geometry_matches_canvas_center_transform_at_output_scale(self):
         source = Source(
