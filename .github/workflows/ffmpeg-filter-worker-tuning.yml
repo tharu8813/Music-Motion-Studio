@@ -55,6 +55,11 @@ jobs:
         run: |
           python tools/benchmark_ffmpeg_filter_workers.py --ffmpeg "$env:PLAYLIST_CANVAS_TEST_FFMPEG" --width 1920 --height 1080 --fps 60 --frames 90 --repeats 2 --output ffmpeg-worker-1080p60.json
           if ($LASTEXITCODE -ne 0) { throw '1080p60 pixel parity or benchmark failed' }
+      - name: Benchmark 1080p60 medium-preset export path
+        shell: pwsh
+        run: |
+          python tools/benchmark_ffmpeg_filter_workers.py --ffmpeg "$env:PLAYLIST_CANVAS_TEST_FFMPEG" --width 1920 --height 1080 --fps 60 --frames 60 --preset medium --repeats 2 --output ffmpeg-worker-1080p60-medium.json
+          if ($LASTEXITCODE -ne 0) { throw '1080p60 medium-preset benchmark failed' }
       - name: Upload comparisons
         if: always()
         uses: actions/upload-artifact@v4
