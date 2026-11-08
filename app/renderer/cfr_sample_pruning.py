@@ -11,14 +11,23 @@ that would not produce another encoded frame.
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from math import floor
 
 from app.renderer.export_timeline import ExportFrameSample
 
 
+@dataclass(slots=True)
+class CfrPruningStats:
+    """Stream-local counts for the parent process's profiler and UI logs."""
+
+    input_samples: int = 0
+    forwarded_samples: int = 0
+
+
 def iter_cfr_emitting_samples(
     samples: Iterable[ExportFrameSample], fps: int,
+    stats: CfrPruningStats | None = None,
 ) -> Iterator[ExportFrameSample]:
     """Yield only states that emit a CFR frame, with exact integer frame targets.
 
@@ -40,6 +49,8 @@ def iter_cfr_emitting_samples(
     pending: ExportFrameSample | None = None
 
     for sample in samples:
+        if stats is not None:
+            stats.input_samples += 1
         if sample.duration_seconds <= 0.0:
             raise ValueError("Every Canvas sample must have a positive duration.")
         cumulative += sample.duration_seconds
@@ -49,6 +60,8 @@ def iter_cfr_emitting_samples(
             pending = replace(sample, cfr_target_frame_count=target_count)
             emitted_count = target_count
         elif target_count > emitted_count:
+            if stats is not None:
+                stats.forwarded_samples += 1
             yield pending
             pending = replace(
                 sample,
@@ -65,4 +78,6 @@ def iter_cfr_emitting_samples(
             pending = replace(
                 pending, duration_seconds=pending.duration_seconds + skipped_duration,
             )
+        if stats is not None:
+            stats.forwarded_samples += 1
         yield pending
