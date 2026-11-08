@@ -187,14 +187,19 @@ class ExportOrchestrator:
         self._audio_staging: TemporaryDirectory[str] | None = None
         self._video_export_started_at: float | None = None
 
-    def record_video_export_total_wall_time(self) -> None:
-        """Measure accepted video exports across preparation AND final render."""
+    def record_video_export_total_wall_time(self, *, completed: bool = False) -> None:
+        """Measure full export wall time, distinguishing success from failure."""
         started, self._video_export_started_at = self._video_export_started_at, None
         if started is None:
             return
         from app.utils.performance import ENABLED, PROFILE
         if ENABLED:
-            PROFILE.observe("export.total_wall_seconds", max(0.0, monotonic() - started))
+            elapsed = max(0.0, monotonic() - started)
+            PROFILE.observe("export.total_wall_seconds", elapsed)
+            PROFILE.observe(
+                "export.completed_wall_seconds" if completed else "export.incomplete_wall_seconds",
+                elapsed,
+            )
 
     def clear_audio_staging(self) -> None:
         """Release prepared transition audio after export completion/failure."""
@@ -2104,7 +2109,7 @@ class ExportOrchestrator:
         """Release the UI export lock after any worker completion path."""
         window = self.window
         completed_result = window._pending_export_result
-        self.record_video_export_total_wall_time()
+        self.record_video_export_total_wall_time(completed=completed_result is not None)
         window._pending_export_result = None
         window.activity_progress.finish("export")
         window._unlock_main_form_after_export()
