@@ -16,6 +16,7 @@ from app.models.playlist import PlaylistTrack
 from app.renderer.canvas_pipe import PipedCanvasStream, _QueuedCanvasFrame
 from app.renderer.cfr_sample_pruning import (
     iter_cfr_emitting_samples, uniform_cfr_frame_step,
+    low_fps_overlay_pipe_enabled,
 )
 from app.renderer.export_timeline import ExportFrameSample
 from app.renderer.ffmpeg.filter_graph import layered_filter_graph
@@ -35,6 +36,25 @@ def samples(durations: list[float]) -> list[ExportFrameSample]:
 
 
 class LowFpsCanvasOverlayTests(unittest.TestCase):
+    def test_low_fps_transport_is_opt_in_after_real_world_stall(self):
+        self.assertFalse(low_fps_overlay_pipe_enabled(True, {}))
+        self.assertFalse(low_fps_overlay_pipe_enabled(False, {
+            "PLAYLIST_CANVAS_ENABLE_LOW_FPS_OVERLAY_PIPE": "1",
+        }))
+        self.assertTrue(low_fps_overlay_pipe_enabled(True, {
+            "PLAYLIST_CANVAS_ENABLE_LOW_FPS_OVERLAY_PIPE": "1",
+        }))
+        self.assertTrue(low_fps_overlay_pipe_enabled(True, {
+            "PLAYLIST_CANVAS_ENABLE_LOW_FPS_OVERLAY_PIPE": "yes",
+        }))
+        self.assertFalse(low_fps_overlay_pipe_enabled(True, {
+            "PLAYLIST_CANVAS_ENABLE_LOW_FPS_OVERLAY_PIPE": "1",
+            "PLAYLIST_CANVAS_DISABLE_LOW_FPS_OVERLAY_PIPE": "1",
+        }))
+        self.assertFalse(low_fps_overlay_pipe_enabled(True, {
+            "PLAYLIST_CANVAS_ENABLE_LOW_FPS_OVERLAY_PIPE": "0",
+        }))
+
     def test_whole_timeline_must_have_one_identical_integer_frame_step(self):
         normal = samples([1 / 12] * 2679)
         self.assertEqual(uniform_cfr_frame_step(iter(normal), 60), 5)

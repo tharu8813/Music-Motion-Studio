@@ -127,7 +127,8 @@ class ExportBottleneckProfileTests(unittest.TestCase):
                 "context": {
                     "stream_key": "layer:0", "stream_width": 320,
                     "stream_height": 180, "output_fps": 60,
-                    "submitted_states": 2679, "written_frames": 2679,
+                    "submitted_states": 2679, "written_frames": 2677,
+                    "worker_completed": False,
                     "writer_io": {
                         "pending_calls": 42, "write_calls": 60,
                         "pending_wait_seconds": 230.5,
@@ -143,7 +144,8 @@ class ExportBottleneckProfileTests(unittest.TestCase):
             profiles = load_stage_profiles(parent)
             stream = profiles["streams"]["layer:0"]
             self.assertEqual(stream["worker_pid"], 700)
-            self.assertEqual(stream["written_frames"], 2679)
+            self.assertEqual(stream["written_frames"], 2677)
+            self.assertIs(stream["worker_completed"], False)
             self.assertEqual(stream["writer_io"]["pending_wait_seconds"], 230.5)
             self.assertEqual(stream["parent_job_queue"]["full_events"], 42)
             self.assertEqual(stream["parent_job_queue"]["put_wall_seconds"], 73.2)

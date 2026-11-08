@@ -13,8 +13,30 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, replace
 from math import floor
+from collections.abc import Mapping
+import os
 
 from app.renderer.export_timeline import ExportFrameSample
+
+
+def low_fps_overlay_pipe_enabled(
+    pruning_enabled: bool,
+    environ: Mapping[str, str] | None = None,
+) -> bool:
+    """Require explicit opt-in until full Windows end-of-stream parity is proven.
+
+    A real 60->12 FPS run reduced layer bandwidth but stalled the final
+    encoder at the last two full-rate frames, triggering the slow PNG fallback.
+    Keep the stable 60 FPS path by default. The existing DISABLE switch wins
+    over ENABLE so A/B and rollback commands remain safe and deterministic.
+    """
+    if not pruning_enabled:
+        return False
+    variables = os.environ if environ is None else environ
+    truthy = {"1", "true", "yes"}
+    enabled = variables.get("PLAYLIST_CANVAS_ENABLE_LOW_FPS_OVERLAY_PIPE", "")
+    disabled = variables.get("PLAYLIST_CANVAS_DISABLE_LOW_FPS_OVERLAY_PIPE", "")
+    return enabled.strip().lower() in truthy and disabled.strip().lower() not in truthy
 
 
 def uniform_cfr_frame_step(
