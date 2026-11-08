@@ -58,7 +58,21 @@
 
 위 값은 **형식 설명용 임의 예시**이며 사용자의 실제 측정이 아니다. `tools/export_bottleneck_profile.py`의 통합 보고서 `summary.canvas_streams`에서 `base`와 `layer:N`별로 CPU 렌더링/파이프 쓰기와 Win32 대기 정보를 확인할 수 있다.
 
-### 3. 프로세스 분류 개선
+### 3. 에디터 → Canvas 작업자 큐 대기
+
+Canvas 작업자가 FFmpeg 파이프 쓰기에 막히면, 에디터가 작업자에게 넘기는 최대 2개짜리 `multiprocessing.Queue`도 가득 찰 수 있다. 이 **생산자 쪽 대기**는 자식 프로세스의 Windows WriteFile 완료 대기와 구분한다.
+
+`CanvasProcessStream`의 `submit_sample`은 다음 값을 기록한다.
+
+- `put_wall_seconds`: `Queue.put(timeout=0.05)` 호출에 소비한 누적 벽시계 시간. 이벤트 처리/GUI 펌프 대기는 포함하지 않는다.
+- `full_events`: Queue가 가득 차서 `Full` 예외가 발생한 횟수.
+- `submit_count`: 성공적으로 enqueue한 샘플 수. 종료 신호(None)도 하나의 작업으로 포함된다.
+
+부모 프로세스 타이밍의 `context.parent_canvas_queues`에서 수집한 뒤 통합 진단 JSON의 `summary.canvas_streams[stream_key].parent_job_queue`로 병합한다. 프로파일러는 부모와 자식 프로세스가 서로 다른 PID라도 같은 `stream_key`로 합친다.
+
+부모 큐 대기와 Win32 파이프 완료 대기는 처리 파이프라인의 인접 구간을 측정한다. **서로 겹치거나 다른 시점의 수치이므로 합산해 총 지연이라고 주장해서는 안 된다.**
+
+### 4. 프로세스 분류 개선
 
 Windows의 Python 가상환경 실행기가 별도 `python.exe main.py` 자식 프로세스를 생성하면, 이 실제 에디터 자식의 CPU를 `other`가 아닌 `editor`로 분류한다. Python multiprocessing spawn 작업자는 별도로 `canvas_workers`로 유지한다.
 
@@ -82,7 +96,7 @@ python tools/export_bottleneck_profile.py --output build/stream-investigation.js
 
 ## A/B 보고서
 
-변경된 `tools/export_ab_verify.py`는 두 프로파일 모두 `summary.canvas_streams`를 포함하면 추가로 **Canvas stream I/O and backpressure** 표를 생성한다.
+변경된 `tools/export_ab_verify.py`는 두 프로파일 모두 `summary.canvas_streams`를 포함하면 추가로 **Canvas stream I/O and backpressure** 표를 생성한다. 같은 스트림의 부모 큐 대기와 자식 Win32 비동기 완료 대기를 나란히 비교할 수 있다.
 
 ```powershell
 python tools/export_ab_verify.py --baseline-profile build/stream-before.json --optimized-profile build/stream-after.json
