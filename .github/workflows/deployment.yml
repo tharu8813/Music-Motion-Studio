@@ -31,6 +31,13 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q main.py app tests scripts tools
 
+      - name: Verify track lyrics player, TTML karaoke, and responsive cue layout
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m unittest -v tests.test_track_lyrics_preview
+          python -m unittest -v tests.test_lyrics_overlap.LyricsOverlapTests.test_track_settings_preview_uses_same_overlapping_and_held_lines
+
       - name: Verify export A/B diagnostics and wall-time reporting
         env:
           QT_QPA_PLATFORM: offscreen

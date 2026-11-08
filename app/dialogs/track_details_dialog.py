@@ -12,7 +12,7 @@ import sys
 import threading
 
 from mutagen import File as MutagenFile
-from PySide6.QtCore import QProcess, QSettings, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QProcess, QSettings, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
@@ -51,6 +51,8 @@ from app.models.playlist import (
 from app.widgets.activity_progress import activity_for
 from app.widgets.audio_sync_warning import AudioSyncWarning
 from app.widgets.track_analysis_panel import TrackAnalysisPanel
+from app.widgets.track_lyrics_preview import KaraokeLyricLabel, fit_context_lyrics
+from app.ui.design_system import COLORS
 from app.dialogs.lrc_generator_dialog import LrcGeneratorDialog
 from app.dialogs.ttml_edit_dialog import TtmlRowsDialog, choose_ttml_edit_mode, line_cues
 from app.services.lyrics_service import LyricsError, LyricsService
@@ -148,6 +150,13 @@ class TrackDetailsDialog(QDialog):
         self.audio_output.setVolume(saved_volume / 100.0)
         self.media_player = QMediaPlayer(self)
         self.media_player.setAudioOutput(self.audio_output)
+        # QMediaPlayer.positionChanged is relatively coarse on some Windows
+        # audio backends. Refresh word progress at 30 FPS only while playing
+        # word-timed TTML; LRC/line subtitles do not need this timer.
+        self._karaoke_timer = QTimer(self)
+        self._karaoke_timer.setInterval(33)
+        self._karaoke_timer.timeout.connect(self._update_live_lyrics)
+        self._timed_ttml = False
         self._audio_available = Path(track.file_path).is_file()
         if self._audio_available:
             self.media_player.setSource(QUrl.fromLocalFile(str(Path(track.file_path).resolve())))
@@ -353,45 +362,165 @@ class TrackDetailsDialog(QDialog):
         timing_options_layout.addWidget(self.timing_help)
 
         self.playback_group = QGroupBox()
+        self.playback_group.setObjectName("trackPlaybackGroup")
         playback_layout = QVBoxLayout(self.playback_group)
-        playback_layout.setSpacing(7)
+        playback_layout.setContentsMargins(12, 18, 12, 12)
+        playback_layout.setSpacing(11)
+
+        player_header = QHBoxLayout()
+        player_header.setSpacing(11)
+        self.playback_artwork = QLabel()
+        self.playback_artwork.setFixedSize(50, 50)
+        self.playback_artwork.setObjectName("trackPlayerArtwork")
+        self.playback_artwork.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.playback_artwork.setStyleSheet(
+            f"background: {COLORS['field']}; border: 1px solid {COLORS['border']};"
+            " border-radius: 10px; font-size: 23px;"
+        )
+        player_header.addWidget(self.playback_artwork)
+        player_titles = QVBoxLayout()
+        player_titles.setContentsMargins(0, 1, 0, 1)
+        player_titles.setSpacing(2)
+        self.playback_track_title = QLabel()
+        self.playback_track_title.setObjectName("trackPlayerTitle")
+        self.playback_track_title.setStyleSheet(
+            f"color: {COLORS['text']}; font-weight: 700; font-size: 15px;"
+        )
+        self.playback_track_title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.playback_track_artist = QLabel()
+        self.playback_track_artist.setObjectName("trackPlayerArtist")
+        self.playback_track_artist.setStyleSheet(
+            f"color: {COLORS['muted']}; font-size: 11px;"
+        )
+        player_titles.addWidget(self.playback_track_title)
+        player_titles.addWidget(self.playback_track_artist)
+        player_header.addLayout(player_titles, 1)
+        playback_layout.addLayout(player_header)
         self.playback_status = QLabel()
         self.playback_status.setObjectName("mutedLabel")
-        self.playback_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.playback_status.setWordWrap(True)
+        self.playback_status.setVisible(False)
+        playback_layout.addWidget(self.playback_status)
+
+        self.lyrics_stage = QFrame()
+        self.lyrics_stage.setObjectName("trackLyricStage")
+        self.lyrics_stage.setMinimumHeight(215)
+        self.lyrics_stage.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding,
+        )
+        self.lyrics_stage.setStyleSheet(f"""
+            QFrame#trackLyricStage {{
+                background-color: {COLORS["stage"]};
+                border: 1px solid {COLORS["border"]};
+                border-radius: 14px;
+            }}
+            QLabel#trackLyricStageCaption {{
+                color: {COLORS["muted"]};
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 1px;
+                border: none;
+                background: transparent;
+            }}
+            QLabel#trackLyricSyncBadge {{
+                background-color: {COLORS["info_surface"]};
+                border: 1px solid {COLORS["selection_border"]};
+                border-radius: 9px;
+                padding: 3px 8px;
+                color: {COLORS["accent"]};
+                font-size: 10px;
+                font-weight: 600;
+            }}
+            QLabel#trackLyricContext, QLabel#trackLyricCurrent {{
+                border: none;
+                background: transparent;
+            }}
+            QLabel#trackLyricContext {{
+                color: {COLORS["muted"]};
+                font-size: 12px;
+            }}
+            QLabel#trackLyricCurrent {{
+                color: {COLORS["text"]};
+                font-size: 17px;
+                font-weight: 700;
+            }}
+        """)
+        stage_layout = QVBoxLayout(self.lyrics_stage)
+        stage_layout.setContentsMargins(13, 13, 13, 12)
+        stage_layout.setSpacing(6)
+        stage_heading = QHBoxLayout()
+        stage_heading.setSpacing(8)
+        stage_caption = QLabel("LIVE LYRICS")
+        stage_caption.setObjectName("trackLyricStageCaption")
+        self.lyrics_mode_badge = QLabel()
+        self.lyrics_mode_badge.setObjectName("trackLyricSyncBadge")
+        stage_heading.addWidget(stage_caption)
+        stage_heading.addStretch(1)
+        stage_heading.addWidget(self.lyrics_mode_badge)
+        stage_layout.addLayout(stage_heading)
 
         self.lyrics_preview_host = QWidget()
+        self.lyrics_preview_host.setObjectName("trackLyricViewport")
         self.lyrics_preview_layout = QVBoxLayout(self.lyrics_preview_host)
-        self.lyrics_preview_layout.setContentsMargins(4, 0, 4, 0)
+        self.lyrics_preview_layout.setContentsMargins(5, 5, 5, 5)
         self.lyrics_preview_layout.setSpacing(3)
         self.previous_lyric = QLabel()
-        self.previous_lyric.setObjectName("mutedLabel")
-        self.previous_lyric.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.previous_lyric.setObjectName("trackLyricContext")
+        self.previous_lyric.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom)
         self.previous_lyric.setWordWrap(True)
-        self.previous_lyric.setMaximumHeight(54)
-        self.current_lyric = QLabel()
-        self.current_lyric.setObjectName("panelTitle")
-        self.current_lyric.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.current_lyric.setWordWrap(True)
-        self.current_lyric.setMinimumHeight(42)
-        self.current_lyric.setMaximumHeight(84)
+        self.previous_lyric.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding,
+        )
+        self.current_lyric = KaraokeLyricLabel()
+        self.current_lyric.setObjectName("trackLyricCurrent")
+        self.current_lyric.setMinimumHeight(50)
+        self.current_lyric.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred,
+        )
         self.next_lyric = QLabel()
-        self.next_lyric.setObjectName("mutedLabel")
-        self.next_lyric.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.next_lyric.setObjectName("trackLyricContext")
+        self.next_lyric.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         self.next_lyric.setWordWrap(True)
-        self.next_lyric.setMaximumHeight(54)
-        self.lyrics_preview_layout.addWidget(self.previous_lyric)
+        self.next_lyric.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding,
+        )
+        self.lyrics_preview_layout.addWidget(self.previous_lyric, 1)
         self.lyrics_preview_layout.addWidget(self.current_lyric)
-        self.lyrics_preview_layout.addWidget(self.next_lyric)
-        playback_layout.addWidget(self.playback_status)
-        playback_layout.addStretch(1)
-        playback_layout.addWidget(self.lyrics_preview_host)
-        playback_layout.addStretch(1)
+        self.lyrics_preview_layout.addWidget(self.next_lyric, 1)
+        stage_layout.addWidget(self.lyrics_preview_host, 1)
+        playback_layout.addWidget(self.lyrics_stage, 1)
+        self._last_live_position_ms = 0
+        self._last_lyrics_size: tuple[int, int] | None = None
+        self._last_lyric_context_key: tuple | None = None
+        self.lyrics_preview_host.installEventFilter(self)
 
         transport_row = QHBoxLayout()
         self.play_button = QPushButton()
+        self.play_button.setObjectName("trackPlayerPrimary")
+        self.play_button.setMinimumHeight(34)
+        self.play_button.setStyleSheet(f"""
+            QPushButton#trackPlayerPrimary {{
+                background-color: {COLORS['accent']};
+                color: {COLORS['window']};
+                font-weight: 700;
+                border-radius: 9px;
+                padding: 5px 16px;
+                border: 0;
+            }}
+            QPushButton#trackPlayerPrimary:hover {{
+                background-color: {COLORS['accent_hover']};
+            }}
+        """)
         self.stop_button = QPushButton()
+        self.stop_button.setObjectName("trackPlayerStop")
+        self.stop_button.setMinimumHeight(34)
         self.playback_slider = QSlider(Qt.Orientation.Horizontal)
         self.playback_slider.setObjectName("trackPlaybackSlider")
+        self.playback_slider.setToolTip(
+            "클릭하거나 드래그해 원하는 가사 시점으로 이동합니다."
+            if translator.is_korean else
+            "Click or drag to preview lyrics at a different time."
+        )
         self.playback_slider.setRange(0, max(1, round(track.duration_seconds * 1000)))
         self.playback_slider.setSingleStep(100)
         self.playback_slider.setPageStep(5_000)
@@ -536,6 +665,7 @@ class TrackDetailsDialog(QDialog):
         self.media_player.playbackStateChanged.connect(self._playback_state_changed)
         self.media_player.errorOccurred.connect(self._playback_error)
         self.media_player.mediaStatusChanged.connect(self._media_status_changed)
+        self.tabs.currentChanged.connect(self._track_tab_changed)
         translator.language_changed.connect(self.retranslate)
         self.retranslate()
         self._refresh_cover()
@@ -797,6 +927,11 @@ class TrackDetailsDialog(QDialog):
             return  # still building the tabs the header summarizes
         korean = self.translator.is_korean
         self.header_title.setText(self.title_edit.text().strip() or Path(self.track.file_path).stem)
+        self.playback_track_title.setText(self.header_title.text())
+        self.playback_track_artist.setText(
+            self.artist_edit.text().strip()
+            or ("아티스트 정보 없음" if korean else "Unknown artist")
+        )
         self.header_subtitle.setText(" · ".join(
             value for value in (self.artist_edit.text().strip(), self.album_edit.text().strip()) if value
         ) or ("아티스트·앨범 정보 없음" if korean else "No artist or album"))
@@ -826,9 +961,16 @@ class TrackDetailsDialog(QDialog):
         if pixmap.isNull():
             self.header_cover.setPixmap(QPixmap())
             self.header_cover.setText("♪")
+            self.playback_artwork.setPixmap(QPixmap())
+            self.playback_artwork.setText("♪")
         else:
             self.header_cover.setPixmap(pixmap.scaled(
                 self.header_cover.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            ))
+            self.playback_artwork.clear()
+            self.playback_artwork.setPixmap(pixmap.scaled(
+                self.playback_artwork.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                 Qt.TransformationMode.SmoothTransformation,
             ))
 
@@ -1270,6 +1412,25 @@ class TrackDetailsDialog(QDialog):
         text = ("일시정지" if korean else "Pause") if playing else ("재생" if korean else "Play")
         self.play_button.setText(text)
         self.audio_play_button.setText(text)
+        self._update_karaoke_timer()
+
+    def _track_tab_changed(self, _index: int) -> None:
+        self._update_karaoke_timer()
+        if self.tabs.currentWidget() is self.lyrics_tab:
+            self._reflow_live_lyrics()
+
+    def _update_karaoke_timer(self) -> None:
+        active = (
+            self._audio_available
+            and self._timed_ttml
+            and self.tabs.currentWidget() is self.lyrics_tab
+            and self.media_player.playbackState()
+            == QMediaPlayer.PlaybackState.PlayingState
+        )
+        if active and not self._karaoke_timer.isActive():
+            self._karaoke_timer.start()
+        elif not active and self._karaoke_timer.isActive():
+            self._karaoke_timer.stop()
 
     def _playback_error(
         self, _error: QMediaPlayer.Error, message: str = "",
@@ -1280,11 +1441,32 @@ class TrackDetailsDialog(QDialog):
         self.playback_status.setText(
             f"오디오 재생 오류: {message}" if korean else f"Audio playback error: {message}"
         )
+        self.playback_status.setVisible(True)
+
+    def eventFilter(self, watched, event) -> bool:
+        # Reflow the surrounding cues whenever the available lyric viewport
+        # changes size. Do not continuously change the widget's geometry from
+        # within a resize event, which would create a feedback loop.
+        if watched is getattr(self, "lyrics_preview_host", None) and event.type() in (
+            QEvent.Type.Resize, QEvent.Type.Show,
+        ):
+            size = (self.lyrics_preview_host.width(), self.lyrics_preview_host.height())
+            if size != getattr(self, "_last_lyrics_size", None):
+                self._last_lyrics_size = size
+                QTimer.singleShot(0, self._reflow_live_lyrics)
+        return super().eventFilter(watched, event)
+
+    def _reflow_live_lyrics(self) -> None:
+        if hasattr(self, "current_lyric") and hasattr(self, "timing_offset_spin"):
+            self._update_live_lyrics(self._last_live_position_ms)
 
     def _update_live_lyrics(self, position_ms: int | None = None) -> None:
-        """Display the cue synchronized to audio and the unsaved timing offset."""
+        """Sync TTML karaoke words and fit nearby cues to viewport height."""
         korean = self.translator.is_korean
+        position = self.media_player.position() if position_ms is None else position_ms
+        self._last_live_position_ms = max(0, position)
         if not self.selected_lyrics:
+            self.current_lyric.clear_word_timing()
             self.previous_lyric.clear()
             self.next_lyric.clear()
             self.current_lyric.setText(
@@ -1292,43 +1474,101 @@ class TrackDetailsDialog(QDialog):
                 if korean else "Load timed lyrics to preview them here."
             )
             return
-        position = self.media_player.position() if position_ms is None else position_ms
         lyric_seconds = position / 1000.0 + self.timing_offset_spin.value()
         cue_index = LyricsService.display_cue_index(self.selected_lyrics, lyric_seconds)
         if cue_index is None:
             return
-        if lyric_seconds + .0005 < float(self.selected_lyrics[cue_index].get("start", 0.0)):
-            starts_at = float(self.selected_lyrics[cue_index]["start"]) - self.timing_offset_spin.value()
-            timestamp = self._timestamp(starts_at)
-            self.previous_lyric.clear()
-            self.current_lyric.setText(
-                f"첫 가사 대기 · {timestamp}" if korean else f"Waiting for first lyric · {timestamp}"
-            )
-            self.next_lyric.setText(LyricsService.decode_line_breaks(
-                display_cue(self.selected_lyrics[cue_index]).get("text", "")
-            ).strip())
-            return
-        latest_started = cue_index
-        active = ()
-        if self.selected_lyrics[cue_index].get("format") == "ttml":
-            active = LyricsService.active_cue_indices(self.selected_lyrics, lyric_seconds)
-            if not active and lyric_seconds >= float(self.selected_lyrics[cue_index]["end"]):
-                active = LyricsService.last_ending_cue_indices(self.selected_lyrics, lyric_seconds)
-                cue_index = active[0]
 
         def cue_text(index: int) -> str:
             return LyricsService.decode_line_breaks(
                 display_cue(self.selected_lyrics[index]).get("text", "")
             ).strip()
 
-        current_indices = active or (cue_index,)
-        previous = [index for index in range(latest_started + 1) if index not in current_indices]
-        self.previous_lyric.setText(cue_text(previous[-1]) if previous else "")
-        self.current_lyric.setText("\n".join(cue_text(index) for index in current_indices))
-        next_index = latest_started + 1
-        self.next_lyric.setText(
-            cue_text(next_index) if next_index < len(self.selected_lyrics) else ""
+        if lyric_seconds + 0.0005 < float(self.selected_lyrics[0].get("start", 0)):
+            starts_at = float(self.selected_lyrics[0]["start"]) - self.timing_offset_spin.value()
+            self.previous_lyric.clear()
+            self.current_lyric.clear_word_timing()
+            self.current_lyric.setText(
+                f"첫 가사 대기 · {self._timestamp(starts_at)}"
+                if korean else f"Waiting for first lyric · {self._timestamp(starts_at)}"
+            )
+            current_indices: tuple[int, ...] = ()
+            previous_indices: list[int] = []
+            following_indices = list(range(min(20, len(self.selected_lyrics))))
+        else:
+            latest_started = cue_index
+            has_ttml = getattr(self, "_has_ttml_lyrics", False)
+            active: tuple[int, ...] = ()
+            if has_ttml:
+                active = LyricsService.active_cue_indices(self.selected_lyrics, lyric_seconds)
+                if not active and lyric_seconds >= float(self.selected_lyrics[cue_index]["end"]):
+                    active = LyricsService.last_ending_cue_indices(
+                        self.selected_lyrics, lyric_seconds,
+                    )
+            current_indices = active or (cue_index,)
+            # Keep the original overlapping-group order. An older, longer
+            # sentence remains visible while the newer TTML line is sung.
+            current_text = "\n".join(cue_text(index) for index in current_indices)
+            if self.current_lyric.text() != current_text:
+                self.current_lyric.setText(current_text)
+            if any(self.selected_lyrics[index].get("words")
+                   and self.selected_lyrics[index].get("format") == "ttml"
+                   for index in current_indices):
+                self.current_lyric.set_word_ranges(
+                    KaraokeLyricLabel.ranges_for_cues(
+                        [self.selected_lyrics[index] for index in current_indices],
+                        lyric_seconds,
+                    )
+                )
+            else:
+                self.current_lyric.clear_word_timing()
+            active_set = set(current_indices)
+            previous_indices = [
+                index for index in range(max(0, latest_started - 20), latest_started + 1)
+                if index not in active_set
+            ]
+            following_indices = list(range(
+                latest_started + 1,
+                min(len(self.selected_lyrics), latest_started + 21),
+            ))
+
+        # Reserve the complete wrapped current group and distribute remaining
+        # vertical space between preceding and following cue rows. In a gap
+        # or at the start, spare space flows to whichever side has lyrics.
+        viewport = self.lyrics_preview_host
+        context_key = (
+            tuple(current_indices),
+            (viewport.width(), viewport.height()),
+            id(self.selected_lyrics),
+            lyric_seconds + 0.0005 < float(self.selected_lyrics[0].get("start", 0)),
         )
+        if context_key == self._last_lyric_context_key:
+            return
+        self._last_lyric_context_key = context_key
+        text_width = max(72, viewport.width() - 45)
+        viewport_height = max(175, viewport.height())
+        current_height = max(50, min(
+            max(50, viewport_height - 16),
+            self.current_lyric.fontMetrics().boundingRect(
+                0, 0, text_width, 10_000,
+                Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignHCenter,
+                self.current_lyric.text(),
+            ).height() + 18,
+        ))
+        self.current_lyric.setMinimumHeight(current_height)
+        available = max(
+            0, viewport_height - current_height
+            - 2 * self.lyrics_preview_layout.spacing() - 14,
+        )
+        before, after = fit_context_lyrics(
+            [cue_text(index) for index in reversed(previous_indices)],
+            [cue_text(index) for index in following_indices],
+            available_height=available,
+            available_width=text_width,
+            metrics=self.previous_lyric.fontMetrics(),
+        )
+        self.previous_lyric.setText("\n".join(before))
+        self.next_lyric.setText("\n".join(after))
 
     @staticmethod
     def _clock(milliseconds: int) -> str:
@@ -1363,6 +1603,21 @@ class TrackDetailsDialog(QDialog):
         self.export_lyrics_action.setEnabled(bool(self.selected_lyrics))
         self.detach_lyrics_action.setEnabled(bool(self.selected_lyrics_path or self.selected_lyrics))
         count = len(self.selected_lyrics)
+        self._has_ttml_lyrics = any(
+            cue.get("format") == "ttml" for cue in self.selected_lyrics
+        )
+        timed_ttml = any(
+            cue.get("format") == "ttml" and cue.get("words")
+            for cue in self.selected_lyrics
+        )
+        self._timed_ttml = timed_ttml
+        self._last_lyric_context_key = None
+        self._update_karaoke_timer()
+        self.lyrics_mode_badge.setText(
+            ("● TTML · 단어 동기화" if korean else "● TTML · Word sync")
+            if timed_ttml else
+            ("● 줄 동기화" if korean else "● Line sync")
+        )
         self.cue_summary.setText(
             f"{count}개 타임코드 · 보정 적용 미리보기"
             if korean else f"{count} timed cues · adjusted preview"
@@ -1441,6 +1696,7 @@ class TrackDetailsDialog(QDialog):
     def done(self, result: int) -> None:
         """Never leave preview audio playing after the form closes."""
         self.media_player.stop()
+        self._karaoke_timer.stop()
         self._eq_timer.stop()
         self._eq_generation += 1  # drop any render still on its way
         bar = activity_for(self)
