@@ -44,6 +44,17 @@ class FfmpegFilterWorkerTuningTests(unittest.TestCase):
                 work_mode=WORK_MODE_MAX_SPEED, video_codec="libx264",
             )), 2)
 
+    def test_1080p60_uses_measured_two_worker_mode(self):
+        with patch("app.renderer.ffmpeg_renderer.os.cpu_count", return_value=20), patch.dict(
+            os.environ, {"PLAYLIST_CANVAS_DISABLE_FFMPEG_FILTER_WORKER_TUNING": "0"},
+        ):
+            sixty = RenderSettings(
+                fps=60, output_width=1920, output_height=1080,
+                video_codec="libx264",
+            )
+            self.assertEqual(FFmpegRenderer._filter_worker_count(sixty), 8)
+            self.assertEqual(self.count(sixty), 2)
+
     def test_stable_mode_and_low_cpu_never_allocate_extra_workers(self):
         with patch("app.renderer.ffmpeg_renderer.os.cpu_count", return_value=20):
             stable = RenderSettings(
@@ -73,7 +84,7 @@ class FfmpegFilterWorkerTuningTests(unittest.TestCase):
             (settings, {"static_input_kinds": ("pipe",)}),
             (settings, {"static_input_kinds": ("concat", "pipe")}),
             (settings, {"has_dynamic_overlays": True}),
-            (RenderSettings(fps=60, output_width=1920, output_height=1080), {}),
+            (RenderSettings(fps=24, output_width=1920, output_height=1080), {}),
             (RenderSettings(fps=30, output_width=3840, output_height=2160), {}),
             (RenderSettings(fps=30, output_width=1920, output_height=1080,
                             video_codec="h264_nvenc"), {}),
