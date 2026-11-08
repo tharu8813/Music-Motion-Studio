@@ -616,13 +616,13 @@ class FFmpegRenderer:
             static_inputs: list[tuple[float, Path, str, int, int]] = []
             piped_input_arguments: dict[int, tuple[str, ...]] = {}
             base_video = piped_video or prepared_video
-            # This exact-dimension optimization is deliberately restricted to
-            # validated CFR Canvas video inputs. Legacy concat/still-image
-            # sources retain their original scale+pad behavior.
+            # Only raw CFR pipes guarantee square-pixel Canvas frames.
+            # Prepared files and legacy concat sources keep their original
+            # scale+pad pipeline until their SAR and pixel parity are checked.
             base_already_sized = bool(
-                base_video is not None
-                and base_video.width == selected_settings.output_width
-                and base_video.height == selected_settings.output_height
+                piped_video is not None
+                and piped_video.width == selected_settings.output_width
+                and piped_video.height == selected_settings.output_height
                 and os.environ.get("PLAYLIST_CANVAS_DISABLE_IDENTITY_SCALE", "").strip().lower()
                 not in {"1", "true", "yes"}
             )
