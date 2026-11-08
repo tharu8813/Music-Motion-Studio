@@ -71,6 +71,20 @@ class ExportABVerificationTests(unittest.TestCase):
                 with self.subTest(status=status), self.assertRaisesRegex(ValueError, "Export not verified"):
                     _read_profile(path)
 
+    def test_rejects_incomplete_video_exports_when_timer_is_available(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "cancelled.json"
+            example = profile(renderer=100, ffmpeg_cpu=50, canvas_cpu=80, peak=1024)
+            example["summary"]["stage_timings"]["export.total_wall_seconds"] = {
+                "calls": 1, "inclusive_wall_seconds": 180,
+            }
+            example["summary"]["stage_timings"]["export.incomplete_wall_seconds"] = {
+                "calls": 1, "inclusive_wall_seconds": 180,
+            }
+            path.write_text(json.dumps(example), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "No successfully completed video export"):
+                _read_profile(path)
+
     def test_compares_real_renderer_time_and_labels_parallel_stages(self) -> None:
         previous = profile(
             renderer=300, ffmpeg_cpu=1200, canvas_cpu=700, peak=1500,
@@ -97,10 +111,10 @@ class ExportABVerificationTests(unittest.TestCase):
     def test_end_to_end_export_wall_time_takes_priority_over_renderer(self) -> None:
         prior = profile(renderer=290, ffmpeg_cpu=1175, canvas_cpu=694, peak=2400)
         current = profile(renderer=250, ffmpeg_cpu=1015, canvas_cpu=650, peak=2310)
-        prior["summary"]["stage_timings"]["export.total_wall_seconds"] = {
+        prior["summary"]["stage_timings"]["export.completed_wall_seconds"] = {
             "calls": 1, "inclusive_wall_seconds": 360.0,
         }
-        current["summary"]["stage_timings"]["export.total_wall_seconds"] = {
+        current["summary"]["stage_timings"]["export.completed_wall_seconds"] = {
             "calls": 1, "inclusive_wall_seconds": 300.0,
         }
         comparison = compare_profiles(prior, current)
@@ -110,7 +124,7 @@ class ExportABVerificationTests(unittest.TestCase):
         document = render_markdown({
             "verdict": "measurement_only", "profile_comparison": comparison,
         })
-        self.assertIn("Full video export wall time", document)
+        self.assertIn("Completed video export wall time", document)
 
     def test_identical_flags_or_missing_run_metadata_generate_warnings(self) -> None:
         original = profile(renderer=5, ffmpeg_cpu=5, canvas_cpu=5, peak=5)
