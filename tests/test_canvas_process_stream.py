@@ -255,6 +255,115 @@ class CanvasProcessStreamTests(unittest.TestCase):
 
     @unittest.skipUnless(os.environ.get('PLAYLIST_CANVAS_TEST_FFMPEG') and piped_export_supported(),
                          'Real FFmpeg pipe test is opt-in')
+    def test_live_three_input_low_fps_ffmpeg_eof_and_exact_final_frame_count(self):
+        """Exercise the actual spawn workers, raw pipe inputs and FFmpeg EOF.
+
+        A 12-FPS overlay feeds a 60-FPS composite together with two full-rate
+        inputs. No parent waits for a worker to finish until all EOF packets
+        have been sent, including the terminal low-FPS alpha frame.
+        """
+        from app.renderer.ffmpeg.filter_graph import layered_filter_graph
+
+        fps, count, step = 60, 360, 5
+        duration = count / fps
+        bands = [(None, 0), (0, 1), (1, None)]
+        capturer = ExportCanvasCapturer(
+            self.scene, [self.track], duration, set(), bands,
+            self.stage, lambda: None, lambda *_: None,
+            retain_static_frames=False, output_fps=fps,
+        )
+        streams: dict[str, CanvasProcessStream] = {}
+        encoder = None
+        started_at = monotonic()
+        deadline = started_at + 35.0
+
+        def pump() -> None:
+            self.application.processEvents()
+            if monotonic() > deadline:
+                raise CanvasPipeError("Timed out waiting for FFmpeg stream EOF.")
+
+        def sample(index: int, rate: int, step_size: int) -> ExportFrameSample:
+            return ExportFrameSample(
+                self.track, 1, 0.0, 1.0 / rate,
+                index / rate, index / rate,
+                cfr_target_frame_count=(index + 1) * step_size,
+            )
+
+        with TemporaryDirectory(prefix="canvas-ffmpeg-eof-") as root:
+            try:
+                for key, multiplier in (("base", 1), ("layer:0", 1), ("layer:1", step)):
+                    stream = CanvasProcessStream(
+                        Path(root), key, fps, capturer=capturer,
+                        producer_cancel_event=self.cancel, producer_wait_callback=pump,
+                        pipe_frame_step=multiplier,
+                    )
+                    streams[key] = stream
+                    stream.submit_sample(sample(0, fps // multiplier, multiplier))
+
+                graph = layered_filter_graph(
+                    [], [(1.0, Path("layer0"), "pipe", 0, 0),
+                         (2.0, Path("layer1"), "pipe", 0, 0)],
+                    fps, 96, 80, base_already_sized=True, base_is_cfr=True,
+                    optimize_constant_overlays=True,
+                    pipe_input_fps={1: fps // step},
+                )
+                output = Path(root) / "eof-output.framemd5"
+                command = [
+                    os.environ["PLAYLIST_CANVAS_TEST_FFMPEG"],
+                    "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+                    "-filter_complex_threads", "1",
+                    *streams["base"].input_arguments(),
+                    "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+                    *streams["layer:0"].input_arguments(),
+                    *streams["layer:1"].input_arguments(),
+                    "-filter_complex", graph,
+                    "-map", "[vout]", "-frames:v", str(count),
+                    "-fps_mode", "cfr", "-r", str(fps), "-pix_fmt", "yuv420p",
+                    "-f", "framemd5", str(output),
+                ]
+                encoder = subprocess.Popen(
+                    command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                    **hidden_process_kwargs(),
+                )
+                for index in range(1, count):
+                    streams["base"].submit_sample(sample(index, fps, 1))
+                    streams["layer:0"].submit_sample(sample(index, fps, 1))
+                    if (index + 1) % step == 0:
+                        low_index = (index + 1) // step - 1
+                        streams["layer:1"].submit_sample(
+                            sample(low_index, fps // step, step),
+                        )
+                # The low-frequency stream must report EOF before we wait for
+                # base or layer:0 to drain. All calls remain on the Qt thread.
+                for key in ("layer:1", "base", "layer:0"):
+                    streams[key].request_finish()
+                results = {
+                    key: streams[key].finish()
+                    for key in ("base", "layer:0", "layer:1")
+                }
+                self.assertEqual(results["base"].frame_count, count)
+                self.assertEqual(results["layer:0"].frame_count, count)
+                self.assertEqual(results["layer:1"].frame_count, count // step)
+                for result in results.values():
+                    self.assertAlmostEqual(result.duration_seconds, duration, places=4)
+                _stdout, stderr = encoder.communicate(timeout=15)
+                self.assertEqual(encoder.returncode, 0, stderr.decode("utf-8", "replace"))
+                md5_frames = [
+                    line for line in output.read_text(encoding="utf-8").splitlines()
+                    if line.strip() and not line.startswith("#")
+                ]
+                self.assertEqual(len(md5_frames), count)
+                self.assertLess(monotonic() - started_at, 35)
+            finally:
+                for stream in streams.values():
+                    stream.cancel()
+                if encoder is not None:
+                    if encoder.poll() is None:
+                        encoder.kill()
+                    encoder.communicate()
+
+    @unittest.skipUnless(os.environ.get('PLAYLIST_CANVAS_TEST_FFMPEG') and piped_export_supported(),
+                         'Real FFmpeg pipe test is opt-in')
     def test_opaque_and_alpha_streams_match_serial_pixels_including_fonts(self):
         from app.animation.keyframes import Keyframe
         self.track.lyrics = [
