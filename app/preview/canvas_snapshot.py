@@ -6,7 +6,7 @@ from app.utils.performance import timed
 
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from dataclasses import replace
 from functools import wraps
 from math import ceil, floor
@@ -185,16 +185,47 @@ def _crossfade_pixmaps(
     return merged
 
 
+@contextmanager
+def _use_resolved_lyric_source(item: SourceItem, resolved: Source):
+    """Temporarily apply a worker-owned settings copy to a Canvas item.
+
+    The source is restored even if capture raises or gets cancelled. Callers
+    may reuse this source *only* when working with an immutable export copy
+    of the project, never for live editing with mutable inspector settings.
+    """
+    original = item.source
+    item.source = resolved
+    try:
+        yield resolved
+    finally:
+        item.source = original
+
+
 def _with_lyric_settings(capture):
     @wraps(capture)
     def resolved(scene, *args, **kwargs):
+        # The optional cache is used only by a spawned Canvas worker, which
+        # owns an immutable deserialized copy of the export project's sources.
+        # Never reuse settings while painting the interactive editor scene.
+        frozen_lyric_cache = kwargs.pop("_frozen_lyric_settings_cache", None)
         # Cover state evaluation as well as painting: even a failed evaluation
         # must return each item to its original editable basic model.
         with ExitStack() as settings:
             items = kwargs.get("band_source_items")
             for item in scene.items() if items is None else items:
                 if isinstance(item, SourceItem) and item.source.subtitle_advanced_categories:
-                    settings.enter_context(item.lyric_settings())
+                    if frozen_lyric_cache is None:
+                        settings.enter_context(item.lyric_settings())
+                        continue
+                    original = item.source
+                    identity = id(original)
+                    entry = frozen_lyric_cache.get(identity)
+                    if entry is None or entry[0] is not original:
+                        resolved_source = original.resolved_lyrics()
+                        frozen_lyric_cache[identity] = (original, resolved_source)
+                    else:
+                        resolved_source = entry[1]
+                    settings.enter_context(_use_resolved_lyric_source(item, resolved_source))
             return capture(scene, *args, **kwargs)
     return resolved
 
