@@ -16,6 +16,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QLabel, QWidget
 
 from app.services.lyrics_service import LyricsService
+from app.services.lyrics_translation_service import display_cue
 from app.ui.design_system import COLORS
 
 
@@ -120,7 +121,7 @@ class KaraokeLyricLabel(QLabel):
             return None
         merged: list[tuple[tuple[float, float], ...]] = []
         for cue in cues:
-            display = LyricsService.decode_line_breaks(cue.get("text", "")).strip()
+            display = LyricsService.decode_line_breaks(display_cue(cue).get("text", "")).strip()
             if cue.get("format") == "ttml" and cue.get("words"):
                 timed = LyricsService.word_highlight_ranges(cue, lyric_seconds)
             else:
@@ -130,9 +131,6 @@ class KaraokeLyricLabel(QLabel):
                 timed[i] if i < len(timed) else ()
                 for i in range(len(physical))
             )
-            if cue is not cues[-1]:
-                # Adjacent TTML cues are shown as separate paragraphs.
-                pass
         return tuple(merged)
 
     def _document(self, color: str, width: int) -> QTextDocument:
