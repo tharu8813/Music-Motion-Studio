@@ -220,7 +220,7 @@ impl NativeBgraNv12VideoProcessor {
         };
         let result = unsafe {
             self.video_context.VideoProcessorBlt(
-                &self.processor, &self.output_view, 0, &[stream.clone()],
+                &self.processor, &self.output_view, 0, std::slice::from_ref(&stream),
             )
         };
         unsafe { ManuallyDrop::drop(&mut stream.pInputSurface) };
