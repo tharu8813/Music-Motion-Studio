@@ -41,6 +41,7 @@ from app.renderer.bounded_pipeline import (
     ExportPipelineCancelledError,
     ExportPipelineError,
 )
+from app.renderer.native_export import native_bgr24_packer, pack_rgb32_for_bgr24
 
 
 # FFmpeg's per-input packet queue. Each packet is one raw frame (3.7 MB at
@@ -400,6 +401,9 @@ class PipedCanvasStream:
         self.stream_key = stream_key
         self.fps = fps
         self.preserve_alpha = preserve_alpha
+        # Snapshot the mode before FFmpeg sees input_arguments(). A rawvideo
+        # stream cannot change between 24-bit and 32-bit frames mid-export.
+        self._native_bgr24 = None if preserve_alpha else native_bgr24_packer()
         self.queue_capacity = queue_capacity
         self.producer_cancel_event = producer_cancel_event
         self.producer_wait_callback = producer_wait_callback
@@ -489,7 +493,11 @@ class PipedCanvasStream:
             # than one frame while FFmpeg opens its inputs one after another.
             "-probesize", "32", "-analyzeduration", "0",
             "-f", "rawvideo",
-            "-pix_fmt", "rgba" if self.preserve_alpha else "bgr0",
+            "-pix_fmt", (
+                "rgba" if self.preserve_alpha else
+                "bgr24" if getattr(self, "_native_bgr24", None) is not None
+                else "bgr0"
+            ),
             "-video_size", f"{self._width}x{self._height}",
             "-framerate", str(self.fps),
             "-i", self.path,
@@ -625,6 +633,13 @@ class PipedCanvasStream:
             if self.preserve_alpha else QImage.Format.Format_RGB32
         )
         pixels = memoryview(prepared.constBits()).cast("B")
+        native_packer = getattr(self, "_native_bgr24", None)
+        if native_packer is not None:
+            # BGR24 drops only the unused fourth byte of opaque RGB32 pixels.
+            # Even if Rust fails, NumPy packs the same agreed BGR24 format.
+            pixels = memoryview(pack_rgb32_for_bgr24(
+                pixels, prepared.width(), prepared.height(), native_packer,
+            ))
         if PROFILE_ENABLED:
             PROFILE.observe("export.frame_pixel_prepare_seconds", perf_counter() - pixel_started)
         pipe_started = perf_counter() if PROFILE_ENABLED else 0.0
