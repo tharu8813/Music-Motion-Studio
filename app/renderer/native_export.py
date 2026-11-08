@@ -104,3 +104,56 @@ def analyze_pcm_windows(
             LOGGER.warning("Rust export PCM analysis unavailable; using NumPy: %s", error)
             _warned = True
         return None
+
+
+# Experimental raw-video transport optimization. Only the opaque Canvas base
+# can use BGR24: the transparent layers must keep 32-bit RGBA alpha.
+# This is OFF by default until same-machine real-export A/B wins are measured.
+RUST_BGR24_PIPE_ENV = "PLAYLIST_CANVAS_RUST_BGR24_PIPE"
+
+
+def native_bgr24_packer():
+    """Return a validated Rust packer, or None to keep the BGR0 pipe format.
+
+    Called before FFmpeg input arguments are announced. The chosen pixel format
+    never changes in the middle of a stream, even if a native call later fails.
+    """
+    if os.environ.get(RUST_BGR24_PIPE_ENV, "").strip().lower() not in _TRUE:
+        return None
+    import sys
+    if sys.byteorder != "little":
+        return None
+    try:
+        module = importlib.import_module("music_motion_native")
+        packer = getattr(module, "pack_bgr24")
+        if not callable(packer) or packer(bytes((1, 2, 3, 255)), 1, 1) != bytes((1, 2, 3)):
+            raise ValueError("The installed Rust packer failed its RGB32 self-check")
+        return packer
+    except (AttributeError, ImportError, OSError, RuntimeError, TypeError, ValueError) as error:
+        LOGGER.warning("Rust BGR24 pipe packing unavailable; using BGR0: %s", error)
+        return None
+
+
+def pack_rgb32_for_bgr24(
+    pixels: memoryview,
+    width: int,
+    height: int,
+    packer,
+) -> bytes:
+    """Pack one QImage RGB32 frame into FFmpeg BGR24 with safe fallback.
+
+    Never change the negotiated FFmpeg raw-video pixel format on an error.
+    A failing Rust call uses the reference NumPy packer for this frame.
+    """
+    source = pixels.cast("B")
+    if len(source) != width * height * 4:
+        raise ValueError("RGB32 frame has an unexpected stride")
+    try:
+        result = packer(source, width, height)
+        if not isinstance(result, bytes) or len(result) != width * height * 3:
+            raise ValueError("Native BGR24 packer returned an invalid buffer")
+        return result
+    except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as error:
+        LOGGER.warning("Rust BGR24 frame packing failed; using NumPy for this frame: %s", error)
+        source_pixels = np.frombuffer(source, dtype=np.uint8).reshape(height, width, 4)
+        return np.ascontiguousarray(source_pixels[:, :, :3]).tobytes()
