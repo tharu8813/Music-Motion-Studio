@@ -30,8 +30,15 @@ def filter_color(value: str) -> str:
 
 
 def output_scaling_filter(fps: int, output_width: int, output_height: int,
-                           include_fps: bool = True) -> str:
-    """Scale without stretching the authored canvas and pad any aspect mismatch."""
+                           include_fps: bool = True,
+                           already_sized: bool = False) -> str:
+    """Scale/pad only when needed; preserve the input's existing CFR timing.
+
+    An already output-sized Canvas should not pass through swscale and pad
+    again on every frame. The caller must have verified both dimensions.
+    """
+    if already_sized:
+        return f"fps={fps}" if include_fps else "null"
     prefix = f"fps={fps}," if include_fps else ""
     return (
         f"{prefix}scale={output_width}:{output_height}:"
@@ -156,7 +163,8 @@ def layered_filter_graph(visualizers: list["VisualizerOverlay"],
                           ], fps: int,
                           output_width: int, output_height: int,
                           video_clips: list["VideoClipOverlay"] | None = None,
-                          video_input_slots: list[int] | None = None) -> str:
+                          video_input_slots: list[int] | None = None,
+                          base_already_sized: bool = False) -> str:
     """Interleave reactive video and transparent static Z bands in Canvas order."""
     video_clips = video_clips or []
     video_file_inputs, planned_slots = video_input_plan(video_clips)
@@ -374,5 +382,7 @@ def layered_filter_graph(visualizers: list["VisualizerOverlay"],
                 f"eof_action=pass{output}"
             )
         current = output
-    graph.append(f"{current}{output_scaling_filter(fps, output_width, output_height, include_fps=False)}[vout]")
+    graph.append(
+        f"{current}{output_scaling_filter(fps, output_width, output_height, include_fps=False, already_sized=base_already_sized)}[vout]"
+    )
     return ";".join(graph)
