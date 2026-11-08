@@ -201,6 +201,8 @@ class _WindowsNamedPipeEndpoint(_PipeEndpoint):
             "write_calls": 0, "immediate_calls": 0, "pending_calls": 0,
             "partial_calls": 0, "bytes_written": 0,
             "write_api_seconds": 0.0, "pending_wait_seconds": 0.0,
+            "max_pending_wait_seconds": 0.0,
+            "waits_over_50ms": 0, "waits_over_200ms": 0,
         }
         self.path = (
             rf"\\.\pipe\playlist-canvas-{os.getpid()}-"
@@ -289,6 +291,8 @@ class _WindowsNamedPipeEndpoint(_PipeEndpoint):
                 "write_calls": 0, "immediate_calls": 0, "pending_calls": 0,
                 "partial_calls": 0, "bytes_written": 0,
                 "write_api_seconds": 0.0, "pending_wait_seconds": 0.0,
+            "max_pending_wait_seconds": 0.0,
+            "waits_over_50ms": 0, "waits_over_200ms": 0,
             }
         stats = self._io_stats
         while offset < total:
@@ -321,7 +325,15 @@ class _WindowsNamedPipeEndpoint(_PipeEndpoint):
                     if PROFILE_ENABLED:
                         # I/O completion waits include FFmpeg reader backpressure;
                         # they are NOT CPU usage or proof of an FFmpeg bottleneck.
-                        stats["pending_wait_seconds"] += perf_counter() - wait_started
+                        elapsed = perf_counter() - wait_started
+                        stats["pending_wait_seconds"] += elapsed
+                        stats["max_pending_wait_seconds"] = max(
+                            stats["max_pending_wait_seconds"], elapsed,
+                        )
+                        if elapsed >= 0.05:
+                            stats["waits_over_50ms"] += 1
+                        if elapsed >= 0.20:
+                            stats["waits_over_200ms"] += 1
             if written <= 0:
                 raise _ReaderClosedError("FFmpeg closed the Canvas pipe.")
             if written < len(chunk):
