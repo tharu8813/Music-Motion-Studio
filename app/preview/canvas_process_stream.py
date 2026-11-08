@@ -319,13 +319,15 @@ class CanvasProcessStream:
     def job_queue_diagnostics(self) -> dict[str, float | int]:
         """Producer-side wait for worker job-queue capacity, not pipe I/O."""
         elapsed = None
-        if self._eof_requested_at is not None and self._eof_finished_at is not None:
-            elapsed = max(0.0, self._eof_finished_at - self._eof_requested_at)
+        started = getattr(self, "_eof_requested_at", None)
+        finished = getattr(self, "_eof_finished_at", None)
+        if started is not None and finished is not None:
+            elapsed = max(0.0, finished - started)
         return {
             "submit_count": self._queue_submit_count,
             "full_events": self._queue_full_events,
             "put_wall_seconds": self._queue_put_wall_seconds,
-            "eof_requested": self._finish_requested,
+            "eof_requested": getattr(self, "_finish_requested", False),
             "eof_drain_seconds": elapsed,
         }
 
