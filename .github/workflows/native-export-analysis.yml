@@ -67,14 +67,20 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native wheel install failed' }
 
       - name: Verify Rust toolchain, developer gates and native parity
+        shell: pwsh
         run: |
           python scripts/rust_prerequisites.py
+          if ($LASTEXITCODE -ne 0) { throw "Rust development prerequisite check failed" }
           python -m unittest -v tests.test_rust_prerequisites tests.test_distribution_verification tests.test_rust_export_analysis tests.test_rust_export_pcm tests.test_rust_encoder_pipe
+          if ($LASTEXITCODE -ne 0) { throw "Rust developer and native parity tests failed" }
 
       - name: Benchmark FFT and PCM kernels separately
+        shell: pwsh
         run: |
           python tools/benchmark_rust_export_analysis.py
+          if ($LASTEXITCODE -ne 0) { throw "FFT kernel benchmark/parity failed" }
           python tools/benchmark_rust_export_pcm.py
+          if ($LASTEXITCODE -ne 0) { throw "PCM kernel benchmark/parity failed" }
 
       - name: Install verified FFmpeg for visualizer export integration
         shell: pwsh
