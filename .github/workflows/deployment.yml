@@ -29,7 +29,12 @@ jobs:
         run: python -m pip install -r requirements-lock.txt
 
       - name: Compile Python sources
-        run: python -m compileall -q main.py app tests scripts
+        run: python -m compileall -q main.py app tests scripts tools
+
+      - name: Verify export A/B diagnostics and wall-time reporting
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest -v tests.test_export_ab_verify tests.test_export_bottleneck_profile tests.test_export_total_wall_timer
 
       - name: Benchmark Canvas preview Z-band optimization
         env:
