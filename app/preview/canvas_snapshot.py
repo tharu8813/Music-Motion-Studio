@@ -898,20 +898,18 @@ class CanvasSnapshot:
             if timeline_seconds is not None
             else max(0.0, start_seconds + elapsed_seconds)
         )
-        needs_embedded_cover = any(
-            item.source.id not in hidden_source_ids
-            and (
-                (item.source.source_type is SourceType.ALBUM_COVER and not item.source.content_path)
-                or (item.source.source_type is SourceType.BACKGROUND
-                    and item.source.background_mode == "album_art")
-                or item.source.uses_personal_color
-            )
-            for item in source_items
-        )
-        track_cover = (
-            extract_track_cover(track.file_path, track.cover_path)
-            if needs_embedded_cover else QPixmap()
-        )
+        # The filtered-artwork cache usually already contains the image.
+        # Avoid decoding/converting the full-size track cover to a QPixmap on
+        # *every frame* just to discover that the cached filtered pixmap wins.
+        # This also avoids loading full-resolution art for personal-color-only
+        # sources, which use a separate cached color extraction.
+        track_cover: QPixmap | None = None
+
+        def cover_for_capture() -> QPixmap:
+            nonlocal track_cover
+            if track_cover is None:
+                track_cover = extract_track_cover(track.file_path, track.cover_path)
+            return track_cover
         personal_color = (
             extract_track_personal_color(track.file_path, track.cover_path)
             if any(item.source.uses_personal_color for item in source_items)
@@ -1345,7 +1343,7 @@ class CanvasSnapshot:
             if source.source_type is SourceType.ALBUM_COVER and not source.content_path:
                 original_covers.append((graphics_item, QPixmap(graphics_item._pixmap)))
                 graphics_item._pixmap = _filtered_track_pixmap(
-                    graphics_item, lambda: QPixmap(track_cover), ("cover", *filter_key),
+                    graphics_item, lambda: QPixmap(cover_for_capture()), ("cover", *filter_key),
                 )
                 graphics_item.update()
             if source.source_type is SourceType.BACKGROUND and source.background_mode == "album_art":
@@ -1369,7 +1367,7 @@ class CanvasSnapshot:
                     )
                 else:
                     graphics_item._pixmap = _filtered_track_pixmap(
-                        graphics_item, lambda: QPixmap(track_cover),
+                        graphics_item, lambda: QPixmap(cover_for_capture()),
                         ("bgcover", *filter_key),
                     )
                 previous_track = (
