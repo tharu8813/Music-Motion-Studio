@@ -145,12 +145,18 @@ class ExportABVerificationTests(unittest.TestCase):
                     },
                 },
             }
-        before["summary"]["canvas_streams"] = {"layer:0": stream(250, 270, 320, 2679)}
-        after["summary"]["canvas_streams"] = {"layer:0": stream(240, 262, 320, 1000)}
+        old_layer = stream(250, 270, 320, 2679)
+        new_layer = stream(240, 262, 320, 1000)
+        old_layer["parent_job_queue"] = {"put_wall_seconds": 90.0, "full_events": 100}
+        new_layer["parent_job_queue"] = {"put_wall_seconds": 70.0, "full_events": 80}
+        before["summary"]["canvas_streams"] = {"layer:0": old_layer}
+        after["summary"]["canvas_streams"] = {"layer:0": new_layer}
         report = compare_profiles(before, after)
         layer = report["canvas_streams"]["layer:0"]
         self.assertEqual(layer["pipe_pending_wait_seconds"]["change_percent"], -4.0)
         self.assertEqual(layer["pipe_write_calls"]["optimized"], 1000.0)
+        self.assertEqual(layer["parent_job_queue_put_seconds"]["change_percent"], -22.22)
+        self.assertEqual(layer["parent_job_queue_full_events"]["optimized"], 80.0)
         self.assertEqual(layer["size_before"], [320, 180])
         markdown = render_markdown({"verdict": "measurement_only", "profile_comparison": report})
         self.assertIn("Canvas stream I/O and backpressure", markdown)
