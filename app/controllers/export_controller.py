@@ -185,6 +185,16 @@ class ExportOrchestrator:
         # directory, so storing AutoMix/crossfade audio there made its returned
         # prepared_audio_path point at a deleted file before RenderWorker started.
         self._audio_staging: TemporaryDirectory[str] | None = None
+        self._video_export_started_at: float | None = None
+
+    def record_video_export_total_wall_time(self) -> None:
+        """Measure accepted video exports across preparation AND final render."""
+        started, self._video_export_started_at = self._video_export_started_at, None
+        if started is None:
+            return
+        from app.utils.performance import ENABLED, PROFILE
+        if ENABLED:
+            PROFILE.observe("export.total_wall_seconds", max(0.0, monotonic() - started))
 
     def clear_audio_staging(self) -> None:
         """Release prepared transition audio after export completion/failure."""
@@ -1086,6 +1096,8 @@ class ExportOrchestrator:
         )
         window._export_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         window._lock_main_form_for_export()
+        # Start after user confirmation dialogs and before export preparation.
+        self._video_export_started_at = monotonic()
         window.activity_progress.begin(
             "export", "영상 내보내기" if korean else "Exporting video",
             detail="화면 프레임 준비 중" if korean else "Preparing visual frames",
@@ -1111,6 +1123,7 @@ class ExportOrchestrator:
                 window._export_dialog.complete(False)
                 window._export_dialog = None
             window._unlock_main_form_after_export()
+            self.record_video_export_total_wall_time()
             window.activity_progress.finish("export")
             report_unexpected_error("Starting export preparation", error)
             self.notify_problem(str(error))
@@ -1263,6 +1276,7 @@ class ExportOrchestrator:
                 window._export_dialog.complete(False)
                 window._export_dialog = None
             window._unlock_main_form_after_export()
+            self.record_video_export_total_wall_time()
             window.activity_progress.finish("export")
             self.notify_problem(
                 "Export preparation was cancelled.", cancelled=True,
@@ -1282,6 +1296,7 @@ class ExportOrchestrator:
                 window._export_dialog.complete(False)
                 window._export_dialog = None
             window._unlock_main_form_after_export()
+            self.record_video_export_total_wall_time()
             window.activity_progress.finish("export")
             self.notify_problem(str(error))
             window._active_export_output_path = None
@@ -1299,6 +1314,7 @@ class ExportOrchestrator:
                 window._export_dialog.complete(False)
                 window._export_dialog = None
             window._unlock_main_form_after_export()
+            self.record_video_export_total_wall_time()
             window.activity_progress.finish("export")
             report_unexpected_error("Preparing export frames", error)
             self.notify_problem(str(error))
@@ -2088,6 +2104,7 @@ class ExportOrchestrator:
         """Release the UI export lock after any worker completion path."""
         window = self.window
         completed_result = window._pending_export_result
+        self.record_video_export_total_wall_time()
         window._pending_export_result = None
         window.activity_progress.finish("export")
         window._unlock_main_form_after_export()
