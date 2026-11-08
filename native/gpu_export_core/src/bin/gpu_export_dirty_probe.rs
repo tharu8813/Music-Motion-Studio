@@ -68,17 +68,17 @@ fn main() {
     let height_overlay = height / 2;
     let base = rgba(width, height, [29, 47, 84, 255]);
     let mut overlay = rgba(width_overlay, height_overlay, [140, 25, 240, 140]);
-    let mut layers = [Overlay {
-        pixels: &overlay, width: width_overlay, height: height_overlay,
-        x: 48, y: 32,
-    }];
     let report = match GpuCompositor::new() {
         Err(reason) => json!({
             "schema": 1, "status": "gpu_unavailable", "reason": reason,
             "hardware_gpu_measured": false, "production_export_changed": false,
         }),
         Ok(gpu) => {
-            let mut session = gpu.prepare_session(&base, width, height, &layers)
+            let initial = [Overlay {
+                pixels: &overlay, width: width_overlay, height: height_overlay,
+                x: 48, y: 32,
+            }];
+            let mut session = gpu.prepare_session(&base, width, height, &initial)
                 .expect("Create persistent GPU overlay session");
             session.prepare_nv12().expect("Prepare reusable NV12 output");
             let rect = PixelRect {
@@ -98,7 +98,10 @@ fn main() {
                 ];
                 let patch = rgba(rect.width, rect.height, color);
                 cpu_patch(&mut overlay, width_overlay, rect, &patch);
-                layers[0].pixels = &overlay;
+                let layers = [Overlay {
+                    pixels: &overlay, width: width_overlay,
+                    height: height_overlay, x: 48, y: 32,
+                }];
 
                 // Alternate ordering: for every frame both paths write the
                 // SAME overlay contents before the GPU kernel starts.
