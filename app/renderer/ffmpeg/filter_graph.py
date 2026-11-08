@@ -203,7 +203,8 @@ def layered_filter_graph(visualizers: list["VisualizerOverlay"],
                           base_already_sized: bool = False,
                           base_is_cfr: bool = False,
                           optimize_constant_overlays: bool = False,
-                          pipe_input_fps: dict[int, int] | None = None) -> str:
+                          pipe_input_fps: dict[int, int] | None = None,
+                          base_bgr24: bool = False) -> str:
     """Interleave reactive video and transparent static Z bands in Canvas order."""
     video_clips = video_clips or []
     pipe_input_fps = pipe_input_fps or {}
@@ -217,7 +218,12 @@ def layered_filter_graph(visualizers: list["VisualizerOverlay"],
         if base_is_cfr
         else f"fps={fps}:start_time=0,settb=AVTB,setpts=N/({fps}*TB)"
     )
-    graph: list[str] = [f"[0:v]{base_timing}[base]"]
+    # FFmpeg auto-negotiates different overlay/swscale formats for raw BGR24
+    # versus BGR0. Convert BGR24 back to BGR0 *inside FFmpeg* before any
+    # compositing so byte-identical output is retained, while the named pipe
+    # still transports only three bytes per pixel.
+    initial_format = "format=bgr0," if base_bgr24 else ""
+    graph: list[str] = [f"[0:v]{initial_format}{base_timing}[base]"]
     entries: list[tuple[float, int, str]] = []
     # Inputs 0/1 are base canvas and audio. Dynamic video inputs precede
     # static concat inputs, preserving their independent source timing.
