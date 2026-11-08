@@ -11,6 +11,9 @@
 //! Do not use this output for production until full Canvas pixel parity and a
 //! shared GPU video-frame path are proven.
 
+#[cfg(windows)]
+pub mod d3d11_nv12;
+
 mod session;
 pub use session::{rgba_to_nv12_reference, GpuFrameSession, PixelRect};
 

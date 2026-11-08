@@ -56,6 +56,29 @@ jobs:
           name: rust-gpu-dynamic-nv12-ci
           path: rust-gpu-dynamic-nv12-ci.json
           if-no-files-found: ignore
+      - name: Test Rust native D3D11 NV12 GPU texture and row-pitch correctness
+        shell: pwsh
+        run: |
+          cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_nv12_surface_probe -- --width 320 --height 180 --frames 3 --output rust-d3d11-nv12-ci.json
+          if ($LASTEXITCODE -ne 0) { throw 'Rust D3D11 native NV12 texture verification failed' }
+          @'
+          import json
+          from pathlib import Path
+          value = json.loads(Path('rust-d3d11-nv12-ci.json').read_text(encoding='utf8'))
+          if value.get('status') not in {'measured', 'd3d11_nv12_hardware_unavailable'}:
+              raise SystemExit(f"Bad D3D11 native test status: {value.get('status')}")
+          if value['status'] == 'measured' and not value.get('all_nv12_luma_and_chroma_bytes_identical'):
+              raise SystemExit('D3D11 NV12 pixel verification did not pass')
+          print('Native D3D11 NV12 status:', value['status'])
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Rust native NV12 diagnostic was invalid' }
+      - name: Upload native NV12 GPU texture diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-d3d11-nv12-texture
+          path: rust-d3d11-nv12-ci.json
+          if-no-files-found: ignore
       - name: Upload actual GPU or unavailable-device diagnostics
         if: always()
         uses: actions/upload-artifact@v4
