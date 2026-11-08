@@ -16,8 +16,10 @@ import logging
 import os
 from threading import local
 
-from PySide6.QtCore import QRectF, QSize, Qt
+from PySide6.QtCore import QCoreApplication, QRectF, QSize, Qt, QThread
 from PySide6.QtGui import QImage, QOffscreenSurface, QOpenGLContext, QPainter, QSurfaceFormat
+
+from app.utils.performance import timed
 
 LOGGER = logging.getLogger(__name__)
 ENABLE_ENV = "PLAYLIST_CANVAS_EXPERIMENTAL_GL_EXPORT"
@@ -60,6 +62,7 @@ class _OpenGLCanvasRaster:
         self._size = None
         self.context.doneCurrent()
 
+    @timed("canvas.opengl_gpu_capture_seconds")
     def paint(self, scene, target: QRectF, source: QRectF,
               transparent: bool) -> QImage:
         width, height = round(target.width()), round(target.height())
@@ -115,13 +118,19 @@ def capture_canvas_opengl(scene, target: QRectF, source: QRectF,
         return None
     if getattr(_local, "failed", False):
         return None
+    # On Windows some Qt platform implementations require the offscreen
+    # surface to be created on the QGuiApplication thread. Never allocate a
+    # graphics context from an arbitrary Python worker thread.
+    app = QCoreApplication.instance()
+    if app is None or QThread.currentThread() != app.thread():
+        return None
     try:
         renderer = getattr(_local, "renderer", None)
         if renderer is None:
             renderer = _OpenGLCanvasRaster()
             _local.renderer = renderer
         return renderer.paint(scene, target, source, transparent)
-    except (RuntimeError, ValueError, OSError, AttributeError) as error:
+    except Exception as error:
         _local.failed = True
         _local.renderer = None
         LOGGER.warning(
