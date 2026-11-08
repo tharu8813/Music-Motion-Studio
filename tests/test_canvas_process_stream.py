@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from queue import Empty
+from queue import Empty, Full
 from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
@@ -98,6 +98,28 @@ class CanvasProcessStreamTests(unittest.TestCase):
         stream._replies.get.side_effect = [Empty, ('done', (result, {})), Empty]
         stream._poll()
         self.assertIs(stream._result, result)
+
+    def test_parent_queue_backpressure_counts_full_waits_separately(self):
+        stream = CanvasProcessStream.__new__(CanvasProcessStream)
+        stream._arguments = ["-i", "mock-pipe"]
+        stream._queue_put_wall_seconds = 0.0
+        stream._queue_full_events = 0
+        stream._queue_submit_count = 0
+        stream._jobs = Mock()
+        stream._jobs.put.side_effect = [Full(), None]
+        stream._track_indexes = {}
+        with (
+            patch("app.preview.canvas_process_stream.PROFILE_ENABLED", True),
+            patch.object(stream, "_check"),
+            patch.object(stream, "_wait") as waited,
+        ):
+            stream.submit_sample(None)
+        waited.assert_called_once()
+        self.assertEqual(stream._jobs.put.call_count, 2)
+        metrics = stream.job_queue_diagnostics()
+        self.assertEqual(metrics["full_events"], 1)
+        self.assertEqual(metrics["submit_count"], 1)
+        self.assertGreaterEqual(metrics["put_wall_seconds"], 0.0)
 
     def test_equal_z_or_transient_qt_pose_keeps_existing_capture_path(self):
         with patch('app.preview.canvas_process_stream.os.cpu_count', return_value=8):
