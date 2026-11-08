@@ -28,6 +28,8 @@ STAGES = (
     "canvas.qt_scene_paint_seconds",
     "export.frame_queue_seconds",
     "export.frame_delivery_seconds",
+    "export.frame_pixel_prepare_seconds",
+    "export.frame_pipe_write_seconds",
     "export.renderer_seconds",
     "ffmpeg.process_wall_seconds",
 )

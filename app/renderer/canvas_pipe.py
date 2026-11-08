@@ -20,7 +20,7 @@ always advance. A reader that stops consuming is detected by
 
 from __future__ import annotations
 
-from app.utils.performance import timed
+from app.utils.performance import ENABLED as PROFILE_ENABLED, PROFILE, timed
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -32,7 +32,7 @@ from pathlib import Path
 import secrets
 import select
 import threading
-from time import monotonic, sleep
+from time import monotonic, perf_counter, sleep
 
 from PySide6.QtGui import QImage
 
@@ -47,6 +47,20 @@ from app.renderer.bounded_pipeline import (
 # 720p, 33 MB at 4K), so keep it small; independent writers need no slack.
 PIPE_THREAD_QUEUE_SIZE = 4
 _WINDOWS_PIPE_BUFFER_BYTES = 1 << 20
+# The user-space chunk may exceed the kernel pipe buffer: overlapped writes
+# complete as FFmpeg consumes bytes. Larger chunks reduce Python/Win32 calls
+# without changing video format, frame content, or bounded queue capacity.
+# Set 1 MiB to compare against the previous 1 MiB default.
+WINDOWS_PIPE_WRITE_CHUNK_ENV = "PLAYLIST_CANVAS_PIPE_WRITE_CHUNK_MIB"
+
+
+def _windows_pipe_write_chunk_bytes() -> int:
+    try:
+        mib = int(os.environ.get(WINDOWS_PIPE_WRITE_CHUNK_ENV, "4"))
+    except ValueError:
+        mib = 4
+    return min(8, max(1, mib)) << 20
+
 _CONNECT_POLL_SECONDS = 0.02
 _WRITE_POLL_MILLISECONDS = 50
 
@@ -182,6 +196,7 @@ class _WindowsNamedPipeEndpoint(_PipeEndpoint):
         import _winapi
 
         self._winapi = _winapi
+        self._write_chunk_bytes = _windows_pipe_write_chunk_bytes()
         self.path = (
             rf"\\.\pipe\playlist-canvas-{os.getpid()}-"
             f"{secrets.token_hex(8)}-{name}"
@@ -262,7 +277,7 @@ class _WindowsNamedPipeEndpoint(_PipeEndpoint):
         while offset < total:
             if cancelled():
                 raise CanvasPipeCancelledError("Canvas pipe was cancelled.")
-            chunk = data[offset:offset + _WINDOWS_PIPE_BUFFER_BYTES]
+            chunk = data[offset:offset + self._write_chunk_bytes]
             try:
                 overlapped, error_code = self._winapi.WriteFile(
                     self._handle, chunk, overlapped=True,
@@ -272,7 +287,11 @@ class _WindowsNamedPipeEndpoint(_PipeEndpoint):
                 raise CanvasPipeError(f"Could not write a Canvas frame: {error}") from error
             if error_code not in (0, self._ERROR_IO_PENDING):
                 self._raise_for(error_code)
-            written = self._wait(overlapped, cancelled)
+            # A synchronous completion needs no additional event wait.
+            written = (
+                self._result(overlapped) if error_code == 0
+                else self._wait(overlapped, cancelled)
+            )
             if written <= 0:
                 raise _ReaderClosedError("FFmpeg closed the Canvas pipe.")
             offset += written
@@ -531,20 +550,29 @@ class PipedCanvasStream:
             self.last_activity = monotonic()
             if self._first_submit_at is not None:
                 self._connect_seconds = self.last_activity - self._first_submit_at
+        pixel_started = perf_counter() if PROFILE_ENABLED else 0.0
         prepared = frame.image.convertToFormat(
             QImage.Format.Format_RGBA8888
             if self.preserve_alpha else QImage.Format.Format_RGB32
         )
         pixels = memoryview(prepared.constBits()).cast("B")
-        for _index in range(repeat_count):
-            if self._cancelled():
-                return
-            try:
-                self._endpoint.write(pixels, self._cancelled)
-            except CanvasPipeCancelledError:
-                return
-            except _ReaderClosedError:
-                self._reader_closed = True
-                return
-            self._frame_count += 1
-            self.last_activity = monotonic()
+        if PROFILE_ENABLED:
+            PROFILE.observe("export.frame_pixel_prepare_seconds", perf_counter() - pixel_started)
+        pipe_started = perf_counter() if PROFILE_ENABLED else 0.0
+        try:
+            for _index in range(repeat_count):
+                if self._cancelled():
+                    return
+                try:
+                    self._endpoint.write(pixels, self._cancelled)
+                except CanvasPipeCancelledError:
+                    return
+                except _ReaderClosedError:
+                    self._reader_closed = True
+                    return
+                self._frame_count += 1
+                self.last_activity = monotonic()
+        finally:
+            if PROFILE_ENABLED:
+                # Includes reader backpressure, not just user-space copy work.
+                PROFILE.observe("export.frame_pipe_write_seconds", perf_counter() - pipe_started)
