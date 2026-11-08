@@ -74,7 +74,7 @@ class CfrOverlayFastpathTests(unittest.TestCase):
         self.assertIn("[base][2:v]overlay=8:4:eof_action=pass:eval=init", faster)
         self.assertIn("[zlayer0][3:v]overlay=1:3:eof_action=pass:eval=init", faster)
         self.assertEqual(faster.count("eval=init"), 2)
-        self.assertEqual(faster.rsplit(";", 1)[-1], "[zlayer1]null[vout]")
+        self.assertEqual(faster.rsplit(";", 1)[-1], "[composited]null[vout]")
 
     def test_time_based_keyframe_overlay_keeps_per_frame_evaluation(self) -> None:
         overlay = VisualizerOverlay(
