@@ -838,6 +838,9 @@ class FFmpegRenderer:
                 selected_settings,
                 piped=piped,
                 base_is_cfr=base_is_cfr,
+                base_already_sized=base_already_sized,
+                constant_overlays=optimize_constant_overlays,
+                base_bgr24=base_bgr24,
                 static_input_kinds=tuple(item[2] for item in static_inputs),
                 has_dynamic_overlays=bool(visualizer_inputs or video_clips),
             )
@@ -1500,6 +1503,9 @@ class FFmpegRenderer:
         cls, settings: RenderSettings, *,
         piped: bool,
         base_is_cfr: bool,
+        base_already_sized: bool,
+        constant_overlays: bool,
+        base_bgr24: bool,
         static_input_kinds: tuple[str, ...],
         has_dynamic_overlays: bool,
     ) -> int:
@@ -1521,11 +1527,14 @@ class FFmpegRenderer:
             ).strip().lower() in {"1", "true", "yes"}
             or not piped
             or not base_is_cfr
+            or not base_already_sized
+            or not constant_overlays
+            or base_bgr24
             or has_dynamic_overlays
             or settings.video_codec != "libx264"
             or settings.fps not in (30, 60)
-            or settings.output_width > 1920
-            or settings.output_height > 1080
+            or not 640 <= settings.output_width <= 1920
+            or not 360 <= settings.output_height <= 1080
             or len(static_input_kinds) < 2
             or any(kind != "pipe" for kind in static_input_kinds)
         ):
