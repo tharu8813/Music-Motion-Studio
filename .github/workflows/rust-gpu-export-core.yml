@@ -72,6 +72,31 @@ jobs:
           print('Native D3D11 NV12 status:', value['status'])
           '@ | python -
           if ($LASTEXITCODE -ne 0) { throw 'Rust native NV12 diagnostic was invalid' }
+      - name: Exercise same-device D3D11 GPU frame pool, PTS and backpressure
+        shell: pwsh
+        run: |
+          cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_nv12_frame_pool_probe -- --width 320 --height 180 --frames 6 --slots 3 --output rust-d3d11-frame-pool-ci.json
+          if ($LASTEXITCODE -ne 0) { throw 'Rust native D3D11 frame pool probe failed' }
+          @'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('rust-d3d11-frame-pool-ci.json').read_text(encoding='utf-8'))
+          if report.get('status') not in ('measured', 'd3d11_hardware_frame_pool_unavailable'):
+              raise SystemExit('Unexpected native D3D11 frame pool status')
+          if report['status'] == 'measured':
+              if (not report.get('all_nv12_bytes_match_cpu_reference')
+                      or report.get('frame_pool_completed') != 6):
+                  raise SystemExit('Frame pool lost bytes or frames')
+          print('D3D11 NV12 frame pool status:', report['status'])
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'D3D11 frame pool JSON checks failed' }
+      - name: Upload native D3D11 GPU frame pool report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-d3d11-frame-pool-ci
+          path: rust-d3d11-frame-pool-ci.json
+          if-no-files-found: ignore
       - name: Upload native NV12 GPU texture diagnostics
         if: always()
         uses: actions/upload-artifact@v4
