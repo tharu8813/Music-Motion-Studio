@@ -25,9 +25,14 @@ py -3.14 -m venv .venv
 python -m pip install --upgrade pip
 python -m pip install -r requirements-lock.txt
 python -m pip install -r requirements-packaging.txt
+# Rust MSVC toolchain and Visual Studio C++ Build Tools must be installed.
+rustc --version
+cargo --version
+python scripts/setup_rust_native.py
+python scripts/rust_prerequisites.py
 ```
 
-PowerShell에서 활성화가 차단되면 활성화 없이 `.\.venv\Scripts\python.exe -m pip install -r requirements-lock.txt`로 설치하고 `.\.venv\Scripts\python.exe main.py`로 실행할 수 있습니다. VS Code에서는 **Python: Select Interpreter**에서 `.venv\Scripts\python.exe`를 선택하세요.
+PowerShell에서 활성화가 차단되면 가상 환경을 활성화하지 않고 `.\.venv\Scripts\python.exe`로 각 명령을 실행할 수 있습니다. 실행 전에 `.\.venv\Scripts\python.exe scripts/setup_rust_native.py`를 한 번 수행하세요. Rust 설치 후에는 **터미널을 새로 열어** `rustc`와 `cargo`를 인식하는지 확인해야 합니다. Rust나 일치하는 네이티브 확장이 없으면 소스 실행, 디버깅, 패키징을 중단합니다. VS Code에서는 **Python: Select Interpreter**에서 `.venv\Scripts\python.exe`를 선택하세요.
 
 설치본에 들어가는 AutoMix 분석기:
 
@@ -43,6 +48,8 @@ PowerShell에서 활성화가 차단되면 활성화 없이 `.\.venv\Scripts\pyt
 PyTorch 기반 분석기(PyTorch판 **Beat This!**, **Demucs** 보컬 분리)는 설치본에 넣지 않습니다. 설치본이 약 1 GB로 커지고 첫 분석 동안 CPU를 크게 점유했기 때문입니다. 빌드 환경에 설치돼 있어도 spec의 `excludes`로 제외됩니다. 코드(`app/automix/analysis/beat_this.py`, `vocals.py`)는 청감 평가 도구 등에서 명시적으로 요청할 때만 쓰입니다.
 
 ## 2. Windows 배포본 빌드
+
+Rust 확장 `music_motion_native`는 개발·빌드에 필수이며 PyInstaller가 배포본에 포함합니다. 빌드 전에 `python scripts/rust_prerequisites.py`가 통과해야 합니다. **빌드된 EXE를 사용하는 사람에게는 Rust 설치가 필요하지 않습니다.**
 
 ```powershell
 pyinstaller --noconfirm --clean playlist_canvas.spec
