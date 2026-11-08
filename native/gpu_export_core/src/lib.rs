@@ -265,7 +265,7 @@ impl GpuCompositor {
         self.device.poll(wgpu::PollType::Wait {
             submission_index: Some(submission),
             timeout: Some(Duration::from_secs(30)),
-        }).map_err(|error| format!("GPU export readback timed out: {error}"))?;
+        }).map_err(|error| format!("GPU export readback timed out: {error:?}"))?;
         receiver.recv_timeout(Duration::from_secs(30))
             .map_err(|error| format!("GPU readback callback lost: {error}"))?
             .map_err(|error| format!("GPU readback failed: {error}"))?;
