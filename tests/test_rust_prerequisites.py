@@ -5,6 +5,8 @@ from __future__ import annotations
 from importlib import metadata
 from types import SimpleNamespace
 import subprocess
+import sys
+import runpy
 import unittest
 from unittest.mock import patch
 
@@ -66,6 +68,22 @@ class RustPrerequisiteTests(unittest.TestCase):
             req.importlib, "import_module", return_value=mocked
         ):
             req.require_native_extension()
+
+    def test_main_script_exits_before_loading_qt_when_rust_is_absent(self):
+        with patch.object(
+            req, "require_developer_environment",
+            side_effect=req.RustPrerequisiteError("rustc missing"),
+        ), patch.object(sys, "frozen", False, create=True):
+            with self.assertRaisesRegex(SystemExit, "rustc missing"):
+                runpy.run_path(str(req.PROJECT_ROOT / "main.py"), run_name="__main__")
+
+    def test_test_runner_returns_error_when_rust_is_absent(self):
+        from scripts import run_tests
+        with patch.object(
+            req, "require_developer_environment",
+            side_effect=req.RustPrerequisiteError("cargo missing"),
+        ):
+            self.assertEqual(run_tests.main(), 2)
 
     def test_check_can_be_used_for_toolchain_only(self):
         with patch.object(req, "require_rust_toolchain") as rust, patch.object(
