@@ -532,6 +532,95 @@ mod tests {
     }
 
     #[test]
+    fn nv12_reference_validates_shape_alpha_and_limited_range() {
+        assert!(rgba_to_nv12_reference(&[], 4, 2).is_err());
+        assert!(rgba_to_nv12_reference(&[0; 12], 4, 2).is_err());
+        assert!(rgba_to_nv12_reference(&[0; 16], 3, 2).is_err());
+        let mut transparent = vec![0, 0, 0, 255].repeat(8);
+        transparent[7] = 0;
+        assert!(rgba_to_nv12_reference(&transparent, 4, 2).is_err());
+        let black = vec![0, 0, 0, 255].repeat(8);
+        let out = rgba_to_nv12_reference(&black, 4, 2).unwrap();
+        assert_eq!(out.len(), 12);
+        assert_eq!(&out[0..8], &[16u8; 8]);
+        assert_eq!(&out[8..12], &[128u8; 4]);
+        let white = vec![255, 255, 255, 255].repeat(8);
+        let out = rgba_to_nv12_reference(&white, 4, 2).unwrap();
+        assert_eq!(&out[0..8], &[235u8; 8]);
+        assert_eq!(&out[8..12], &[128u8; 4]);
+    }
+
+    #[test]
+    fn nv12_reference_is_deterministic_for_nonuniform_pixels() {
+        let width = 12;
+        let height = 6;
+        let mut frame = vec![0u8; width * height * 4];
+        for (idx, px) in frame.chunks_exact_mut(4).enumerate() {
+            px[0] = (idx * 13 % 256) as u8;
+            px[1] = (idx * 17 % 256) as u8;
+            px[2] = (idx * 19 % 256) as u8;
+            px[3] = 255;
+        }
+        let first = rgba_to_nv12_reference(&frame, width as u32, height as u32).unwrap();
+        let second = rgba_to_nv12_reference(&frame, width as u32, height as u32).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(first.len(), width * height * 3 / 2);
+        for y in &first[..width * height] {
+            assert!((16..=235).contains(y));
+        }
+        for uv in &first[width * height..] {
+            assert!((16..=240).contains(uv));
+        }
+    }
+
+    #[test]
+    fn dynamic_gpu_nv12_frames_match_independent_rust_reference_if_hardware_present() {
+        let Ok(gpu) = GpuCompositor::new() else {
+            eprintln!("No GPU adapter; NV12 shader parity requires user hardware");
+            return;
+        };
+        let width = 64u32;
+        let height = 48u32;
+        let base = vec![50, 60, 70, 255].repeat((width * height) as usize);
+        let overlay_a = vec![245, 50, 15, 130].repeat(32 * 20);
+        let overlay_b = vec![10, 200, 210, 90].repeat(24 * 16);
+        let layers = [
+            Overlay {
+                pixels: &overlay_a, width: 32, height: 20, x: 5, y: 7,
+            },
+            Overlay {
+                pixels: &overlay_b, width: 24, height: 16, x: -6, y: 30,
+            },
+        ];
+        let mut session = gpu.prepare_session(&base, width, height, &layers).unwrap();
+        session.prepare_nv12().unwrap();
+        session.prepare_nv12().unwrap();
+        assert_eq!(session.nv12_byte_count().unwrap(), 64 * 48 * 3 / 2);
+        let cpu_rgba = super::super::composite_reference(&base, width, height, &layers).unwrap();
+        let expected = rgba_to_nv12_reference(&cpu_rgba, width, height).unwrap();
+        assert_eq!(session.compose_nv12_and_readback().unwrap(), expected);
+        session.compose_nv12_gpu_only().unwrap();
+
+        let replacement = vec![90, 120, 170, 255].repeat((width * height) as usize);
+        let replacement_overlay = vec![255, 0, 70, 220].repeat(32 * 20);
+        session.update_base(&replacement).unwrap();
+        session.update_overlay(0, &replacement_overlay).unwrap();
+        let new_layers = [
+            Overlay {
+                pixels: &replacement_overlay, width: 32, height: 20, x: 5, y: 7,
+            },
+            Overlay {
+                pixels: &overlay_b, width: 24, height: 16, x: -6, y: 30,
+            },
+        ];
+        let cpu_rgba = super::super::composite_reference(
+            &replacement, width, height, &new_layers,
+        ).unwrap();
+        let expected = rgba_to_nv12_reference(&cpu_rgba, width, height).unwrap();
+        assert_eq!(session.compose_nv12_and_readback().unwrap(), expected);
+    }
+
+    #[test]
     fn input_validation_rejects_unsupported_frame_dimensions() {
         assert!(checked_rgba_bytes(0, 10).is_err());
         assert!(checked_rgba_bytes(0xffff_ffff, 0xffff_ffff).is_err());
