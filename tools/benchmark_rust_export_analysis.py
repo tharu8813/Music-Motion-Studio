@@ -18,7 +18,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.renderer.native_export import ENABLE_ENV
+from app.renderer.native_export import ENABLE_ENV, reduce_frequency_bands
 from app.renderer.python_visualizer import PythonVisualizerRenderer
 
 
