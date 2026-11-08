@@ -665,6 +665,7 @@ class TrackDetailsDialog(QDialog):
         self.media_player.playbackStateChanged.connect(self._playback_state_changed)
         self.media_player.errorOccurred.connect(self._playback_error)
         self.media_player.mediaStatusChanged.connect(self._media_status_changed)
+        self.tabs.currentChanged.connect(self._track_tab_changed)
         translator.language_changed.connect(self.retranslate)
         self.retranslate()
         self._refresh_cover()
@@ -1413,10 +1414,16 @@ class TrackDetailsDialog(QDialog):
         self.audio_play_button.setText(text)
         self._update_karaoke_timer()
 
+    def _track_tab_changed(self, _index: int) -> None:
+        self._update_karaoke_timer()
+        if self.tabs.currentWidget() is self.lyrics_tab:
+            self._reflow_live_lyrics()
+
     def _update_karaoke_timer(self) -> None:
         active = (
             self._audio_available
             and self._timed_ttml
+            and self.tabs.currentWidget() is self.lyrics_tab
             and self.media_player.playbackState()
             == QMediaPlayer.PlaybackState.PlayingState
         )
@@ -1689,6 +1696,7 @@ class TrackDetailsDialog(QDialog):
     def done(self, result: int) -> None:
         """Never leave preview audio playing after the form closes."""
         self.media_player.stop()
+        self._karaoke_timer.stop()
         self._eq_timer.stop()
         self._eq_generation += 1  # drop any render still on its way
         bar = activity_for(self)
