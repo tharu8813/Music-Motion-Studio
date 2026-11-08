@@ -93,19 +93,49 @@ fn nvenc_command(ffmpeg: &str, width: u32, height: u32, output: &Path) -> Comman
     command
 }
 
-fn finish_encode(mut process: Child) -> Result<(), String> {
-    process.stdin.take();
-    let result = process.wait_with_output().map_err(
-        |error| format!("FFmpeg NVENC process terminated unexpectedly: {error}"),
-    )?;
-    if !result.status.success() {
-        return Err(format!(
-            "FFmpeg NVENC encoder failed ({}): {}",
-            result.status,
-            String::from_utf8_lossy(&result.stderr).trim(),
-        ));
+/// Own the child process so a parity error never leaves a half-open
+/// encoder waiting on stdin after the Rust benchmark has failed.
+struct NvencProbe {
+    child: Option<Child>,
+}
+
+impl NvencProbe {
+    fn new(child: Child) -> Self {
+        Self { child: Some(child) }
     }
-    Ok(())
+
+    fn write_frame(&mut self, pixels: &[u8]) -> Result<(), String> {
+        self.child.as_mut().ok_or("FFmpeg already finished")?
+            .stdin.as_mut().ok_or("FFmpeg stdin unavailable")?
+            .write_all(pixels)
+            .map_err(|error| format!("FFmpeg NVENC frame write failed: {error}"))
+    }
+
+    fn finish(&mut self) -> Result<(), String> {
+        let mut child = self.child.take().ok_or("FFmpeg already finished")?;
+        child.stdin.take();
+        let result = child.wait_with_output().map_err(
+            |error| format!("FFmpeg NVENC process terminated unexpectedly: {error}"),
+        )?;
+        if !result.status.success() {
+            return Err(format!(
+                "FFmpeg NVENC encoder failed ({}): {}",
+                result.status,
+                String::from_utf8_lossy(&result.stderr).trim(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl Drop for NvencProbe {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            child.stdin.take();
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
 }
 
 fn run(args: &Args) -> Result<serde_json::Value, String> {
@@ -154,8 +184,10 @@ fn run(args: &Args) -> Result<serde_json::Value, String> {
                 |error| format!("Cannot create NVENC output directory: {error}"),
             )?;
         }
-        Some(nvenc_command(&args.ffmpeg, args.width, args.height, path)
-            .spawn().map_err(|error| format!("Unable to launch FFmpeg NVENC: {error}"))?)
+        Some(NvencProbe::new(
+            nvenc_command(&args.ffmpeg, args.width, args.height, path)
+                .spawn().map_err(|error| format!("Unable to launch FFmpeg NVENC: {error}"))?,
+        ))
     } else {
         None
     };
@@ -211,9 +243,7 @@ fn run(args: &Args) -> Result<serde_json::Value, String> {
             ));
         }
         if let Some(process) = encoder.as_mut() {
-            process.stdin.as_mut().ok_or("FFmpeg stdin unavailable")?
-                .write_all(&nv12_output)
-                .map_err(|error| format!("FFmpeg NVENC frame write failed: {error}"))?;
+            process.write_frame(&nv12_output)?;
         }
 
         let time = Instant::now();
@@ -222,8 +252,8 @@ fn run(args: &Args) -> Result<serde_json::Value, String> {
         session.compose_nv12_gpu_only()?;
         nv12_gpu_only.push(time.elapsed().as_secs_f64());
     }
-    if let Some(process) = encoder.take() {
-        finish_encode(process)?;
+    if let Some(process) = encoder.as_mut() {
+        process.finish()?;
     }
     Ok(json!({
         "schema": 1,
