@@ -1,6 +1,7 @@
 """Common customization survives persistence and every rendering route."""
 
 from dataclasses import replace
+from math import sin
 import os
 from pathlib import Path
 import shutil
@@ -27,6 +28,7 @@ from app.renderer.python_visualizer import PythonVisualizerRenderer
 from app.services.source_store import SourceStore
 from app.utils.i18n import Translator
 from app.utils.source_decoration import frame_geometry
+from app.utils.visualizer_geometry import visualizer_export_rect
 from app.utils.subprocess_utils import hidden_process_kwargs
 
 
@@ -124,6 +126,59 @@ class SharedDecorationTests(unittest.TestCase):
         self.assertGreaterEqual(box.width(), 0)
         self.assertGreaterEqual(box.height(), 0)
         self.assertEqual(width, 0)
+
+    def test_visualizer_canvas_and_export_use_same_pixels_and_flip(self):
+        # Use the editor's documented placeholder levels for both renderers;
+        # only the audio amplitude may differ in a real playback session.
+        for style in ("bars", "center", "capsule", "dots", "led", "mirror", "line", "wave"):
+            for vertical in (False, True):
+                with self.subTest(style=style, vertical=vertical):
+                    source = Source(
+                        SourceType.AUDIO_VISUALIZER, "Parity",
+                        width=120, height=90, visualizer_style=style,
+                        visualizer_bars=9, visualizer_min_level=0.02,
+                        visualizer_max_level=0.94, visualizer_curve=1.0,
+                        fill_color="#EE77CC", flip_vertical=vertical,
+                    )
+                    values = np.array([
+                        0.02 + 0.92 * (0.16 + 0.76 * abs(sin(i * 0.61 + 0.8)))
+                        for i in range(source.visualizer_bars)
+                    ], dtype=float)
+                    overlay = VisualizerOverlay(
+                        0, 0, 120, 90, style, source.fill_color,
+                        bar_count=source.visualizer_bars,
+                        line_width=source.visualizer_line_width,
+                        flip_vertical=vertical,
+                    )
+                    canvas = self.render(source).convertToFormat(QImage.Format.Format_RGBA8888)
+                    exported = PythonVisualizerRenderer._draw_frame(120, 90, overlay, values)
+                    # The alpha silhouette must match independently of the
+                    # premultiplied colour representation of the QImage.
+                    canvas_alpha = np.frombuffer(canvas.constBits(), np.uint8).reshape(90, 120, 4)[:, :, 3]
+                    exported_alpha = np.frombuffer(exported.constBits(), np.uint8).reshape(90, 120, 4)[:, :, 3]
+                    mismatch = np.mean((canvas_alpha > 32) != (exported_alpha > 32))
+                    self.assertLess(mismatch, 0.015, (style, vertical, mismatch))
+
+    def test_visualizer_geometry_matches_canvas_center_transform_at_output_scale(self):
+        source = Source(
+            SourceType.AUDIO_VISUALIZER, "Position",
+            x=27.25, y=13.5, width=121, height=79, scale=1.37,
+        )
+        item = SourceItem(source)
+        try:
+            rect = item.mapToScene(item.content_rect()).boundingRect()
+            for render_scale in (1.0, 1.5, 2.0):
+                with self.subTest(render_scale=render_scale):
+                    actual = visualizer_export_rect(source, render_scale)
+                    self.assertEqual(actual, (
+                        round(rect.left() * render_scale),
+                        round(rect.top() * render_scale),
+                        max(8, round(rect.width() * render_scale)),
+                        max(8, round(rect.height() * render_scale)),
+                    ))
+        finally:
+            item.release_video_decoder()
+            item.deleteLater()
 
     def test_reactive_export_frame_and_mirroring_match_canvas(self):
         overlay = VisualizerOverlay(0, 0, 100, 80, "bars", "#FFFFFF",
