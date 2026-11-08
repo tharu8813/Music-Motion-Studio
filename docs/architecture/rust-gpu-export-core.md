@@ -155,3 +155,89 @@ cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin gpu_
 **Promotion criteria:** Actual GPU pixel equality, successful dynamic base
 and overlay updates, no GPU buffer leaks over long exports, and same-project
 end-to-end NVENC time reduction after future native GPU-frame interop.
+
+
+## Milestone 3: animated RGBA input and GPU-resident NV12 export buffer
+
+The RTX 5060 measurements for milestone 2 showed:
+- Original per-frame Rust GPU allocation/upload/readback: **7.9758ms**
+- Persistent GPU resources with final CPU download: **2.52525ms**
+- Unchanged pre-uploaded layers, GPU-only completion: **0.2265ms**
+
+The last measurement excludes per-frame image updates, so it cannot predict
+animated lyric/particle exports. This milestone measures that previously
+missing cost with an animated base plus a changing overlay:
+
+1. `GpuFrameSession::update_base()` and `update_overlay()` upload
+   changed RGBA data to existing GPU buffers.
+2. Ordered straight-alpha overlay shader passes stay on the GPU.
+3. A second integer WGSL shader converts the finished RGBA buffer into
+   **NV12**, a common input format for H.264/NVENC.
+4. The output is retained in a **persistent wgpu GPU storage buffer**. A
+   CPU readback function exists only for parity and a *separately requested*
+   FFmpeg/NVENC integration probe.
+
+The CPU reference `rgba_to_nv12_reference` and GPU shader are specified by
+the same integer formula (approximate limited-range BT.709), including
+round-to-nearest 2x2 chroma averaging. Sizes require a width divisible
+by four, an even height, an opaque base and straight RGBA overlays. The
+output buffer contains tightly packed Y bytes then interleaved UV bytes.
+This is **not** proven color-exact with FFmpeg `swscale`/Qt; NVENC
+compatibility and final H.264 visual fidelity must be verified separately.
+
+The GPU-only method `compose_nv12_gpu_only()` performs the RGBA composition
+and GPU NV12 conversion with no CPU readback. It still cannot hand the
+storage buffer directly to NVENC: an interoperable D3D11/CUDA hardware
+video-frame allocation and synchronization are future work.
+
+### RTX 5060 measurement
+
+```powershell
+git pull
+cargo test --manifest-path native/gpu_export_core/Cargo.toml
+cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin gpu_export_dynamic_probe -- --width 1920 --height 1080 --frames 30 --output rust-gpu-dynamic-nv12-local.json
+```
+
+Report fields include:
+- `cpu_reference_rgba_nv12_median_seconds`: Rust CPU alpha-over+NV12,
+  excluding synthetic input generation.
+- `gpu_dynamic_rgba_readback_median_seconds`: dynamic uploads + GPU
+  RGBA composition + CPU readback.
+- `gpu_dynamic_nv12_readback_median_seconds`: dynamic uploads + GPU
+  RGBA composition + on-device NV12 + CPU readback.
+- `gpu_dynamic_nv12_resident_median_seconds`: dynamic uploads + GPU
+  RGBA composition + on-device NV12, with the GPU completion wait but
+  **no** download or NVENC encoding.
+
+Only the last two GPU modes include the NV12 transformation; compare
+matching work when interpreting results. Every frame in the diagnostic
+readback paths is byte-compared to Rust references, not assumed correct.
+
+### Optional actual H.264 NVENC video compatibility check
+
+On a workstation with FFmpeg + NVENC available, explicitly request a
+short synthetic MP4:
+
+```powershell
+cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin gpu_export_dynamic_probe -- --width 1920 --height 1080 --frames 30 --ffmpeg ffmpeg --nvenc-output gpu-nv12-compat-test.mp4 --output rust-gpu-dynamic-nv12-local.json
+```
+
+The probe refuses to overwrite an existing video. It validates every
+on-device NV12 frame against the Rust reference, then **reads back** that
+frame for the FFmpeg `rawvideo/nv12 -> h264_nvenc` CLI. It is an
+integration **compatibility** test, not zero-copy and not an export of a real
+Music Motion Studio project. Do not compare this probe's total command
+duration to the 0.2265ms GPU-only alpha benchmark.
+
+### Automated validation boundaries
+
+- Windows CI compiles the Rust crate and its release diagnostic commands,
+  verifies CPU reference and buffer validation, and records unavailable GPUs
+  without claiming RTX throughput.
+- Mesa lavapipe on Linux CI **executes the actual GPU overlay and NV12
+  shaders**, checking byte equality, buffer reuse and changing frames.
+  Lavapipe shader correctness is helpful, but not an NVIDIA driver test.
+- A real RTX 5060 run remains necessary for native Vulkan/DX12 execution,
+  NVENC compatibility and meaningful performance estimates.
+- Existing Python Canvas capture, GPU frame transport, TTML/KRC lyrics,
+  audio and the release distribution are unchanged.
