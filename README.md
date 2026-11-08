@@ -104,7 +104,7 @@ py -3.14 -m venv .venv
 .\.venv\Scripts\python.exe main.py
 ```
 
-Rust 모듈 초기 설치는 `scripts/setup_rust_native.py`를 **한 번 실행하면** 됩니다. 소스 실행 시 Rust 가속은 자동 활성화되며, Rust 도구가 없거나 모듈 버전이 맞지 않으면 어떤 명령을 실행해야 하는지 표시하고 종료합니다. **완성된 설치 프로그램 사용자는 Rust를 설치할 필요가 없습니다.**
+Rust 모듈 초기 설치는 `scripts/setup_rust_native.py`를 **한 번 실행하면** 됩니다. 소스 실행 시 Rust 오디오 분석 가속은 자동 활성화되며, Rust 도구가 없거나 모듈 버전이 맞지 않으면 어떤 명령을 실행해야 하는지 표시하고 종료합니다. 비디오 프레임 전송을 Rust BGR24로 압축 없이 25% 줄이는 실험은 기본 비활성화이며, PowerShell에서 `$env:PLAYLIST_CANVAS_RUST_BGR24_PIPE = "1"`로 별도 활성화할 수 있습니다. 영상 내보내기 전체 속도 향상은 실측으로 확인해야 합니다. **완성된 설치 프로그램 사용자는 Rust를 설치할 필요가 없습니다.**
 
 다른 Python 버전으로 만든 `.venv`는 이름을 바꿔 보관한 뒤 다시 만드세요. VS Code에서는 **Python: Select Interpreter**로 `.venv\Scripts\python.exe`를 선택합니다. Python 3.15는 ONNX Runtime Windows 패키지 지원을 기다리는 중입니다. 빌드와 테스트 방법은 [패키징 가이드](PACKAGING.md)를 확인하세요.
 

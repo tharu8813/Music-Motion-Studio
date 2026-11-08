@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 NATIVE_MODULE = "music_motion_native"
 NATIVE_DISTRIBUTION = "music-motion-native"
 NATIVE_MANIFEST = PROJECT_ROOT / "native" / "export_analysis" / "Cargo.toml"
-REQUIRED_NATIVE_FUNCTIONS = ("reduce_spectra", "pcm_rms", "pcm_waveform")
+REQUIRED_NATIVE_FUNCTIONS = ("reduce_spectra", "pcm_rms", "pcm_waveform", "pack_bgr24")
 
 
 class RustPrerequisiteError(RuntimeError):

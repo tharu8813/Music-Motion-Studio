@@ -640,6 +640,14 @@ class FFmpegRenderer:
                 and os.environ.get("PLAYLIST_CANVAS_DISABLE_CFR_FASTPATH", "").strip().lower()
                 not in {"1", "true", "yes"}
             )
+            # BGR24 is only used for native-packed opaque live Canvas input.
+            # Normalize inside FFmpeg before filters: the raw pipe stays 25%
+            # smaller without changing swscale's negotiated base format.
+            input_options = tuple(piped_video.input_arguments) if piped_video is not None else ()
+            base_bgr24 = any(
+                first == "-pix_fmt" and second == "bgr24"
+                for first, second in zip(input_options, input_options[1:])
+            )
             optimize_constant_overlays = bool(
                 base_is_cfr
                 and os.environ.get("PLAYLIST_CANVAS_DISABLE_FIXED_OVERLAY_EVAL", "").strip().lower()
@@ -888,6 +896,7 @@ class FFmpegRenderer:
                     base_is_cfr=base_is_cfr,
                     optimize_constant_overlays=optimize_constant_overlays,
                     pipe_input_fps=piped_overlay_rates,
+                    base_bgr24=base_bgr24,
                 )
                 graph_arguments = self._filter_graph_arguments(graph, temporary)
                 video_arguments.extend([
@@ -896,13 +905,16 @@ class FFmpegRenderer:
                     *metadata_arguments,
                 ])
             else:
+                base_filter = self._output_scaling_filter(
+                    selected_settings.fps, selected_settings.output_width,
+                    selected_settings.output_height,
+                    already_sized=base_already_sized,
+                    base_is_cfr=base_is_cfr,
+                )
+                if base_bgr24:
+                    base_filter = f"format=bgr0,{base_filter}"
                 video_arguments.extend([
-                    "-vf", self._output_scaling_filter(
-                        selected_settings.fps, selected_settings.output_width,
-                        selected_settings.output_height,
-                        already_sized=base_already_sized,
-                        base_is_cfr=base_is_cfr,
-                    ),
+                    "-vf", base_filter,
                     *metadata_arguments,
                 ])
             if direct_mux:
@@ -1048,12 +1060,13 @@ class FFmpegRenderer:
                               base_already_sized: bool = False,
                               base_is_cfr: bool = False,
                               optimize_constant_overlays: bool = False,
-                              pipe_input_fps: dict[int, int] | None = None) -> str:
+                              pipe_input_fps: dict[int, int] | None = None,
+                              base_bgr24: bool = False) -> str:
         """Interleave reactive video and transparent static Z bands in Canvas order."""
         return filter_graph.layered_filter_graph(
             visualizers, static_layers, fps, output_width, output_height,
             video_clips, video_input_slots, base_already_sized,
-            base_is_cfr, optimize_constant_overlays, pipe_input_fps,
+            base_is_cfr, optimize_constant_overlays, pipe_input_fps, base_bgr24,
         )
 
     @staticmethod

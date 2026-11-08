@@ -15,6 +15,11 @@ on:
       - 'playlist_canvas.spec'
       - 'app/renderer/native_export.py'
       - 'app/renderer/python_visualizer.py'
+      - 'app/renderer/canvas_pipe.py'
+      - 'app/renderer/ffmpeg/filter_graph.py'
+      - 'tests/test_canvas_pipe.py'
+      - 'tests/test_rust_encoder_pipe.py'
+      - 'tools/benchmark_rust_encoder_pipe.py'
       - 'tests/test_rust_export_analysis.py'
       - 'tests/test_rust_export_pcm.py'
       - 'tools/benchmark_rust_export_analysis.py'
@@ -62,14 +67,20 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native wheel install failed' }
 
       - name: Verify Rust toolchain, developer gates and native parity
+        shell: pwsh
         run: |
           python scripts/rust_prerequisites.py
-          python -m unittest -v tests.test_rust_prerequisites tests.test_distribution_verification tests.test_rust_export_analysis tests.test_rust_export_pcm
+          if ($LASTEXITCODE -ne 0) { throw "Rust development prerequisite check failed" }
+          python -m unittest -v tests.test_rust_prerequisites tests.test_distribution_verification tests.test_rust_export_analysis tests.test_rust_export_pcm tests.test_rust_encoder_pipe
+          if ($LASTEXITCODE -ne 0) { throw "Rust developer and native parity tests failed" }
 
       - name: Benchmark FFT and PCM kernels separately
+        shell: pwsh
         run: |
           python tools/benchmark_rust_export_analysis.py
+          if ($LASTEXITCODE -ne 0) { throw "FFT kernel benchmark/parity failed" }
           python tools/benchmark_rust_export_pcm.py
+          if ($LASTEXITCODE -ne 0) { throw "PCM kernel benchmark/parity failed" }
 
       - name: Install verified FFmpeg for visualizer export integration
         shell: pwsh
@@ -85,7 +96,26 @@ jobs:
           '@ | python -
           if ($LASTEXITCODE -ne 0) { throw 'Verified FFmpeg installation failed' }
 
-      - name: Validate Rust-enabled actual FFmpeg export and audio/video parity
+      - name: Validate native BGR24 FFmpeg frame and audio equivalence
         env:
           PLAYLIST_CANVAS_ENABLE_RUST_EXPORT_ANALYSIS: "1"
-        run: python -m unittest -v tests.test_visualizer_streaming.VisualizerStreamingIntegrationTests.test_final_video_and_audio_match_movie_path
+        # One unittest invocation so ANY failing comparison fails the workflow.
+        run: python -m unittest -v tests.test_visualizer_streaming.VisualizerStreamingIntegrationTests.test_final_video_and_audio_match_movie_path tests.test_canvas_pipe.PipedFinalRenderIntegrationTests.test_rust_bgr24_piped_export_matches_bgr0_decoded_frames tests.test_canvas_pipe.PipedFinalRenderIntegrationTests.test_piped_base_and_alpha_layer_composite_into_the_final_video
+
+      - name: Benchmark BGR24 versus BGR0 FFmpeg input at SD, 1080p and 4K
+        shell: pwsh
+        run: |
+          python tools/benchmark_rust_encoder_pipe.py --width 640 --height 360 --frames 60 --repeats 3 --output rust-encoder-pipe-sd.json
+          if ($LASTEXITCODE -ne 0) { throw "SD benchmark failed" }
+          python tools/benchmark_rust_encoder_pipe.py --width 1920 --height 1080 --frames 36 --repeats 3 --output rust-encoder-pipe-1080p.json
+          if ($LASTEXITCODE -ne 0) { throw "1080p benchmark failed" }
+          python tools/benchmark_rust_encoder_pipe.py --width 3840 --height 2160 --frames 8 --repeats 2 --output rust-encoder-pipe-4k.json
+          if ($LASTEXITCODE -ne 0) { throw "4K benchmark failed" }
+
+      - name: Upload encoder-input A/B timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-encoder-pipe-benchmark
+          path: rust-encoder-pipe-*.json
+          if-no-files-found: ignore
