@@ -60,3 +60,22 @@ jobs:
         run: |
           python tools/benchmark_rust_export_analysis.py
           python tools/benchmark_rust_export_pcm.py
+
+      - name: Install verified FFmpeg for visualizer export integration
+        shell: pwsh
+        run: |
+          @'
+          import os
+          from pathlib import Path
+          from app.ffmpeg.managed_installer import ManagedFFmpegInstaller
+
+          installation = ManagedFFmpegInstaller(Path(os.environ["RUNNER_TEMP"]) / "rust-export-ffmpeg").install_latest()
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as environment:
+              environment.write(f"PLAYLIST_CANVAS_TEST_FFMPEG={installation.executable}\n")
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Verified FFmpeg installation failed' }
+
+      - name: Validate Rust-enabled actual FFmpeg export and audio/video parity
+        env:
+          PLAYLIST_CANVAS_ENABLE_RUST_EXPORT_ANALYSIS: "1"
+        run: python -m unittest -v tests.test_visualizer_streaming.VisualizerStreamingIntegrationTests.test_final_video_and_audio_match_movie_path
