@@ -1,0 +1,64 @@
+name: Windows raw-video pipe throughput experiment
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/benchmark_windows_pipe_chunks.py'
+      - 'app/renderer/canvas_pipe.py'
+      - 'tests/test_canvas_pipe.py'
+      - '.github/workflows/windows-pipe-chunk-benchmark.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-pipe-chunks:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PLAYLIST_CANVAS_RUST_BGR24_PIPE: "0"
+      QT_FFMPEG_DECODING_HW_DEVICE_TYPES: ","
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: '.python-version'
+      - name: Install project dependencies
+        run: python -m pip install -r requirements-lock.txt
+      - name: Install FFmpeg
+        shell: pwsh
+        run: |
+          @'
+          import os
+          from pathlib import Path
+          from app.ffmpeg.managed_installer import ManagedFFmpegInstaller
+          installed = ManagedFFmpegInstaller(Path(os.environ["RUNNER_TEMP"]) / "pipe-throughput-test").install_latest()
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as f:
+              f.write(f"PLAYLIST_CANVAS_TEST_FFMPEG={installed.executable}\n")
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'FFmpeg installation failed' }
+      - name: Check existing Windows pipe and CFR tests
+        shell: pwsh
+        run: |
+          python -m unittest -v tests.test_canvas_pipe.WindowsPipeWriteRegressionTests tests.test_canvas_pipe.PipedCanvasStreamTests
+          if ($LASTEXITCODE -ne 0) { throw 'Pipe regression tests failed' }
+      - name: Benchmark 1080p60 producer with H.264 FFmpeg reader
+        shell: pwsh
+        run: |
+          python tools/benchmark_windows_pipe_chunks.py --ffmpeg "$env:PLAYLIST_CANVAS_TEST_FFMPEG" --width 1920 --height 1080 --fps 60 --frames 36 --repeats 3 --chunks 2,4,8 --output pipe-chunks-1080p.json
+          if ($LASTEXITCODE -ne 0) { throw '1080p benchmark or frame parity failed' }
+      - name: Benchmark 4K producer with H.264 FFmpeg reader
+        shell: pwsh
+        run: |
+          python tools/benchmark_windows_pipe_chunks.py --ffmpeg "$env:PLAYLIST_CANVAS_TEST_FFMPEG" --width 3840 --height 2160 --fps 30 --frames 12 --repeats 2 --chunks 4,8 --output pipe-chunks-4k.json
+          if ($LASTEXITCODE -ne 0) { throw '4K benchmark or frame parity failed' }
+      - name: Upload pipe throughput evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-pipe-throughput
+          path: pipe-chunks-*.json
+          if-no-files-found: ignore
