@@ -651,6 +651,13 @@ class ExportSession:
                         next_sample.timeline_seconds, stream_order,
                         next_index, stream_key, next_sample,
                     ))
+            # FFmpeg framesync's fps filter cannot flush the last held
+            # reduced-rate alpha frame until it sees EOF on that input.
+            # Request EOF on *all* independent workers before blocking on
+            # the first base pipe's finish(). Reduced-rate overlays go first.
+            # Otherwise the base writer and the low-FPS reader can wait on
+            # each other for PIPE_STALL_SECONDS at the very end of an export.
+            self._request_worker_eofs(piped_keys)
             duration_tolerance = 1e-6 * max(1.0, playlist_duration)
             parent_queue_metrics: dict[str, dict[str, float | int]] = {}
             for stream_key in piped_keys:
@@ -729,6 +736,29 @@ class ExportSession:
         if self._cancel.is_set():
             raise RenderCancelledError("Export preparation was cancelled.")
         return artifacts
+
+    def _request_worker_eofs(self, piped_keys: Sequence[str]) -> None:
+        """Signal all child processes to drain before awaiting any completion.
+
+        This is deliberately a no-op for the serial PipedCanvasStream path:
+        only spawned CanvasProcessStream supports an asynchronous EOF packet.
+        Ordering lower-FPS layers first prevents a 60-FPS producer from
+        waiting for the last interpolated overlay frames while that overlay
+        is itself waiting for its parent to request EOF.
+        """
+        workers = [
+            self._pipes[key]
+            for key in piped_keys
+            if isinstance(self._pipes[key], CanvasProcessStream)
+        ]
+        workers.sort(key=lambda stream: stream.pipe_fps)
+        for worker in workers:
+            worker.request_finish()
+        if workers:
+            LOGGER.info(
+                "Canvas worker EOF requested before stream drain: %s",
+                [(worker.stream_key, worker.pipe_fps) for worker in workers],
+            )
 
     def _capture_piped_sample(self, sample: ExportFrameSample, stream_key: str) -> None:
         pipe = self._pipes[stream_key]

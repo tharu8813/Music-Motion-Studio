@@ -50,6 +50,13 @@ jobs:
           python -m unittest -v tests.test_cfr_sample_pruning
           python -m unittest -v tests.test_export_frame_equivalence.ExportFrameEquivalenceTests.test_pruned_parallel_sample_schedule_preserves_animated_canvas_pixels
 
+      - name: Verify Canvas multi-stream EOF handoff without deadlock
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m unittest -v tests.test_canvas_process_stream.CanvasProcessStreamTests.test_worker_eof_request_is_idempotent_and_finish_does_not_repeat_it tests.test_canvas_process_stream.CanvasProcessStreamTests.test_worker_eof_request_can_be_retried_after_queue_failure
+          python -m unittest -v tests.test_export_session.CanvasWorkerEofOrderingTests
+
       - name: Verify uniform low-FPS Canvas overlay transport
         env:
           QT_QPA_PLATFORM: offscreen
@@ -87,6 +94,11 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: python -m unittest -v tests.test_low_fps_canvas_overlay.LowFpsCanvasOverlayTests.test_real_ffmpeg_lossless_alpha_composite_matches_full_rate_pixels
+
+      - name: Verify live FFmpeg 60/60/12 FPS Canvas worker EOF and exact frame count
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest -v tests.test_canvas_process_stream.CanvasProcessStreamTests.test_live_three_input_low_fps_ffmpeg_eof_and_exact_final_frame_count
 
       - name: Validate previously failing preview and keyframe regressions
         env:
