@@ -41,6 +41,10 @@ def draw_visualizer_content(
     try:
         painter.setPen(Qt.PenStyle.NoPen)
         if style in {"line", "wave"}:
+            # Canvas paint_background leaves an opaque fill brush selected.
+            # An open QPainterPath may otherwise be implicitly closed and
+            # filled, unlike the transparent export QImage path.
+            painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.setPen(QPen(color, max(float(line_width), rect.height() * 0.025)))
             path = QPainterPath(QPointF(rect.left(), rect.center().y()))
             for index, level in enumerate(levels):
