@@ -598,17 +598,24 @@ class ExportSession:
                     ))
             duration_tolerance = 1e-6 * max(1.0, playlist_duration)
             for stream_key in piped_keys:
-                result = self._pipes[stream_key].finish()
-                if isinstance(self._pipes[stream_key], CanvasProcessStream):
-                    for name, value in self._pipes[stream_key].capture_metrics.items():
+                pipe = self._pipes[stream_key]
+                result = pipe.finish()
+                if isinstance(pipe, CanvasProcessStream):
+                    for name, value in pipe.capture_metrics.items():
                         setattr(self._capturer, name, getattr(self._capturer, name) + value)
-                self._live_encoder_reached |= self._pipes[stream_key].connected
+                self._live_encoder_reached |= pipe.connected
+                # All Canvas pipe pixel formats are four bytes per pixel.
+                # Record the actual raw input bandwidth without extra copying.
+                raw_mib = (
+                    result.frame_count * pipe.width * pipe.height * 4 / (1024 ** 2)
+                )
                 self._pipes.pop(stream_key, None)
                 LOGGER.info(
                     "Canvas pipe drained: key=%s frames=%d duration=%.3fs "
-                    "reader_closed_early=%s queue_peak=%d",
+                    "reader_closed_early=%s queue_peak=%d size=%dx%d raw_mib=%.1f",
                     stream_key, result.frame_count, result.duration_seconds,
                     result.reader_closed_early, result.peak_buffered_frames,
+                    pipe.width, pipe.height, raw_mib,
                 )
                 if abs(result.duration_seconds - playlist_duration) > duration_tolerance:
                     raise RenderError(
