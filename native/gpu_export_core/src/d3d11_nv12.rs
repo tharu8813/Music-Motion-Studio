@@ -247,6 +247,68 @@ impl NativeD3d11Nv12Surface {
         Ok(packed)
     }
 
+    /// Allocate a second encoder-format GPU texture on the *same D3D11
+    /// device* as this surface. Unlike calling new(), this guarantees the
+    /// slot belongs to the same device and can use CopyResource directly.
+    pub(crate) fn allocate_same_device_texture(&self) -> Result<ID3D11Texture2D, String> {
+        let description = D3D11_TEXTURE2D_DESC {
+            Width: self.width,
+            Height: self.height,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_NV12,
+            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: 0,
+            CPUAccessFlags: 0,
+            MiscFlags: 0,
+        };
+        let mut texture = None;
+        unsafe { self._device.CreateTexture2D(&description, None, Some(&mut texture)) }
+            .map_err(|error| format!("Cannot allocate same-device NV12 frame slot: {error}"))?;
+        texture.ok_or_else(|| "D3D11 device returned an empty frame slot".to_owned())
+    }
+
+    /// GPU -> GPU copy within the same D3D11 device, without CPU readback.
+    /// Both source and destination were created by this owner's device.
+    pub(crate) fn copy_to_same_device_texture(&self, dst: &ID3D11Texture2D) {
+        unsafe { self.context.CopyResource(dst, &self.texture) };
+    }
+
+    /// For byte-exact diagnostics only; never use this in the native encoder
+    /// data path. This reads an already-resident same-device NV12 slot.
+    pub(crate) fn readback_same_device_texture(
+        &self, texture: &ID3D11Texture2D,
+    ) -> Result<Vec<u8>, String> {
+        unsafe { self.context.CopyResource(&self.readback, texture) };
+        let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+        unsafe {
+            self.context.Map(
+                &self.readback, 0, D3D11_MAP_READ, 0, Some(&mut mapped),
+            )
+        }.map_err(|e| format!("NV12 slot readback map failed: {e}"))?;
+        let stride = mapped.RowPitch as usize;
+        let width = self.width as usize;
+        let rows = self.height as usize * 3 / 2;
+        if mapped.pData.is_null() || stride < width {
+            unsafe { self.context.Unmap(&self.readback, 0) };
+            return Err("Invalid NV12 slot staging pitch".into());
+        }
+        let mut packed = vec![0u8; nv12_size(self.width, self.height)?];
+        unsafe {
+            let source = mapped.pData.cast::<u8>();
+            for row in 0..rows {
+                std::ptr::copy_nonoverlapping(
+                    source.add(row * stride),
+                    packed.as_mut_ptr().add(row * width),
+                    width,
+                );
+            }
+            self.context.Unmap(&self.readback, 0);
+        }
+        Ok(packed)
+    }
+
     /// Intended only for a disposable diagnostic, not an export. Tests upload,
     /// NV12 texture allocation, GPU copy, and readback byte parity.
     pub fn verify_frame(&self, nv12: &[u8]) -> Result<(), String> {
