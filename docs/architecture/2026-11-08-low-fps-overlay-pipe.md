@@ -1,5 +1,12 @@
 # 9단계: 일정한 반복 간격의 Canvas 투명 레이어를 낮은 FPS로 전달
 
+> **2026-11-09 실사용 회귀 경고:** Windows의 실제 1080p60 프로젝트에서
+> `layer:1` 입력이 60→12FPS로 줄었지만, 실시간 FFmpeg 합성이 종료 직전
+> `base`와 `layer:0` 입력을 읽지 않아 약 120초 정체 후 중간 파일 방식으로
+> 자동 재시도되었다. 전체 영상 내보내기는 292.05초 → 967.35초였다.
+> **이 기능은 기본 비활성화되었으며, 문제 재현을 위해서만 명시적으로 활성화한다.**
+> 짧은 FFmpeg 합성 테스트 통과만으로 1080p Windows 실사용 안전성이 검증된 것은 아니다.
+
 ## 배경
 
 `stream-investigation.json`의 실제 1920×1080, 60FPS 프로젝트에서:
@@ -35,7 +42,8 @@
 
 ## 안전장치와 복구
 
-- `PLAYLIST_CANVAS_DISABLE_LOW_FPS_OVERLAY_PIPE=1`이면 신규 전송 최적화를 사용하지 않는다.
+- **기본값: 비활성화.** `PLAYLIST_CANVAS_ENABLE_LOW_FPS_OVERLAY_PIPE=1`을 명시해야만 실험적으로 활성화한다.
+- `PLAYLIST_CANVAS_DISABLE_LOW_FPS_OVERLAY_PIPE=1`이면 enable 설정이 있어도 기존 60FPS 경로를 사용한다.
 - `PLAYLIST_CANVAS_DISABLE_CFR_SAMPLE_PRUNING=1`인 경우에도 신규 전송 최적화는 비활성화된다.
 - 일정 검사가 실패하면 자동으로 이전 60FPS 파이프를 사용한다.
 - 수정 범위는 부모의 프로파일 설정, 프레임 일정 사전 검사, 격리된 Canvas worker의 rawvideo 입력 FPS와 FFmpeg 필터 그래프뿐이다. 렌더링 소스/가사/반전/투명도/좌표/최종 FPS/NVENC 오디오 처리 변경 없음.
@@ -45,6 +53,7 @@
 기존 경로, PowerShell:
 
 ```powershell
+Remove-Item Env:PLAYLIST_CANVAS_ENABLE_LOW_FPS_OVERLAY_PIPE -ErrorAction SilentlyContinue
 $env:PLAYLIST_CANVAS_DISABLE_LOW_FPS_OVERLAY_PIPE = "1"
 python tools/export_bottleneck_profile.py --output build/lowfps-before.json -- python main.py
 ```
@@ -53,6 +62,7 @@ python tools/export_bottleneck_profile.py --output build/lowfps-before.json -- p
 
 ```powershell
 Remove-Item Env:PLAYLIST_CANVAS_DISABLE_LOW_FPS_OVERLAY_PIPE -ErrorAction SilentlyContinue
+$env:PLAYLIST_CANVAS_ENABLE_LOW_FPS_OVERLAY_PIPE = "1"
 python tools/export_bottleneck_profile.py --output build/lowfps-after.json -- python main.py
 ```
 
@@ -75,7 +85,8 @@ python tools/export_ab_verify.py `
 - `tests/test_low_fps_canvas_overlay.py`: 60→12fps/30fps 정수 간격 선택, 전체 시간표 중 한 번의 이상 시각을 만나면 자동 fallback, writer 60fps와 12fps의 원본 RGBA 프레임 5배 바이트 수 차이 검증.
 - 실제 FFmpeg(개발 환경)에 60FPS RGBA 전체 입력 또는 12FPS RGBA 입력+프레임 복원 필터를 적용하고, 10/15/25/55/60/125/300개 등 여러 출력 프레임 수의 **전체 디코딩된 YUV420P 픽셀이 동일**함을 확인했다.
 - 위 검사를 CI에서도 FFmpeg 실행 파일을 이용할 수 있을 때 수행하도록 구현했다. Windows GitHub Actions에서 FFmpeg 자동 설치 단계가 실패할 경우 해당 통합 테스트는 실행되지 않는다.
-- **1080p 실제 프로젝트에서 얼마나 빨라지는지는 아직 검증되지 않았다.** 최적화된 파이프가 판정 기준을 통과하는지부터 `pipe_fps`를 확인해야 한다.
+- **1080p 실제 프로젝트에서 전체 내보내기가 지연되는 회귀가 확인되었다.** 12FPS 실제 적용은 확인됐으나 원시 파이프 정상 완료 정보가 없는 상태에서 출력 품질/속도 개선은 인정할 수 없다.
+- 문제가 발생한 실행은 `export.renderer_seconds` 2회, `export.piped_capture_session_seconds` 및 `export.capture_session_seconds`가 모두 관측되었다. 사용자 프로세스는 정상 종료(0)했더라도 **실시간 저FPS 경로가 성공했다는 뜻은 아니다.**
 
 ## 별도 후속 작업
 
