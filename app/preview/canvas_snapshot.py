@@ -10,6 +10,7 @@ from contextlib import ExitStack
 from dataclasses import replace
 from functools import wraps
 from math import ceil, floor
+import os
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt
@@ -214,6 +215,12 @@ class CanvasSnapshot:
         animation = source.keyframes
         if not animation.animated:
             return False
+        # The existing full-frame path remains available for diagnosis and
+        # pixel parity A/B comparisons without reverting or editing projects.
+        if os.environ.get("PLAYLIST_CANVAS_DISABLE_OPACITY_KEYFRAME_ROI", "").strip().lower() in {
+            "1", "true", "yes",
+        }:
+            return True
         curves_by_scope = (
             animation.global_curves,
             *animation.single_track_curves.values(),
