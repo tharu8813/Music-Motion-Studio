@@ -90,7 +90,10 @@ def _render_band(jobs, replies, stop, status) -> None:
 
         # Worker files were previously identified only by an unrelated PID.
         # A stable stream key links Canvas scene timings to its FFmpeg input.
-        set_profile_context(stream_key=config["key"], output_fps=config["fps"])
+        set_profile_context(
+            stream_key=config["key"], output_fps=config["fps"],
+            pipe_fps=config.get("pipe_fps", config["fps"]),
+        )
         application = QApplication([])
         apply_studio_style(application)
         for path in config['fonts']:
@@ -114,18 +117,28 @@ def _render_band(jobs, replies, stop, status) -> None:
             check()
 
         pipe = PipedCanvasStream(
-            Path(config['directory']), config['key'], config['fps'],
+            Path(config['directory']), config['key'],
+            config.get('pipe_fps', config['fps']),
             preserve_alpha=config['key'] != 'base', queue_capacity=2,
             producer_cancel_event=stop, producer_wait_callback=update_status,
         )
 
         current_frame_target: int | None = None
 
+        frame_step = config.get("frame_step", 1)
+
         def stage(image, duration, _key):
-            # Only the spawned parallel Canvas worker accepts pruned timeline
-            # states. The integer target preserves the legacy CFR image-to-
-            # frame mapping even if float durations were regrouped upstream.
-            pipe.submit(image, duration, target_frame_count=current_frame_target)
+            # The capture timeline remains at output FPS. Only a fully
+            # uniform visual band is sent at a lower input FPS. Its exact
+            # output-frame target must land on that lower-rate grid.
+            pipe_target = current_frame_target
+            if pipe_target is not None and frame_step != 1:
+                if pipe_target % frame_step:
+                    raise CanvasPipeError(
+                        "A reduced-rate Canvas sample missed its frame grid."
+                    )
+                pipe_target //= frame_step
+            pipe.submit(image, duration, target_frame_count=pipe_target)
             return RenderFrame(image, duration)
 
         capturer = ExportCanvasCapturer(
@@ -189,13 +202,19 @@ class CanvasProcessStream:
     """Bounded sample queue to one renderer, with the existing pipe diagnostics."""
 
     def __init__(self, directory, stream_key, fps, *, capturer,
-                 producer_cancel_event, producer_wait_callback) -> None:
+                 producer_cancel_event, producer_wait_callback,
+                 pipe_frame_step: int = 1) -> None:
         from app.canvas.source_item import SourceItem
         from app.models.source import SourceType
         from app.services.lyrics_intro_service import instrumental_spans
         from app.utils.font_loader import application_font_paths
 
+        if (pipe_frame_step < 1 or fps % pipe_frame_step != 0
+                or (pipe_frame_step > 1 and stream_key == "base")):
+            raise ValueError("The Canvas pipe frame step is invalid.")
         self.stream_key = stream_key
+        self.pipe_frame_step = pipe_frame_step
+        self.pipe_fps = fps // pipe_frame_step
         self.width = self.height = 0
         self._arguments = None
         self._result = None
@@ -218,6 +237,7 @@ class CanvasProcessStream:
                    for item in scene.items() if isinstance(item, SourceItem)]
         config = dict(
             directory=str(directory), key=stream_key, fps=fps,
+            pipe_fps=self.pipe_fps, frame_step=pipe_frame_step,
             rect=scene.artboard_rect.getRect(), korean=scene.placeholder_labels_korean,
             colors={name: getattr(scene, name).rgba() for name in (
                 'workspace_color', 'artboard_color', 'artboard_border_color',

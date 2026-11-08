@@ -50,6 +50,11 @@ jobs:
           python -m unittest -v tests.test_cfr_sample_pruning
           python -m unittest -v tests.test_export_frame_equivalence.ExportFrameEquivalenceTests.test_pruned_parallel_sample_schedule_preserves_animated_canvas_pixels
 
+      - name: Verify uniform low-FPS Canvas overlay transport
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest -v tests.test_low_fps_canvas_overlay
+
       - name: Benchmark Canvas preview Z-band optimization
         env:
           QT_QPA_PLATFORM: offscreen
@@ -77,6 +82,11 @@ jobs:
               environment.write(f"PLAYLIST_CANVAS_TEST_FFMPEG={installation.executable}\n")
           '@ | python -
           if ($LASTEXITCODE -ne 0) { throw 'Verified FFmpeg installation failed.' }
+
+      - name: Verify real FFmpeg 60-to-12 FPS overlay pixel parity
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest -v tests.test_low_fps_canvas_overlay.LowFpsCanvasOverlayTests.test_real_ffmpeg_lossless_alpha_composite_matches_full_rate_pixels
 
       - name: Validate previously failing preview and keyframe regressions
         env:

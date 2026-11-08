@@ -202,9 +202,11 @@ def layered_filter_graph(visualizers: list["VisualizerOverlay"],
                           video_input_slots: list[int] | None = None,
                           base_already_sized: bool = False,
                           base_is_cfr: bool = False,
-                          optimize_constant_overlays: bool = False) -> str:
+                          optimize_constant_overlays: bool = False,
+                          pipe_input_fps: dict[int, int] | None = None) -> str:
     """Interleave reactive video and transparent static Z bands in Canvas order."""
     video_clips = video_clips or []
+    pipe_input_fps = pipe_input_fps or {}
     video_file_inputs, planned_slots = video_input_plan(video_clips)
     if video_input_slots is None:
         video_input_slots = planned_slots
@@ -426,6 +428,19 @@ def layered_filter_graph(visualizers: list["VisualizerOverlay"],
                 )
             else:
                 layer_input = f"[{input_index}:v]"
+            source_fps = pipe_input_fps.get(index)
+            if source_fps is not None and source_fps != fps:
+                if input_kind != "pipe" or source_fps <= 0 or fps % source_fps:
+                    raise ValueError("An overlay input FPS is invalid.")
+                # A raw 12fps pipe representing 5 copies of each 60fps frame
+                # is expanded *inside FFmpeg*, before Z-order framesync.
+                # Do not add setpts=N/(fps*TB) afterward: rounding of
+                # floating timestamps can shift the alpha overlay one frame.
+                cfr_input = f"[staticcfr{order}]"
+                graph.append(
+                    f"{layer_input}fps={fps}:start_time=0{cfr_input}"
+                )
+                layer_input = cfr_input
             evaluation = ":eval=init" if optimize_constant_overlays else ""
             graph.append(
                 f"{current}{layer_input}overlay={layer_x}:{layer_y}:"

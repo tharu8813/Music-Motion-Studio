@@ -23,7 +23,9 @@ from app.services.lyrics_intro_service import completed_instrumental_spans, requ
 from app.preview.export_canvas_capture import ExportCanvasCapturer
 from app.preview.export_plan import ExportPlan
 from app.renderer.export_timeline import ExportFrameSample, ExportFrameSchedule
-from app.renderer.cfr_sample_pruning import CfrPruningStats, iter_cfr_emitting_samples
+from app.renderer.cfr_sample_pruning import (
+    CfrPruningStats, iter_cfr_emitting_samples, uniform_cfr_frame_step,
+)
 from app.renderer.python_visualizer import PythonVisualizerRenderer
 from app.renderer.canvas_pipe import (
     CanvasPipeCancelledError,
@@ -540,13 +542,46 @@ class ExportSession:
         samples_by_stream = self._stream_timeline_samples
         playlist_duration = plan.playlist_duration
         pipe_root = self._stream_root / "pipes"
+        settings = self._settings
         parallel = parallel_canvas_supported(self._capturer, len(piped_keys))
+        prune_empty_states = parallel and (
+            os.environ.get("PLAYLIST_CANVAS_DISABLE_CFR_SAMPLE_PRUNING", "")
+            .strip().lower() not in {"1", "true", "yes"}
+        )
+        # Only a full scan of a replayable schedule can prove that every
+        # image owns the same integer number of 60-FPS output frames.
+        # When this property is absent, the original full-rate pipe remains.
+        use_low_rate = prune_empty_states and (
+            os.environ.get("PLAYLIST_CANVAS_DISABLE_LOW_FPS_OVERLAY_PIPE", "")
+            .strip().lower() not in {"1", "true", "yes"}
+        )
+        pipe_frame_steps: dict[str, int] = {}
+        if use_low_rate:
+            for stream_key in piped_keys:
+                schedule = samples_by_stream[stream_key]
+                if stream_key == "base" or not isinstance(schedule, ExportFrameSchedule):
+                    continue
+                pipe_frame_steps[stream_key] = uniform_cfr_frame_step(
+                    iter(schedule), settings.fps,
+                )
+        LOGGER.info(
+            "Canvas reduced-rate overlay pipes: %s",
+            {
+                key: {
+                    "output_fps": settings.fps,
+                    "input_fps": settings.fps // step,
+                    "frame_step": step,
+                }
+                for key, step in pipe_frame_steps.items() if step > 1
+            },
+        )
         try:
             for stream_key in piped_keys:
                 if parallel:
                     self._pipes[stream_key] = CanvasProcessStream(
                         pipe_root, stream_key, self._settings.fps, capturer=self._capturer,
                         producer_cancel_event=self._cancel, producer_wait_callback=self._pipe_wait,
+                        pipe_frame_step=pipe_frame_steps.get(stream_key, 1),
                     )
                 else:
                     self._pipes[stream_key] = PipedCanvasStream(
@@ -579,10 +614,6 @@ class ExportSession:
             # Serial pipes, PNG staging, and preview retain their old schedule.
             # The source state still comes from the original coalescer; we
             # remove only samples that would emit zero actual output frames.
-            prune_empty_states = parallel and (
-                os.environ.get("PLAYLIST_CANVAS_DISABLE_CFR_SAMPLE_PRUNING", "")
-                .strip().lower() not in {"1", "true", "yes"}
-            )
             pruning_stats = (
                 {key: CfrPruningStats() for key in piped_keys}
                 if prune_empty_states else {}
@@ -628,7 +659,14 @@ class ExportSession:
                 pipe = self._pipes[stream_key]
                 result = pipe.finish()
                 if isinstance(pipe, CanvasProcessStream):
-                    parent_queue_metrics[stream_key] = pipe.job_queue_diagnostics()
+                    parent_queue_metrics[stream_key] = (
+                        pipe.job_queue_diagnostics()
+                        | {
+                            "pipe_fps": pipe.pipe_fps,
+                            "output_fps": settings.fps,
+                            "frame_step": pipe.pipe_frame_step,
+                        }
+                    )
                     for name, value in pipe.capture_metrics.items():
                         setattr(self._capturer, name, getattr(self._capturer, name) + value)
                 self._live_encoder_reached |= pipe.connected
@@ -640,10 +678,12 @@ class ExportSession:
                 self._pipes.pop(stream_key, None)
                 LOGGER.info(
                     "Canvas pipe drained: key=%s frames=%d duration=%.3fs "
-                    "reader_closed_early=%s queue_peak=%d size=%dx%d raw_mib=%.1f",
+                    "reader_closed_early=%s queue_peak=%d size=%dx%d raw_mib=%.1f pipe_fps=%d",
                     stream_key, result.frame_count, result.duration_seconds,
                     result.reader_closed_early, result.peak_buffered_frames,
                     pipe.width, pipe.height, raw_mib,
+                    pipe.pipe_fps if isinstance(pipe, CanvasProcessStream)
+                    else self._settings.fps,
                 )
                 if abs(result.duration_seconds - playlist_duration) > duration_tolerance:
                     raise RenderError(
@@ -709,7 +749,9 @@ class ExportSession:
             pipe = self._pipes[stream_key]
             return PipedVideoInput(
                 tuple(pipe.input_arguments()), duration,
-                pipe.width, pipe.height, self._settings.fps,
+                pipe.width, pipe.height,
+                pipe.pipe_fps if isinstance(pipe, CanvasProcessStream)
+                else self._settings.fps,
             )
 
         if "base" in self._sparse_invariant_stream_keys:
