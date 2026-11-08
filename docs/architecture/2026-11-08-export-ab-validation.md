@@ -78,7 +78,7 @@ python tools/export_ab_verify.py `
 
 ## 결과 해석
 
-- 새 프로파일에 추가된 `export.total_wall_seconds`는 **출력 옵션 확정부터 내보내기 완료·취소 처리까지**의 전체 벽시계 시간이다. 구버전 JSON에는 이 값이 없으며, 이 경우 누락으로 표시한다.
+- 새 프로파일의 `export.total_wall_seconds`는 **출력 옵션 확정 후 내보내기 실행 시작부터 작업자 종료 이벤트까지**의 벽시계 시간이며, 오디오·Canvas 준비 및 인코딩을 포함한다. 완료 대화상자에 머무는 시간은 포함하지 않는다. 실제 성공 완료는 `export.completed_wall_seconds`, 취소·실패는 `export.incomplete_wall_seconds`로 구분한다. A/B 비교에서는 성공 시간만 사용하고 실패·취소만 발생한 새 프로파일은 거부한다. 구버전 JSON에서 관련 값이 없다면 누락으로 표시한다.
 - `export.renderer_seconds`는 FFmpeg 최종 렌더링의 벽시계 시간이다. 전체 준비/캔버스/음원 처리 시간이 포함되지 않을 수 있다.
 - `canvas.scene_render_seconds`와 `export.frame_delivery_seconds`는 병렬 worker들의 **포괄적 시간의 합계**다. 합산해 내보내기 총 시간이라고 말하면 안 된다.
 - CPU core-seconds/최대 RSS는 **앱이 실행된 전체 시간**에서 샘플링한다. 두 측정은 앱을 열고 기다린 시간이 비슷해야 공정하다. NVIDIA 사용률은 **GPU 장치 전체**의 이용률이다.
