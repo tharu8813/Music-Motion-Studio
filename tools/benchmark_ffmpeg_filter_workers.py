@@ -24,7 +24,7 @@ from app.renderer.ffmpeg.filter_graph import layered_filter_graph
 
 def command(
     ffmpeg: str, width: int, height: int, fps: int,
-    frames: int, workers: int, *, mode: str,
+    frames: int, workers: int, *, mode: str, preset: str,
 ) -> list[str]:
     overlay_width, overlay_height = max(8, width // 3), max(8, height // 3)
     static = [
@@ -52,7 +52,7 @@ def command(
     ]
     if mode == "encode":
         return [
-            *args, "-an", "-c:v", "libx264", "-preset", "veryfast",
+            *args, "-an", "-c:v", "libx264", "-preset", preset,
             "-crf", "18", "-f", "null", "-",
         ]
     if mode == "filter":
@@ -86,6 +86,7 @@ def main() -> None:
     parser.add_argument("--frames", type=int, default=60)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--workers", default="1,2,4,8")
+    parser.add_argument("--preset", choices=("veryfast", "medium"), default="veryfast")
     parser.add_argument("--output", type=Path)
     arguments = parser.parse_args()
     if (not 64 <= arguments.width <= 3840 or not 64 <= arguments.height <= 2160
@@ -102,7 +103,7 @@ def main() -> None:
     hashes = {
         n: run(command(
             arguments.ffmpeg, arguments.width, arguments.height,
-            arguments.fps, min(arguments.frames, 12), n, mode="hash",
+            arguments.fps, min(arguments.frames, 12), n, mode="hash", preset=arguments.preset,
         ), mode="hash")[1]
         for n in workers
     }
@@ -119,7 +120,7 @@ def main() -> None:
             for n in order:
                 elapsed, _ = run(command(
                     arguments.ffmpeg, arguments.width, arguments.height,
-                    arguments.fps, arguments.frames, n, mode=mode,
+                    arguments.fps, arguments.frames, n, mode=mode, preset=arguments.preset,
                 ), mode=mode)
                 observations[mode][n].append(elapsed)
     report = {
@@ -127,6 +128,7 @@ def main() -> None:
         "note": "FFmpeg input/filter/encoder throughput on a deterministic synthetic multilayer Canvas, not full MP4 project export.",
         "width": arguments.width, "height": arguments.height,
         "fps": arguments.fps, "frames": arguments.frames,
+        "preset": arguments.preset,
         "repeats": arguments.repeats,
         "matching_frame_hash": next(iter(hashes.values())),
         "cases": {
