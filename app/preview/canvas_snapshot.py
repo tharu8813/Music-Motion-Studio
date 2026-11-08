@@ -904,6 +904,26 @@ class CanvasSnapshot:
         # This also avoids loading full-resolution art for personal-color-only
         # sources, which use a separate cached color extraction.
         track_cover: QPixmap | None = None
+        if os.environ.get(
+            "PLAYLIST_CANVAS_DISABLE_LAZY_TRACK_COVER", ""
+        ).strip().lower() in {"1", "true", "yes"}:
+            # Preserve the exact prior eager artwork logic for controlled A/B
+            # measurement or immediate rollback without changing project data.
+            needs_embedded_cover = any(
+                item.source.id not in hidden_source_ids
+                and (
+                    (item.source.source_type is SourceType.ALBUM_COVER
+                     and not item.source.content_path)
+                    or (item.source.source_type is SourceType.BACKGROUND
+                        and item.source.background_mode == "album_art")
+                    or item.source.uses_personal_color
+                )
+                for item in source_items
+            )
+            track_cover = (
+                extract_track_cover(track.file_path, track.cover_path)
+                if needs_embedded_cover else QPixmap()
+            )
 
         def cover_for_capture() -> QPixmap:
             nonlocal track_cover
