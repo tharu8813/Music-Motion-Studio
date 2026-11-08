@@ -20,6 +20,7 @@ venv/
 
 # Local GPU experiments and benchmark output (keep source fixtures tracked)
 /rust-gpu-compositor-*.json
+/rust-gpu-dynamic-nv12*.json
 /gpu-canvas-local.json
 /cuda-probe.json
 
