@@ -90,6 +90,49 @@ class ResponsiveTrackLyricPreviewTests(unittest.TestCase):
             {"format": "lrc", "start": 1, "end": 3, "text": "Plain"},
         ], 2.0))
 
+    def test_cursor_to_x_supports_pyside_tuple_and_scalar_return(self) -> None:
+        # PySide6 6.x can expose QTextLine.cursorToX(int) as (x, cursorPos).
+        # Earlier bindings and Qt wrappers can instead return just the x.
+        class FakeLine:
+            def __init__(self, tuple_result: bool) -> None:
+                self.tuple_result = tuple_result
+
+            def textStart(self) -> int:
+                return 0
+
+            def textLength(self) -> int:
+                return 12
+
+            def cursorToX(self, position: int):
+                x = position * 10.0
+                return (x, position) if self.tuple_result else x
+
+        for tuple_result in (False, True):
+            with self.subTest(tuple_result=tuple_result):
+                line = FakeLine(tuple_result)
+                self.assertEqual(KaraokeLyricLabel._position_at(line, 4.0), 40.0)
+                self.assertEqual(KaraokeLyricLabel._position_at(line, 4.5), 45.0)
+                self.assertEqual(KaraokeLyricLabel._position_at(line, -5), 0.0)
+                self.assertEqual(KaraokeLyricLabel._position_at(line, 99), 120.0)
+
+    def test_ttml_paint_event_accepts_tuple_cursor_coordinates(self) -> None:
+        # Real Qt paintEvent path; previously float(tuple) crashed here.
+        label = KaraokeLyricLabel()
+        label.resize(320, 90)
+        label.setText("Hello world")
+        label.set_word_ranges(
+            KaraokeLyricLabel.ranges_for_cues(word_ttml()[:1], 2.0)
+        )
+        label.show()
+        self.app.processEvents()
+        try:
+            rendered = label.grab().toImage()
+            self.assertFalse(rendered.isNull())
+            self.assertEqual(rendered.width(), 320)
+            self.assertEqual(rendered.height(), 90)
+        finally:
+            label.close()
+
     def test_word_highlighting_changes_actual_painted_pixels(self) -> None:
         label = KaraokeLyricLabel()
         label.resize(300, 85)
