@@ -33,6 +33,24 @@
 
 ## 이전 방식과 비교
 
+동일 버전에서 환경변수만 변경해 구버전 전체 프레임과 새 고정 크롭을 비교할 수 있다. 아래 두 명령은 **각각 별도로** 실행하고, 두 내보내기 모두 완료한 뒤 프로그램을 종료해야 한다.
+
+이전 동작(투명도 키프레임도 전체 프레임):
+
+```powershell
+$env:PLAYLIST_CANVAS_DISABLE_OPACITY_KEYFRAME_ROI = "1"
+python tools/export_bottleneck_profile.py --output build/opacity-roi-before.json -- python main.py
+```
+
+최적화된 동작:
+
+```powershell
+Remove-Item Env:PLAYLIST_CANVAS_DISABLE_OPACITY_KEYFRAME_ROI -ErrorAction SilentlyContinue
+python tools/export_bottleneck_profile.py --output build/opacity-roi-after.json -- python main.py
+```
+
+실제 속도·CPU 측정은 동일한 프로젝트, 출력 FPS/해상도, 파이프 크기·FFmpeg 최적화 옵션, PC 전원 설정에서 진행해야 한다.
+
 업데이트된 버전을 동일 설정의 프로젝트에서 렌더링한 뒤, 로그의
 
 `Canvas pipe drained: ... size=... raw_mib=...`
