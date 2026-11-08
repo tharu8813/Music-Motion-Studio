@@ -13,7 +13,7 @@ from PySide6.QtGui import QColor, QImage
 
 import app.renderer.canvas_pipe as canvas_pipe_module
 from app.renderer.canvas_pipe import PipedCanvasStream
-from app.renderer.ffmpeg.filter_graph import is_raw_canvas_cfr_input
+from app.renderer.ffmpeg.filter_graph import is_raw_canvas_cfr_input, layered_filter_graph
 from app.renderer.native_export import (
     RUST_BGR24_PIPE_ENV,
     native_bgr24_packer,
@@ -68,6 +68,18 @@ class RustFramePipeTests(TestCase):
     def test_fallback_validates_input_stride(self):
         with self.assertRaisesRegex(ValueError, "stride"):
             pack_rgb32_for_bgr24(memoryview(bytes(8)), 3, 1, lambda *_: b"")
+
+    def test_bgr24_filter_path_normalizes_before_overlay_conversion(self):
+        original = layered_filter_graph(
+            [], [], 30, 32, 32, base_is_cfr=True, base_bgr24=False,
+        )
+        packed = layered_filter_graph(
+            [], [], 30, 32, 32, base_is_cfr=True, base_bgr24=True,
+        )
+        self.assertTrue(original.startswith("[0:v]settb=AVTB"))
+        self.assertTrue(packed.startswith("[0:v]format=bgr0,settb=AVTB"))
+        # The timebase and compositor keep identical semantics.
+        self.assertEqual(packed.replace("[0:v]format=bgr0,", "[0:v]", 1), original)
 
     @skipUnless(importlib.util.find_spec("music_motion_native"), "Rust wheel missing")
     def test_zero_copy_input_native_packer_matches_reference_for_odd_widths(self):
