@@ -20,8 +20,7 @@ FFmpeg `framemd5` output before performance is compared.
 .\.venv\Scripts\python.exe tools/benchmark_windows_pipe_chunks.py --ffmpeg ffmpeg --width 1920 --height 1080 --fps 60 --frames 36 --repeats 3 --chunks 2,4,8
 ```
 
-The 4KiB/8KiB labels here refer to MiB chunk sizes (4 and 8 MiB, not
-4 and 8 KiB). A standalone experiment can specify
+A standalone experiment can specify
 `PLAYLIST_CANVAS_PIPE_WRITE_CHUNK_MIB=2`, `4`, or `8` before launching
 Python; existing releases still default to 4.
 
