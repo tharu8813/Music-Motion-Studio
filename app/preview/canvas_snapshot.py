@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.utils.performance import timed
+from app.preview.gpu_canvas_capture import capture_canvas_opengl
 
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
@@ -291,13 +292,17 @@ class CanvasSnapshot:
             QImage.Format.Format_ARGB32_Premultiplied
             if transparent else QImage.Format.Format_RGB32
         )
-        if (image_buffer is not None and image_buffer.size().width() == width
+        # Do not allocate/fill a system-memory 4K QImage on each GPU frame.
+        # The CPU raster is allocated only if the experimental OpenGL renderer
+        # has not been selected or must fall back after a context failure.
+        reusable_image = (
+            image_buffer
+            if (image_buffer is not None
+                and image_buffer.size().width() == width
                 and image_buffer.size().height() == height
-                and image_buffer.format() == image_format):
-            image = image_buffer
-        else:
-            image = QImage(width, height, image_format)
-        image.fill(Qt.GlobalColor.transparent if transparent else Qt.GlobalColor.black)
+                and image_buffer.format() == image_format)
+            else None
+        )
         selected_items = scene.selectedItems()
         grid_visible = scene.show_grid
         guide_x, guide_y = scene.guide_x, scene.guide_y
@@ -319,12 +324,25 @@ class CanvasSnapshot:
                             or (z_max is not None and z_value > z_max)):
                         hidden_items.append(item)
                         item.setVisible(False)
-            painter = QPainter(image)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            CanvasSnapshot._paint_scene(
-                scene, painter, QRectF(0, 0, image.width(), image.height()), source_rect,
+            target = QRectF(0, 0, width, height)
+            accelerated = capture_canvas_opengl(
+                scene, target, source_rect, transparent,
             )
-            painter.end()
+            if accelerated is not None:
+                image = accelerated
+            else:
+                image = reusable_image if reusable_image is not None else QImage(
+                    width, height, image_format,
+                )
+                image.fill(
+                    Qt.GlobalColor.transparent if transparent else Qt.GlobalColor.black
+                )
+                painter = QPainter(image)
+                try:
+                    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                    CanvasSnapshot._paint_scene(scene, painter, target, source_rect)
+                finally:
+                    painter.end()
             for item in selected_items:
                 item.setSelected(True)
         finally:
