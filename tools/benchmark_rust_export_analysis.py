@@ -25,6 +25,7 @@ from app.renderer.python_visualizer import PythonVisualizerRenderer
 def main() -> None:
     import music_motion_native  # noqa: F401; fail clearly if not installed
 
+    previous = os.environ.get(ENABLE_ENV)
     os.environ[ENABLE_ENV] = "1"
     check = reduce_frequency_bands(
         np.ones((1, 257), dtype=np.float64),
@@ -39,7 +40,6 @@ def main() -> None:
     samples = rng.normal(0, 0.12, size=8_000 * 20).astype(np.float32)
     times: dict[str, float] = {}
     outputs: dict[str, np.ndarray] = {}
-    previous = os.environ.get(ENABLE_ENV)
     try:
         for label, enabled in (("numpy", False), ("rust", True)):
             os.environ[ENABLE_ENV] = "1" if enabled else "0"
