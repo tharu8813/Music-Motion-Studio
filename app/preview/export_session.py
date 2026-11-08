@@ -597,10 +597,12 @@ class ExportSession:
                         next_index, stream_key, next_sample,
                     ))
             duration_tolerance = 1e-6 * max(1.0, playlist_duration)
+            parent_queue_metrics: dict[str, dict[str, float | int]] = {}
             for stream_key in piped_keys:
                 pipe = self._pipes[stream_key]
                 result = pipe.finish()
                 if isinstance(pipe, CanvasProcessStream):
+                    parent_queue_metrics[stream_key] = pipe.job_queue_diagnostics()
                     for name, value in pipe.capture_metrics.items():
                         setattr(self._capturer, name, getattr(self._capturer, name) + value)
                 self._live_encoder_reached |= pipe.connected
@@ -623,6 +625,9 @@ class ExportSession:
                         f"duration (expected {playlist_duration:.6f}s, got "
                         f"{result.duration_seconds:.6f}s)."
                     )
+            if parent_queue_metrics:
+                from app.utils.performance import set_profile_context
+                set_profile_context(parent_canvas_queues=parent_queue_metrics)
         except CanvasPipeCancelledError as error:
             self.cancel_streams()
             if self._cancel.is_set():
