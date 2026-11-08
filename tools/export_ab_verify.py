@@ -82,6 +82,7 @@ def compare_canvas_streams(baseline: dict, optimized: dict) -> dict[str, dict]:
     for key in sorted(set(old_streams) | set(new_streams)):
         old, new = old_streams.get(key, {}), new_streams.get(key, {})
         old_io, new_io = old.get("writer_io") or {}, new.get("writer_io") or {}
+        old_queue, new_queue = old.get("parent_job_queue") or {}, new.get("parent_job_queue") or {}
         def stage(entry: dict, name: str) -> float | None:
             return _number(
                 (entry.get("stage_timings") or {}).get(name, {}).get("inclusive_wall_seconds")
@@ -105,6 +106,14 @@ def compare_canvas_streams(baseline: dict, optimized: dict) -> dict[str, dict]:
             ),
             "pipe_write_calls": _delta(
                 _number(old_io.get("write_calls")), _number(new_io.get("write_calls")),
+            ),
+            "parent_job_queue_put_seconds": _delta(
+                _number(old_queue.get("put_wall_seconds")),
+                _number(new_queue.get("put_wall_seconds")),
+            ),
+            "parent_job_queue_full_events": _delta(
+                _number(old_queue.get("full_events")),
+                _number(new_queue.get("full_events")),
             ),
             "written_mib": _delta(
                 (_number(old_io.get("bytes_written")) or 0) / (1024 ** 2)
@@ -369,19 +378,23 @@ def render_markdown(report: dict) -> str:
             "complete. It includes FFmpeg reader backpressure, not CPU time.",
             "",
             "| Stream | Before size | After size | Pipe write before (s) | "
-            "Pipe write after (s) | Pending wait before (s) | Pending wait after (s) |",
-            "|---|---|---|---:|---:|---:|---:|",
+            "Pipe write after (s) | Pending wait before (s) | Pending wait after (s) | "
+            "Parent queue before (s) | Parent queue after (s) |",
+            "|---|---|---|---:|---:|---:|---:|---:|---:|",
         ])
         for name, item in sorted(streams.items()):
             lhs = item["pipe_write_wall_seconds"]["baseline"]
             rhs = item["pipe_write_wall_seconds"]["optimized"]
             lwait = item["pipe_pending_wait_seconds"]["baseline"]
             rwait = item["pipe_pending_wait_seconds"]["optimized"]
+            lqueue = item["parent_job_queue_put_seconds"]["baseline"]
+            rqueue = item["parent_job_queue_put_seconds"]["optimized"]
             before_size = "×".join(str(x) for x in item["size_before"])
             after_size = "×".join(str(x) for x in item["size_after"])
             out.append(
                 f"| {name} | {before_size} | {after_size} | "
-                f"{cell(lhs)} | {cell(rhs)} | {cell(lwait)} | {cell(rwait)} |"
+                f"{cell(lhs)} | {cell(rhs)} | {cell(lwait)} | {cell(rwait)} | "
+                f"{cell(lqueue)} | {cell(rqueue)} |"
             )
     out.extend(["", "## Checks", ""])
     if report.get("media_comparison"):
