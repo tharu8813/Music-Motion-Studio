@@ -28,7 +28,7 @@ jobs:
       - name: Install locked dependencies
         run: python -m pip install -r requirements-lock.txt
 
-      - name: Build optional Rust export analysis extension
+      - name: Build mandatory Rust export native module
         shell: pwsh
         run: |
           rustup default stable
@@ -41,11 +41,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Rust export installation failed.' }
           python -c "import music_motion_native; print('Native export analysis available')"
           if ($LASTEXITCODE -ne 0) { throw 'Rust extension import failed.' }
+          python scripts/rust_prerequisites.py
+          if ($LASTEXITCODE -ne 0) { throw 'Rust development preflight failed.' }
 
-      - name: Verify optional Rust export NumPy parity and rollback
+      - name: Verify Rust developer prerequisites and NumPy parity
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m unittest -v tests.test_rust_export_analysis
+        run: python -m unittest -v tests.test_rust_prerequisites tests.test_rust_export_analysis tests.test_rust_export_pcm tests.test_distribution_verification
 
       - name: Benchmark optional Rust export analysis kernel
         run: python tools/benchmark_rust_export_analysis.py
