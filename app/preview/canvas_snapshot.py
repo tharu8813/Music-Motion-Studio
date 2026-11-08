@@ -292,13 +292,17 @@ class CanvasSnapshot:
             QImage.Format.Format_ARGB32_Premultiplied
             if transparent else QImage.Format.Format_RGB32
         )
-        if (image_buffer is not None and image_buffer.size().width() == width
+        # Do not allocate/fill a system-memory 4K QImage on each GPU frame.
+        # The CPU raster is allocated only if the experimental OpenGL renderer
+        # has not been selected or must fall back after a context failure.
+        reusable_image = (
+            image_buffer
+            if (image_buffer is not None
+                and image_buffer.size().width() == width
                 and image_buffer.size().height() == height
-                and image_buffer.format() == image_format):
-            image = image_buffer
-        else:
-            image = QImage(width, height, image_format)
-        image.fill(Qt.GlobalColor.transparent if transparent else Qt.GlobalColor.black)
+                and image_buffer.format() == image_format)
+            else None
+        )
         selected_items = scene.selectedItems()
         grid_visible = scene.show_grid
         guide_x, guide_y = scene.guide_x, scene.guide_y
@@ -327,6 +331,12 @@ class CanvasSnapshot:
             if accelerated is not None:
                 image = accelerated
             else:
+                image = reusable_image if reusable_image is not None else QImage(
+                    width, height, image_format,
+                )
+                image.fill(
+                    Qt.GlobalColor.transparent if transparent else Qt.GlobalColor.black
+                )
                 painter = QPainter(image)
                 try:
                     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
