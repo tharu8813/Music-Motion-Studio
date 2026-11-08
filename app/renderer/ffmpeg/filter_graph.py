@@ -31,19 +31,55 @@ def filter_color(value: str) -> str:
 
 def output_scaling_filter(fps: int, output_width: int, output_height: int,
                            include_fps: bool = True,
-                           already_sized: bool = False) -> str:
+                           already_sized: bool = False,
+                           base_is_cfr: bool = False) -> str:
     """Scale/pad only when needed; preserve the input's existing CFR timing.
 
     An already output-sized Canvas should not pass through swscale and pad
     again on every frame. The caller must have verified both dimensions.
     """
+    # A validated rawvideo pipe already arrives as exact CFR frames. Keep
+    # timeline conversion in the graph's settb/setpts, not an extra fps filter.
+    fps_filter = include_fps and not base_is_cfr
     if already_sized:
-        return f"fps={fps}" if include_fps else "null"
-    prefix = f"fps={fps}," if include_fps else ""
+        return f"fps={fps}" if fps_filter else "null"
+    prefix = f"fps={fps}," if fps_filter else ""
     return (
         f"{prefix}scale={output_width}:{output_height}:"
         "force_original_aspect_ratio=decrease,"
         f"pad={output_width}:{output_height}:(ow-iw)/2:(oh-ih)/2:color=black"
+    )
+
+
+def is_raw_canvas_cfr_input(
+    arguments: tuple[str, ...] | list[str],
+    fps: int,
+    width: int,
+    height: int,
+) -> bool:
+    """Opt in only for the rawvideo pipe contract used by Canvas.
+
+    A PreparedVideoInput (even when its metadata says 60 FPS) is not assumed
+    to have exact frame timestamps. The rawvideo demuxer supplies every frame
+    with a stable interval from -framerate, so an fps filter can only repeat
+    work before the normal N/(fps*TB) timestamp reset.
+    """
+    options = tuple(arguments)
+
+    def option(key: str) -> str | None:
+        try:
+            index = options.index(key)
+        except ValueError:
+            return None
+        return options[index + 1] if index + 1 < len(options) else None
+
+    return (
+        fps > 0 and width > 0 and height > 0
+        and option("-f") == "rawvideo"
+        and option("-pix_fmt") in {"bgr0", "rgba"}
+        and option("-video_size") == f"{width}x{height}"
+        and option("-framerate") == str(fps)
+        and "-i" in options
     )
 
 
@@ -164,7 +200,9 @@ def layered_filter_graph(visualizers: list["VisualizerOverlay"],
                           output_width: int, output_height: int,
                           video_clips: list["VideoClipOverlay"] | None = None,
                           video_input_slots: list[int] | None = None,
-                          base_already_sized: bool = False) -> str:
+                          base_already_sized: bool = False,
+                          base_is_cfr: bool = False,
+                          optimize_constant_overlays: bool = False) -> str:
     """Interleave reactive video and transparent static Z bands in Canvas order."""
     video_clips = video_clips or []
     video_file_inputs, planned_slots = video_input_plan(video_clips)
@@ -172,7 +210,12 @@ def layered_filter_graph(visualizers: list["VisualizerOverlay"],
         video_input_slots = planned_slots
     if len(video_input_slots) != len(video_clips):
         raise ValueError("Video input slots do not match scheduled clips.")
-    graph: list[str] = [f"[0:v]fps={fps}:start_time=0,settb=AVTB,setpts=N/({fps}*TB)[base]"]
+    base_timing = (
+        f"settb=AVTB,setpts=N/({fps}*TB)"
+        if base_is_cfr
+        else f"fps={fps}:start_time=0,settb=AVTB,setpts=N/({fps}*TB)"
+    )
+    graph: list[str] = [f"[0:v]{base_timing}[base]"]
     entries: list[tuple[float, int, str]] = []
     # Inputs 0/1 are base canvas and audio. Dynamic video inputs precede
     # static concat inputs, preserving their independent source timing.
@@ -235,7 +278,11 @@ def layered_filter_graph(visualizers: list["VisualizerOverlay"],
                     f"oh=roth({angle:.12f}):fillcolor=none{rotated}"
                 )
                 layer_input = rotated
-            graph.append(f"{current}{layer_input}overlay={x}:{y}:eof_action=pass{output}")
+            fixed_position = optimize_constant_overlays and not overlay.keyframe_binding
+            evaluation = ":eval=init" if fixed_position else ""
+            graph.append(
+                f"{current}{layer_input}overlay={x}:{y}:eof_action=pass{evaluation}{output}"
+            )
         elif kind == "video":
             clip = video_clips[index]
             source_input = video_layer_inputs[index]
@@ -357,8 +404,10 @@ def layered_filter_graph(visualizers: list["VisualizerOverlay"],
                     f"oh=roth({angle:.12f}):fillcolor=none{rotated}"
                 )
                 layer_input = rotated
+            fixed_position = optimize_constant_overlays and not clip.keyframe_binding
+            evaluation = ":eval=init" if fixed_position else ""
             graph.append(
-                f"{current}{layer_input}overlay={x}:{y}:eof_action=pass:shortest=0{output}"
+                f"{current}{layer_input}overlay={x}:{y}:eof_action=pass:shortest=0{evaluation}{output}"
             )
         else:
             static_layer = static_layers[index]
@@ -377,9 +426,10 @@ def layered_filter_graph(visualizers: list["VisualizerOverlay"],
                 )
             else:
                 layer_input = f"[{input_index}:v]"
+            evaluation = ":eval=init" if optimize_constant_overlays else ""
             graph.append(
                 f"{current}{layer_input}overlay={layer_x}:{layer_y}:"
-                f"eof_action=pass{output}"
+                f"eof_action=pass{evaluation}{output}"
             )
         current = output
     graph.append(
