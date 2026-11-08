@@ -11,6 +11,7 @@ from time import monotonic
 
 from app.renderer.canvas_pipe import CanvasPipeCancelledError, CanvasPipeError, PipedCanvasStream
 from app.renderer.export_timeline import ExportFrameSample
+from app.utils.performance import ENABLED as PROFILE_ENABLED
 
 
 _SAMPLE_FIELDS = tuple(field.name for field in fields(ExportFrameSample) if field.name != 'track')
@@ -196,6 +197,9 @@ class CanvasProcessStream:
         self._cancel = producer_cancel_event
         self._wait_callback = producer_wait_callback
         self._closed = False
+        self._queue_put_wall_seconds = 0.0
+        self._queue_full_events = 0
+        self._queue_submit_count = 0
         context = multiprocessing.get_context('spawn')
         self._jobs = context.Queue(maxsize=2)
         self._jobs._ignore_epipe = True  # A cancelled reader can close during a queued write.
@@ -265,6 +269,14 @@ class CanvasProcessStream:
         return dict(process=self._process.pid, connected=self.connected,
                     pending=self.pending_frames, idle_seconds=monotonic() - self.last_activity)
 
+    def job_queue_diagnostics(self) -> dict[str, float | int]:
+        """Producer-side wait for worker job-queue capacity, not pipe I/O."""
+        return {
+            "submit_count": self._queue_submit_count,
+            "full_events": self._queue_full_events,
+            "put_wall_seconds": self._queue_put_wall_seconds,
+        }
+
     def _poll(self):
         exit_code = self._process.exitcode
         while True:
@@ -302,11 +314,17 @@ class CanvasProcessStream:
         self._check()
         packet = _pack_sample(sample, self._track_indexes)
         while True:
+            started = monotonic() if PROFILE_ENABLED else 0.0
             try:
                 self._jobs.put(packet, timeout=0.05)
+                self._queue_submit_count += 1
                 break
             except Full:
+                self._queue_full_events += 1
                 self._wait()
+            finally:
+                if PROFILE_ENABLED:
+                    self._queue_put_wall_seconds += monotonic() - started
         deadline = monotonic() + 30.0
         while not self.started:
             self._wait()
