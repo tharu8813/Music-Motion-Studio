@@ -163,6 +163,26 @@ class ExportABVerificationTests(unittest.TestCase):
         self.assertIn("layer:0", markdown)
         self.assertIn("250.00", markdown)
 
+    def test_warns_when_low_fps_pipe_failure_triggers_second_render(self) -> None:
+        baseline = profile(renderer=292.0, ffmpeg_cpu=900, canvas_cpu=700, peak=1700)
+        optimized = profile(renderer=550.0, ffmpeg_cpu=900, canvas_cpu=700, peak=1700)
+        optimized["summary"]["stage_timings"]["export.renderer_seconds"] = {
+            "calls": 2, "inclusive_wall_seconds": 550.0,
+        }
+        optimized["summary"]["stage_timings"]["export.capture_session_seconds"] = {
+            "calls": 1, "inclusive_wall_seconds": 415.0,
+        }
+        result = compare_profiles(baseline, optimized)
+        self.assertTrue(any(
+            "2 final renderer attempts" in warning
+            and "intermediate-file fallback" in warning
+            for warning in result["warnings"]
+        ))
+        self.assertEqual(
+            result["stage_timings_seconds"]["export.capture_session_seconds"]["optimized"],
+            415.0,
+        )
+
     def test_identical_flags_or_missing_run_metadata_generate_warnings(self) -> None:
         original = profile(renderer=5, ffmpeg_cpu=5, canvas_cpu=5, peak=5)
         compared = compare_profiles(original, original)
