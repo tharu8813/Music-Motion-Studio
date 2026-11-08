@@ -834,6 +834,16 @@ class FFmpegRenderer:
             temporary_video = Path(output_staging_name)
             if storage_path_callback:
                 storage_path_callback("output", temporary_video)
+            filter_worker_count = self._final_filter_worker_count(
+                selected_settings,
+                piped=piped,
+                base_is_cfr=base_is_cfr,
+                base_already_sized=base_already_sized,
+                constant_overlays=optimize_constant_overlays,
+                base_bgr24=base_bgr24,
+                static_input_kinds=tuple(item[2] for item in static_inputs),
+                has_dynamic_overlays=bool(visualizer_inputs or video_clips),
+            )
             video_arguments = [
                 # Let FFmpeg use all available CPU workers for PNG decoding,
                 # filtering and software encoding. Hardware encoders ignore this
@@ -842,8 +852,8 @@ class FFmpegRenderer:
                 # retaining many full-resolution RGBA frames at once. Encoding
                 # threads still use the available CPU cores (or the selected GPU).
                 "-threads", "0",
-                "-filter_threads", str(self._filter_worker_count(selected_settings)),
-                "-filter_complex_threads", str(self._filter_worker_count(selected_settings)),
+                "-filter_threads", str(filter_worker_count),
+                "-filter_complex_threads", str(filter_worker_count),
                 *base_input_arguments,
                 "-i", str(audio_path),
             ]
@@ -971,7 +981,7 @@ class FFmpegRenderer:
                 selected_settings.fps,
                 selected_settings.output_width,
                 selected_settings.output_height,
-                self._filter_worker_count(selected_settings),
+                filter_worker_count,
                 len(visualizer_inputs),
                 len(video_clips),
                 len(static_inputs),
@@ -1487,6 +1497,49 @@ class FFmpegRenderer:
         if settings.work_mode == WORK_MODE_MAX_SPEED:
             return max(2, min(ceiling, cpu))
         return max(2, min(ceiling, cpu // 2))
+
+    @classmethod
+    def _final_filter_worker_count(
+        cls, settings: RenderSettings, *,
+        piped: bool,
+        base_is_cfr: bool,
+        base_already_sized: bool,
+        constant_overlays: bool,
+        base_bgr24: bool,
+        static_input_kinds: tuple[str, ...],
+        has_dynamic_overlays: bool,
+    ) -> int:
+        """Tune a narrow, verified multilayer FFmpeg software-encode case.
+
+        Windows A/B tests at <=1080p/30 or 60 FPS found 2 filter workers faster
+        than 8 for both the overlay graph and libx264 encoding, without
+        changing any decoded frame. Do not apply the synthetic benchmark
+        result to GPU encoders, 4K, clips with masks, or single-layer sources.
+
+        This is a *cap*, not a request to exceed the existing worker budget;
+        STABLE mode still runs with one worker. The opt-out is read on every
+        export to make same-project A/B comparisons straightforward.
+        """
+        existing = cls._filter_worker_count(settings)
+        if (
+            os.environ.get(
+                "PLAYLIST_CANVAS_DISABLE_FFMPEG_FILTER_WORKER_TUNING", ""
+            ).strip().lower() in {"1", "true", "yes"}
+            or not piped
+            or not base_is_cfr
+            or not base_already_sized
+            or not constant_overlays
+            or base_bgr24
+            or has_dynamic_overlays
+            or settings.video_codec != "libx264"
+            or settings.fps not in (30, 60)
+            or not 640 <= settings.output_width <= 1920
+            or not 360 <= settings.output_height <= 1080
+            or len(static_input_kinds) < 2
+            or any(kind != "pipe" for kind in static_input_kinds)
+        ):
+            return existing
+        return min(existing, 2)
 
     @staticmethod
     def _audio_worker_count(settings: RenderSettings, track_count: int) -> int:
