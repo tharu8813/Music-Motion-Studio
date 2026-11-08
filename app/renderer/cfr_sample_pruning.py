@@ -17,6 +17,51 @@ from math import floor
 from app.renderer.export_timeline import ExportFrameSample
 
 
+def uniform_cfr_frame_step(
+    samples: Iterable[ExportFrameSample],
+    output_fps: int,
+    *,
+    min_pipe_fps: int = 10,
+) -> int:
+    """Prove that every newly emitted picture occupies the same CFR frame count.
+
+    Return an integer factor >=2 only if the *entire* lazily generated source
+    schedule uses one exactly uniform repeat interval. Zero-output states are
+    ignored; the first frame must start on the same cadence. The final frame
+    count must also be divisible by the factor.
+
+    This is deliberately conservative: mixed animation rates, track junctions,
+    opacity changes between grid points, or sub-frame boundary shifts return 1
+    and retain the existing full-FPS pipe. Checking the original cumulative
+    clock (rather than grouping durations) preserves the writer's rounding.
+    """
+    if output_fps <= 0:
+        raise ValueError("Output FPS must be positive.")
+    elapsed = 0.0
+    frame_count = 0
+    frame_step = 0
+    pictures = 0
+    for sample in samples:
+        if not (0.0 < sample.duration_seconds < float("inf")):
+            return 1
+        elapsed += sample.duration_seconds
+        target_count = max(1, floor(elapsed * output_fps + 0.5))
+        if target_count <= frame_count:
+            continue
+        produced = target_count - frame_count
+        if frame_step == 0:
+            if (produced <= 1
+                    or output_fps % produced != 0
+                    or output_fps // produced < min_pipe_fps):
+                return 1
+            frame_step = produced
+        elif produced != frame_step:
+            return 1
+        frame_count = target_count
+        pictures += 1
+    return frame_step if pictures >= 2 and frame_count % frame_step == 0 else 1
+
+
 @dataclass(slots=True)
 class CfrPruningStats:
     """Stream-local counts for the parent process's profiler and UI logs."""
