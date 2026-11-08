@@ -59,5 +59,9 @@ parity tests, and measured 44.9 ms NumPy versus 30.1 ms Rust on a 20-second,
 60 FPS, 96-band synthetic sample (1.49x faster for that analysis operation).
 The numeric difference reported by that benchmark was zero. This is **not a
 whole-export speedup**; other legacy suite failures were present in the same
-workflow. The second-stage RMS/waveform kernels must pass the focused Windows
-workflow before they are used beyond opt-in experimentation.
+workflow. The second-stage RMS/waveform kernels passed the focused Windows workflow:
+on 20 seconds of synthetic audio at 60 FPS, RMS took 5.27 ms in NumPy
+versus 0.13 ms in Rust (40.73x); 96-point waveform took 9.51 ms versus
+0.67 ms (14.26x). Max absolute differences were below 3e-8. These
+are short, synthetic **kernel** benchmarks, not a measurement of total
+video export. Windows FFmpeg integration testing is tracked separately.
