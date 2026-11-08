@@ -1,4 +1,4 @@
-"""Optional Rust fast paths for export FFT and PCM analysis.
+"""Optional Rust fast paths for export audio analysis and raw-video transport.
 
 The accelerator is deliberately opt-in and is not a runtime dependency.
 A missing/failed native extension always falls back to the existing NumPy
