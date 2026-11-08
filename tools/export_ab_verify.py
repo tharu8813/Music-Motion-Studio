@@ -12,12 +12,12 @@ from hashlib import sha256
 import json
 import math
 from pathlib import Path
-import shutil
 import subprocess
 from typing import Any
 
 
 STAGE_KEYS = (
+    "export.total_wall_seconds",
     "export.audio_prepare_seconds",
     "export.piped_capture_session_seconds",
     "export.frame_generation_seconds",
@@ -104,9 +104,15 @@ def compare_profiles(baseline: dict, optimized: dict) -> dict:
             warnings.append("Both runs recorded the same optimization flags; check which code/flags were tested.")
         if environment_before.get("python_version") != environment_after.get("python_version"):
             warnings.append("Python versions differ between runs.")
+    if not stages.get("export.total_wall_seconds"):
+        warnings.append(
+            "No end-to-end export wall timer was recorded; only renderer time or "
+            "process-lifetime samples can be compared."
+        )
     if not stages.get("export.renderer_seconds") and not stages.get("ffmpeg.process_wall_seconds"):
         warnings.append("No renderer wall-time stage was recorded; speed improvement cannot be estimated.")
     return {
+        "total_export_wall_seconds": stages.get("export.total_wall_seconds"),
         "renderer_wall_seconds": stages.get("export.renderer_seconds")
         or stages.get("ffmpeg.process_wall_seconds"),
         "stage_timings_seconds": stages,
@@ -287,6 +293,8 @@ def render_markdown(report: dict) -> str:
         "| Metric | Baseline | Optimized | Change |",
         "|---|---:|---:|---:|",
     ]
+    if profile.get("total_export_wall_seconds"):
+        out.append(row("Full video export wall time (s)", profile["total_export_wall_seconds"]))
     if profile.get("renderer_wall_seconds"):
         out.append(row("FFmpeg renderer wall time (s)", profile["renderer_wall_seconds"]))
     for name in ("canvas.scene_render_seconds", "export.frame_pipe_write_seconds",
