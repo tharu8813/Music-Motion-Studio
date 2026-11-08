@@ -7,6 +7,8 @@ on:
       - 'app/preview/gpu_canvas_capture.py'
       - 'app/preview/canvas_snapshot.py'
       - 'tools/benchmark_gpu_canvas_capture.py'
+      - 'tools/benchmark_nvenc_cuda_overlay.py'
+      - 'tests/test_nvenc_cuda_overlay_probe.py'
       - 'tests/test_gpu_canvas_capture.py'
       - '.github/workflows/experimental-gpu-export.yml'
   workflow_dispatch:
@@ -32,7 +34,7 @@ jobs:
       - name: Preserve CPU Canvas pixels and test GPU fallback behavior
         shell: pwsh
         run: |
-          python -m unittest -v tests.test_gpu_canvas_capture tests.test_lazy_track_cover_capture
+          python -m unittest -v tests.test_gpu_canvas_capture tests.test_lazy_track_cover_capture tests.test_nvenc_cuda_overlay_probe
           if ($LASTEXITCODE -ne 0) { throw 'Canvas render parity/regression failed' }
       - name: Record OpenGL candidate feasibility and GPU/CPU frame timings
         shell: pwsh
