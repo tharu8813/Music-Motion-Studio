@@ -94,6 +94,23 @@ class ExperimentalGpuCanvasTests(TestCase):
         finally:
             scene.clear()
 
+    def test_transparent_offscreen_gpu_band_preserves_alpha_if_available(self):
+        gpu.reset_gpu_capture_for_tests()
+        scene = QGraphicsScene(0, 0, 64, 64)
+        scene.addRect(
+            QRectF(12, 12, 24, 24),
+            brush=QColor(255, 0, 0, 128),
+        )
+        target = QRectF(0, 0, 64, 64)
+        with patch.dict(os.environ, {gpu.ENABLE_ENV: "1"}):
+            image = gpu.capture_canvas_opengl(scene, target, target, True)
+        if image is None:
+            self.skipTest("A hardware OpenGL context is not available in CI")
+        self.assertEqual(image.format(), QImage.Format.Format_ARGB32_Premultiplied)
+        self.assertEqual(image.pixelColor(4, 4).alpha(), 0)
+        self.assertGreater(image.pixelColor(20, 20).alpha(), 80)
+        self.assertLess(image.pixelColor(20, 20).alpha(), 200)
+
     def test_gpu_output_orientation_and_format_if_available(self):
         gpu.reset_gpu_capture_for_tests()
         scene = scene_fixture()
