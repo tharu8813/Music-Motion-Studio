@@ -137,6 +137,27 @@ class ResponsiveTrackLyricPreviewTests(unittest.TestCase):
         finally:
             dialog.reject()
 
+    def test_ttml_timer_is_bounded_to_visible_lyrics_tab_and_dialog_lifetime(self) -> None:
+        dialog = TrackDetailsDialog(
+            PlaylistTrack("not-on-disk.wav", "Track",
+                          duration_seconds=10, lyrics=word_ttml()),
+            Translator(),
+        )
+        try:
+            self.assertEqual(dialog._karaoke_timer.interval(), 33)
+            self.assertFalse(dialog._karaoke_timer.isActive())
+            dialog.tabs.setCurrentWidget(dialog.lyrics_tab)
+            dialog._update_live_lyrics(2000)
+            key = dialog._last_lyric_context_key
+            dialog._update_live_lyrics(2200)
+            # The active cue did not change. Repaint TTML word progress,
+            # but do not repeatedly reflow every neighboring QLabel.
+            self.assertEqual(dialog._last_lyric_context_key, key)
+            self.assertTrue(dialog.current_lyric.has_word_timing)
+        finally:
+            dialog.reject()
+        self.assertFalse(dialog._karaoke_timer.isActive())
+
     def test_dialog_shows_more_neighbors_when_viewport_is_taller(self) -> None:
         cues = [
             {"start": i * 2.0, "end": i * 2.0 + 1.5, "text": f"Cue {i}"}
