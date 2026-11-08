@@ -6,6 +6,19 @@ from PyInstaller.utils.hooks import collect_all
 
 
 project_root = Path(SPECPATH)
+
+# Builds must use the same Rust toolchain and native module as source debugging.
+# This check runs on the build host only, never in the packaged application.
+import sys
+sys.path.insert(0, str(project_root))
+from scripts.rust_prerequisites import (
+    RustPrerequisiteError, require_developer_environment,
+)
+try:
+    require_developer_environment()
+except RustPrerequisiteError as error:
+    raise SystemExit(f"Cannot build without Rust development prerequisites: {error}") from error
+
 # Dependency test suites can import compiler probes and start child processes;
 # they are not runtime dependencies of the installed editor.
 def runtime_submodule(name):
@@ -44,11 +57,9 @@ AUTOMIX_MODEL_FILES = (
     "beat_this_final0_int8.onnx", "BEAT_THIS_LICENSE.txt", "umxhq_vocals_int8.onnx", "OPEN_UNMIX_LICENSE.txt",
     "yamnet.onnx", "yamnet_class_map.csv", "YAMNET_LICENSE.txt", "YAMNET_NOTICE.md",
 )
-# Optional Rust export helper is bundled when installed, but never required.
-OPTIONAL_EXPORT_NATIVE = (
-    ["music_motion_native"]
-    if importlib.util.find_spec("music_motion_native") is not None else []
-)
+# Mandatory on the build host and bundled with the finished executable.
+# Packaged end users do not need rustc, Cargo or MSVC installed.
+REQUIRED_EXPORT_NATIVE = ["music_motion_native"]
 _missing = [name for name in (*AUTOMIX_PACKAGES, *TRANSLATION_PACKAGES, "onnxruntime") if importlib.util.find_spec(name) is None]
 _missing += [name for name in AUTOMIX_MODEL_FILES if not (AUTOMIX_MODEL_DIRECTORY / name).is_file()]
 if _missing:
@@ -91,7 +102,7 @@ analysis = Analysis(
        for path in sorted((project_root / "app" / "resources" / "help").glob("*/*.png"))],
     hiddenimports=numpy_hiddenimports + automix_hiddenimports + [
         "PySide6.QtSvg", "PySide6.QtMultimedia", "PySide6.QtOpenGLWidgets",
-    ] + OPTIONAL_EXPORT_NATIVE,
+    ] + REQUIRED_EXPORT_NATIVE,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
