@@ -80,6 +80,11 @@ class WindowsPipeWriteRegressionTests(unittest.TestCase):
             endpoint.write(memoryview(bytes(9 << 20)), lambda: False)
             wait.assert_not_called()
         self.assertEqual(chunks, [4 << 20, 4 << 20, 1 << 20])
+        io = endpoint.io_diagnostics()
+        self.assertEqual(io["write_calls"], 3)
+        self.assertEqual(io["immediate_calls"], 3)
+        self.assertEqual(io["pending_calls"], 0)
+        self.assertEqual(io["bytes_written"], 9 << 20)
 
     def test_pending_and_partial_writes_retain_unmodified_byte_order(self) -> None:
         endpoint = _WindowsNamedPipeEndpoint.__new__(_WindowsNamedPipeEndpoint)
@@ -102,6 +107,27 @@ class WindowsPipeWriteRegressionTests(unittest.TestCase):
             endpoint.write(memoryview(b"abcdefghi"), lambda: False)
             immediate_result.assert_not_called()
         self.assertEqual(received, b"abcdefghi")
+        io = endpoint.io_diagnostics()
+        self.assertEqual(io["bytes_written"], 9)
+        self.assertEqual(io["write_calls"], 3)
+        self.assertEqual(io["pending_calls"], 3)
+        self.assertEqual(io["partial_calls"], 2)
+        self.assertEqual(io["immediate_calls"], 0)
+
+    def test_pending_io_time_is_recorded_without_modifying_data(self) -> None:
+        endpoint = _WindowsNamedPipeEndpoint.__new__(_WindowsNamedPipeEndpoint)
+        endpoint._winapi = Mock()
+        endpoint._handle = 123
+        endpoint._closed = False
+        endpoint._write_chunk_bytes = 4
+        endpoint._winapi.WriteFile.return_value = (SimpleNamespace(size=4), 997)
+        with patch("app.renderer.canvas_pipe.PROFILE_ENABLED", True), \
+                patch.object(endpoint, "_wait", return_value=4):
+            endpoint.write(memoryview(b"abcd"), lambda: False)
+        diagnostics = endpoint.io_diagnostics()
+        self.assertGreaterEqual(diagnostics["pending_wait_seconds"], 0.0)
+        self.assertGreaterEqual(diagnostics["write_api_seconds"], 0.0)
+        self.assertEqual(diagnostics["bytes_written"], 4)
 
 
 # Windows named pipes and POSIX FIFOs alike: a plain open() is the reader.
