@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -55,6 +56,15 @@ class OpacityKeyframeCropTests(unittest.TestCase):
         self.assertLess(rect.width() * rect.height(), 320 * 180 * 0.2)
         preview_rect = CanvasSnapshot._dynamic_band_capture_rect(scene, 1.0, None)
         self.assertIsNotNone(preview_rect)
+
+    def test_feature_flag_restores_previous_full_frame_behavior(self) -> None:
+        scene, source = self._scene(self._animation())
+        with patch.dict(os.environ, {
+            "PLAYLIST_CANVAS_DISABLE_OPACITY_KEYFRAME_ROI": "1",
+        }):
+            self.assertTrue(CanvasSnapshot._keyframes_change_capture_bounds(source))
+            self.assertIsNone(CanvasSnapshot.band_capture_envelope(scene, 1.0, None))
+        self.assertIsNotNone(CanvasSnapshot.band_capture_envelope(scene, 1.0, None))
 
     def test_geometry_or_shadow_keyframes_keep_full_frame_fallback(self) -> None:
         for property_name in ("x", "y", "scale", "rotation", "width", "height",
