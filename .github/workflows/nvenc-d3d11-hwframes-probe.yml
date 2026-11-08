@@ -1,0 +1,60 @@
+name: FFmpeg D3D11 hardware-frame NVENC compatibility
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/benchmark_nvenc_d3d11_hwframes.py'
+      - 'tests/test_nvenc_d3d11_hwframes_probe.py'
+      - 'docs/architecture/nvenc-hardware-frame-bridge.md'
+      - '.github/workflows/nvenc-d3d11-hwframes-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-hwframes-probe:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: '.python-version'
+      - name: Validate D3D11 NVENC command and H264 decode contract
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_nvenc_d3d11_hwframes_probe.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'FFmpeg hardware frame probe unit tests failed' }
+      - name: Probe Windows FFmpeg D3D11 hardware input if available
+        shell: pwsh
+        run: |
+          python tools/benchmark_nvenc_d3d11_hwframes.py --width 640 --height 360 --fps 30 --frames 8 --repeats 1 --output nvenc-d3d11-ci.json
+          if ($LASTEXITCODE -ne 0) { throw 'FFmpeg hardware-frame diagnostic crashed' }
+          @'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("nvenc-d3d11-ci.json").read_text(encoding="utf-8"))
+          accepted = {
+              "measured",
+              "ffmpeg_unavailable",
+              "ffprobe_unavailable",
+              "nvenc_unavailable",
+              "d3d11_hardware_frames_unavailable",
+              "decode_validation_failed",
+          }
+          if data.get("status") not in accepted:
+              raise SystemExit(f"Unexpected D3D11 compatibility status: {data.get('status')}")
+          print("D3D11 capability diagnostic status:", data["status"])
+          # A no-GPU GitHub runner cannot prove the hardware path works.
+          # A real RTX 5060 test must confirm the status is "measured".
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Invalid D3D11 capability JSON' }
+      - name: Upload inspectable D3D11 NVENC capability report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nvenc-d3d11-compatibility
+          path: nvenc-d3d11-ci.json
+          if-no-files-found: ignore

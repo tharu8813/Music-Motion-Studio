@@ -22,6 +22,7 @@ venv/
 /rust-gpu-compositor-*.json
 /rust-gpu-dynamic-nv12*.json
 /rust-gpu-dirty*.json
+/nvenc-d3d11-hwframes*.json
 /gpu-nv12-compat-test.mp4
 /gpu-canvas-local.json
 /cuda-probe.json
