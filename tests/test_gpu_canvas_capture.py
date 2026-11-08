@@ -9,7 +9,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QRectF
-from PySide6.QtGui import QColor, QImage, QPainter
+from PySide6.QtGui import QBrush, QColor, QImage, QPainter
 from PySide6.QtWidgets import QApplication, QGraphicsScene
 
 import app.preview.gpu_canvas_capture as gpu
@@ -99,7 +99,7 @@ class ExperimentalGpuCanvasTests(TestCase):
         scene = QGraphicsScene(0, 0, 64, 64)
         scene.addRect(
             QRectF(12, 12, 24, 24),
-            brush=QColor(255, 0, 0, 128),
+            brush=QBrush(QColor(255, 0, 0, 128)),
         )
         target = QRectF(0, 0, 64, 64)
         with patch.dict(os.environ, {gpu.ENABLE_ENV: "1"}):
