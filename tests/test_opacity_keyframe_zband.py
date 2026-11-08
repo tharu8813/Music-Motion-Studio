@@ -76,6 +76,22 @@ class OpacityKeyframeCropTests(unittest.TestCase):
         self.assertTrue(CanvasSnapshot._keyframes_change_capture_bounds(source))
         self.assertIsNone(CanvasSnapshot.band_capture_envelope(scene, 1.0, None))
 
+    def test_high_resolution_crop_aligns_to_even_output_pixels(self) -> None:
+        scene, source = self._scene(self._animation())
+        track = PlaylistTrack("fade.wav", "Fade", duration_seconds=1.0)
+        capturer = ExportCanvasCapturer(
+            scene, [track], 1.0, set(), [(None, 0.0), (1.0, None)],
+            lambda image, duration, key: RenderFrame(image, duration),
+            lambda: None, lambda *_: None,
+            output_scale=1.5, output_fps=60,
+        )
+        x, y = capturer.stream_origin("layer:0")
+        self.assertEqual(x % 2, 0)
+        self.assertEqual(y % 2, 0)
+        rect = capturer._stream_capture_rects["layer:0"]
+        self.assertEqual(round(rect.width() * 1.5) % 2, 0)
+        self.assertEqual(round(rect.height() * 1.5) % 2, 0)
+
     def test_cropped_opacity_fade_matches_full_canvas_at_multiple_timestamps(self) -> None:
         scene, source = self._scene(self._animation())
         rect = CanvasSnapshot.band_capture_envelope(scene, 1.0, None)
@@ -123,6 +139,8 @@ class OpacityKeyframeCropTests(unittest.TestCase):
             capturer.stream_origin("layer:0"),
             (round(rect.left()), round(rect.top())),
         )
+        self.assertEqual(capturer.stream_origin("layer:0")[0] % 2, 0)
+        self.assertEqual(capturer.stream_origin("layer:0")[1] % 2, 0)
         from app.renderer.export_timeline import ExportFrameSample
         sample = ExportFrameSample(
             track, 1, 0.0, 1 / 60, 0.5, 0.5,
