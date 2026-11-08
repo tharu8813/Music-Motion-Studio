@@ -11,6 +11,23 @@ The optional `music_motion_native` PyO3 extension accelerates:
 - FFT magnitude spectrum reduction into logarithmic visualizer bands (NumPy still does FFT).
 - Per-frame mono/stereo RMS envelope analysis used by the level meter.
 - Signed PCM waveform sampling and interpolation used by waveform overlays.
+- Experimental BGR24 packing of opaque 32-bit Canvas frames, reducing raw
+  pipe traffic for those streams by 25% (32 -> 24 bits per pixel).
+
+The raw-video BGR24 path is explicitly opt-in with
+`PLAYLIST_CANVAS_RUST_BGR24_PIPE=1`. The default remains the established
+32-bit BGR0 transport. This experiment affects only opaque base Canvas pipes;
+transparent layers keep RGBA and the finished codec/preset stays unchanged.
+Even if native packing fails mid-stream, the fallback packs BGR24 rather than
+silently changing the already-negotiated FFmpeg input format.
+
+For a same-project A/B comparison, keep all export settings identical and run
+the editor once with `PLAYLIST_CANVAS_RUST_BGR24_PIPE=0`, then once with
+`PLAYLIST_CANVAS_RUST_BGR24_PIPE=1`. Use the existing export profiler and
+`tools/export_ab_verify.py` to compare end-to-end wall time and decoded
+frames. The new `tools/benchmark_rust_encoder_pipe.py` also measures
+the producer + FFmpeg encoder with BGR0 vs BGR24, but its synthetic frames
+cannot predict real 1080p/4K render speed.
 
 The existing NumPy algorithms remain the default and the exact behavioral
 reference. These kernels can help long mixes containing audio-reactive layers,
@@ -77,6 +94,11 @@ versus 0.13 ms in Rust (40.73x); 96-point waveform took 9.51 ms versus
 are short, synthetic **kernel** benchmarks, not a measurement of total
 video export. Windows FFmpeg integration testing is tracked separately.
 
-Native module v0.2.0 contains the new PCM APIs. When upgrading an installed
+Native module v0.3.0 contains the PCM APIs and the buffer-backed BGR24 packer.
+It uses Python's stable buffer API introduced in 3.11; build wheels require
+Python >=3.11, while this repository targets Python 3.14. The user-facing EXE
+still requires no Rust toolchain.
+
+Previously, v0.2.0 contained the PCM APIs. When upgrading an installed
 0.1.x native wheel, rebuild and reinstall it using the commands above. Older
 wheels fall back to the NumPy implementation instead of changing export output.
