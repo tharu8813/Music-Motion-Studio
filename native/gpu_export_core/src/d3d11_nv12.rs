@@ -22,9 +22,13 @@ use windows::Win32::Graphics::Direct3D11::{
     D3D11_USAGE_STAGING, D3D11CreateDevice,
     ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
 };
+use windows::Win32::Graphics::Dxgi::{
+    IDXGIAdapter1, IDXGIDevice, DXGI_ADAPTER_FLAG_SOFTWARE,
+};
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC,
 };
+use windows::core::Interface;
 
 /// Returns the packed size for NV12: height Y rows followed by height/2 UV
 /// rows. Both planes are width bytes across; real D3D11 staging memory
@@ -60,6 +64,9 @@ pub struct NativeD3d11Nv12Surface {
     readback: ID3D11Texture2D,
     width: u32,
     height: u32,
+    adapter_name: String,
+    adapter_vendor_id: u32,
+    adapter_device_id: u32,
 }
 
 impl NativeD3d11Nv12Surface {
@@ -93,6 +100,31 @@ impl NativeD3d11Nv12Surface {
         }.map_err(|e| format!("Could not create native D3D11 device: {e}"))?;
         let device = device.ok_or("D3D11 returned no device")?;
         let context = context.ok_or("D3D11 returned no immediate context")?;
+
+        // D3D_DRIVER_TYPE_HARDWARE can still resolve to a Microsoft Basic
+        // Render Driver in hosted Windows environments. Inspect DXGI instead
+        // of blindly presenting this as a real NVIDIA GPU measurement.
+        let dxgi: IDXGIDevice = device.cast()
+            .map_err(|e| format!("Cannot query DXGI adapter: {e}"))?;
+        let adapter = unsafe { dxgi.GetAdapter() }
+            .map_err(|e| format!("Cannot find D3D11 adapter: {e}"))?;
+        let adapter: IDXGIAdapter1 = adapter.cast()
+            .map_err(|e| format!("Cannot inspect D3D11 adapter type: {e}"))?;
+        let identity = unsafe { adapter.GetDesc1() }
+            .map_err(|e| format!("Cannot query D3D11 adapter identity: {e}"))?;
+        let name_length = identity.Description.iter()
+            .position(|&c| c == 0).unwrap_or(identity.Description.len());
+        let adapter_name = String::from_utf16_lossy(
+            &identity.Description[..name_length],
+        );
+        if identity.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32 != 0
+            || identity.VendorId == 0x1414
+        {
+            return Err(format!(
+                "D3D11 software adapter is not real GPU hardware: {} (vendor {:04x})",
+                adapter_name, identity.VendorId,
+            ));
+        }
 
         let support = unsafe { device.CheckFormatSupport(DXGI_FORMAT_NV12) }
             .map_err(|e| format!("NV12 format support query failed: {e}"))?;
@@ -133,10 +165,16 @@ impl NativeD3d11Nv12Surface {
         Ok(Self {
             _device: device, context, texture, upload, readback,
             width, height,
+            adapter_name,
+            adapter_vendor_id: identity.VendorId,
+            adapter_device_id: identity.DeviceId,
         })
     }
 
     pub fn dimensions(&self) -> (u32, u32) { (self.width, self.height) }
+    pub fn adapter_name(&self) -> &str { &self.adapter_name }
+    pub fn adapter_vendor_id(&self) -> u32 { self.adapter_vendor_id }
+    pub fn adapter_device_id(&self) -> u32 { self.adapter_device_id }
 
     /// This is a GPU-resident DXGI_FORMAT_NV12 Texture2D, not a software
     /// NV12 buffer. It could be wrapped in an in-process AV_PIX_FMT_D3D11
