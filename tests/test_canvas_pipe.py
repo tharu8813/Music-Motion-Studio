@@ -18,6 +18,8 @@ from app.renderer.canvas_pipe import (
     CanvasPipeCancelledError,
     CanvasPipeError,
     PipedCanvasStream,
+    _WindowsNamedPipeEndpoint,
+    _windows_pipe_write_chunk_bytes,
     piped_export_supported,
 )
 from app.renderer.ffmpeg_renderer import (
@@ -48,6 +50,58 @@ def _read_all(path: str, sink: bytearray, *, limit: int | None = None) -> None:
             sink.extend(chunk)
             if limit is not None and len(sink) >= limit:
                 return
+
+
+class WindowsPipeWriteRegressionTests(unittest.TestCase):
+    """Mock the low-level Win32 API, so chunk and completion logic runs on CI."""
+
+    def test_default_and_override_chunk_sizes(self) -> None:
+        name = "PLAYLIST_CANVAS_PIPE_WRITE_CHUNK_MIB"
+        for setting, expected in (("4", 4), ("1", 1), ("8", 8), ("99", 8), ("0", 1), ("bad", 4)):
+            with self.subTest(setting=setting), patch.dict(os.environ, {name: setting}):
+                self.assertEqual(_windows_pipe_write_chunk_bytes(), expected << 20)
+
+    def test_immediately_completed_writes_skip_event_wait(self) -> None:
+        endpoint = _WindowsNamedPipeEndpoint.__new__(_WindowsNamedPipeEndpoint)
+        endpoint._winapi = Mock()
+        endpoint._handle = 123
+        endpoint._closed = False
+        endpoint._write_chunk_bytes = 4 << 20
+        chunks: list[int] = []
+
+        def immediate_write(_handle, chunk, *, overlapped):
+            self.assertTrue(overlapped)
+            chunks.append(len(chunk))
+            return SimpleNamespace(size=len(chunk)), 0
+
+        endpoint._winapi.WriteFile.side_effect = immediate_write
+        with patch.object(endpoint, "_result", side_effect=lambda result: result.size), \
+                patch.object(endpoint, "_wait") as wait:
+            endpoint.write(memoryview(bytes(9 << 20)), lambda: False)
+            wait.assert_not_called()
+        self.assertEqual(chunks, [4 << 20, 4 << 20, 1 << 20])
+
+    def test_pending_and_partial_writes_retain_unmodified_byte_order(self) -> None:
+        endpoint = _WindowsNamedPipeEndpoint.__new__(_WindowsNamedPipeEndpoint)
+        endpoint._winapi = Mock()
+        endpoint._handle = 123
+        endpoint._closed = False
+        endpoint._write_chunk_bytes = 4
+        received = bytearray()
+
+        def pending_write(_handle, chunk, *, overlapped):
+            self.assertTrue(overlapped)
+            # A Win32 call may transfer fewer bytes than requested.
+            transferred = min(len(chunk), 3)
+            received.extend(chunk[:transferred])
+            return SimpleNamespace(size=transferred), 997
+
+        endpoint._winapi.WriteFile.side_effect = pending_write
+        with patch.object(endpoint, "_wait", side_effect=lambda result, _cancelled: result.size), \
+                patch.object(endpoint, "_result") as immediate_result:
+            endpoint.write(memoryview(b"abcdefghi"), lambda: False)
+            immediate_result.assert_not_called()
+        self.assertEqual(received, b"abcdefghi")
 
 
 # Windows named pipes and POSIX FIFOs alike: a plain open() is the reader.
