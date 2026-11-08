@@ -27,6 +27,7 @@ pub struct GpuFrameSession {
     base_buffer: wgpu::Buffer,
     overlay_buffers: Vec<wgpu::Buffer>,
     overlay_byte_lengths: Vec<usize>,
+    overlay_sizes: Vec<(u32, u32)>,
     // Retain static geometry buffers through the lifetime of all bind groups.
     _geometry_buffers: Vec<wgpu::Buffer>,
     bind_groups: Vec<wgpu::BindGroup>,
@@ -93,6 +94,7 @@ impl GpuCompositor {
         let layout = pipeline.get_bind_group_layout(0);
         let mut overlay_buffers = Vec::with_capacity(overlays.len());
         let mut overlay_byte_lengths = Vec::with_capacity(overlays.len());
+        let mut overlay_sizes = Vec::with_capacity(overlays.len());
         let mut geometry_buffers = Vec::with_capacity(overlays.len());
         let mut bind_groups = Vec::with_capacity(overlays.len());
         for (index, layer) in overlays.iter().enumerate() {
@@ -131,6 +133,7 @@ impl GpuCompositor {
                 ],
             });
             overlay_byte_lengths.push(layer.pixels.len());
+            overlay_sizes.push((layer.width, layer.height));
             overlay_buffers.push(gpu_layer);
             geometry_buffers.push(uniforms);
             bind_groups.push(bind_group);
@@ -145,6 +148,7 @@ impl GpuCompositor {
             base_buffer,
             overlay_buffers,
             overlay_byte_lengths,
+            overlay_sizes,
             _geometry_buffers: geometry_buffers,
             bind_groups,
             _scratch_a: scratch_a,
@@ -154,6 +158,65 @@ impl GpuCompositor {
             nv12: None,
         })
     }
+}
+
+/// A tightly packed RGBA8 subrectangle in buffer-local pixel coordinates.
+///
+/// The GPU buffers are linear and lack row padding. For a rectangle narrower
+/// than the source, queue.write_buffer is issued once per row. Full-width
+/// rectangles use one contiguous buffer write. This saves *bytes*, not always
+/// calls or elapsed time; RTX performance needs A/B measurement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PixelRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+fn validate_patch(
+    canvas: (u32, u32), patch: PixelRect, bytes: &[u8], opaque: bool,
+) -> Result<(), String> {
+    if patch.width == 0 || patch.height == 0
+        || patch.x.checked_add(patch.width).is_none_or(|x| x > canvas.0)
+        || patch.y.checked_add(patch.height).is_none_or(|y| y > canvas.1)
+    {
+        return Err("RGBA patch rectangle is empty or outside source bounds".into());
+    }
+    let expected = (patch.width as usize)
+        .checked_mul(patch.height as usize)
+        .and_then(|n| n.checked_mul(4))
+        .ok_or_else(|| "RGBA patch dimensions overflow".to_owned())?;
+    if expected != bytes.len() {
+        return Err("RGBA patch must contain tightly packed width*height*4 bytes".into());
+    }
+    if opaque && bytes.chunks_exact(4).any(|p| p[3] != 255) {
+        return Err("Opaque Canvas base patch contains non-opaque pixels".into());
+    }
+    Ok(())
+}
+
+fn write_patch(
+    queue: &wgpu::Queue, buffer: &wgpu::Buffer, canvas: (u32, u32),
+    rect: PixelRect, pixels: &[u8], opaque: bool,
+) -> Result<usize, String> {
+    // All preconditions are validated before the first GPU write; failed
+    // requests cannot partially alter the prior frame.
+    validate_patch(canvas, rect, pixels, opaque)?;
+    let stride = rect.width as usize * 4;
+    if rect.x == 0 && rect.width == canvas.0 {
+        let offset = rect.y as u64 * canvas.0 as u64 * 4;
+        queue.write_buffer(buffer, offset, pixels);
+        return Ok(pixels.len());
+    }
+    for row in 0..rect.height as usize {
+        let dst = ((rect.y as u64 + row as u64) * canvas.0 as u64
+            + rect.x as u64) * 4;
+        queue.write_buffer(
+            buffer, dst, &pixels[row * stride .. (row + 1) * stride],
+        );
+    }
+    Ok(pixels.len())
 }
 
 impl GpuFrameSession {
@@ -183,6 +246,30 @@ impl GpuFrameSession {
         }
         self.queue.write_buffer(&self.overlay_buffers[index], 0, pixels);
         Ok(())
+    }
+
+    /// Update a dirty base-frame rectangle without reuploading all pixels.
+    /// Only opaque RGBA8 is supported for the base.
+    pub fn update_base_rect(
+        &mut self, rect: PixelRect, rgba: &[u8],
+    ) -> Result<usize, String> {
+        write_patch(
+            &self.queue, &self.base_buffer, (self.width, self.height),
+            rect, rgba, true,
+        )
+    }
+
+    /// Update a dirty rectangle of an existing alpha overlay in-place.
+    /// Layer size, location, order and GPU bindings remain unchanged.
+    pub fn update_overlay_rect(
+        &mut self, index: usize, rect: PixelRect, rgba: &[u8],
+    ) -> Result<usize, String> {
+        let dims = self.overlay_sizes.get(index)
+            .copied().ok_or_else(|| "Overlay index out of bounds".to_owned())?;
+        write_patch(
+            &self.queue, &self.overlay_buffers[index], dims,
+            rect, rgba, false,
+        )
     }
 
     fn dispatch(&self, readback: bool) -> Result<Option<Vec<u8>>, String> {
@@ -540,6 +627,87 @@ mod tests {
             session.compose_and_readback().unwrap(),
             super::super::composite_reference(&replacement, 64, 48, &updated_layers).unwrap(),
         );
+    }
+
+    fn reference_patch(
+        frame: &mut [u8], stride: u32, rect: PixelRect, patch: &[u8],
+    ) {
+        let rowbytes = rect.width as usize * 4;
+        for row in 0..rect.height as usize {
+            let destination = ((rect.y as usize + row) * stride as usize
+                + rect.x as usize) * 4;
+            frame[destination..destination + rowbytes]
+                .copy_from_slice(&patch[row * rowbytes..(row + 1) * rowbytes]);
+        }
+    }
+
+    #[test]
+    fn dirty_rectangle_validation_is_atomic_and_bounded() {
+        let original = vec![10, 20, 30, 255].repeat(8 * 4);
+        let right_size = vec![60, 70, 80, 255].repeat(3 * 2);
+        let rect = PixelRect { x: 2, y: 1, width: 3, height: 2 };
+        assert!(validate_patch((8, 4), rect, &right_size, true).is_ok());
+        assert!(validate_patch((8, 4), rect, &right_size[..12], true).is_err());
+        assert!(validate_patch((8, 4), PixelRect { x: 7, ..rect }, &right_size, true).is_err());
+        assert!(validate_patch((8, 4), PixelRect { y: 3, ..rect }, &right_size, true).is_err());
+        assert!(validate_patch((8, 4), PixelRect { width: 0, ..rect }, &[], true).is_err());
+        let mut transparent = right_size.clone();
+        transparent[3] = 123;
+        assert!(validate_patch((8, 4), rect, &transparent, true).is_err());
+        assert!(validate_patch((8, 4), rect, &transparent, false).is_ok());
+        let mut result = original.clone();
+        reference_patch(&mut result, 8, rect, &right_size);
+        assert_eq!(&result[(1 * 8 + 2) * 4..(1 * 8 + 5) * 4], &right_size[..12]);
+        assert_eq!(&result[..4], &original[..4]);
+        assert_eq!(&result[(3 * 8) * 4..], &original[(3 * 8) * 4..]);
+    }
+
+    #[test]
+    fn dirty_gpu_updates_match_full_upload_and_nv12_after_animation() {
+        let Some(gpu) = required_test_adapter() else { return };
+        let width = 64u32;
+        let height = 48u32;
+        let mut base = vec![20, 35, 100, 255].repeat((width * height) as usize);
+        let mut overlay = vec![35, 160, 210, 80].repeat(32 * 20);
+        let layers = [Overlay { pixels: &overlay, width: 32, height: 20, x: 4, y: 3 }];
+        let mut session = gpu.prepare_session(&base, width, height, &layers).unwrap();
+        session.prepare_nv12().unwrap();
+        let base_rect = PixelRect { x: 14, y: 15, width: 8, height: 5 };
+        let base_patch = vec![100, 20, 240, 255].repeat(8 * 5);
+        let overlay_rect = PixelRect { x: 7, y: 8, width: 10, height: 6 };
+        let overlay_patch = vec![255, 80, 10, 170].repeat(10 * 6);
+        assert_eq!(
+            session.update_base_rect(base_rect, &base_patch).unwrap(),
+            base_patch.len(),
+        );
+        assert_eq!(
+            session.update_overlay_rect(0, overlay_rect, &overlay_patch).unwrap(),
+            overlay_patch.len(),
+        );
+        reference_patch(&mut base, width, base_rect, &base_patch);
+        reference_patch(&mut overlay, 32, overlay_rect, &overlay_patch);
+        let layers = [Overlay { pixels: &overlay, width: 32, height: 20, x: 4, y: 3 }];
+        let reference = super::super::composite_reference(
+            &base, width, height, &layers,
+        ).unwrap();
+        assert_eq!(session.compose_and_readback().unwrap(), reference);
+        assert_eq!(
+            session.compose_nv12_and_readback().unwrap(),
+            rgba_to_nv12_reference(&reference, width, height).unwrap(),
+        );
+
+        // All invalid input paths must reject *before* issuing GPU writes.
+        let broken = PixelRect { x: 30, y: 0, width: 8, height: 1 };
+        assert!(session.update_overlay_rect(0, broken, &[1; 32]).is_err());
+        assert!(session.update_overlay_rect(4, overlay_rect, &overlay_patch).is_err());
+        assert!(session.update_base_rect(base_rect, &[1; 4]).is_err());
+        assert_eq!(session.compose_and_readback().unwrap(), reference);
+
+        // Verify both modes converge after a full replacement.
+        session.update_base(&base).unwrap();
+        session.update_overlay(0, &overlay).unwrap();
+        assert_eq!(session.compose_and_readback().unwrap(), reference);
+        session.compose_nv12_gpu_only().unwrap();
     }
 
     #[test]

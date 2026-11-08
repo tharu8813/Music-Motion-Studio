@@ -37,6 +37,18 @@ jobs:
         run: |
           cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin gpu_export_dynamic_probe -- --width 320 --height 180 --frames 3 --output rust-gpu-dynamic-nv12-ci.json
           if ($LASTEXITCODE -ne 0) { throw 'GPU NV12 compilation, reference parity, or diagnostics failed' }
+      - name: Validate partial GPU frame updates and NV12 output diagnostics
+        shell: pwsh
+        run: |
+          cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin gpu_export_dirty_probe -- --width 320 --height 180 --frames 3 --output rust-gpu-dirty-ci.json
+          if ($LASTEXITCODE -ne 0) { throw 'Dirty-rectangle GPU probe failed compilation, validation, or diagnostic output' }
+      - name: Upload GPU dirty-rectangle capability diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-gpu-dirty-ci
+          path: rust-gpu-dirty-ci.json
+          if-no-files-found: ignore
       - name: Upload dynamic NV12 GPU capability and parity diagnostics
         if: always()
         uses: actions/upload-artifact@v4

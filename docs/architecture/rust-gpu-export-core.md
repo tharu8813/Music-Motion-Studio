@@ -241,3 +241,45 @@ duration to the 0.2265ms GPU-only alpha benchmark.
   NVENC compatibility and meaningful performance estimates.
 - Existing Python Canvas capture, GPU frame transport, TTML/KRC lyrics,
   audio and the release distribution are unchanged.
+
+
+## Milestone 4: dirty rectangles for dynamic lyrics and Canvas overlays
+
+`GpuFrameSession::update_overlay_rect()` and `update_base_rect()`
+update a **tightly packed RGBA8 rectangle** within an existing persistent
+GPU buffer. Both methods validate all bounds and bytes **before** any GPU
+transfer, so invalid partial updates cannot leave a half-modified frame.
+Opaque base patches must have alpha=255. Transparent overlay rectangles may
+use any straight-alpha value, including 0 and 255.
+
+Full-width patches require one contiguous `wgpu::Queue::write_buffer`
+call. A narrower patch is stored into tightly packed buffer rows, so it
+requires **one GPU queue write per dirty row**. The implementation keeps
+the previous layer geometry, Z order, GPU bindings, NV12 output memory
+and shader pipeline. There is no change to how the full video is encoded.
+
+The separate benchmark compares **real wgpu GPU completion wall times** for
+one full overlay upload vs a 128×64 dirty region (or a smaller region on
+low-resolution frames) containing identical animation state. The timed path
+includes GPU writes and the full RGBA composite + GPU NV12 conversion,
+but excludes the readback used for reference-frame parity.
+
+```powershell
+git pull
+cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin gpu_export_dirty_probe -- --width 1920 --height 1080 --frames 30 --output rust-gpu-dirty-local.json
+```
+
+Important fields are `full_update_plus_gpu_nv12_median_seconds` and
+`dirty_update_plus_gpu_nv12_median_seconds`. The probe validates every
+final NV12 frame against an independent Rust reference and reports
+`full_overlay_bytes_per_frame` and `dirty_bytes_per_frame`.
+
+**Do not assume that less data equals less time.** The partial path may
+issue dozens of small writes instead of a single large transfer, while a
+modern GPU can upload large sequential buffers efficiently. A real
+RTX 5060 measurement is the acceptance gate. The current default exporter
+still paints Qt QImages on the CPU and sends frames to FFmpeg, so its
+speed and CPU/GPU utilization have not yet changed.
+
+Dynamic Python/Qt layer invalidation and dirty-rectangle tracking are
+not yet wired to this Rust API. The native core is experimental.
