@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "music-motion-native"
 version = "0.3.0"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 description = "Optional Rust acceleration for Music Motion Studio export analysis"
 
 [tool.maturin]
