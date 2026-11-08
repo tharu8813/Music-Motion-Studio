@@ -32,6 +32,18 @@ jobs:
         run: |
           cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin gpu_export_probe -- --width 320 --height 180 --frames 3 --output rust-gpu-compositor-ci.json
           if ($LASTEXITCODE -ne 0) { throw 'Rust hardware GPU compositor probe failed pixel parity' }
+      - name: Verify dynamic GPU input uploads and on-device NV12 conversion
+        shell: pwsh
+        run: |
+          cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin gpu_export_dynamic_probe -- --width 320 --height 180 --frames 3 --output rust-gpu-dynamic-nv12-ci.json
+          if ($LASTEXITCODE -ne 0) { throw 'GPU NV12 compilation, reference parity, or diagnostics failed' }
+      - name: Upload dynamic NV12 GPU capability and parity diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-gpu-dynamic-nv12-ci
+          path: rust-gpu-dynamic-nv12-ci.json
+          if-no-files-found: ignore
       - name: Upload actual GPU or unavailable-device diagnostics
         if: always()
         uses: actions/upload-artifact@v4
