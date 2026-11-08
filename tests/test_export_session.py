@@ -384,6 +384,64 @@ class PipedExportSessionTests(unittest.TestCase):
             pump_ui=lambda: None,
         )
 
+    def test_parallel_worker_eofs_are_signalled_before_any_pipe_finish(self) -> None:
+        calls: list[tuple[str, str]] = []
+
+        class _WorkerPipe:
+            def __init__(self, key: str, fps: int) -> None:
+                self.stream_key = key
+                self.pipe_fps = fps
+                self.eof_sent = False
+
+            def request_finish(self) -> None:
+                calls.append(("request", self.stream_key))
+                self.eof_sent = True
+
+            def finish(self) -> None:
+                # Simulates FFmpeg fps framesync waiting for the 12-FPS
+                # alpha stream's EOF before a 60-FPS base can drain.
+                self.assert_all_signalled()
+                calls.append(("finish", self.stream_key))
+
+            def assert_all_signalled(self) -> None:
+                if not all(pipe.eof_sent for pipe in pipes.values()):
+                    raise RuntimeError("A stream was drained before all EOF packets")
+
+        with TemporaryDirectory() as directory:
+            session = self._session(
+                _plan(streamed=True, direct=True, piped=True),
+                Path(directory), threading.Event(),
+            )
+            pipes = {
+                "base": _WorkerPipe("base", 60),
+                "layer:0": _WorkerPipe("layer:0", 60),
+                "layer:1": _WorkerPipe("layer:1", 12),
+            }
+            session._pipes = pipes
+            with patch.object(export_session_module, "CanvasProcessStream", _WorkerPipe):
+                session._request_worker_eofs(["base", "layer:0", "layer:1"])
+                for key in ("base", "layer:0", "layer:1"):
+                    pipes[key].finish()
+        self.assertEqual(
+            calls[:3],
+            [("request", "layer:1"), ("request", "base"), ("request", "layer:0")],
+        )
+        self.assertEqual(calls[3:6], [
+            ("finish", "base"), ("finish", "layer:0"), ("finish", "layer:1"),
+        ])
+
+    def test_serial_pipes_are_not_given_worker_eof_packets(self) -> None:
+        with TemporaryDirectory() as directory:
+            session = self._session(
+                _plan(streamed=True, direct=True, piped=True),
+                Path(directory), threading.Event(),
+            )
+            legacy = SimpleNamespace(pipe_fps=60)
+            session._pipes = {"base": legacy}
+            with patch.object(export_session_module, "CanvasProcessStream") as worker:
+                session._request_worker_eofs(["base"])
+                worker.assert_not_called()
+
     def test_final_render_starts_with_pipe_inputs_and_receives_every_frame(self) -> None:
         received = bytearray()
         readers: list[threading.Thread] = []
