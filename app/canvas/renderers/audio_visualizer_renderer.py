@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 def render(
     item: "SourceItem", painter: QPainter, option: object, widget: object | None = None,
 ) -> None:
-    rect, _fill, _pen = paint_background(item, painter)
+    rect, fill, _pen = paint_background(item, painter)
     bar_count = max(4, min(96, item.source.visualizer_bars))
     gap = max(1.0, rect.width() * 0.012 / bar_count)
     bar_width = max(1.0, (rect.width() - gap * (bar_count - 1)) / bar_count)
@@ -41,5 +41,6 @@ def render(
         color=QColor(item.source.fill_color),
         line_width=item.source.visualizer_line_width,
         inner_radius=item.source.visualizer_inner_radius,
+        fill_brush=fill,
     )
     paint_selection_guide(item, painter, rect)
