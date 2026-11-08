@@ -52,6 +52,15 @@ class ExportBottleneckProfileTests(unittest.TestCase):
         self.assertEqual(classify_process("python.exe", ["-c", "from multiprocessing.spawn import spawn_main"]), "canvas_workers")
         self.assertEqual(classify_process("Music Motion Studio.exe", ["--multiprocessing-fork"]), "canvas_workers")
         self.assertEqual(classify_process("helper.exe", []), "other")
+        self.assertEqual(classify_process("python.exe", [
+            r"C:\\Users\\Example\\Music-Motion-Studio\\main.py",
+        ], False), "editor")
+        self.assertEqual(classify_process("pythonw.exe", ["main.py"], False), "editor")
+        # Multiprocessing children must never get counted as the editor.
+        self.assertEqual(classify_process("python.exe", [
+            "-c", "from multiprocessing.spawn import spawn_main", "main.py",
+        ], False), "canvas_workers")
+        self.assertEqual(classify_process("python.exe", ["-m", "pip", "install"], False), "other")
 
     def test_gpu_csv_handles_unsupported_and_multiple_cards(self) -> None:
         rows = parse_gpu_output("0, 28 %, 13 %, 1120 MiB\n1, 50, 0, 2048\n2, N/A, N/A, 20\n")
@@ -88,6 +97,56 @@ class ExportBottleneckProfileTests(unittest.TestCase):
             self.assertEqual(profile["stages"]["export.frame_generation_seconds"]["calls"], 12)
             self.assertEqual(profile["stages"]["export.renderer_seconds"]["inclusive_wall_seconds"], 5.0)
             self.assertNotIn("unknown", profile["stages"])
+
+    def test_stream_context_preserves_worker_identity_and_io_diagnostics(self) -> None:
+        with TemporaryDirectory() as directory:
+            parent = Path(directory) / "export.timings.json"
+            worker = parent.with_name("export.timings.worker-700.json")
+            parent.write_text(json.dumps({"schema": 1, "pid": 1, "metrics": {}}), encoding="utf-8")
+            worker.write_text(json.dumps({
+                "schema": 1,
+                "pid": 700,
+                "context": {
+                    "stream_key": "layer:0", "stream_width": 320,
+                    "stream_height": 180, "output_fps": 60,
+                    "submitted_states": 2679, "written_frames": 2679,
+                    "writer_io": {
+                        "pending_calls": 42, "write_calls": 60,
+                        "pending_wait_seconds": 230.5,
+                        "write_api_seconds": 0.2,
+                        "bytes_written": 2679 * 320 * 180 * 4,
+                    },
+                },
+                "metrics": {
+                    "canvas.scene_render_seconds": {"count": 2679, "total": 6.8},
+                    "export.frame_pipe_write_seconds": {"count": 2679, "total": 261.7},
+                },
+            }), encoding="utf-8")
+            profiles = load_stage_profiles(parent)
+            stream = profiles["streams"]["layer:0"]
+            self.assertEqual(stream["worker_pid"], 700)
+            self.assertEqual(stream["written_frames"], 2679)
+            self.assertEqual(stream["writer_io"]["pending_wait_seconds"], 230.5)
+            self.assertEqual(stream["stage_timings"]["canvas.scene_render_seconds"]["calls"], 2679)
+            summary = summarize([], profiles)
+            self.assertIn("layer:0", summary["canvas_streams"])
+            self.assertEqual(summary["stage_timings"]["canvas.scene_render_seconds"]["calls"], 2679)
+
+    def test_worker_context_is_saved_without_paths(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "export.timings.json"
+            with patch.object(performance, "ENABLED", True), \\
+                    patch.object(performance, "ROOT_PID", "1"), \\
+                    patch.object(performance, "OUTPUT", str(path)), \\
+                    patch.object(performance, "_CONTEXT", {}), \\
+                    patch.object(performance.os, "getpid", return_value=715):
+                performance.set_profile_context(
+                    stream_key="base", stream_width=1920, stream_height=1080,
+                )
+                performance.save()
+            report = json.loads(path.with_name("export.timings.worker-715.json").read_text())
+            self.assertEqual(report["context"]["stream_key"], "base")
+            self.assertEqual(report["context"]["stream_width"], 1920)
 
     def test_worker_profile_save_does_not_replace_editor_profile(self) -> None:
         with TemporaryDirectory() as directory:
