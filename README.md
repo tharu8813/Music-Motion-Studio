@@ -92,14 +92,19 @@ FFmpeg는 음악과 화면을 합쳐 영상 파일로 만드는 구성요소이�
 
 ## 소스 코드 실행
 
-개발·배포 기준은 **Python 3.14.10 (Windows x64, 일반 GIL 빌드)**입니다. Python 설치 관리자가 설치된 터미널에서 프로젝트 폴더를 열고 실행하세요.
+개발·배포 기준은 **Python 3.14.10 (Windows x64, 일반 GIL 빌드)**입니다. **소스 실행·디버깅·PyInstaller 빌드에는 Rust MSVC 도구체인(rustc, cargo)과 해당 프로젝트의 Rust 확장 모듈이 필수**입니다. Rust 설치 후 터미널을 다시 열고 `rustc --version` 및 `cargo --version`으로 확인하세요. Windows에서 네이티브 코드를 빌드하려면 Visual Studio의 **Desktop development with C++** 구성요소도 필요합니다.
 
 ```powershell
+rustc --version
+cargo --version
 py install 3.14.10
 py -3.14 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-lock.txt
+.\.venv\Scripts\python.exe scripts/setup_rust_native.py
 .\.venv\Scripts\python.exe main.py
 ```
+
+Rust 모듈 초기 설치는 `scripts/setup_rust_native.py`를 **한 번 실행하면** 됩니다. 소스 실행 시 Rust 가속은 자동 활성화되며, Rust 도구가 없거나 모듈 버전이 맞지 않으면 어떤 명령을 실행해야 하는지 표시하고 종료합니다. **완성된 설치 프로그램 사용자는 Rust를 설치할 필요가 없습니다.**
 
 다른 Python 버전으로 만든 `.venv`는 이름을 바꿔 보관한 뒤 다시 만드세요. VS Code에서는 **Python: Select Interpreter**로 `.venv\Scripts\python.exe`를 선택합니다. Python 3.15는 ONNX Runtime Windows 패키지 지원을 기다리는 중입니다. 빌드와 테스트 방법은 [패키징 가이드](PACKAGING.md)를 확인하세요.
 

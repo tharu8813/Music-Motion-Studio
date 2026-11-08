@@ -55,6 +55,10 @@ def main() -> int:
     for package, pattern in (("ctranslate2", "_ext*.pyd"), ("sentencepiece", "_sentencepiece*.pyd")):
         if not list((internal / package).glob(pattern)):
             missing.append(f"_internal/{package}/{pattern}")
+    # The Rust extension is installed on the build host and bundled in the
+    # package. It is not compiled or installed on the end user's computer.
+    if not list(internal.rglob("music_motion_native*.pyd")):
+        missing.append("_internal/**/music_motion_native*.pyd")
     if missing:
         print("Missing distribution files:")
         print("\n".join(f"- {path}" for path in missing))

@@ -2,11 +2,27 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 import shutil
 import threading
 from typing import TYPE_CHECKING
+
+# Source/debug launches require the Rust compiler, Cargo and a matching
+# compiled extension. End-user PyInstaller executables never need Rust.
+if __name__ == "__main__" and not getattr(sys, "frozen", False):
+    from scripts.rust_prerequisites import (
+        RustPrerequisiteError, require_developer_environment,
+    )
+
+    try:
+        require_developer_environment()
+    except RustPrerequisiteError as error:
+        raise SystemExit(f"[Music Motion Studio development] {error}") from error
+    # Developer runs use the already-verified Rust export path by default.
+    # Packaged releases keep their separately controlled default.
+    os.environ.setdefault("PLAYLIST_CANVAS_ENABLE_RUST_EXPORT_ANALYSIS", "1")
 
 from PySide6.QtCore import QSettings, QStandardPaths, QTimer
 from PySide6.QtGui import QIcon

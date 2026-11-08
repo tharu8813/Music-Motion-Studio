@@ -5,6 +5,14 @@ on:
     branches: [main]
     paths:
       - 'native/export_analysis/**'
+      - 'scripts/rust_prerequisites.py'
+      - 'scripts/setup_rust_native.py'
+      - 'scripts/run_tests.py'
+      - 'scripts/verify_distribution.py'
+      - 'tests/test_rust_prerequisites.py'
+      - 'tests/test_distribution_verification.py'
+      - 'main.py'
+      - 'playlist_canvas.spec'
       - 'app/renderer/native_export.py'
       - 'app/renderer/python_visualizer.py'
       - 'tests/test_rust_export_analysis.py'
@@ -53,8 +61,10 @@ jobs:
           python -m pip install $wheel.FullName
           if ($LASTEXITCODE -ne 0) { throw 'Native wheel install failed' }
 
-      - name: Verify NumPy parity, missing-wheel fallback and cancellation
-        run: python -m unittest -v tests.test_rust_export_analysis tests.test_rust_export_pcm
+      - name: Verify Rust toolchain, developer gates and native parity
+        run: |
+          python scripts/rust_prerequisites.py
+          python -m unittest -v tests.test_rust_prerequisites tests.test_distribution_verification tests.test_rust_export_analysis tests.test_rust_export_pcm
 
       - name: Benchmark FFT and PCM kernels separately
         run: |

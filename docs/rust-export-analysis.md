@@ -1,7 +1,11 @@
 # Optional Rust acceleration for export visualizer analysis
 
-This is an **opt-in experiment**. The app still uses its existing Qt Canvas,
-FFmpeg encoding, audio processing, project format, and export controls.
+This extension is **required for source development and packaging**, but
+**end users do not need to install Rust**. Python source launches check for a
+Rust toolchain and matching native wheel, then enable native analysis by
+default. Packaged applications retain the existing release-time off-by-default
+switch. The app still uses its Qt Canvas, FFmpeg encoding, audio processing,
+project format and export controls.
 
 The optional `music_motion_native` PyO3 extension accelerates:
 - FFT magnitude spectrum reduction into logarithmic visualizer bands (NumPy still does FFT).
@@ -15,33 +19,40 @@ without those overlays**. The overall export speedup must be measured separately
 
 ## Windows build in the Python 3.14 environment
 
-Install Rust MSVC and the stable Rust toolchain, then in the repository:
+Install the stable Rust MSVC toolchain and Visual Studio C++ Build Tools on
+Windows. Reopen your terminal, then in the repository:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install "maturin>=1.9.4,<2"
-.\.venv\Scripts\maturin.exe build --release --manifest-path native/export_analysis/Cargo.toml --interpreter .\.venv\Scripts\python.exe
-$wheel = Get-ChildItem native/export_analysis/target/wheels/*.whl | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-.\.venv\Scripts\python.exe -m pip install --upgrade --force-reinstall --no-deps $wheel.FullName
-$env:PLAYLIST_CANVAS_ENABLE_RUST_EXPORT_ANALYSIS = "1"
+rustc --version
+cargo --version
+.\.venv\Scripts\python.exe scripts/setup_rust_native.py
+.\.venv\Scripts\python.exe scripts/rust_prerequisites.py
+.\.venv\Scripts\python.exe main.py
 .\.venv\Scripts\python.exe -m unittest -v tests.test_rust_export_analysis tests.test_rust_export_pcm
 .\.venv\Scripts\python.exe tools/benchmark_rust_export_analysis.py
 .\.venv\Scripts\python.exe tools/benchmark_rust_export_pcm.py
 ```
 
+The setup script installs maturin and builds/installs the matching Rust wheel
+for the **active Python interpreter**. Repeat setup if the Cargo version changes
+or a new virtual environment is created. The source GUI automatically enables
+the Rust export analysis switch unless explicitly set to `0`.
+
 Compare with Python-only behavior by setting
 `PLAYLIST_CANVAS_ENABLE_RUST_EXPORT_ANALYSIS=0`, or removing the variable.
 
-The normal `requirements.txt` and `requirements-lock.txt` intentionally
-do not require Rust or maturin. Missing or failing native acceleration safely
-falls back to NumPy, and the application works without the native wheel.
-The build specification includes `music_motion_native` **only if installed**
-on the packaging host.
+The application dependency lockfile intentionally excludes the Rust compiler
+and maturin because those are developer **build-time** dependencies. Source
+debugging and release builds fail early without rustc, cargo, a matching native
+wheel and its current APIs. Finished EXEs include the compiled extension;
+Rust is not required on the user's machine. The NumPy fallback remains for
+runtime recovery and explicit A/B comparisons.
 
 ## Release safety and verification
 
 The Windows deployment workflow builds the Rust extension, runs A/B parity
-tests, and includes it in the packaged build. Runtime use remains **off by
-default**, even if the wheel is present. Do not enable this by default until
+tests, and includes it in the packaged build. **Installed application runtime**
+use remains **off by default**, even if the wheel is present. Do not enable this by default until
 equivalent 1080p and 4K export projects have been tested on Windows.
 
 For a real performance decision, measure identical source projects with the
