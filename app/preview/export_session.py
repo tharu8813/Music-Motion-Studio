@@ -23,7 +23,7 @@ from app.services.lyrics_intro_service import completed_instrumental_spans, requ
 from app.preview.export_canvas_capture import ExportCanvasCapturer
 from app.preview.export_plan import ExportPlan
 from app.renderer.export_timeline import ExportFrameSample, ExportFrameSchedule
-from app.renderer.cfr_sample_pruning import iter_cfr_emitting_samples
+from app.renderer.cfr_sample_pruning import CfrPruningStats, iter_cfr_emitting_samples
 from app.renderer.python_visualizer import PythonVisualizerRenderer
 from app.renderer.canvas_pipe import (
     CanvasPipeCancelledError,
@@ -583,9 +583,15 @@ class ExportSession:
                 os.environ.get("PLAYLIST_CANVAS_DISABLE_CFR_SAMPLE_PRUNING", "")
                 .strip().lower() not in {"1", "true", "yes"}
             )
+            pruning_stats = (
+                {key: CfrPruningStats() for key in piped_keys}
+                if prune_empty_states else {}
+            )
             iterators = {
                 key: iter(
-                    iter_cfr_emitting_samples(samples_by_stream[key], settings.fps)
+                    iter_cfr_emitting_samples(
+                        samples_by_stream[key], settings.fps, pruning_stats[key],
+                    )
                     if prune_empty_states else samples_by_stream[key]
                 )
                 for key in piped_keys
@@ -645,9 +651,29 @@ class ExportSession:
                         f"duration (expected {playlist_duration:.6f}s, got "
                         f"{result.duration_seconds:.6f}s)."
                     )
-            if parent_queue_metrics:
+            if pruning_stats:
+                LOGGER.info(
+                    "Canvas CFR sample pruning: %s",
+                    {
+                        key: {
+                            "input_samples": stats.input_samples,
+                            "forwarded_samples": stats.forwarded_samples,
+                        }
+                        for key, stats in pruning_stats.items()
+                    },
+                )
+            if parent_queue_metrics or pruning_stats:
                 from app.utils.performance import set_profile_context
-                set_profile_context(parent_canvas_queues=parent_queue_metrics)
+                set_profile_context(
+                    parent_canvas_queues=parent_queue_metrics,
+                    parent_cfr_pruning={
+                        key: {
+                            "input_samples": stats.input_samples,
+                            "forwarded_samples": stats.forwarded_samples,
+                        }
+                        for key, stats in pruning_stats.items()
+                    },
+                )
         except CanvasPipeCancelledError as error:
             self.cancel_streams()
             if self._cancel.is_set():
