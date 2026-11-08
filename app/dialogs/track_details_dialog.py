@@ -488,9 +488,31 @@ class TrackDetailsDialog(QDialog):
 
         transport_row = QHBoxLayout()
         self.play_button = QPushButton()
+        self.play_button.setObjectName("trackPlayerPrimary")
+        self.play_button.setMinimumHeight(34)
+        self.play_button.setStyleSheet(f"""
+            QPushButton#trackPlayerPrimary {{
+                background-color: {COLORS['accent']};
+                color: {COLORS['window']};
+                font-weight: 700;
+                border-radius: 9px;
+                padding: 5px 16px;
+                border: 0;
+            }}
+            QPushButton#trackPlayerPrimary:hover {{
+                background-color: {COLORS['accent_hover']};
+            }}
+        """)
         self.stop_button = QPushButton()
+        self.stop_button.setObjectName("trackPlayerStop")
+        self.stop_button.setMinimumHeight(34)
         self.playback_slider = QSlider(Qt.Orientation.Horizontal)
         self.playback_slider.setObjectName("trackPlaybackSlider")
+        self.playback_slider.setToolTip(
+            "클릭하거나 드래그해 원하는 가사 시점으로 이동합니다."
+            if translator.is_korean else
+            "Click or drag to preview lyrics at a different time."
+        )
         self.playback_slider.setRange(0, max(1, round(track.duration_seconds * 1000)))
         self.playback_slider.setSingleStep(100)
         self.playback_slider.setPageStep(5_000)
