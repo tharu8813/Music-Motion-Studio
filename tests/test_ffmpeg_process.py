@@ -95,6 +95,7 @@ class FFmpegProcessTests(unittest.TestCase):
             "out_time_us=N/A", "out_time=N/A", "progress=end", "out_time=0:0:bad",
             "out_time_us=-9223372036854775808", "out_time_us=nan",
             "out_time_ms=inf", "out_time=00:00:NaN", "out_time=-00:00:01.5",
+            "out_time=01:-01:01.5", "out_time=01:00:-01.5",
         ):
             self.assertIsNone(parse_progress_seconds(line))
         self.assertEqual(parse_progress_seconds("out_time_us=0"), 0.0)

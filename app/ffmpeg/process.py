@@ -126,6 +126,10 @@ def parse_progress_seconds(line: str) -> float | None:
             seconds = float(line.split("=", 1)[1]) / 1_000_000
         elif line.startswith("out_time="):
             hours, minutes, seconds_field = line.split("=", 1)[1].split(":")
+            # A leading sign can be lost when parsing "-00" as int(0).
+            # Reject all negative components before calculating the total.
+            if any(part.startswith("-") for part in (hours, minutes, seconds_field)):
+                return None
             seconds = int(hours) * 3600 + int(minutes) * 60 + float(seconds_field)
         else:
             return None
