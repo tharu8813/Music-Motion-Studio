@@ -1,0 +1,41 @@
+name: Rust GPU export compositor validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'native/gpu_export_core/**'
+      - '.github/workflows/rust-gpu-export-core.yml'
+      - 'docs/architecture/rust-gpu-export-core.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gpu-compositor-core:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/gpu_export_core
+      - name: Compile Rust GPU backend and test pixel parity reference
+        shell: pwsh
+        run: |
+          cargo test --manifest-path native/gpu_export_core/Cargo.toml --verbose
+          if ($LASTEXITCODE -ne 0) { throw 'Rust GPU compositor compilation or tests failed' }
+      - name: Probe real hardware GPU and produce transparent diagnostics
+        shell: pwsh
+        run: |
+          cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin gpu_export_probe -- --width 320 --height 180 --frames 3 --output rust-gpu-compositor-ci.json
+          if ($LASTEXITCODE -ne 0) { throw 'Rust hardware GPU compositor probe failed pixel parity' }
+      - name: Upload actual GPU or unavailable-device diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-gpu-compositor-ci
+          path: rust-gpu-compositor-ci.json
+          if-no-files-found: ignore

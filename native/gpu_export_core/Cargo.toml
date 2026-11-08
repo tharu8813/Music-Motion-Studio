@@ -1,0 +1,15 @@
+[package]
+name = "music-motion-gpu-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Experimental GPU-resident frame compositor for Music Motion Studio"
+
+[dependencies]
+wgpu = { version = "27.0.1", default-features = false, features = ["dx12", "vulkan", "wgsl"] }
+pollster = "0.4"
+serde_json = "1.0"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
