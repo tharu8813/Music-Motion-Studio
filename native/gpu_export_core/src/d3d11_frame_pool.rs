@@ -10,7 +10,11 @@
 //! finished using its GPU texture. GPU fences/synchronization and FFmpeg
 //! AVHWFramesContext are explicitly NOT implemented here.
 
-use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
+use windows::core::Interface;
+use windows::Win32::Graphics::Direct3D11::{
+    ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
+};
+use crate::d3d11_bgra_video::NativeBgraNv12VideoProcessor;
 use crate::d3d11_nv12::{nv12_size, NativeD3d11Nv12Surface};
 
 pub const MIN_SLOTS: usize = 2;
@@ -109,6 +113,14 @@ impl NativeNv12FramePool {
         self.source.dimensions()
     }
 
+    pub(crate) fn native_device(&self) -> &ID3D11Device {
+        self.source.device()
+    }
+
+    pub(crate) fn native_context(&self) -> &ID3D11DeviceContext {
+        self.source.context()
+    }
+
     pub fn adapter_name(&self) -> &str {
         self.source.adapter_name()
     }
@@ -164,6 +176,55 @@ impl NativeNv12FramePool {
         self.last_submitted_pts = Some(pts);
         self.submitted += 1;
         Ok(index)
+    }
+
+    /// Enqueue a completed same-device BGRA GPU texture directly through
+    /// native GPU BGRA->NV12 video conversion and a GPU-only CopyResource
+    /// into a free persistent NV12 frame slot.
+    ///
+    /// No readback or rawvideo pipe is used. Input may originate from a
+    /// future *D3D11* Canvas renderer, but not a raw wgpu Vulkan buffer.
+    /// Do not claim NVENC zero-copy until a native encoder consumes this
+    /// texture, with verified completion fences.
+    pub fn queue_gpu_bgra(
+        &mut self,
+        bridge: &NativeBgraNv12VideoProcessor,
+        input: &ID3D11Texture2D,
+        pts: i64,
+    ) -> Result<usize, String> {
+        validate_pts(self.last_submitted_pts, pts)?;
+        if bridge.dimensions() != self.dimensions() {
+            return Err("D3D11 GPU converter dimensions differ from frame pool".into());
+        }
+        if bridge.device().as_raw() != self.native_device().as_raw() {
+            return Err("Cannot share BGRA and NV12 textures across D3D11 devices".into());
+        }
+        let index = first_free(&self.states())
+            .ok_or_else(|| "D3D11 GPU NV12 frame pool full; encoder backpressure required".to_owned())?;
+
+        // VideoProcessorBlt and CopyResource share one D3D11 immediate
+        // context. Ready means *queued in order*, not GPU completed.
+        let converted = bridge.convert_gpu_bgra_to_nv12(input)?;
+        unsafe {
+            self.source.context().CopyResource(&self.slots[index].texture, converted);
+        }
+        self.slots[index].state = FrameSlotState::Ready { pts };
+        self.last_submitted_pts = Some(pts);
+        self.submitted += 1;
+        Ok(index)
+    }
+
+    /// Diagnostic-only readback for inspecting the native video processor's
+    /// output. It is explicitly excluded from the GPU→NVENC fast path.
+    pub fn readback_slot_for_validation(
+        &self, index: usize,
+    ) -> Result<Vec<u8>, String> {
+        let slot = self.slots.get(index)
+            .ok_or_else(|| "GPU NV12 slot index out of range".to_owned())?;
+        if slot.state == FrameSlotState::Free {
+            return Err("Cannot read an uninitialized GPU NV12 slot".to_owned());
+        }
+        self.source.readback_same_device_texture(&slot.texture)
     }
 
     /// Reserve the oldest frame for an eventual in-process encoder. Call
