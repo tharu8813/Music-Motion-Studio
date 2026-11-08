@@ -28,6 +28,28 @@ jobs:
       - name: Install locked dependencies
         run: python -m pip install -r requirements-lock.txt
 
+      - name: Build optional Rust export analysis extension
+        shell: pwsh
+        run: |
+          rustup default stable
+          python -m pip install "maturin>=1.9.4,<2"
+          maturin build --release --manifest-path native/export_analysis/Cargo.toml --interpreter python
+          if ($LASTEXITCODE -ne 0) { throw 'Rust export build failed.' }
+          $wheel = Get-ChildItem native/export_analysis/target/wheels/*.whl | Select-Object -First 1
+          if (-not $wheel) { throw 'No Rust export wheel was produced.' }
+          python -m pip install $wheel.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Rust export installation failed.' }
+          python -c "import music_motion_native; print('Native export analysis available')"
+          if ($LASTEXITCODE -ne 0) { throw 'Rust extension import failed.' }
+
+      - name: Verify optional Rust export NumPy parity and rollback
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest -v tests.test_rust_export_analysis
+
+      - name: Benchmark optional Rust export analysis kernel
+        run: python tools/benchmark_rust_export_analysis.py
+
       - name: Compile Python sources
         run: python -m compileall -q main.py app tests scripts tools
 

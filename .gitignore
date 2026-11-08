@@ -11,6 +11,9 @@ htmlcov/
 .build-venv*/
 venv/
 
+# Rust native export build output
+/native/export_analysis/target/
+
 # PyInstaller output
 build/
 dist/

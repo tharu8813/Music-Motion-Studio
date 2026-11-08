@@ -1,0 +1,16 @@
+[package]
+name = "music_motion_native"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "music_motion_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.29", features = ["abi3-py310"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

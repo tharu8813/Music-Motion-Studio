@@ -28,6 +28,7 @@ from app.utils.particle_painter import paint_particles
 from app.utils.visualizer_paint import draw_visualizer_content
 from app.utils.subprocess_utils import hidden_process_kwargs
 from app.renderer.canvas_pipe import CanvasPipeError, PipedCanvasStream, piped_export_supported
+from app.renderer.native_export import reduce_frequency_bands
 
 
 class PythonVisualizerError(RuntimeError):
@@ -485,6 +486,10 @@ class PythonVisualizerRenderer:
             # Preserve np.interp's exact per-spectrum math, but reduce each
             # frequency band across the batch instead of issuing a Python/NumPy
             # reduction for every (frame, band) pair. Storage stays batch-bounded.
+            accelerated = reduce_frequency_bands(spectra, frequencies, bins, probes)
+            if accelerated is not None:
+                result[batch_start:batch_end] = accelerated
+                continue
             values = np.stack([
                 np.max(np.interp(probes.reshape(-1), frequencies, spectrum)
                        .reshape(probes.shape), axis=1)
