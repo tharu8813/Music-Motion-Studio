@@ -102,13 +102,20 @@ jobs:
         # One unittest invocation so ANY failing comparison fails the workflow.
         run: python -m unittest -v tests.test_visualizer_streaming.VisualizerStreamingIntegrationTests.test_final_video_and_audio_match_movie_path tests.test_canvas_pipe.PipedFinalRenderIntegrationTests.test_rust_bgr24_piped_export_matches_bgr0_decoded_frames tests.test_canvas_pipe.PipedFinalRenderIntegrationTests.test_piped_base_and_alpha_layer_composite_into_the_final_video
 
-      - name: Benchmark native BGR24 versus BGR0 FFmpeg input on CI (diagnostic only)
-        run: python tools/benchmark_rust_encoder_pipe.py --frames 60 --output rust-encoder-pipe-benchmark.json
+      - name: Benchmark BGR24 versus BGR0 FFmpeg input at SD, 1080p and 4K
+        shell: pwsh
+        run: |
+          python tools/benchmark_rust_encoder_pipe.py --width 640 --height 360 --frames 60 --repeats 3 --output rust-encoder-pipe-sd.json
+          if ($LASTEXITCODE -ne 0) { throw "SD benchmark failed" }
+          python tools/benchmark_rust_encoder_pipe.py --width 1920 --height 1080 --frames 36 --repeats 3 --output rust-encoder-pipe-1080p.json
+          if ($LASTEXITCODE -ne 0) { throw "1080p benchmark failed" }
+          python tools/benchmark_rust_encoder_pipe.py --width 3840 --height 2160 --frames 8 --repeats 2 --output rust-encoder-pipe-4k.json
+          if ($LASTEXITCODE -ne 0) { throw "4K benchmark failed" }
 
       - name: Upload encoder-input A/B timings
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: rust-encoder-pipe-benchmark
-          path: rust-encoder-pipe-benchmark.json
+          path: rust-encoder-pipe-*.json
           if-no-files-found: ignore
