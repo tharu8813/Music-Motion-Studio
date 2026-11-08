@@ -66,6 +66,26 @@ and both transparent/opaque Canvas bands.
 Windows GitHub-hosted runners may not offer functional OpenGL; CI must report
 that as `opengl_unavailable`, not mislabel it a passed GPU speed benchmark.
 
+## Hardware composition feasibility (same RTX GPU)
+
+In parallel, the following isolated probe runs FFmpeg's CUDA
+`overlay_cuda` path and the existing CPU `overlay` filter with the **same
+NVENC hardware encoder**, to distinguish CPU overlay work from the hardware
+codec. This does **not** alter the application and is not pixel-exact: the
+CUDA filter requires YUV420P/YUVA420P hardware frames, rather than direct
+RGBA compositing.
+
+```powershell
+.\.venv\Scripts\python.exe tools/benchmark_nvenc_cuda_overlay.py --ffmpeg ffmpeg --width 1920 --height 1080 --fps 60 --frames 120 --output cuda-probe.json
+```
+
+A `status: unavailable` result means the active FFmpeg binary or NVIDIA
+driver does not support that CUDA hardware compositor. This is not proof that
+NVENC itself is unavailable. A `status: measured` result reports CPU and
+CUDA compositor wall times on the same GPU for a synthetic overlay workload.
+Do not enable the CUDA filter globally until source format, alpha, color
+fidelity and same-project GPU pipeline performance are validated.
+
 ## Milestone 2: Rust-owned scene / timeline commands
 
 Move immutable draw commands, Z-order, coalesced schedules, frame timing and
