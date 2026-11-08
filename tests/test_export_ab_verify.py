@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
@@ -221,6 +224,34 @@ class ExportABVerificationTests(unittest.TestCase):
             self.assertIsNone(data["media_comparison"])
             self.assertEqual(data["profile_comparison"]["renderer_wall_seconds"]["change_percent"], -10)
             self.assertIn("FFmpeg renderer wall time", md_path.read_text(encoding="utf-8"))
+
+    def test_real_ffprobe_and_ffmpeg_compare_identical_short_mp4(self) -> None:
+        executable = os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG")
+        if not executable:
+            self.skipTest("Real FFmpeg checks run after managed FFmpeg installation.")
+        ffprobe = Path(executable).with_name(
+            "ffprobe.exe" if os.name == "nt" else "ffprobe"
+        )
+        if not ffprobe.is_file():
+            self.skipTest("Managed FFmpeg installation does not include ffprobe.")
+        with TemporaryDirectory(prefix="export-verify-media-") as directory:
+            before = Path(directory) / "before.mp4"
+            after = Path(directory) / "after.mp4"
+            subprocess.run([
+                executable, "-hide_banner", "-loglevel", "error", "-y",
+                "-f", "lavfi", "-i", "testsrc2=size=64x48:rate=30",
+                "-f", "lavfi", "-i", "sine=frequency=400:sample_rate=48000",
+                "-t", "1", "-c:v", "mpeg4", "-c:a", "aac",
+                str(before),
+            ], check=True, capture_output=True, timeout=30)
+            shutil.copyfile(before, after)
+            a = inspect_video(before, str(ffprobe))
+            b = inspect_video(after, str(ffprobe))
+            self.assertTrue(compare_media_metadata(a, b)["passed"])
+            self.assertEqual(a["width"], 64)
+            self.assertEqual(a["audio_stream_count"], 1)
+            comparison = compare_frame_samples(before, after, executable, a["duration_seconds"])
+            self.assertEqual(comparison["status"], "identical_samples")
 
     def test_profile_run_configuration_contains_only_known_non_sensitive_flags(self) -> None:
         env = {
