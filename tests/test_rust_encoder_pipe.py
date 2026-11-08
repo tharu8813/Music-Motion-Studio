@@ -11,6 +11,7 @@ from unittest.mock import patch
 import numpy as np
 from PySide6.QtGui import QColor, QImage
 
+import app.renderer.canvas_pipe as canvas_pipe_module
 from app.renderer.canvas_pipe import PipedCanvasStream
 from app.renderer.ffmpeg.filter_graph import is_raw_canvas_cfr_input
 from app.renderer.native_export import (
@@ -47,7 +48,7 @@ class RustFramePipeTests(TestCase):
         ):
             self.assertIsNone(native_bgr24_packer())
             pipe = _FakePipe()
-            with patch("app.renderer.canvas_pipe._create_endpoint", return_value=pipe):
+            with patch.object(canvas_pipe_module, "_create_endpoint", return_value=pipe):
                 stream = PipedCanvasStream(Path("."), "base", 30, preserve_alpha=False)
                 image = QImage(7, 3, QImage.Format.Format_RGB32)
                 image.fill(QColor(23, 45, 67))
@@ -99,7 +100,7 @@ class RustFramePipeTests(TestCase):
             opaque_endpoint = _FakePipe()
             image = QImage(13, 7, QImage.Format.Format_RGB32)
             image.fill(QColor(15, 140, 245))
-            with patch("app.renderer.canvas_pipe._create_endpoint", return_value=opaque_endpoint):
+            with patch.object(canvas_pipe_module, "_create_endpoint", return_value=opaque_endpoint):
                 stream = PipedCanvasStream(Path("."), "base", 30, preserve_alpha=False)
                 stream.submit(image, 1 / 30)
                 args = stream.input_arguments()
@@ -112,7 +113,7 @@ class RustFramePipeTests(TestCase):
             transparent_endpoint = _FakePipe()
             alpha = QImage(7, 5, QImage.Format.Format_ARGB32_Premultiplied)
             alpha.fill(QColor(255, 0, 0, 128))
-            with patch("app.renderer.canvas_pipe._create_endpoint", return_value=transparent_endpoint):
+            with patch.object(canvas_pipe_module, "_create_endpoint", return_value=transparent_endpoint):
                 stream = PipedCanvasStream(Path("."), "layer:0", 30, preserve_alpha=True)
                 stream.submit(alpha, 1 / 30)
                 args = stream.input_arguments()
