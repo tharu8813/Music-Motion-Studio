@@ -25,6 +25,7 @@ from app.preview.export_plan import ExportPlan
 from app.renderer.export_timeline import ExportFrameSample, ExportFrameSchedule
 from app.renderer.cfr_sample_pruning import (
     CfrPruningStats, iter_cfr_emitting_samples, uniform_cfr_frame_step,
+    low_fps_overlay_pipe_enabled,
 )
 from app.renderer.python_visualizer import PythonVisualizerRenderer
 from app.renderer.canvas_pipe import (
@@ -551,10 +552,7 @@ class ExportSession:
         # Only a full scan of a replayable schedule can prove that every
         # image owns the same integer number of 60-FPS output frames.
         # When this property is absent, the original full-rate pipe remains.
-        use_low_rate = prune_empty_states and (
-            os.environ.get("PLAYLIST_CANVAS_DISABLE_LOW_FPS_OVERLAY_PIPE", "")
-            .strip().lower() not in {"1", "true", "yes"}
-        )
+        use_low_rate = low_fps_overlay_pipe_enabled(prune_empty_states)
         pipe_frame_steps: dict[str, int] = {}
         if use_low_rate:
             for stream_key in piped_keys:
