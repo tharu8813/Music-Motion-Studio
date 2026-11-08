@@ -74,6 +74,57 @@ def _read_profile(path: Path) -> dict[str, Any]:
     return data
 
 
+def compare_canvas_streams(baseline: dict, optimized: dict) -> dict[str, dict]:
+    """Compare same-named Canvas bands; never infer causality from I/O waits."""
+    old_streams = baseline.get("canvas_streams") or {}
+    new_streams = optimized.get("canvas_streams") or {}
+    results: dict[str, dict] = {}
+    for key in sorted(set(old_streams) | set(new_streams)):
+        old, new = old_streams.get(key, {}), new_streams.get(key, {})
+        old_io, new_io = old.get("writer_io") or {}, new.get("writer_io") or {}
+        old_queue, new_queue = old.get("parent_job_queue") or {}, new.get("parent_job_queue") or {}
+        def stage(entry: dict, name: str) -> float | None:
+            return _number(
+                (entry.get("stage_timings") or {}).get(name, {}).get("inclusive_wall_seconds")
+            )
+        results[key] = {
+            "size_before": [old.get("width"), old.get("height")],
+            "size_after": [new.get("width"), new.get("height")],
+            "written_frames": _delta(_number(old.get("written_frames")),
+                                     _number(new.get("written_frames"))),
+            "pipe_write_wall_seconds": _delta(
+                stage(old, "export.frame_pipe_write_seconds"),
+                stage(new, "export.frame_pipe_write_seconds"),
+            ),
+            "pipe_pending_wait_seconds": _delta(
+                _number(old_io.get("pending_wait_seconds")),
+                _number(new_io.get("pending_wait_seconds")),
+            ),
+            "pipe_write_api_seconds": _delta(
+                _number(old_io.get("write_api_seconds")),
+                _number(new_io.get("write_api_seconds")),
+            ),
+            "pipe_write_calls": _delta(
+                _number(old_io.get("write_calls")), _number(new_io.get("write_calls")),
+            ),
+            "parent_job_queue_put_seconds": _delta(
+                _number(old_queue.get("put_wall_seconds")),
+                _number(new_queue.get("put_wall_seconds")),
+            ),
+            "parent_job_queue_full_events": _delta(
+                _number(old_queue.get("full_events")),
+                _number(new_queue.get("full_events")),
+            ),
+            "written_mib": _delta(
+                (_number(old_io.get("bytes_written")) or 0) / (1024 ** 2)
+                if old_io.get("bytes_written") is not None else None,
+                (_number(new_io.get("bytes_written")) or 0) / (1024 ** 2)
+                if new_io.get("bytes_written") is not None else None,
+            ),
+        }
+    return results
+
+
 def compare_profiles(baseline: dict, optimized: dict) -> dict:
     """Compare measured numbers without adding overlapped/parallel wall stages."""
     first = baseline["summary"]
@@ -127,6 +178,7 @@ def compare_profiles(baseline: dict, optimized: dict) -> dict:
         "renderer_wall_seconds": stages.get("export.renderer_seconds")
         or stages.get("ffmpeg.process_wall_seconds"),
         "stage_timings_seconds": stages,
+        "canvas_streams": compare_canvas_streams(first, second),
         "observed_cpu_core_seconds": cpu,
         "peak_process_tree_rss_mib": _delta(
             _number(first.get("peak_process_tree_rss_mib")),
@@ -318,6 +370,32 @@ def render_markdown(report: dict) -> str:
         if value:
             out.append(row(name + " observed CPU-core seconds", value))
     out.append(row("Peak process-tree RSS (MiB)", profile["peak_process_tree_rss_mib"]))
+    streams = profile.get("canvas_streams") or {}
+    if streams:
+        out.extend([
+            "", "## Canvas stream I/O and backpressure", "",
+            "The pending wait is time waiting for a Win32 overlapped write to "
+            "complete. It includes FFmpeg reader backpressure, not CPU time.",
+            "",
+            "| Stream | Before size | After size | Pipe write before (s) | "
+            "Pipe write after (s) | Pending wait before (s) | Pending wait after (s) | "
+            "Parent queue before (s) | Parent queue after (s) |",
+            "|---|---|---|---:|---:|---:|---:|---:|---:|",
+        ])
+        for name, item in sorted(streams.items()):
+            lhs = item["pipe_write_wall_seconds"]["baseline"]
+            rhs = item["pipe_write_wall_seconds"]["optimized"]
+            lwait = item["pipe_pending_wait_seconds"]["baseline"]
+            rwait = item["pipe_pending_wait_seconds"]["optimized"]
+            lqueue = item["parent_job_queue_put_seconds"]["baseline"]
+            rqueue = item["parent_job_queue_put_seconds"]["optimized"]
+            before_size = "×".join(str(x) for x in item["size_before"])
+            after_size = "×".join(str(x) for x in item["size_after"])
+            out.append(
+                f"| {name} | {before_size} | {after_size} | "
+                f"{cell(lhs)} | {cell(rhs)} | {cell(lwait)} | {cell(rwait)} | "
+                f"{cell(lqueue)} | {cell(rqueue)} |"
+            )
     out.extend(["", "## Checks", ""])
     if report.get("media_comparison"):
         media = report["media_comparison"]

@@ -11,6 +11,7 @@ from time import monotonic
 
 from app.renderer.canvas_pipe import CanvasPipeCancelledError, CanvasPipeError, PipedCanvasStream
 from app.renderer.export_timeline import ExportFrameSample
+from app.utils.performance import ENABLED as PROFILE_ENABLED
 
 
 _SAMPLE_FIELDS = tuple(field.name for field in fields(ExportFrameSample) if field.name != 'track')
@@ -85,7 +86,11 @@ def _render_band(jobs, replies, stop, status) -> None:
         from app.renderer.ffmpeg_renderer import RenderFrame
         from app.ui.design_system import apply_studio_style
         from app.utils.font_loader import load_application_font
+        from app.utils.performance import set_profile_context
 
+        # Worker files were previously identified only by an unrelated PID.
+        # A stable stream key links Canvas scene timings to its FFmpeg input.
+        set_profile_context(stream_key=config["key"], output_fps=config["fps"])
         application = QApplication([])
         apply_studio_style(application)
         for path in config['fonts']:
@@ -141,6 +146,13 @@ def _render_band(jobs, replies, stop, status) -> None:
                 continue
             if sample is None:
                 result = pipe.finish()
+                set_profile_context(
+                    stream_width=pipe.width,
+                    stream_height=pipe.height,
+                    submitted_states=pipe.diagnostics()["submitted_states"],
+                    written_frames=pipe.frame_count,
+                    writer_io=pipe.io_diagnostics(),
+                )
                 update_status()
                 metrics = {name: getattr(capturer, name) for name in (
                     'partial_render_capture_count', 'scene_render_source_pixels',
@@ -185,6 +197,9 @@ class CanvasProcessStream:
         self._cancel = producer_cancel_event
         self._wait_callback = producer_wait_callback
         self._closed = False
+        self._queue_put_wall_seconds = 0.0
+        self._queue_full_events = 0
+        self._queue_submit_count = 0
         context = multiprocessing.get_context('spawn')
         self._jobs = context.Queue(maxsize=2)
         self._jobs._ignore_epipe = True  # A cancelled reader can close during a queued write.
@@ -254,6 +269,14 @@ class CanvasProcessStream:
         return dict(process=self._process.pid, connected=self.connected,
                     pending=self.pending_frames, idle_seconds=monotonic() - self.last_activity)
 
+    def job_queue_diagnostics(self) -> dict[str, float | int]:
+        """Producer-side wait for worker job-queue capacity, not pipe I/O."""
+        return {
+            "submit_count": self._queue_submit_count,
+            "full_events": self._queue_full_events,
+            "put_wall_seconds": self._queue_put_wall_seconds,
+        }
+
     def _poll(self):
         exit_code = self._process.exitcode
         while True:
@@ -291,11 +314,21 @@ class CanvasProcessStream:
         self._check()
         packet = _pack_sample(sample, self._track_indexes)
         while True:
+            started = monotonic() if PROFILE_ENABLED else 0.0
+            was_full = False
             try:
                 self._jobs.put(packet, timeout=0.05)
-                break
             except Full:
-                self._wait()
+                self._queue_full_events += 1
+                was_full = True
+            finally:
+                if PROFILE_ENABLED:
+                    # Only time spent inside Queue.put, not UI pumping in _wait.
+                    self._queue_put_wall_seconds += monotonic() - started
+            if not was_full:
+                self._queue_submit_count += 1
+                break
+            self._wait()
         deadline = monotonic() + 30.0
         while not self.started:
             self._wait()

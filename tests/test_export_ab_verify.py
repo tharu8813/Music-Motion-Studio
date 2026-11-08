@@ -129,6 +129,40 @@ class ExportABVerificationTests(unittest.TestCase):
         })
         self.assertIn("Completed video export wall time", document)
 
+    def test_named_canvas_streams_explain_pending_writer_backpressure(self) -> None:
+        before = profile(renderer=289, ffmpeg_cpu=1140, canvas_cpu=700, peak=1800)
+        after = profile(renderer=288, ffmpeg_cpu=940, canvas_cpu=750, peak=1770)
+        def stream(pending: float, writer: float, width: int, calls: int) -> dict:
+            return {
+                "width": width, "height": 180, "written_frames": 2679,
+                "writer_io": {
+                    "write_calls": calls, "pending_wait_seconds": pending,
+                    "write_api_seconds": 0.5, "bytes_written": width * 180 * 4 * 2679,
+                },
+                "stage_timings": {
+                    "export.frame_pipe_write_seconds": {
+                        "calls": 2679, "inclusive_wall_seconds": writer,
+                    },
+                },
+            }
+        old_layer = stream(250, 270, 320, 2679)
+        new_layer = stream(240, 262, 320, 1000)
+        old_layer["parent_job_queue"] = {"put_wall_seconds": 90.0, "full_events": 100}
+        new_layer["parent_job_queue"] = {"put_wall_seconds": 70.0, "full_events": 80}
+        before["summary"]["canvas_streams"] = {"layer:0": old_layer}
+        after["summary"]["canvas_streams"] = {"layer:0": new_layer}
+        report = compare_profiles(before, after)
+        layer = report["canvas_streams"]["layer:0"]
+        self.assertEqual(layer["pipe_pending_wait_seconds"]["change_percent"], -4.0)
+        self.assertEqual(layer["pipe_write_calls"]["optimized"], 1000.0)
+        self.assertEqual(layer["parent_job_queue_put_seconds"]["change_percent"], -22.22)
+        self.assertEqual(layer["parent_job_queue_full_events"]["optimized"], 80.0)
+        self.assertEqual(layer["size_before"], [320, 180])
+        markdown = render_markdown({"verdict": "measurement_only", "profile_comparison": report})
+        self.assertIn("Canvas stream I/O and backpressure", markdown)
+        self.assertIn("layer:0", markdown)
+        self.assertIn("250.00", markdown)
+
     def test_identical_flags_or_missing_run_metadata_generate_warnings(self) -> None:
         original = profile(renderer=5, ffmpeg_cpu=5, canvas_cpu=5, peak=5)
         compared = compare_profiles(original, original)
