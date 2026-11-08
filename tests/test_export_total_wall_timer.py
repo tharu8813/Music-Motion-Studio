@@ -14,10 +14,22 @@ class VideoExportWallTimerTests(unittest.TestCase):
         with patch("app.utils.performance.ENABLED", True), \
                 patch("app.utils.performance.PROFILE.observe") as observe, \
                 patch("app.controllers.export_controller.monotonic", return_value=127.25):
-            orchestrator.record_video_export_total_wall_time()
-            orchestrator.record_video_export_total_wall_time()
-        observe.assert_called_once_with("export.total_wall_seconds", 27.25)
+            orchestrator.record_video_export_total_wall_time(completed=True)
+            orchestrator.record_video_export_total_wall_time(completed=True)
+        self.assertEqual(observe.call_count, 2)
+        observe.assert_any_call("export.total_wall_seconds", 27.25)
+        observe.assert_any_call("export.completed_wall_seconds", 27.25)
         self.assertIsNone(orchestrator._video_export_started_at)
+
+    def test_cancelled_video_export_is_recorded_as_incomplete(self) -> None:
+        orchestrator = ExportOrchestrator.__new__(ExportOrchestrator)
+        orchestrator._video_export_started_at = 40.0
+        with patch("app.utils.performance.ENABLED", True), \
+                patch("app.utils.performance.PROFILE.observe") as observe, \
+                patch("app.controllers.export_controller.monotonic", return_value=46.0):
+            orchestrator.record_video_export_total_wall_time()
+        observe.assert_any_call("export.total_wall_seconds", 6.0)
+        observe.assert_any_call("export.incomplete_wall_seconds", 6.0)
 
     def test_does_not_record_audio_only_or_preflight_rejection(self) -> None:
         orchestrator = ExportOrchestrator.__new__(ExportOrchestrator)
