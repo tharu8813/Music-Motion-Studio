@@ -626,6 +626,24 @@ class FFmpegRenderer:
                 and os.environ.get("PLAYLIST_CANVAS_DISABLE_IDENTITY_SCALE", "").strip().lower()
                 not in {"1", "true", "yes"}
             )
+            # Rawvideo input timestamps are guaranteed CFR by the demuxer's
+            # -framerate option. Prepared video and PNG-concat inputs are not.
+            base_is_cfr = bool(
+                piped_video is not None
+                and filter_graph.is_raw_canvas_cfr_input(
+                    piped_video.input_arguments,
+                    selected_settings.fps,
+                    piped_video.width,
+                    piped_video.height,
+                )
+                and os.environ.get("PLAYLIST_CANVAS_DISABLE_CFR_FASTPATH", "").strip().lower()
+                not in {"1", "true", "yes"}
+            )
+            optimize_constant_overlays = bool(
+                base_is_cfr
+                and os.environ.get("PLAYLIST_CANVAS_DISABLE_FIXED_OVERLAY_EVAL", "").strip().lower()
+                not in {"1", "true", "yes"}
+            )
             static_stage_start = 0.76 if visualizers else 0.64
             static_stage_span = max(0.0, encoding_start - static_stage_start)
             static_frame_total = sum(
@@ -855,6 +873,8 @@ class FFmpegRenderer:
                     video_clips=video_clips,
                     video_input_slots=video_input_slots,
                     base_already_sized=base_already_sized,
+                    base_is_cfr=base_is_cfr,
+                    optimize_constant_overlays=optimize_constant_overlays,
                 )
                 graph_arguments = self._filter_graph_arguments(graph, temporary)
                 video_arguments.extend([
@@ -868,6 +888,7 @@ class FFmpegRenderer:
                         selected_settings.fps, selected_settings.output_width,
                         selected_settings.output_height,
                         already_sized=base_already_sized,
+                        base_is_cfr=base_is_cfr,
                     ),
                     *metadata_arguments,
                 ])
@@ -904,6 +925,10 @@ class FFmpegRenderer:
                     *video_container_arguments(target),
                     "-progress", "pipe:1", "-nostats", "-y", str(temporary_video),
                 ])
+            LOGGER.info(
+                "FFmpeg Canvas fast paths: raw_cfr=%s fixed_overlay_eval=%s",
+                base_is_cfr, optimize_constant_overlays,
+            )
             LOGGER.info(
                 "Final FFmpeg output scaling: identity=%s source=%s target=%sx%s",
                 base_already_sized,
@@ -1007,11 +1032,14 @@ class FFmpegRenderer:
                               output_width: int, output_height: int,
                               video_clips: list[VideoClipOverlay] | None = None,
                               video_input_slots: list[int] | None = None,
-                              base_already_sized: bool = False) -> str:
+                              base_already_sized: bool = False,
+                              base_is_cfr: bool = False,
+                              optimize_constant_overlays: bool = False) -> str:
         """Interleave reactive video and transparent static Z bands in Canvas order."""
         return filter_graph.layered_filter_graph(
             visualizers, static_layers, fps, output_width, output_height,
             video_clips, video_input_slots, base_already_sized,
+            base_is_cfr, optimize_constant_overlays,
         )
 
     @staticmethod
@@ -1029,10 +1057,11 @@ class FFmpegRenderer:
     @staticmethod
     def _output_scaling_filter(fps: int, output_width: int, output_height: int,
                                include_fps: bool = True,
-                               already_sized: bool = False) -> str:
-        """Scale without stretching the canvas; skip only verified identity work."""
+                               already_sized: bool = False,
+                               base_is_cfr: bool = False) -> str:
+        """Skip redundant filters only for verified raw CFR Canvas input."""
         return filter_graph.output_scaling_filter(
-            fps, output_width, output_height, include_fps, already_sized,
+            fps, output_width, output_height, include_fps, already_sized, base_is_cfr,
         )
 
     @staticmethod
