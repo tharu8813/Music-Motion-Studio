@@ -263,6 +263,7 @@ class CanvasProcessStreamTests(unittest.TestCase):
         have been sent, including the terminal low-FPS alpha frame.
         """
         from app.renderer.ffmpeg.filter_graph import layered_filter_graph
+        from app.preview.export_session import ExportSession
 
         fps, count, step = 60, 360, 5
         duration = count / fps
@@ -338,10 +339,11 @@ class CanvasProcessStreamTests(unittest.TestCase):
                         streams["layer:1"].submit_sample(
                             sample(low_index, fps // step, step),
                         )
-                # The low-frequency stream must report EOF before we wait for
-                # base or layer:0 to drain. All calls remain on the Qt thread.
-                for key in ("layer:1", "base", "layer:0"):
-                    streams[key].request_finish()
+                # Exercise the real ExportSession fan-out, not a duplicate
+                # ordering rule in the test. All calls stay on the Qt thread.
+                session = ExportSession.__new__(ExportSession)
+                session._pipes = streams
+                session._request_worker_eofs(["base", "layer:0", "layer:1"])
                 results = {
                     key: streams[key].finish()
                     for key in ("base", "layer:0", "layer:1")
