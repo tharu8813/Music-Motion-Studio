@@ -27,6 +27,7 @@ pub struct GpuFrameSession {
     base_buffer: wgpu::Buffer,
     overlay_buffers: Vec<wgpu::Buffer>,
     overlay_byte_lengths: Vec<usize>,
+    overlay_sizes: Vec<(u32, u32)>,
     // Retain static geometry buffers through the lifetime of all bind groups.
     _geometry_buffers: Vec<wgpu::Buffer>,
     bind_groups: Vec<wgpu::BindGroup>,
@@ -93,6 +94,7 @@ impl GpuCompositor {
         let layout = pipeline.get_bind_group_layout(0);
         let mut overlay_buffers = Vec::with_capacity(overlays.len());
         let mut overlay_byte_lengths = Vec::with_capacity(overlays.len());
+        let mut overlay_sizes = Vec::with_capacity(overlays.len());
         let mut geometry_buffers = Vec::with_capacity(overlays.len());
         let mut bind_groups = Vec::with_capacity(overlays.len());
         for (index, layer) in overlays.iter().enumerate() {
@@ -131,6 +133,7 @@ impl GpuCompositor {
                 ],
             });
             overlay_byte_lengths.push(layer.pixels.len());
+            overlay_sizes.push((layer.width, layer.height));
             overlay_buffers.push(gpu_layer);
             geometry_buffers.push(uniforms);
             bind_groups.push(bind_group);
@@ -145,6 +148,7 @@ impl GpuCompositor {
             base_buffer,
             overlay_buffers,
             overlay_byte_lengths,
+            overlay_sizes,
             _geometry_buffers: geometry_buffers,
             bind_groups,
             _scratch_a: scratch_a,
@@ -154,6 +158,65 @@ impl GpuCompositor {
             nv12: None,
         })
     }
+}
+
+/// A tightly packed RGBA8 subrectangle in buffer-local pixel coordinates.
+///
+/// The GPU buffers are linear and lack row padding. For a rectangle narrower
+/// than the source, queue.write_buffer is issued once per row. Full-width
+/// rectangles use one contiguous buffer write. This saves *bytes*, not always
+/// calls or elapsed time; RTX performance needs A/B measurement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PixelRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+fn validate_patch(
+    canvas: (u32, u32), patch: PixelRect, bytes: &[u8], opaque: bool,
+) -> Result<(), String> {
+    if patch.width == 0 || patch.height == 0
+        || patch.x.checked_add(patch.width).is_none_or(|x| x > canvas.0)
+        || patch.y.checked_add(patch.height).is_none_or(|y| y > canvas.1)
+    {
+        return Err("RGBA patch rectangle is empty or outside source bounds".into());
+    }
+    let expected = (patch.width as usize)
+        .checked_mul(patch.height as usize)
+        .and_then(|n| n.checked_mul(4))
+        .ok_or_else(|| "RGBA patch dimensions overflow".to_owned())?;
+    if expected != bytes.len() {
+        return Err("RGBA patch must contain tightly packed width*height*4 bytes".into());
+    }
+    if opaque && bytes.chunks_exact(4).any(|p| p[3] != 255) {
+        return Err("Opaque Canvas base patch contains non-opaque pixels".into());
+    }
+    Ok(())
+}
+
+fn write_patch(
+    queue: &wgpu::Queue, buffer: &wgpu::Buffer, canvas: (u32, u32),
+    rect: PixelRect, pixels: &[u8], opaque: bool,
+) -> Result<usize, String> {
+    // All preconditions are validated before the first GPU write; failed
+    // requests cannot partially alter the prior frame.
+    validate_patch(canvas, rect, pixels, opaque)?;
+    let stride = rect.width as usize * 4;
+    if rect.x == 0 && rect.width == canvas.0 {
+        let offset = rect.y as u64 * canvas.0 as u64 * 4;
+        queue.write_buffer(buffer, offset, pixels);
+        return Ok(pixels.len());
+    }
+    for row in 0..rect.height as usize {
+        let dst = ((rect.y as u64 + row as u64) * canvas.0 as u64
+            + rect.x as u64) * 4;
+        queue.write_buffer(
+            buffer, dst, &pixels[row * stride .. (row + 1) * stride],
+        );
+    }
+    Ok(pixels.len())
 }
 
 impl GpuFrameSession {
@@ -183,6 +246,30 @@ impl GpuFrameSession {
         }
         self.queue.write_buffer(&self.overlay_buffers[index], 0, pixels);
         Ok(())
+    }
+
+    /// Update a dirty base-frame rectangle without reuploading all pixels.
+    /// Only opaque RGBA8 is supported for the base.
+    pub fn update_base_rect(
+        &mut self, rect: PixelRect, rgba: &[u8],
+    ) -> Result<usize, String> {
+        write_patch(
+            &self.queue, &self.base_buffer, (self.width, self.height),
+            rect, rgba, true,
+        )
+    }
+
+    /// Update a dirty rectangle of an existing alpha overlay in-place.
+    /// Layer size, location, order and GPU bindings remain unchanged.
+    pub fn update_overlay_rect(
+        &mut self, index: usize, rect: PixelRect, rgba: &[u8],
+    ) -> Result<usize, String> {
+        let dims = self.overlay_sizes.get(index)
+            .copied().ok_or_else(|| "Overlay index out of bounds".to_owned())?;
+        write_patch(
+            &self.queue, &self.overlay_buffers[index], dims,
+            rect, rgba, false,
+        )
     }
 
     fn dispatch(&self, readback: bool) -> Result<Option<Vec<u8>>, String> {
