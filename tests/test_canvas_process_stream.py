@@ -99,6 +99,36 @@ class CanvasProcessStreamTests(unittest.TestCase):
         stream._poll()
         self.assertIs(stream._result, result)
 
+    def test_worker_eof_request_is_idempotent_and_finish_does_not_repeat_it(self):
+        stream = CanvasProcessStream.__new__(CanvasProcessStream)
+        stream._finish_requested = False
+        stream._result = object()
+        stream._process = Mock()
+        with (
+            patch.object(stream, "submit_sample") as submit,
+            patch.object(stream, "cancel") as cancel,
+        ):
+            stream.request_finish()
+            stream.request_finish()
+            expected = stream._result
+            self.assertIs(stream.finish(), expected)
+        submit.assert_called_once_with(None)
+        cancel.assert_called_once()
+        self.assertTrue(stream._finish_requested)
+
+    def test_worker_eof_request_can_be_retried_after_queue_failure(self):
+        stream = CanvasProcessStream.__new__(CanvasProcessStream)
+        stream._finish_requested = False
+        with patch.object(stream, "submit_sample", side_effect=[
+            CanvasPipeError("queue full"), None,
+        ]) as submit:
+            with self.assertRaises(CanvasPipeError):
+                stream.request_finish()
+            self.assertFalse(stream._finish_requested)
+            stream.request_finish()
+        self.assertEqual(submit.call_count, 2)
+        self.assertTrue(stream._finish_requested)
+
     def test_parent_queue_backpressure_counts_full_waits_separately(self):
         stream = CanvasProcessStream.__new__(CanvasProcessStream)
         stream._arguments = ["-i", "mock-pipe"]
