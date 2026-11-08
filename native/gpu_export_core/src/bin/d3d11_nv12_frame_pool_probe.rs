@@ -84,7 +84,7 @@ fn main() {
             // Mismatched adapters are an important security/performance gate:
             // do not try cross-device memory copies or shared NVENC textures.
             let mut samples = Vec::with_capacity(frames);
-            let mut outstanding = Vec::with_capacity(slots);
+            let mut outstanding: Vec<(i64, Vec<u8>)> = Vec::with_capacity(slots);
             let bytes = pool.frame_bytes().expect("valid NV12 dimensions");
             let mut checks = 0usize;
             let mut full_queue_rejections = 0usize;
