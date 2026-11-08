@@ -1,0 +1,40 @@
+name: Particle Canvas frame optimization
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/utils/particle_painter.py'
+      - 'tests/test_particle_static_cache.py'
+      - 'tools/benchmark_particle_static_cache.py'
+      - '.github/workflows/particle-geometry-cache.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  particle-render-parity:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      QT_QPA_PLATFORM: offscreen
+      QT_FFMPEG_DECODING_HW_DEVICE_TYPES: ","
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: '.python-version'
+      - name: Install the locked Qt painting library
+        run: python -m pip install PySide6==6.11.1
+      - name: Pixel parity across particle styles, time and density
+        run: python -m unittest -v tests.test_particle_static_cache
+      - name: Benchmark warm-cache Qt particle painting
+        run: python tools/benchmark_particle_static_cache.py --frames 120 --density 300 --repeats 3 --output particle-paint-benchmark.json
+      - name: Upload A/B painting evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: particle-paint-benchmark
+          path: particle-paint-benchmark.json
+          if-no-files-found: ignore

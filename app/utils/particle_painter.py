@@ -2,17 +2,48 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from math import cos, floor, pi, radians, sin
+import os
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from app.utils.performance import timed
 
 
+# Opt-out allows the project's export A/B tools to compare uncached and cached
+# rendering without changing project data or the animation timeline.
+_DISABLE_PARTICLE_STATIC_CACHE = (
+    os.environ.get("PLAYLIST_CANVAS_DISABLE_PARTICLE_STATIC_CACHE", "")
+    .strip().lower() in {"1", "true", "yes"}
+)
+
+
 def _random_unit(index: int, channel: int, seed: int) -> float:
     """Return a stable pseudo-random value without mutable renderer state."""
     value = sin((index + 1) * (12.9898 + channel * 7.233) + seed * 0.731) * 43758.5453
     return value - floor(value)
+
+
+@lru_cache(maxsize=64)
+def _particle_static_values(
+    density: int, seed: int,
+) -> tuple[tuple[float, float, float, float], ...]:
+    """Cache the four time-invariant random parameters of each particle.
+
+    One immutable table is shared by all frames using the same seed/density.
+    The 64-entry bound limits memory in projects with many independent layers;
+    no QPainter, QColor, source model or mutable Qt state is retained.
+    """
+    return tuple(
+        (
+            _random_unit(index, 0, seed) * 2.0 * pi,
+            _random_unit(index, 1, seed),
+            _random_unit(index, 2, seed),
+            _random_unit(index, 3, seed),
+        )
+        for index in range(density)
+    )
 
 
 @timed("canvas.particle_paint_seconds")
@@ -50,14 +81,23 @@ def paint_particles(
     primary = QColor(color)
     secondary = QColor(secondary_color)
     painter.setPen(Qt.PenStyle.NoPen)
+    static_values = (
+        None if _DISABLE_PARTICLE_STATIC_CACHE
+        else _particle_static_values(density, seed)
+    )
     for index in range(density):
-        phase = _random_unit(index, 0, seed) * 2.0 * pi
-        base_x = _random_unit(index, 1, seed) * rect.width()
-        base_y = _random_unit(index, 2, seed) * rect.height()
+        if static_values is None:
+            phase = _random_unit(index, 0, seed) * 2.0 * pi
+            base_x = _random_unit(index, 1, seed) * rect.width()
+            base_y = _random_unit(index, 2, seed) * rect.height()
+            size_ratio = _random_unit(index, 3, seed)
+        else:
+            phase, x_ratio, y_ratio, size_ratio = static_values[index]
+            base_x = x_ratio * rect.width()
+            base_y = y_ratio * rect.height()
         sway = sin(time_seconds * speed * 1.35 + phase) * drift
         x = (base_x + cos(angle) * travel + sway * rect.width() * 0.035) % max(1.0, rect.width())
         y = (base_y + sin(angle) * travel + cos(phase) * sway * rect.height() * 0.018) % max(1.0, rect.height())
-        size_ratio = _random_unit(index, 3, seed)
         size = minimum_size + (maximum_size - minimum_size) * size_ratio
         pulse = 1.0 - twinkle * 0.45 + twinkle * 0.45 * (
             sin(time_seconds * (1.8 + size_ratio * 2.4) + phase) * 0.5 + 0.5
