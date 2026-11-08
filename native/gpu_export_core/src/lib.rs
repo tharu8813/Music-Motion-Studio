@@ -11,6 +11,9 @@
 //! Do not use this output for production until full Canvas pixel parity and a
 //! shared GPU video-frame path are proven.
 
+mod session;
+pub use session::GpuFrameSession;
+
 use std::sync::mpsc;
 use std::time::Duration;
 use wgpu::util::DeviceExt;

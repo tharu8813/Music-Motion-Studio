@@ -147,6 +147,50 @@ fn main() {
             }
             let cpu_median = median(&cpu_samples);
             let gpu_median = median(&gpu_samples);
+
+            // A persistent session uploads the static base/layers once,
+            // reuses bind groups, scratch buffers and staging storage.
+            // Compare the GPU-resident path (NO readback) to a diagnostic
+            // path with a final GPU->CPU readback.
+            let session_start = Instant::now();
+            let prepared = gpu.prepare_session(
+                &base, options.width, options.height, &layers,
+            ).expect("Prepare reusable GPU compositor session");
+            let session_prepare_seconds = session_start.elapsed().as_secs_f64();
+            let first = prepared.compose_and_readback()
+                .expect("Persistent GPU first frame");
+            if first != reference {
+                eprintln!("GPU session first frame differs from Rust CPU reference");
+                std::process::exit(1);
+            }
+            let mut resident_samples = Vec::with_capacity(options.frames);
+            let mut readback_samples = Vec::with_capacity(options.frames);
+            for index in 0..options.frames {
+                // Alternate order across frames to reduce clock/cache bias.
+                let order = if index % 2 == 0 {
+                    [false, true]
+                } else {
+                    [true, false]
+                };
+                for download in order {
+                    let start = Instant::now();
+                    if download {
+                        let result = prepared.compose_and_readback()
+                            .expect("Persistent GPU readback failed");
+                        if result != reference {
+                            eprintln!("Persistent GPU readback pixels diverged");
+                            std::process::exit(1);
+                        }
+                        readback_samples.push(start.elapsed().as_secs_f64());
+                    } else {
+                        prepared.compose_gpu_only()
+                            .expect("Persistent GPU-resident composition failed");
+                        resident_samples.push(start.elapsed().as_secs_f64());
+                    }
+                }
+            }
+            let resident_median = median(&resident_samples);
+            let readback_median = median(&readback_samples);
             json!({
                 "schema": 1,
                 "status": "measured",
@@ -160,6 +204,21 @@ fn main() {
                 "cpu_median_seconds": cpu_median,
                 "gpu_median_seconds": gpu_median,
                 "gpu_vs_cpu_speedup": cpu_median / gpu_median,
+                "prepared_session_upload_seconds": session_prepare_seconds,
+                "persistent_gpu_only_median_seconds": resident_median,
+                "persistent_readback_median_seconds": readback_median,
+                "persistent_vs_legacy_speedup_with_readback": gpu_median / readback_median,
+                "persistent_gpu_only_vs_cpu_reference_speedup": cpu_median / resident_median,
+                "persistent_session_frame_reuse": true,
+                "persistent_gpu_only_includes": [
+                    "GPU command encoding",
+                    "GPU queue submit and completion wait"
+                ],
+                "persistent_gpu_only_excludes": [
+                    "per-frame changed-input uploads",
+                    "GPU-to-CPU readback",
+                    "FFmpeg/NVENC encoding"
+                ],
                 "pixel_byte_identical": true,
                 "hardware_gpu_measured": true,
                 "production_export_changed": false,
@@ -167,7 +226,9 @@ fn main() {
                     "GPU->CPU readback is still required",
                     "No GPU->NVENC native hardware-frame sharing yet",
                     "Only straight-alpha rectangular overlays over an opaque base",
-                    "Does not represent complete Qt Canvas or MP4 export performance"
+                    "Does not represent complete Qt Canvas or MP4 export performance",
+                    "Persistent benchmark uses unchanged pre-uploaded test layers",
+                    "Native NVENC hardware-frame interop is not yet implemented"
                 ],
             })
         }

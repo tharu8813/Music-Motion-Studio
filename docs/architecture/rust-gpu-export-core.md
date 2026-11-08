@@ -107,3 +107,51 @@ GPU test runs only when real hardware exists.
 **Release decision:** production exporter remains unchanged. This Rust GPU
 core is for validated migration and proof that native GPU composition works,
 not a promise of a finished GPU-centric export engine.
+
+
+## Milestone 2: persistent GPU session and no-readback composition
+
+The first RTX 5060 Vulkan test produced **3.8738ms** median on the Rust
+CPU reference versus **8.07595ms** on the initial GPU implementation, for
+1080p/2 layers and 30 frames. The GPU path included creating buffers,
+uploading both overlays and the opaque base, dispatching compute and
+downloading the final RGBA result on *every frame*. GPU compute alone
+was never separately measured in that result.
+
+`GpuCompositor::prepare_session(...)` is now an additional experimental API:
+
+- Upload each static RGBA overlay once, with one uniform geometry buffer
+  and persistent bind group per layer.
+- Allocate and retain the base, intermediate ping-pong accumulation buffers,
+  and a reusable final readback buffer.
+- Use `update_base(...)` and `update_overlay(index, ...)` only when input
+  bytes change. New dimensions or layer geometry require a new session.
+- `compose_gpu_only()` dispatches all GPU compositing passes and waits for
+  completion, **without downloading the result to CPU memory**.
+- `compose_and_readback()` performs the same composition but downloads
+  the final frame once, for strict byte-for-byte reference verification.
+
+The original `GpuCompositor::composite()` remains available for a control
+measurement. The standalone probe now reports three distinct GPU timings:
+
+1. `gpu_median_seconds`: legacy GPU allocation/upload/compute/readback.
+2. `persistent_readback_median_seconds`: preallocated GPU resources with
+   one required final CPU readback.
+3. `persistent_gpu_only_median_seconds`: preallocated GPU resources and
+   completed GPU dispatch without CPU readback.
+
+The last number **excludes per-frame input uploads**, which matters for
+animated overlays. It is a GPU-queue-completion wall-clock measurement,
+not a hardware timestamp query. This experiment does not yet connect GPU
+storage buffers directly to NVENC hardware frames, cannot render lyrics
+or other Qt Canvas effects, and is not enabled in real exports.
+
+On the RTX 5060, reproduce all three paths:
+
+```powershell
+cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin gpu_export_probe -- --width 1920 --height 1080 --frames 30 --output rust-gpu-compositor-persistent.json
+```
+
+**Promotion criteria:** Actual GPU pixel equality, successful dynamic base
+and overlay updates, no GPU buffer leaks over long exports, and same-project
+end-to-end NVENC time reduction after future native GPU-frame interop.
