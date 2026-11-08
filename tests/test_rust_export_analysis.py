@@ -45,6 +45,18 @@ class RustExportAnalysisTests(unittest.TestCase):
     def test_native_and_numpy_analyses_match(self) -> None:
         if importlib.util.find_spec("music_motion_native") is None:
             self.skipTest("Rust extension not built (optional in Python-only development)")
+        # Fail if the native path silently fell back. A/B parity alone could
+        # otherwise pass even when the extension is broken.
+        test_spectrum = np.ones((2, 257), dtype=np.float64)
+        test_frequencies = np.arange(257, dtype=np.float64)
+        test_probes = np.array([[2.0, 2.5, 3.0, 3.5, 4.0]], dtype=np.float32)
+        with patch.dict(os.environ, {ENABLE_ENV: "1"}):
+            direct = reduce_frequency_bands(
+                test_spectrum, test_frequencies,
+                (np.array([2, 3, 4]),), test_probes,
+            )
+        self.assertIsNotNone(direct, "Rust reduction failed and fell back to NumPy")
+        np.testing.assert_array_equal(direct, np.ones((2, 1), dtype=np.float32))
         for bands in (4, 32, 96):
             for fps in (12, 60):
                 with self.subTest(bands=bands, fps=fps):
