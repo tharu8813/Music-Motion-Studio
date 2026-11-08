@@ -241,6 +241,8 @@ class CanvasProcessStream:
         self._wait_callback = producer_wait_callback
         self._closed = False
         self._finish_requested = False
+        self._eof_requested_at: float | None = None
+        self._eof_finished_at: float | None = None
         self._queue_put_wall_seconds = 0.0
         self._queue_full_events = 0
         self._queue_submit_count = 0
@@ -316,10 +318,15 @@ class CanvasProcessStream:
 
     def job_queue_diagnostics(self) -> dict[str, float | int]:
         """Producer-side wait for worker job-queue capacity, not pipe I/O."""
+        elapsed = None
+        if self._eof_requested_at is not None and self._eof_finished_at is not None:
+            elapsed = max(0.0, self._eof_finished_at - self._eof_requested_at)
         return {
             "submit_count": self._queue_submit_count,
             "full_events": self._queue_full_events,
             "put_wall_seconds": self._queue_put_wall_seconds,
+            "eof_requested": self._finish_requested,
+            "eof_drain_seconds": elapsed,
         }
 
     def _poll(self):
@@ -398,6 +405,7 @@ class CanvasProcessStream:
             return
         self.submit_sample(None)
         self._finish_requested = True
+        self._eof_requested_at = monotonic()
 
     def finish(self):
         # Legacy direct callers still have a one-call blocking API.
@@ -406,6 +414,7 @@ class CanvasProcessStream:
             self._wait()
             self._process.join(0.01)
         result = self._result
+        self._eof_finished_at = monotonic()
         self.cancel()
         return result
 
