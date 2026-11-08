@@ -1,0 +1,40 @@
+name: Canvas artwork lazy-capture optimization
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/preview/canvas_snapshot.py'
+      - 'tests/test_lazy_track_cover_capture.py'
+      - 'tools/benchmark_lazy_track_cover.py'
+      - '.github/workflows/canvas-lazy-cover-benchmark.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-cover-capture:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      QT_QPA_PLATFORM: offscreen
+      QT_FFMPEG_DECODING_HW_DEVICE_TYPES: ","
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: '.python-version'
+      - name: Install application dependencies
+        run: python -m pip install -r requirements-lock.txt
+      - name: Verify on-demand album art and exact Canvas pixels
+        run: python -m unittest -v tests.test_lazy_track_cover_capture
+      - name: Measure Canvas QPixmap conversion savings
+        run: python tools/benchmark_lazy_track_cover.py --frames 120 --repeats 3 --output lazy-cover-benchmark.json
+      - name: Upload measurement and parity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: canvas-lazy-cover-benchmark
+          path: lazy-cover-benchmark.json
+          if-no-files-found: ignore
