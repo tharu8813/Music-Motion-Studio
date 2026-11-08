@@ -266,6 +266,11 @@ class CanvasProcessStreamTests(unittest.TestCase):
 
         fps, count, step = 60, 360, 5
         duration = count / fps
+        self.scene.addItem(SourceItem(Source(
+            SourceType.SHAPE, "Floating alpha band",
+            x=20, y=22, width=31, height=22, z_index=2,
+            fill_color="#55AACC",
+        )))
         bands = [(None, 0), (0, 1), (1, None)]
         capturer = ExportCanvasCapturer(
             self.scene, [self.track], duration, set(), bands,
@@ -328,8 +333,8 @@ class CanvasProcessStreamTests(unittest.TestCase):
                 for index in range(1, count):
                     streams["base"].submit_sample(sample(index, fps, 1))
                     streams["layer:0"].submit_sample(sample(index, fps, 1))
-                    if (index + 1) % step == 0:
-                        low_index = (index + 1) // step - 1
+                    if index % step == 0:
+                        low_index = index // step
                         streams["layer:1"].submit_sample(
                             sample(low_index, fps // step, step),
                         )
