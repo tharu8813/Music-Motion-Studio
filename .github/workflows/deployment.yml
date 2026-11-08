@@ -36,6 +36,13 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: python -m unittest -v tests.test_export_ab_verify tests.test_export_bottleneck_profile tests.test_export_total_wall_timer
 
+      - name: Verify Canvas producer queues and Win32 pipe I/O diagnostics
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m unittest -v tests.test_canvas_pipe.WindowsPipeWriteRegressionTests
+          python -m unittest -v tests.test_canvas_process_stream.CanvasProcessStreamTests.test_parent_queue_backpressure_counts_full_waits_separately
+
       - name: Benchmark Canvas preview Z-band optimization
         env:
           QT_QPA_PLATFORM: offscreen
