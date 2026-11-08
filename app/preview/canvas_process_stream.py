@@ -85,7 +85,11 @@ def _render_band(jobs, replies, stop, status) -> None:
         from app.renderer.ffmpeg_renderer import RenderFrame
         from app.ui.design_system import apply_studio_style
         from app.utils.font_loader import load_application_font
+        from app.utils.performance import set_profile_context
 
+        # Worker files were previously identified only by an unrelated PID.
+        # A stable stream key links Canvas scene timings to its FFmpeg input.
+        set_profile_context(stream_key=config["key"], output_fps=config["fps"])
         application = QApplication([])
         apply_studio_style(application)
         for path in config['fonts']:
@@ -141,6 +145,13 @@ def _render_band(jobs, replies, stop, status) -> None:
                 continue
             if sample is None:
                 result = pipe.finish()
+                set_profile_context(
+                    stream_width=pipe.width,
+                    stream_height=pipe.height,
+                    submitted_states=pipe.diagnostics()["submitted_states"],
+                    written_frames=pipe.frame_count,
+                    writer_io=pipe.io_diagnostics(),
+                )
                 update_status()
                 metrics = {name: getattr(capturer, name) for name in (
                     'partial_render_capture_count', 'scene_render_source_pixels',
