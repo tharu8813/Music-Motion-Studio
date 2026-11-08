@@ -66,6 +66,7 @@ def _render_band(jobs, replies, stop, status) -> None:
     pipe = None
     application = None
     scene = None
+    worker_completed = False
     try:
         # Large analysis arrays use the queue feeder, keeping process.start() off the GUI hot path.
         while not stop.is_set():
@@ -177,6 +178,7 @@ def _render_band(jobs, replies, stop, status) -> None:
                     'full_frame_source_pixels', 'skipped_cfr_captures',
                 )}
                 replies.put(('done', (result, metrics)))
+                worker_completed = True
                 return
             current_frame_target = sample.cfr_target_frame_count
             capturer.capture_stream(sample, config['key'])
@@ -193,8 +195,24 @@ def _render_band(jobs, replies, stop, status) -> None:
             scene.clear()
         # Spawned multiprocessing workers may bypass Python's atexit hooks.
         # Flush opt-in timings explicitly, under their own worker PID filename.
-        from app.utils.performance import ENABLED as PROFILE_ENABLED, save as save_profile
+        from app.utils.performance import (
+            ENABLED as PROFILE_ENABLED,
+            save as save_profile,
+            set_profile_context,
+        )
         if PROFILE_ENABLED:
+            if pipe is not None:
+                # A failed FFmpeg input can stall the writer and never reach
+                # pipe.finish(). Preserve the partial bytes/call counts so
+                # the root cause is visible instead of an empty writer_io.
+                set_profile_context(
+                    stream_width=pipe.width,
+                    stream_height=pipe.height,
+                    submitted_states=pipe.diagnostics()["submitted_states"],
+                    written_frames=pipe.frame_count,
+                    writer_io=pipe.io_diagnostics(),
+                    worker_completed=worker_completed,
+                )
             save_profile()
 
 
