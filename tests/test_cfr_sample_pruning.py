@@ -17,7 +17,7 @@ from unittest.mock import Mock, patch
 from PySide6.QtGui import QColor, QImage
 
 from app.models.playlist import PlaylistTrack
-from app.renderer.cfr_sample_pruning import iter_cfr_emitting_samples
+from app.renderer.cfr_sample_pruning import CfrPruningStats, iter_cfr_emitting_samples
 from app.renderer.canvas_pipe import PipedCanvasStream, _QueuedCanvasFrame
 from app.renderer.export_timeline import ExportFrameSample
 from app.preview.canvas_process_stream import _pack_sample, _unpack_sample
@@ -79,7 +79,10 @@ class CfrSamplePruningTests(unittest.TestCase):
 
     def test_pruning_reduces_queue_packets_without_dropping_output_frames(self) -> None:
         samples = _samples([1 / 180] * 1800)
-        pruned = list(iter_cfr_emitting_samples(samples, 60))
+        stats = CfrPruningStats()
+        pruned = list(iter_cfr_emitting_samples(samples, 60, stats))
+        self.assertEqual(stats.input_samples, 1800)
+        self.assertEqual(stats.forwarded_samples, len(pruned))
         self.assertLess(len(pruned), len(samples) * 0.4)
         self.assertEqual(len(_expand(samples, 60)), 600)
         self.assertEqual(_expand(samples, 60), _expand(pruned, 60))
