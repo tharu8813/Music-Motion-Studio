@@ -25,6 +25,15 @@ from app.renderer.python_visualizer import PythonVisualizerRenderer
 def main() -> None:
     import music_motion_native  # noqa: F401; fail clearly if not installed
 
+    os.environ[ENABLE_ENV] = "1"
+    check = reduce_frequency_bands(
+        np.ones((1, 257), dtype=np.float64),
+        np.arange(257, dtype=np.float64),
+        (np.array([2, 3, 4]),),
+        np.array([[2, 2.5, 3, 3.5, 4]], dtype=np.float32),
+    )
+    if check is None:
+        raise SystemExit("Rust extension present but native reducer did not run")
     renderer = PythonVisualizerRenderer(Path("ffmpeg"))
     rng = np.random.default_rng(42)
     samples = rng.normal(0, 0.12, size=8_000 * 20).astype(np.float32)
