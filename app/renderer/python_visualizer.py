@@ -28,7 +28,7 @@ from app.utils.particle_painter import paint_particles
 from app.utils.visualizer_paint import draw_visualizer_content
 from app.utils.subprocess_utils import hidden_process_kwargs
 from app.renderer.canvas_pipe import CanvasPipeError, PipedCanvasStream, piped_export_supported
-from app.renderer.native_export import analyze_pcm_windows, reduce_frequency_bands
+from app.renderer.native_export import reduce_frequency_bands
 
 
 class PythonVisualizerError(RuntimeError):
@@ -306,13 +306,6 @@ class PythonVisualizerRenderer:
     def _analyze_rms(self, samples: np.ndarray, fps: int,
                      cancel_event: threading.Event) -> np.ndarray:
         """Return one actual channel RMS value per rendered frame."""
-        if cancel_event.is_set():
-            raise PythonVisualizerError("Rendering was cancelled.")
-        native_values = analyze_pcm_windows(samples, fps, self.sample_rate)
-        if native_values is not None:
-            if cancel_event.is_set():
-                raise PythonVisualizerError("Rendering was cancelled.")
-            return native_values
         frame_count = max(1, math.ceil(len(samples) * fps / self.sample_rate))
         result = np.zeros(frame_count, dtype=np.float32)
         for index in range(frame_count):
@@ -328,13 +321,6 @@ class PythonVisualizerRenderer:
     def _analyze_waveform(self, samples: np.ndarray, fps: int, points: int,
                           cancel_event: threading.Event) -> np.ndarray:
         """Sample signed PCM windows for a genuine time-domain waveform."""
-        if cancel_event.is_set():
-            raise PythonVisualizerError("Rendering was cancelled.")
-        native_values = analyze_pcm_windows(samples, fps, self.sample_rate, points=points)
-        if native_values is not None:
-            if cancel_event.is_set():
-                raise PythonVisualizerError("Rendering was cancelled.")
-            return native_values
         frame_count = max(1, math.ceil(len(samples) * fps / self.sample_rate))
         result = np.zeros((frame_count, points), dtype=np.float32)
         for index in range(frame_count):
