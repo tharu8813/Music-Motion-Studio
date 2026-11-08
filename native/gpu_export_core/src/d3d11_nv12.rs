@@ -171,6 +171,11 @@ impl NativeD3d11Nv12Surface {
         })
     }
 
+    /// Native device/context getters for the experimental same-device
+    /// video processor. Never pass these pointers to a separate FFmpeg CLI.
+    pub(crate) fn device(&self) -> &ID3D11Device { &self._device }
+    pub(crate) fn context(&self) -> &ID3D11DeviceContext { &self.context }
+
     pub fn dimensions(&self) -> (u32, u32) { (self.width, self.height) }
     pub fn adapter_name(&self) -> &str { &self.adapter_name }
     pub fn adapter_vendor_id(&self) -> u32 { self.adapter_vendor_id }
