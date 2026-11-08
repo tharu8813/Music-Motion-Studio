@@ -94,8 +94,7 @@ impl NativeD3d11Nv12Surface {
         let device = device.ok_or("D3D11 returned no device")?;
         let context = context.ok_or("D3D11 returned no immediate context")?;
 
-        let mut support = 0u32;
-        unsafe { device.CheckFormatSupport(DXGI_FORMAT_NV12, &mut support) }
+        let support = unsafe { device.CheckFormatSupport(DXGI_FORMAT_NV12) }
             .map_err(|e| format!("NV12 format support query failed: {e}"))?;
         if support & D3D11_FORMAT_SUPPORT_TEXTURE2D.0 as u32 == 0 {
             return Err("D3D11 adapter does not support NV12 Texture2D".into());
