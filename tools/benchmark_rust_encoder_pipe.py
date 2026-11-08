@@ -1,6 +1,6 @@
 """Compare real FFmpeg encode time with 32-bit vs Rust-packed 24-bit pipe input.
 
-This microbenchmark includes producer packing and FFmpeg processing; it is NOT
+This microbenchmark includes producer packing, BGR24-to-BGR0 FFmpeg\nnormalization and FFmpeg processing; it is NOT
 a benchmark of Qt Canvas rendering, alpha compositing, or a whole project.
 Results vary by CPU, video codec, frame content, resolution and hardware.
 """
@@ -31,7 +31,11 @@ def encode(ffmpeg: str, images: list[QImage], *, native) -> dict:
         ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin",
         "-f", "rawvideo", "-pix_fmt", fmt,
         "-video_size", f"{width}x{height}", "-framerate", "30",
-        "-i", "pipe:0", "-an", "-c:v", "libx264", "-preset", "veryfast",
+        # Normalize the experimental 24-bit input inside FFmpeg before
+        # colorspace conversion, exactly as the production filter graph does.
+        "-i", "pipe:0",
+        *(["-vf", "format=bgr0"] if native is not None else []),
+        "-an", "-c:v", "libx264", "-preset", "veryfast",
         "-crf", "18", "-pix_fmt", "yuv420p", "-f", "null", "-",
     ]
     source_bytes = 0
@@ -93,7 +97,7 @@ def main() -> None:
     optimized = encode(args.ffmpeg, images, native=native)
     result = {
         "schema": 1,
-        "note": "Measured FFmpeg encoder + raw pipe producer, not a whole project.",
+        "note": "Measured FFmpeg encoder, raw pipe producer and normalized BGR24 input; not a whole project.",
         "width": args.width,
         "height": args.height,
         "frames": args.frames,
