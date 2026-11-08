@@ -155,8 +155,15 @@ class KaraokeLyricLabel(QLabel):
         low = max(line.textStart(), min(line.textStart() + line.textLength(), floor(position)))
         high = max(low, min(line.textStart() + line.textLength(), ceil(position)))
         fraction = min(1.0, max(0.0, position - low))
-        x0 = float(line.cursorToX(low))
-        x1 = float(line.cursorToX(high))
+        # PySide6 may expose QTextLine.cursorToX(int) as (x, cursorPos)
+        # because the C++ binding also reports its updated cursor argument.
+        # Other bindings return only x. Use the coordinate in either case.
+        def cursor_x(cursor: int) -> float:
+            result = line.cursorToX(cursor)
+            return float(result[0] if isinstance(result, tuple) else result)
+
+        x0 = cursor_x(low)
+        x1 = cursor_x(high)
         return x0 + (x1 - x0) * fraction
 
     def _highlight_region(self, document: QTextDocument) -> QRegion:
