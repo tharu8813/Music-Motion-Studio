@@ -615,6 +615,7 @@ class FFmpegRenderer:
             encoding_span = 0.21 if visualizers else 0.33
             static_inputs: list[tuple[float, Path, str, int, int]] = []
             piped_input_arguments: dict[int, tuple[str, ...]] = {}
+            piped_overlay_rates: dict[int, int] = {}
             base_video = piped_video or prepared_video
             # Only raw CFR pipes guarantee square-pixel Canvas frames.
             # Prepared files and legacy concat sources keep their original
@@ -668,7 +669,16 @@ class FFmpegRenderer:
                     piped_layer = layer.video
                     if (piped_layer.width <= 0 or piped_layer.height <= 0
                             or not piped_layer.input_arguments
-                            or piped_layer.fps != selected_settings.fps
+                            or piped_layer.fps <= 0
+                            or selected_settings.fps % piped_layer.fps != 0
+                            or (
+                                piped_layer.fps != selected_settings.fps
+                                and not filter_graph.is_raw_canvas_cfr_input(
+                                    piped_layer.input_arguments,
+                                    piped_layer.fps, piped_layer.width,
+                                    piped_layer.height,
+                                )
+                            )
                             or layer.x < 0 or layer.y < 0
                             or (base_video is not None and (
                                 layer.x + piped_layer.width > base_video.width
@@ -676,6 +686,8 @@ class FFmpegRenderer:
                             ))):
                         raise RenderError("A piped Canvas layer is invalid.")
                     piped_input_arguments[len(static_inputs)] = piped_layer.input_arguments
+                    if piped_layer.fps != selected_settings.fps:
+                        piped_overlay_rates[len(static_inputs)] = piped_layer.fps
                     static_inputs.append((
                         layer.z_index, Path("canvas-pipe"), "pipe", layer.x, layer.y,
                     ))
@@ -875,6 +887,7 @@ class FFmpegRenderer:
                     base_already_sized=base_already_sized,
                     base_is_cfr=base_is_cfr,
                     optimize_constant_overlays=optimize_constant_overlays,
+                    pipe_input_fps=piped_overlay_rates,
                 )
                 graph_arguments = self._filter_graph_arguments(graph, temporary)
                 video_arguments.extend([
@@ -1034,12 +1047,13 @@ class FFmpegRenderer:
                               video_input_slots: list[int] | None = None,
                               base_already_sized: bool = False,
                               base_is_cfr: bool = False,
-                              optimize_constant_overlays: bool = False) -> str:
+                              optimize_constant_overlays: bool = False,
+                              pipe_input_fps: dict[int, int] | None = None) -> str:
         """Interleave reactive video and transparent static Z bands in Canvas order."""
         return filter_graph.layered_filter_graph(
             visualizers, static_layers, fps, output_width, output_height,
             video_clips, video_input_slots, base_already_sized,
-            base_is_cfr, optimize_constant_overlays,
+            base_is_cfr, optimize_constant_overlays, pipe_input_fps,
         )
 
     @staticmethod
