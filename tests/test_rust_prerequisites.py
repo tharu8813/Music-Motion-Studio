@@ -82,7 +82,7 @@ class RustPrerequisiteTests(unittest.TestCase):
         with patch.object(
             req, "require_developer_environment",
             side_effect=req.RustPrerequisiteError("cargo missing"),
-        ):
+        ), patch.object(sys, "argv", ["run_tests.py"]):
             self.assertEqual(run_tests.main(), 2)
 
     def test_check_can_be_used_for_toolchain_only(self):
