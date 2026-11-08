@@ -124,6 +124,8 @@ pub struct GpuCompositor {
     pipeline: wgpu::ComputePipeline,
     pub adapter_name: String,
     pub adapter_backend: String,
+    pub adapter_vendor_id: u32,
+    pub adapter_device_id: u32,
 }
 
 impl GpuCompositor {
@@ -183,6 +185,8 @@ impl GpuCompositor {
             pipeline,
             adapter_name: adapter_info.name,
             adapter_backend: format!("{:?}", adapter_info.backend),
+            adapter_vendor_id: adapter_info.vendor,
+            adapter_device_id: adapter_info.device,
         })
     }
 
