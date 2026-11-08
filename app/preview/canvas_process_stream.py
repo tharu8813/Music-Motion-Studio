@@ -315,16 +315,20 @@ class CanvasProcessStream:
         packet = _pack_sample(sample, self._track_indexes)
         while True:
             started = monotonic() if PROFILE_ENABLED else 0.0
+            was_full = False
             try:
                 self._jobs.put(packet, timeout=0.05)
-                self._queue_submit_count += 1
-                break
             except Full:
                 self._queue_full_events += 1
-                self._wait()
+                was_full = True
             finally:
                 if PROFILE_ENABLED:
+                    # Only time spent inside Queue.put, not UI pumping in _wait.
                     self._queue_put_wall_seconds += monotonic() - started
+            if not was_full:
+                self._queue_submit_count += 1
+                break
+            self._wait()
         deadline = monotonic() + 30.0
         while not self.started:
             self._wait()
