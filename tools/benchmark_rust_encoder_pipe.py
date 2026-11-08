@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from statistics import median
 from time import perf_counter
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,10 +79,12 @@ def main() -> None:
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=360)
     parser.add_argument("--frames", type=int, default=90)
+    parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    if args.width <= 0 or args.height <= 0 or not 1 <= args.frames <= 300:
-        raise SystemExit("Invalid benchmark size or frame count")
+    if (args.width <= 0 or args.height <= 0
+            or not 1 <= args.frames <= 300 or not 1 <= args.repeats <= 5):
+        raise SystemExit("Invalid benchmark size, frame count or repetitions")
     if importlib.util.find_spec("music_motion_native") is None:
         raise SystemExit("Install the v0.3+ native extension before benchmarking.")
     os.environ[RUST_BGR24_PIPE_ENV] = "1"
@@ -93,14 +96,34 @@ def main() -> None:
         image = QImage(args.width, args.height, QImage.Format.Format_RGB32)
         image.fill(QColor((i * 17) % 256, (i * 13) % 256, (i * 19) % 256))
         images.append(image)
-    baseline = encode(args.ffmpeg, images, native=None)
-    optimized = encode(args.ffmpeg, images, native=native)
+    records: dict[str, list[dict]] = {"baseline": [], "rust_bgr24": []}
+    # Alternate order to reduce the effect of warm caches/CPU scheduling.
+    for iteration in range(args.repeats):
+        labels = ("baseline", "rust_bgr24") if iteration % 2 == 0 else (
+            "rust_bgr24", "baseline"
+        )
+        for label in labels:
+            records[label].append(encode(
+                args.ffmpeg, images,
+                native=None if label == "baseline" else native,
+            ))
+    baseline = {
+        **records["baseline"][0],
+        "seconds": round(median(x["seconds"] for x in records["baseline"]), 4),
+        "all_times_seconds": [x["seconds"] for x in records["baseline"]],
+    }
+    optimized = {
+        **records["rust_bgr24"][0],
+        "seconds": round(median(x["seconds"] for x in records["rust_bgr24"]), 4),
+        "all_times_seconds": [x["seconds"] for x in records["rust_bgr24"]],
+    }
     result = {
         "schema": 1,
         "note": "Measured FFmpeg encoder, raw pipe producer and normalized BGR24 input; not a whole project.",
         "width": args.width,
         "height": args.height,
         "frames": args.frames,
+        "repeats": args.repeats,
         "baseline": baseline,
         "rust_bgr24": optimized,
         "speedup": round(baseline["seconds"] / optimized["seconds"], 3) if optimized["seconds"] else None,
