@@ -59,7 +59,7 @@ def draw_visualizer_content(
                 inset = index * min(rect.width(), rect.height()) / max(1, count * 3.2)
                 arc_rect = rect.adjusted(inset, inset, -inset, -inset)
                 arc_color = QColor(color)
-                arc_color.setAlpha(max(45, int(255 * float(level))))
+                arc_color.setAlpha(max(0, min(color.alpha(), round(color.alpha() * float(level)))))
                 painter.setPen(QPen(arc_color, max(1.0, line_width * 0.75)))
                 painter.drawArc(arc_rect, 210 * 16, int(120 * 16 * float(level)))
         else:
