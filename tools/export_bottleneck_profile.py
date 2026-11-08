@@ -29,6 +29,7 @@ OPTIMIZATION_SETTINGS = (
     "PLAYLIST_CANVAS_DISABLE_WORKER_LYRIC_CACHE",
     "PLAYLIST_CANVAS_DISABLE_CFR_SAMPLE_PRUNING",
     "PLAYLIST_CANVAS_DISABLE_LOW_FPS_OVERLAY_PIPE",
+    "PLAYLIST_CANVAS_ENABLE_LOW_FPS_OVERLAY_PIPE",
 )
 
 
@@ -160,6 +161,7 @@ def load_stage_profiles(path: Path) -> dict[str, object]:
                     "pipe_fps": context.get("pipe_fps", context.get("output_fps")),
                     "submitted_states": context.get("submitted_states"),
                     "written_frames": context.get("written_frames"),
+                    "worker_completed": context.get("worker_completed"),
                     "writer_io": context.get("writer_io", {}),
                     "stage_timings": {
                         name: {
