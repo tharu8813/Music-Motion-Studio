@@ -12,7 +12,7 @@
 //! shared GPU video-frame path are proven.
 
 mod session;
-pub use session::GpuFrameSession;
+pub use session::{rgba_to_nv12_reference, GpuFrameSession};
 
 use std::sync::mpsc;
 use std::time::Duration;
