@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.utils.performance import timed
+from app.preview.gpu_canvas_capture import capture_canvas_opengl
 
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
@@ -319,12 +320,19 @@ class CanvasSnapshot:
                             or (z_max is not None and z_value > z_max)):
                         hidden_items.append(item)
                         item.setVisible(False)
-            painter = QPainter(image)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            CanvasSnapshot._paint_scene(
-                scene, painter, QRectF(0, 0, image.width(), image.height()), source_rect,
+            target = QRectF(0, 0, width, height)
+            accelerated = capture_canvas_opengl(
+                scene, target, source_rect, transparent,
             )
-            painter.end()
+            if accelerated is not None:
+                image = accelerated
+            else:
+                painter = QPainter(image)
+                try:
+                    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                    CanvasSnapshot._paint_scene(scene, painter, target, source_rect)
+                finally:
+                    painter.end()
             for item in selected_items:
                 item.setSelected(True)
         finally:
