@@ -3,12 +3,14 @@ from __future__ import annotations
 import threading
 import unittest
 import weakref
+from time import monotonic
 
 from app.renderer.bounded_pipeline import (
     BoundedExportPipeline,
     ExportPipelineCancelledError,
     ExportPipelineClosedError,
     ExportPipelineConsumerError,
+    ExportPipelineTimeoutError,
 )
 
 
@@ -186,6 +188,42 @@ class BoundedExportPipelineTests(unittest.TestCase):
         finally:
             release_timer.cancel()
         self.assertTrue(callback_seen.is_set())
+
+    def test_finish_timeout_bounds_both_queue_wait_and_consumer_join(self) -> None:
+        for queue_full in (False, True):
+            with self.subTest(queue_full=queue_full):
+                started = threading.Event()
+                release = threading.Event()
+                cancel_called = threading.Event()
+
+                def consume(_value: int) -> None:
+                    started.set()
+                    release.wait(2.0)
+
+                def cancel_consumer() -> None:
+                    cancel_called.set()
+                    release.set()
+
+                pipeline = BoundedExportPipeline(
+                    consume,
+                    capacity=1,
+                    poll_interval_seconds=0.01,
+                    on_cancel=cancel_consumer,
+                )
+                pipeline.start()
+                pipeline.submit(0)
+                self.assertTrue(started.wait(1.0))
+                if queue_full:
+                    pipeline.submit(1)
+                    self.assertEqual(pipeline.pending_count, 1)
+                before = monotonic()
+                with self.assertRaises(ExportPipelineTimeoutError):
+                    pipeline.finish(timeout_seconds=0.05)
+                self.assertLess(monotonic() - before, 0.75)
+                self.assertTrue(pipeline.cancel_event.is_set())
+                self.assertTrue(cancel_called.is_set())
+                pipeline._thread.join(1.0)
+                self.assertFalse(pipeline._thread.is_alive())
 
     def test_capacity_must_be_positive(self) -> None:
         with self.assertRaises(ValueError):

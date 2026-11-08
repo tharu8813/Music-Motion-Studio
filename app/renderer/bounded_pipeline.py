@@ -147,12 +147,15 @@ class BoundedExportPipeline(Generic[T]):
                 raise ExportPipelineError("Export pipeline has not been started.")
             already_closed = self._input_closed
             self._input_closed = True
-        if not already_closed and not self._cancel_event.is_set():
-            self._enqueue_end_of_stream(wait_callback)
+        # The timeout covers queueing the EOS marker *and* joining the
+        # consumer. A full queue can otherwise block forever before the
+        # previous join-only deadline even starts.
         deadline = (
             monotonic() + timeout_seconds
             if timeout_seconds is not None else None
         )
+        if not already_closed and not self._cancel_event.is_set():
+            self._enqueue_end_of_stream(wait_callback, deadline=deadline)
         while self._thread.is_alive():
             remaining = (
                 None if deadline is None else max(0.0, deadline - monotonic())
@@ -166,6 +169,7 @@ class BoundedExportPipeline(Generic[T]):
             if wait_callback is not None and self._thread.is_alive():
                 wait_callback()
         if self._thread.is_alive():
+            self.cancel()
             raise ExportPipelineTimeoutError(
                 "Export pipeline consumer did not stop before the timeout."
             )
@@ -200,14 +204,25 @@ class BoundedExportPipeline(Generic[T]):
 
     def _enqueue_end_of_stream(
         self, wait_callback: Callable[[], None] | None = None,
+        *, deadline: float | None = None,
     ) -> None:
         while True:
             self._raise_terminal_state()
             if self._consumer_done.is_set():
                 self._raise_terminal_state()
                 return
+            remaining = None if deadline is None else deadline - monotonic()
+            if remaining is not None and remaining <= 0:
+                self.cancel()
+                raise ExportPipelineTimeoutError(
+                    "Export pipeline could not enqueue its end marker before the timeout."
+                )
             try:
-                self._queue.put(_END_OF_STREAM, timeout=self._poll_interval)
+                self._queue.put(
+                    _END_OF_STREAM,
+                    timeout=min(self._poll_interval, remaining)
+                    if remaining is not None else self._poll_interval,
+                )
             except Full:
                 # The producer can be the Qt main thread. A slow consumer may
                 # keep the bounded queue full while finish() is trying to append
