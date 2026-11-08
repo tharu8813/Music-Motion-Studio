@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -130,6 +131,37 @@ class ResponsiveTrackLyricPreviewTests(unittest.TestCase):
             self.assertFalse(rendered.isNull())
             self.assertEqual(rendered.width(), 320)
             self.assertEqual(rendered.height(), 90)
+        finally:
+            label.close()
+
+    def test_ttml_reuses_text_documents_until_layout_inputs_change(self) -> None:
+        label = KaraokeLyricLabel()
+        label.resize(300, 85)
+        label.setText("Hello world")
+        label.set_word_ranges((((0.0, 2.0),),))
+        label.show()
+        self.app.processEvents()
+        try:
+            with patch.object(label, "_document", wraps=label._document) as build:
+                label.grab()
+                self.assertEqual(build.call_count, 2)
+                # Only the sung word ranges change at each playback tick.
+                label.set_word_ranges((((0.0, 4.0),),))
+                label.grab()
+                self.assertEqual(build.call_count, 2)
+
+                label.setText("Hello again")
+                label.grab()
+                self.assertEqual(build.call_count, 4)
+                label.resize(320, 85)
+                label.grab()
+                self.assertEqual(build.call_count, 6)
+
+                font = label.font()
+                font.setBold(not font.bold())
+                label.setFont(font)
+                label.grab()
+                self.assertEqual(build.call_count, 8)
         finally:
             label.close()
 
