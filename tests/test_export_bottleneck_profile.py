@@ -135,11 +135,13 @@ class ExportBottleneckProfileTests(unittest.TestCase):
     def test_worker_context_is_saved_without_paths(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "export.timings.json"
-            with patch.object(performance, "ENABLED", True), \\
-                    patch.object(performance, "ROOT_PID", "1"), \\
-                    patch.object(performance, "OUTPUT", str(path)), \\
-                    patch.object(performance, "_CONTEXT", {}), \\
-                    patch.object(performance.os, "getpid", return_value=715):
+            with (
+                patch.object(performance, "ENABLED", True),
+                patch.object(performance, "ROOT_PID", "1"),
+                patch.object(performance, "OUTPUT", str(path)),
+                patch.object(performance, "_CONTEXT", {}),
+                patch.object(performance.os, "getpid", return_value=715),
+            ):
                 performance.set_profile_context(
                     stream_key="base", stream_width=1920, stream_height=1080,
                 )
