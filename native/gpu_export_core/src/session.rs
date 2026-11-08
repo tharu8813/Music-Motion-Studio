@@ -476,10 +476,22 @@ impl GpuFrameSession {
 mod tests {
     use super::*;
 
+    fn required_test_adapter() -> Option<GpuCompositor> {
+        match GpuCompositor::new_for_tests() {
+            Ok(gpu) => Some(gpu),
+            Err(error) => {
+                if std::env::var("MMS_GPU_TEST_REQUIRE_ADAPTER").as_deref() == Ok("1") {
+                    panic!("CI GPU shader test requires an adapter: {error}");
+                }
+                eprintln!("GPU unavailable, skipping hardware shader test: {error}");
+                None
+            }
+        }
+    }
+
     #[test]
     fn prepared_session_validates_overlay_and_opaque_base_before_allocating() {
-        let Ok(gpu) = GpuCompositor::new() else {
-            eprintln!("Hardware GPU unavailable: session validation requires adapter");
+        let Some(gpu) = required_test_adapter() else {
             return;
         };
         let base = vec![10, 25, 50, 255].repeat(4);
@@ -493,8 +505,7 @@ mod tests {
 
     #[test]
     fn persistent_session_preserves_pixels_across_updates_and_multiple_frames() {
-        let Ok(gpu) = GpuCompositor::new() else {
-            eprintln!("Hardware GPU unavailable; skipping optional session GPU test");
+        let Some(gpu) = required_test_adapter() else {
             return;
         };
         let base = vec![27, 46, 82, 255].repeat(64 * 48);
@@ -575,8 +586,7 @@ mod tests {
 
     #[test]
     fn dynamic_gpu_nv12_frames_match_independent_rust_reference_if_hardware_present() {
-        let Ok(gpu) = GpuCompositor::new() else {
-            eprintln!("No GPU adapter; NV12 shader parity requires user hardware");
+        let Some(gpu) = required_test_adapter() else {
             return;
         };
         let width = 64u32;
