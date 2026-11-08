@@ -150,6 +150,13 @@ class TrackDetailsDialog(QDialog):
         self.audio_output.setVolume(saved_volume / 100.0)
         self.media_player = QMediaPlayer(self)
         self.media_player.setAudioOutput(self.audio_output)
+        # QMediaPlayer.positionChanged is relatively coarse on some Windows
+        # audio backends. Refresh word progress at 30 FPS only while playing
+        # word-timed TTML; LRC/line subtitles do not need this timer.
+        self._karaoke_timer = QTimer(self)
+        self._karaoke_timer.setInterval(33)
+        self._karaoke_timer.timeout.connect(self._update_live_lyrics)
+        self._timed_ttml = False
         self._audio_available = Path(track.file_path).is_file()
         if self._audio_available:
             self.media_player.setSource(QUrl.fromLocalFile(str(Path(track.file_path).resolve())))
@@ -484,6 +491,7 @@ class TrackDetailsDialog(QDialog):
         playback_layout.addWidget(self.lyrics_stage, 1)
         self._last_live_position_ms = 0
         self._last_lyrics_size: tuple[int, int] | None = None
+        self._last_lyric_context_key: tuple | None = None
         self.lyrics_preview_host.installEventFilter(self)
 
         transport_row = QHBoxLayout()
@@ -1403,6 +1411,19 @@ class TrackDetailsDialog(QDialog):
         text = ("일시정지" if korean else "Pause") if playing else ("재생" if korean else "Play")
         self.play_button.setText(text)
         self.audio_play_button.setText(text)
+        self._update_karaoke_timer()
+
+    def _update_karaoke_timer(self) -> None:
+        active = (
+            self._audio_available
+            and self._timed_ttml
+            and self.media_player.playbackState()
+            == QMediaPlayer.PlaybackState.PlayingState
+        )
+        if active and not self._karaoke_timer.isActive():
+            self._karaoke_timer.start()
+        elif not active and self._karaoke_timer.isActive():
+            self._karaoke_timer.stop()
 
     def _playback_error(
         self, _error: QMediaPlayer.Error, message: str = "",
@@ -1437,8 +1458,8 @@ class TrackDetailsDialog(QDialog):
         korean = self.translator.is_korean
         position = self.media_player.position() if position_ms is None else position_ms
         self._last_live_position_ms = max(0, position)
-        self.current_lyric.clear_word_timing()
         if not self.selected_lyrics:
+            self.current_lyric.clear_word_timing()
             self.previous_lyric.clear()
             self.next_lyric.clear()
             self.current_lyric.setText(
@@ -1459,6 +1480,7 @@ class TrackDetailsDialog(QDialog):
         if lyric_seconds + 0.0005 < float(self.selected_lyrics[0].get("start", 0)):
             starts_at = float(self.selected_lyrics[0]["start"]) - self.timing_offset_spin.value()
             self.previous_lyric.clear()
+            self.current_lyric.clear_word_timing()
             self.current_lyric.setText(
                 f"첫 가사 대기 · {self._timestamp(starts_at)}"
                 if korean else f"Waiting for first lyric · {self._timestamp(starts_at)}"
@@ -1479,9 +1501,9 @@ class TrackDetailsDialog(QDialog):
             current_indices = active or (cue_index,)
             # Keep the original overlapping-group order. An older, longer
             # sentence remains visible while the newer TTML line is sung.
-            self.current_lyric.setText(
-                "\n".join(cue_text(index) for index in current_indices)
-            )
+            current_text = "\n".join(cue_text(index) for index in current_indices)
+            if self.current_lyric.text() != current_text:
+                self.current_lyric.setText(current_text)
             if any(self.selected_lyrics[index].get("words")
                    and self.selected_lyrics[index].get("format") == "ttml"
                    for index in current_indices):
@@ -1491,6 +1513,8 @@ class TrackDetailsDialog(QDialog):
                         lyric_seconds,
                     )
                 )
+            else:
+                self.current_lyric.clear_word_timing()
             active_set = set(current_indices)
             previous_indices = [
                 index for index in range(max(0, latest_started - 20), latest_started + 1)
@@ -1505,6 +1529,15 @@ class TrackDetailsDialog(QDialog):
         # vertical space between preceding and following cue rows. In a gap
         # or at the start, spare space flows to whichever side has lyrics.
         viewport = self.lyrics_preview_host
+        context_key = (
+            tuple(current_indices),
+            (viewport.width(), viewport.height()),
+            id(self.selected_lyrics),
+            lyric_seconds + 0.0005 < float(self.selected_lyrics[0].get("start", 0)),
+        )
+        if context_key == self._last_lyric_context_key:
+            return
+        self._last_lyric_context_key = context_key
         text_width = max(72, viewport.width() - 45)
         viewport_height = max(175, viewport.height())
         current_height = max(50, min(
@@ -1570,6 +1603,9 @@ class TrackDetailsDialog(QDialog):
             cue.get("format") == "ttml" and cue.get("words")
             for cue in self.selected_lyrics
         )
+        self._timed_ttml = timed_ttml
+        self._last_lyric_context_key = None
+        self._update_karaoke_timer()
         self.lyrics_mode_badge.setText(
             ("● TTML · 단어 동기화" if korean else "● TTML · Word sync")
             if timed_ttml else
