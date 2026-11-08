@@ -362,6 +362,9 @@ def _create_endpoint(directory: Path, name: str) -> _PipeEndpoint:
 class _QueuedCanvasFrame:
     image: QImage
     duration_seconds: float
+    # Exact frame number produced by the original unpruned sample timeline.
+    # A None target preserves existing floating-point CFR rounding behavior.
+    target_frame_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -493,7 +496,10 @@ class PipedCanvasStream:
         ]
 
     @timed("export.frame_queue_seconds")
-    def submit(self, image: QImage, duration_seconds: float) -> None:
+    def submit(
+        self, image: QImage, duration_seconds: float, *,
+        target_frame_count: int | None = None,
+    ) -> None:
         """Queue one captured state; conversion and pipe writes run off-thread."""
         if self._finished:
             raise CanvasPipeError("Canvas pipe has already finished.")
@@ -501,6 +507,8 @@ class PipedCanvasStream:
             raise CanvasPipeError("Cannot stream an empty Canvas frame.")
         if duration_seconds <= 0.0:
             raise CanvasPipeError("Canvas frame duration must be greater than zero.")
+        if target_frame_count is not None and target_frame_count < 1:
+            raise CanvasPipeError("Explicit CFR frame targets must be positive.")
         if self._pipeline is None:
             self._width = image.width()
             self._height = image.height()
@@ -519,7 +527,9 @@ class PipedCanvasStream:
         self._submitted_seconds += duration_seconds
         try:
             self._pipeline.submit(
-                _QueuedCanvasFrame(QImage(image), duration_seconds),
+                _QueuedCanvasFrame(
+                    QImage(image), duration_seconds, target_frame_count,
+                ),
                 producer_cancel_event=self.producer_cancel_event,
                 producer_wait_callback=self.producer_wait_callback,
             )
@@ -588,7 +598,15 @@ class PipedCanvasStream:
             # FFmpeg reached the timeline end (``-t``) a frame early and
             # stopped reading. Its exit status decides success; just drain.
             return
-        target_count = max(1, floor(self._written_seconds * self.fps + 0.5))
+        target_count = (
+            frame.target_frame_count
+            if frame.target_frame_count is not None
+            else max(1, floor(self._written_seconds * self.fps + 0.5))
+        )
+        if target_count < self._frame_count:
+            raise CanvasPipeError(
+                "Explicit Canvas frame target moved backwards."
+            )
         repeat_count = max(0, target_count - self._frame_count)
         if repeat_count == 0:
             return

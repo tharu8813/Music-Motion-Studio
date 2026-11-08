@@ -43,6 +43,13 @@ jobs:
           python -m unittest -v tests.test_canvas_pipe.WindowsPipeWriteRegressionTests
           python -m unittest -v tests.test_canvas_process_stream.CanvasProcessStreamTests.test_parent_queue_backpressure_counts_full_waits_separately
 
+      - name: Verify CFR sample pruning pixel and timeline equivalence
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m unittest -v tests.test_cfr_sample_pruning
+          python -m unittest -v tests.test_export_frame_equivalence.ExportFrameEquivalenceTests.test_pruned_parallel_sample_schedule_preserves_animated_canvas_pixels
+
       - name: Benchmark Canvas preview Z-band optimization
         env:
           QT_QPA_PLATFORM: offscreen

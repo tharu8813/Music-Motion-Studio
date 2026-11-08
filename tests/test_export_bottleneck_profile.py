@@ -105,13 +105,21 @@ class ExportBottleneckProfileTests(unittest.TestCase):
             parent.write_text(json.dumps({"schema": 1, "pid": 1, "metrics": {}}), encoding="utf-8")
             parent.write_text(json.dumps({
                 "schema": 1, "pid": 1, "metrics": {},
-                "context": {"parent_canvas_queues": {
-                    "layer:0": {
-                        "submit_count": 2680,
-                        "full_events": 42,
-                        "put_wall_seconds": 73.2,
-                    }
-                }},
+                "context": {
+                    "parent_canvas_queues": {
+                        "layer:0": {
+                            "submit_count": 2680,
+                            "full_events": 42,
+                            "put_wall_seconds": 73.2,
+                        },
+                    },
+                    "parent_cfr_pruning": {
+                        "layer:0": {
+                            "input_samples": 35642,
+                            "forwarded_samples": 13395,
+                        },
+                    },
+                },
             }), encoding="utf-8")
             worker.write_text(json.dumps({
                 "schema": 1,
@@ -139,6 +147,8 @@ class ExportBottleneckProfileTests(unittest.TestCase):
             self.assertEqual(stream["writer_io"]["pending_wait_seconds"], 230.5)
             self.assertEqual(stream["parent_job_queue"]["full_events"], 42)
             self.assertEqual(stream["parent_job_queue"]["put_wall_seconds"], 73.2)
+            self.assertEqual(stream["cfr_pruning"]["input_samples"], 35642)
+            self.assertEqual(stream["cfr_pruning"]["forwarded_samples"], 13395)
             self.assertEqual(stream["stage_timings"]["canvas.scene_render_seconds"]["calls"], 2679)
             summary = summarize([], profiles)
             self.assertIn("layer:0", summary["canvas_streams"])

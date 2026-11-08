@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.utils.performance import timed
 
 import logging
+import os
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ from app.services.lyrics_intro_service import completed_instrumental_spans, requ
 from app.preview.export_canvas_capture import ExportCanvasCapturer
 from app.preview.export_plan import ExportPlan
 from app.renderer.export_timeline import ExportFrameSample, ExportFrameSchedule
+from app.renderer.cfr_sample_pruning import CfrPruningStats, iter_cfr_emitting_samples
 from app.renderer.python_visualizer import PythonVisualizerRenderer
 from app.renderer.canvas_pipe import (
     CanvasPipeCancelledError,
@@ -573,7 +575,31 @@ class ExportSession:
             # One frame per pipe fixes every input's resolution before FFmpeg
             # starts; each fits in its queue, so nothing can block yet.
             pending: list[tuple[float, int, int, str, ExportFrameSample]] = []
-            iterators = {key: iter(samples_by_stream[key]) for key in piped_keys}
+            # Only isolated spawned workers understand integer CFR targets.
+            # Serial pipes, PNG staging, and preview retain their old schedule.
+            # The source state still comes from the original coalescer; we
+            # remove only samples that would emit zero actual output frames.
+            prune_empty_states = parallel and (
+                os.environ.get("PLAYLIST_CANVAS_DISABLE_CFR_SAMPLE_PRUNING", "")
+                .strip().lower() not in {"1", "true", "yes"}
+            )
+            pruning_stats = (
+                {key: CfrPruningStats() for key in piped_keys}
+                if prune_empty_states else {}
+            )
+            iterators = {
+                key: iter(
+                    iter_cfr_emitting_samples(
+                        samples_by_stream[key], settings.fps, pruning_stats[key],
+                    )
+                    if prune_empty_states else samples_by_stream[key]
+                )
+                for key in piped_keys
+            }
+            LOGGER.info(
+                "Canvas CFR zero-output state pruning: enabled=%s streams=%d",
+                prune_empty_states, len(piped_keys),
+            )
             for stream_order, stream_key in enumerate(piped_keys):
                 self._capture_piped_sample(next(iterators[stream_key]), stream_key)
                 second = next(iterators[stream_key], None)
@@ -625,9 +651,29 @@ class ExportSession:
                         f"duration (expected {playlist_duration:.6f}s, got "
                         f"{result.duration_seconds:.6f}s)."
                     )
-            if parent_queue_metrics:
+            if pruning_stats:
+                LOGGER.info(
+                    "Canvas CFR sample pruning: %s",
+                    {
+                        key: {
+                            "input_samples": stats.input_samples,
+                            "forwarded_samples": stats.forwarded_samples,
+                        }
+                        for key, stats in pruning_stats.items()
+                    },
+                )
+            if parent_queue_metrics or pruning_stats:
                 from app.utils.performance import set_profile_context
-                set_profile_context(parent_canvas_queues=parent_queue_metrics)
+                set_profile_context(
+                    parent_canvas_queues=parent_queue_metrics,
+                    parent_cfr_pruning={
+                        key: {
+                            "input_samples": stats.input_samples,
+                            "forwarded_samples": stats.forwarded_samples,
+                        }
+                        for key, stats in pruning_stats.items()
+                    },
+                )
         except CanvasPipeCancelledError as error:
             self.cancel_streams()
             if self._cancel.is_set():

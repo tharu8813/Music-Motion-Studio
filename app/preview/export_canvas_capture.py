@@ -441,7 +441,8 @@ class ExportCanvasCapturer:
             seconds = previous_seconds + sample.duration_seconds
             self._stream_seconds[stream_key] = seconds
             if (
-                stream_key in self._last_stream_images
+                sample.cfr_target_frame_count is None
+                and stream_key in self._last_stream_images
                 and max(1, floor(seconds * self.output_fps + 0.5))
                 == max(1, floor(previous_seconds * self.output_fps + 0.5))
             ):

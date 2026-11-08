@@ -22,6 +22,7 @@ from app.models.source import Source, SourceType
 from app.preview.canvas_snapshot import CanvasSnapshot
 from app.preview.export_canvas_capture import ExportCanvasCapturer
 from app.renderer.export_timeline import ExportFrameSample, ExportTimelinePlanner
+from app.renderer.cfr_sample_pruning import iter_cfr_emitting_samples
 from app.renderer.ffmpeg_renderer import RenderFrame
 
 
@@ -178,6 +179,75 @@ class ExportFrameEquivalenceTests(unittest.TestCase):
                         [frame.duration_seconds for frame in results[0][key]],
                         [frame.duration_seconds for frame in results[1][key]],
                     )
+
+    def test_pruned_parallel_sample_schedule_preserves_animated_canvas_pixels(self) -> None:
+        scene = CanvasScene()
+        scene.set_artboard_size(160, 90)
+        scene.addItem(SourceItem(Source(
+            SourceType.PROGRESS_BAR, "Progress",
+            x=5, y=12, width=145, height=12,
+        )))
+        scene.addItem(SourceItem(Source(
+            SourceType.TEXT, "Moving title", text="CFR", x=8, y=42,
+            width=135, height=35, font_size=22,
+            animation_in="fade", animation_in_duration=1.0,
+        )))
+        track = PlaylistTrack(
+            "subframe-animation.wav", "Subframe animation",
+            duration_seconds=3.0,
+        )
+        samples: list[ExportFrameSample] = []
+        elapsed = 0.0
+        for i in range(320):
+            seconds = (0.001, 1 / 120, 0.003, 1 / 60)[i % 4]
+            samples.append(ExportFrameSample(
+                track, 1, 0.0, seconds, elapsed, elapsed,
+                animation_phase="in",
+                animation_progress=min(1.0, elapsed),
+                animation_phase_duration=1.0,
+            ))
+            elapsed += seconds
+
+        def capture(sequence: list[ExportFrameSample]) -> list[tuple]:
+            frames: list[tuple] = []
+            active: ExportFrameSample | None = None
+
+            def stage(image, seconds, _key):
+                assert active is not None
+                frames.append((
+                    _pixel_signature(image), seconds,
+                    active.cfr_target_frame_count,
+                ))
+                return RenderFrame(image.copy(), seconds)
+
+            capturer = ExportCanvasCapturer(
+                scene, [track], elapsed, set(), [(None, None)],
+                stage, lambda: None, lambda *_: None, output_fps=60,
+            )
+            for item in sequence:
+                active = item
+                capturer.capture_stream(item, "base")
+            return frames
+
+        def expand(frames: list[tuple]) -> list[tuple]:
+            output: list[tuple] = []
+            seconds = 0.0
+            count = 0
+            for signature, duration, target in frames:
+                seconds += duration
+                next_count = (
+                    target if target is not None
+                    else max(1, floor(seconds * 60 + 0.5))
+                )
+                output.extend([signature] * (next_count - count))
+                count = next_count
+            return output
+
+        baseline = capture(samples)
+        optimized_samples = list(iter_cfr_emitting_samples(samples, 60))
+        optimized = capture(optimized_samples)
+        self.assertLess(len(optimized), len(baseline) * 0.6)
+        self.assertEqual(expand(baseline), expand(optimized))
 
     def test_subframe_skip_still_checks_cancellation_and_reports_progress(self) -> None:
         scene = CanvasScene()

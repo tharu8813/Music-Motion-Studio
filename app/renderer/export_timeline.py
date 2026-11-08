@@ -33,6 +33,9 @@ class ExportFrameSample:
     animation_phase_duration: float = 0.0
     junction: MixJunction | None = None
     keyframe_active: bool = True
+    # Optional integer boundary used only by the spawned CFR-pruned Canvas
+    # worker. All legacy PNG/preview/serial samples keep the original policy.
+    cfr_target_frame_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

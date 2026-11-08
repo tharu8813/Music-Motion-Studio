@@ -119,8 +119,13 @@ def _render_band(jobs, replies, stop, status) -> None:
             producer_cancel_event=stop, producer_wait_callback=update_status,
         )
 
+        current_frame_target: int | None = None
+
         def stage(image, duration, _key):
-            pipe.submit(image, duration)
+            # Only the spawned parallel Canvas worker accepts pruned timeline
+            # states. The integer target preserves the legacy CFR image-to-
+            # frame mapping even if float durations were regrouped upstream.
+            pipe.submit(image, duration, target_frame_count=current_frame_target)
             return RenderFrame(image, duration)
 
         capturer = ExportCanvasCapturer(
@@ -160,6 +165,7 @@ def _render_band(jobs, replies, stop, status) -> None:
                 )}
                 replies.put(('done', (result, metrics)))
                 return
+            current_frame_target = sample.cfr_target_frame_count
             capturer.capture_stream(sample, config['key'])
             update_status()
             if not ready:
