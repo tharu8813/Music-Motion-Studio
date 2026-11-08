@@ -9,7 +9,9 @@ use music_motion_gpu_core::{
 use serde_json::json;
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
 use std::time::Instant;
 
 struct Args {
@@ -17,10 +19,15 @@ struct Args {
     height: u32,
     frames: usize,
     output: Option<PathBuf>,
+    nvenc_output: Option<PathBuf>,
+    ffmpeg: String,
 }
 
 fn arguments() -> Result<Args, String> {
-    let mut result = Args { width: 1920, height: 1080, frames: 30, output: None };
+    let mut result = Args {
+        width: 1920, height: 1080, frames: 30, output: None,
+        nvenc_output: None, ffmpeg: "ffmpeg".to_owned(),
+    };
     let mut args = env::args().skip(1);
     while let Some(flag) = args.next() {
         let value = args.next().ok_or_else(|| format!("Missing value for {flag}"))?;
@@ -29,6 +36,8 @@ fn arguments() -> Result<Args, String> {
             "--height" => result.height = value.parse().map_err(|_| "Invalid height")?,
             "--frames" => result.frames = value.parse().map_err(|_| "Invalid frames")?,
             "--output" => result.output = Some(PathBuf::from(value)),
+            "--nvenc-output" => result.nvenc_output = Some(PathBuf::from(value)),
+            "--ffmpeg" => result.ffmpeg = value,
             _ => return Err(format!("Unknown option {flag}")),
         }
     }
@@ -67,6 +76,38 @@ fn rgba_pixels(width: u32, height: u32, frame: usize, alpha: u8, bias: u8) -> Ve
     data
 }
 
+fn nvenc_command(ffmpeg: &str, width: u32, height: u32, output: &Path) -> Command {
+    let mut command = Command::new(ffmpeg);
+    command.args([
+        "-hide_banner", "-loglevel", "error", "-nostdin", "-n",
+        "-f", "rawvideo", "-pixel_format", "nv12",
+        "-video_size", &format!("{width}x{height}"),
+        "-framerate", "60", "-i", "pipe:0",
+        "-an", "-c:v", "h264_nvenc", "-preset", "p4",
+        "-cq", "18", "-pix_fmt", "yuv420p",
+        "-color_primaries", "bt709", "-color_trc", "bt709",
+        "-colorspace", "bt709",
+    ]);
+    command.arg(output);
+    command.stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped());
+    command
+}
+
+fn finish_encode(mut process: Child) -> Result<(), String> {
+    process.stdin.take();
+    let result = process.wait_with_output().map_err(
+        |error| format!("FFmpeg NVENC process terminated unexpectedly: {error}"),
+    )?;
+    if !result.status.success() {
+        return Err(format!(
+            "FFmpeg NVENC encoder failed ({}): {}",
+            result.status,
+            String::from_utf8_lossy(&result.stderr).trim(),
+        ));
+    }
+    Ok(())
+}
+
 fn run(args: &Args) -> Result<serde_json::Value, String> {
     let initial_base = rgba_pixels(args.width, args.height, 0, 255, 15);
     let initial_overlay = rgba_pixels(args.width / 2, args.height / 2, 0, 135, 67);
@@ -101,6 +142,23 @@ fn run(args: &Args) -> Result<serde_json::Value, String> {
     let prepare_at = Instant::now();
     session.prepare_nv12()?;
     let nv12_prepare_seconds = prepare_at.elapsed().as_secs_f64();
+    // Optional short-video integration test, NOT a zero-copy encoder.
+    // Refuse to overwrite a pre-existing video. Output is never requested
+    // by default and does not affect the application's own export pipeline.
+    let mut encoder = if let Some(path) = args.nvenc_output.as_ref() {
+        if path.exists() {
+            return Err(format!("Refusing to overwrite NVENC test file: {}", path.display()));
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(
+                |error| format!("Cannot create NVENC output directory: {error}"),
+            )?;
+        }
+        Some(nvenc_command(&args.ffmpeg, args.width, args.height, path)
+            .spawn().map_err(|error| format!("Unable to launch FFmpeg NVENC: {error}"))?)
+    } else {
+        None
+    };
     let mut cpu = Vec::with_capacity(args.frames);
     let mut rgba_gpu = Vec::with_capacity(args.frames);
     let mut nv12_gpu_readback = Vec::with_capacity(args.frames);
@@ -152,6 +210,11 @@ fn run(args: &Args) -> Result<serde_json::Value, String> {
                 "GPU NV12 bytes differ from Rust reference on frame {frame}: {mismatches} mismatches"
             ));
         }
+        if let Some(process) = encoder.as_mut() {
+            process.stdin.as_mut().ok_or("FFmpeg stdin unavailable")?
+                .write_all(&nv12_output)
+                .map_err(|error| format!("FFmpeg NVENC frame write failed: {error}"))?;
+        }
 
         let time = Instant::now();
         session.update_base(&base)?;
@@ -159,9 +222,15 @@ fn run(args: &Args) -> Result<serde_json::Value, String> {
         session.compose_nv12_gpu_only()?;
         nv12_gpu_only.push(time.elapsed().as_secs_f64());
     }
+    if let Some(process) = encoder.take() {
+        finish_encode(process)?;
+    }
     Ok(json!({
         "schema": 1,
         "status": "measured",
+        "optional_ffmpeg_nvenc_mp4": args.nvenc_output.as_ref()
+            .map(|p| p.to_string_lossy().to_string()),
+        "nvenc_via_cpu_readback": args.nvenc_output.is_some(),
         "scope": "Dynamic RGBA upload + 2 GPU layers + NV12, no FFmpeg/NVENC",
         "adapter": gpu.adapter_name,
         "backend": gpu.adapter_backend,
@@ -219,5 +288,23 @@ fn main() {
             eprintln!("Unable to write diagnostic JSON: {error}");
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn nvenc_probe_explicitly_uses_nv12_input_and_color_metadata() {
+        let args = nvenc_command("ffmpeg", 1920, 1080, Path::new("test-output.mp4"));
+        let parts: Vec<String> = args.get_args()
+            .map(|a| a.to_string_lossy().to_string()).collect();
+        let rendered = parts.join(" ");
+        assert!(rendered.contains("-pixel_format nv12"));
+        assert!(rendered.contains("-video_size 1920x1080"));
+        assert!(rendered.contains("-c:v h264_nvenc"));
+        assert!(rendered.contains("-color_primaries bt709"));
+        assert!(rendered.contains("-n -f rawvideo"));
+        assert!(!rendered.contains("-hwaccel cuda"));
     }
 }
