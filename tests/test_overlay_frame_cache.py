@@ -41,6 +41,17 @@ class OverlayFrameCacheTests(unittest.TestCase):
         self.assertEqual(cache.layers_for_frame("a", 8, (0,)), later)
         self.assertEqual(cache.layers_for_frame("a", 9, (0,)), later)
 
+    def test_scrubbing_backwards_never_reuses_future_overlay(self):
+        cache = OverlayFrameCache()
+        earlier, later = (object(),), (object(),)
+        cache.store("a", (0,), [(4, earlier), (8, later)])
+
+        self.assertEqual(cache.layers_for_frame("a", 8, (0,)), later)
+        self.assertEqual(cache.layers_for_frame("a", 5, (0,)), earlier)
+        self.assertEqual(cache.layers_for_frame("a", 3, (0,)), ())
+        self.assertEqual(cache.layers_for_frame("a", 6, (0,)), earlier)
+        self.assertEqual(cache.layers_for_frame("a", 9, (0,)), later)
+
     def test_clear_one_track_preserves_other_track_and_changes_revision(self):
         cache = OverlayFrameCache()
         layers = (object(),)

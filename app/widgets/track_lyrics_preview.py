@@ -86,6 +86,11 @@ class KaraokeLyricLabel(QLabel):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._timed_lines: tuple[tuple[tuple[float, float], ...], ...] | None = None
+        # TTML repainting can run 30 times a second, but word progress does not
+        # change the text layout. Keep both styled documents until an input
+        # that actually changes layout or colors is modified.
+        self._document_cache_key: tuple[str, str, int, str] | None = None
+        self._document_cache: tuple[QTextDocument, QTextDocument] | None = None
         self.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         self.setWordWrap(True)
 
@@ -150,6 +155,17 @@ class KaraokeLyricLabel(QLabel):
         cursor.mergeCharFormat(fmt)
         return document
 
+    def _styled_documents(self, width: int) -> tuple[QTextDocument, QTextDocument]:
+        active_color = COLORS["text"]
+        key = (self.text(), self.font().toString(), width, active_color)
+        if self._document_cache is None or self._document_cache_key != key:
+            self._document_cache = (
+                self._document("#83928E", width),
+                self._document(active_color, width),
+            )
+            self._document_cache_key = key
+        return self._document_cache
+
     @staticmethod
     def _position_at(line, position: float) -> float:
         low = max(line.textStart(), min(line.textStart() + line.textLength(), floor(position)))
@@ -204,8 +220,7 @@ class KaraokeLyricLabel(QLabel):
             return
 
         inner_width = max(40, self.width() - 20)
-        inactive = self._document("#83928E", inner_width)
-        active = self._document(COLORS["text"], inner_width)
+        inactive, active = self._styled_documents(inner_width)
         content_height = inactive.size().height()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)

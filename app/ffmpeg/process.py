@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import threading
+from math import isfinite
 from collections import deque
 from collections.abc import Callable
 
@@ -115,16 +116,23 @@ def run_ffmpeg(
 
 
 def parse_progress_seconds(line: str) -> float | None:
-    """Decode FFmpeg's microsecond fields (including its legacy out_time_ms)."""
-    if line.startswith(("out_time_us=", "out_time_ms=")):
-        try:
-            return float(line.split("=", 1)[1]) / 1_000_000
-        except ValueError:
+    """Decode FFmpeg's microsecond fields (including its legacy out_time_ms).
+
+    FFmpeg can report N/A or a negative sentinel before the first output
+    packet. Never forward invalid durations into elapsed-time / ETA displays.
+    """
+    try:
+        if line.startswith(("out_time_us=", "out_time_ms=")):
+            seconds = float(line.split("=", 1)[1]) / 1_000_000
+        elif line.startswith("out_time="):
+            hours, minutes, seconds_field = line.split("=", 1)[1].split(":")
+            # A leading sign can be lost when parsing "-00" as int(0).
+            # Reject all negative components before calculating the total.
+            if any(part.startswith("-") for part in (hours, minutes, seconds_field)):
+                return None
+            seconds = int(hours) * 3600 + int(minutes) * 60 + float(seconds_field)
+        else:
             return None
-    if line.startswith("out_time="):
-        try:
-            hours, minutes, seconds = line.split("=", 1)[1].split(":")
-            return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
-        except ValueError:
-            return None
-    return None
+    except (ValueError, OverflowError):
+        return None
+    return seconds if isfinite(seconds) and seconds >= 0 else None
