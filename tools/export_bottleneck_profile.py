@@ -18,6 +18,28 @@ import time
 
 
 CATEGORIES = ("editor", "canvas_workers", "ffmpeg", "other")
+# Record only the settings that control export optimization. Do not include
+# environment secrets, file paths, token values or media metadata.
+OPTIMIZATION_SETTINGS = (
+    "PLAYLIST_CANVAS_PIPE_WRITE_CHUNK_MIB",
+    "PLAYLIST_CANVAS_DISABLE_IDENTITY_SCALE",
+    "PLAYLIST_CANVAS_DISABLE_CFR_FASTPATH",
+    "PLAYLIST_CANVAS_DISABLE_FIXED_OVERLAY_EVAL",
+    "PLAYLIST_CANVAS_DISABLE_OPACITY_KEYFRAME_ROI",
+    "PLAYLIST_CANVAS_DISABLE_WORKER_LYRIC_CACHE",
+)
+
+
+def run_configuration(environment: dict[str, str] | None = None) -> dict:
+    values = os.environ if environment is None else environment
+    return {
+        "python_version": ".".join(map(str, sys.version_info[:3])),
+        "optimization_environment": {
+            name: values.get(name)
+            for name in OPTIMIZATION_SETTINGS
+        },
+    }
+
 STAGES = (
     "export.audio_prepare_seconds",
     "export.bass_prepare_seconds",
@@ -291,6 +313,7 @@ def main(argv: list[str] | None = None) -> int:
         "collected_at": datetime.now().astimezone().isoformat(),
         "target_pid": pid,
         "ended": ended,
+        "run_configuration": run_configuration(),
         "samples": samples,
         "summary": summarize(samples, profiles),
         "limitations": [
