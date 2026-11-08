@@ -140,7 +140,9 @@ class PipedCanvasStreamTests(unittest.TestCase):
             stream._written_seconds = 0.001
             stream._frame_count = 1
             image = Mock()
-            stream._write_frame(SimpleNamespace(image=image, duration_seconds=0.001))
+            stream._write_frame(SimpleNamespace(
+                image=image, duration_seconds=0.001, target_frame_count=None,
+            ))
             image.convertToFormat.assert_not_called()
             endpoint.return_value.connect.assert_not_called()
             endpoint.return_value.write.assert_not_called()
