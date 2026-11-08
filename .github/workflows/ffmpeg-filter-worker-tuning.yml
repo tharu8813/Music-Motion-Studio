@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - 'tools/benchmark_ffmpeg_filter_workers.py'
+      - 'app/renderer/ffmpeg_renderer.py'
+      - 'tests/test_ffmpeg_filter_worker_tuning.py'
       - '.github/workflows/ffmpeg-filter-worker-tuning.yml'
   workflow_dispatch:
 
@@ -36,6 +38,8 @@ jobs:
               f.write(f"PLAYLIST_CANVAS_TEST_FFMPEG={result.executable}\n")
           '@ | python -
           if ($LASTEXITCODE -ne 0) { throw 'FFmpeg installation failed' }
+      - name: Verify tuned FFmpeg filter worker policy and regression safeguards
+        run: python -m unittest -v tests.test_ffmpeg_filter_worker_tuning
       - name: Benchmark 720p actual multilayer FFmpeg filter and x264 encode
         shell: pwsh
         run: |
