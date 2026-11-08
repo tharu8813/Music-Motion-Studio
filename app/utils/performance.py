@@ -82,6 +82,16 @@ class PerformanceProfile:
 
 
 PROFILE = PerformanceProfile()
+# Process-local, non-sensitive diagnostic context. Canvas workers report only
+# stream role/dimensions/aggregate I/O counters, never media paths or lyrics.
+_CONTEXT: dict[str, object] = {}
+
+
+def set_profile_context(**fields: object) -> None:
+    """Attach worker/stream identity to this process's timing file."""
+    if not ENABLED:
+        return
+    _CONTEXT.update(fields)
 
 
 def resident_set_bytes() -> int | None:
@@ -143,6 +153,7 @@ def save() -> None:
         temporary = output.with_name(output.name + f".{os.getpid()}.tmp")
         temporary.write_text(json.dumps({
             "schema": 1, "pid": os.getpid(), "metrics": PROFILE.snapshot(),
+            "context": dict(_CONTEXT),
         }, indent=2) + "\n", encoding="utf-8")
         temporary.replace(output)
     except OSError:
