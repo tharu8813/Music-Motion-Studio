@@ -42,6 +42,8 @@ def run_configuration(environment: dict[str, str] | None = None) -> dict:
 
 STAGES = (
     "export.total_wall_seconds",
+    "export.completed_wall_seconds",
+    "export.incomplete_wall_seconds",
     "export.audio_prepare_seconds",
     "export.bass_prepare_seconds",
     "export.piped_capture_session_seconds",
