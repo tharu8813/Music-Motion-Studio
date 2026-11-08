@@ -27,6 +27,8 @@
 | `bytes_written` | 실제 전송된 rawvideo 총 바이트 |
 | `write_api_seconds` | Win32 WriteFile **호출 자체**에 소요된 벽시계 시간 |
 | `pending_wait_seconds` | 완료되지 않은 I/O를 기다리는 데 사용한 벽시계 시간 |
+| `max_pending_wait_seconds` | 한 번의 비동기 완료 대기에서 관측한 최대 시간 |
+| `waits_over_50ms` / `waits_over_200ms` | 50ms / 200ms 이상 기다린 I/O 호출 수 |
 
 `pending_wait_seconds`는 일반적으로 **FFmpeg 소비 속도에 따른 backpressure**를 포함한다. 이것만으로 CPU가 바빴거나 FFmpeg 필터가 느렸다는 증거는 아니다. 새 카운터는 진단용이며 영상 픽셀, FPS, 인코딩 품질, 버퍼 크기, FFmpeg 합성 동작을 변경하지 않는다.
 
