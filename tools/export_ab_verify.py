@@ -22,6 +22,7 @@ STAGE_KEYS = (
     "export.incomplete_wall_seconds",
     "export.audio_prepare_seconds",
     "export.piped_capture_session_seconds",
+    "export.capture_session_seconds",
     "export.frame_generation_seconds",
     "canvas.scene_render_seconds",
     "canvas.qt_scene_paint_seconds",
@@ -171,6 +172,19 @@ def compare_profiles(baseline: dict, optimized: dict) -> dict:
         )
     if stages.get("export.incomplete_wall_seconds"):
         warnings.append("One of the runs included an incomplete video export attempt.")
+    # A successful program exit does not mean the first live Canvas encoder
+    # succeeded. A 12-FPS real project stalled, then transparently retried
+    # with intermediate PNG files, producing two renderer_seconds attempts.
+    for label, summary in (("Baseline", first), ("Optimized", second)):
+        attempts = _number(
+            summary.get("stage_timings", {}).get("export.renderer_seconds", {}).get("calls")
+        )
+        if attempts is not None and attempts > 1:
+            warnings.append(
+                f"{label} run contains {int(attempts)} final renderer attempts "
+                "(possible live-pipe failure and intermediate-file fallback); "
+                "do not interpret this as a successful single-pass performance result."
+            )
     if not stages.get("export.renderer_seconds") and not stages.get("ffmpeg.process_wall_seconds"):
         warnings.append("No renderer wall-time stage was recorded; speed improvement cannot be estimated.")
     return {
