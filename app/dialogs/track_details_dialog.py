@@ -12,8 +12,8 @@ import sys
 import threading
 
 from mutagen import File as MutagenFile
-from PySide6.QtCore import QProcess, QSettings, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QPixmap
+from PySide6.QtCore import QEvent, QProcess, QSettings, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QFont, QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -51,6 +51,8 @@ from app.models.playlist import (
 from app.widgets.activity_progress import activity_for
 from app.widgets.audio_sync_warning import AudioSyncWarning
 from app.widgets.track_analysis_panel import TrackAnalysisPanel
+from app.widgets.track_lyrics_preview import KaraokeLyricLabel, fit_context_lyrics
+from app.ui.design_system import COLORS
 from app.dialogs.lrc_generator_dialog import LrcGeneratorDialog
 from app.dialogs.ttml_edit_dialog import TtmlRowsDialog, choose_ttml_edit_mode, line_cues
 from app.services.lyrics_service import LyricsError, LyricsService
@@ -353,39 +355,126 @@ class TrackDetailsDialog(QDialog):
         timing_options_layout.addWidget(self.timing_help)
 
         self.playback_group = QGroupBox()
+        self.playback_group.setObjectName("trackPlaybackGroup")
         playback_layout = QVBoxLayout(self.playback_group)
-        playback_layout.setSpacing(7)
+        playback_layout.setContentsMargins(12, 18, 12, 12)
+        playback_layout.setSpacing(11)
+
+        player_header = QHBoxLayout()
+        player_header.setSpacing(11)
+        self.playback_artwork = QLabel()
+        self.playback_artwork.setFixedSize(50, 50)
+        self.playback_artwork.setObjectName("trackPlayerArtwork")
+        self.playback_artwork.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        player_header.addWidget(self.playback_artwork)
+        player_titles = QVBoxLayout()
+        player_titles.setContentsMargins(0, 1, 0, 1)
+        player_titles.setSpacing(2)
+        self.playback_track_title = QLabel()
+        self.playback_track_title.setObjectName("trackPlayerTitle")
+        self.playback_track_title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.playback_track_artist = QLabel()
+        self.playback_track_artist.setObjectName("trackPlayerArtist")
+        player_titles.addWidget(self.playback_track_title)
+        player_titles.addWidget(self.playback_track_artist)
+        player_header.addLayout(player_titles, 1)
+        playback_layout.addLayout(player_header)
         self.playback_status = QLabel()
         self.playback_status.setObjectName("mutedLabel")
-        self.playback_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.playback_status.setWordWrap(True)
+        self.playback_status.setVisible(False)
+        playback_layout.addWidget(self.playback_status)
+
+        self.lyrics_stage = QFrame()
+        self.lyrics_stage.setObjectName("trackLyricStage")
+        self.lyrics_stage.setMinimumHeight(215)
+        self.lyrics_stage.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding,
+        )
+        self.lyrics_stage.setStyleSheet(f"""
+            QFrame#trackLyricStage {{
+                background-color: {COLORS["stage"]};
+                border: 1px solid {COLORS["border"]};
+                border-radius: 14px;
+            }}
+            QLabel#trackLyricStageCaption {{
+                color: {COLORS["muted"]};
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 1px;
+                border: none;
+                background: transparent;
+            }}
+            QLabel#trackLyricSyncBadge {{
+                background-color: {COLORS["info_surface"]};
+                border: 1px solid {COLORS["selection_border"]};
+                border-radius: 9px;
+                padding: 3px 8px;
+                color: {COLORS["accent"]};
+                font-size: 10px;
+                font-weight: 600;
+            }}
+            QLabel#trackLyricContext, QLabel#trackLyricCurrent {{
+                border: none;
+                background: transparent;
+            }}
+            QLabel#trackLyricContext {{
+                color: {COLORS["muted"]};
+                font-size: 12px;
+            }}
+            QLabel#trackLyricCurrent {{
+                color: {COLORS["text"]};
+                font-size: 17px;
+                font-weight: 700;
+            }}
+        """)
+        stage_layout = QVBoxLayout(self.lyrics_stage)
+        stage_layout.setContentsMargins(13, 13, 13, 12)
+        stage_layout.setSpacing(6)
+        stage_heading = QHBoxLayout()
+        stage_heading.setSpacing(8)
+        stage_caption = QLabel("LIVE LYRICS")
+        stage_caption.setObjectName("trackLyricStageCaption")
+        self.lyrics_mode_badge = QLabel()
+        self.lyrics_mode_badge.setObjectName("trackLyricSyncBadge")
+        stage_heading.addWidget(stage_caption)
+        stage_heading.addStretch(1)
+        stage_heading.addWidget(self.lyrics_mode_badge)
+        stage_layout.addLayout(stage_heading)
 
         self.lyrics_preview_host = QWidget()
+        self.lyrics_preview_host.setObjectName("trackLyricViewport")
         self.lyrics_preview_layout = QVBoxLayout(self.lyrics_preview_host)
-        self.lyrics_preview_layout.setContentsMargins(4, 0, 4, 0)
+        self.lyrics_preview_layout.setContentsMargins(5, 5, 5, 5)
         self.lyrics_preview_layout.setSpacing(3)
         self.previous_lyric = QLabel()
-        self.previous_lyric.setObjectName("mutedLabel")
-        self.previous_lyric.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.previous_lyric.setObjectName("trackLyricContext")
+        self.previous_lyric.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom)
         self.previous_lyric.setWordWrap(True)
-        self.previous_lyric.setMaximumHeight(54)
-        self.current_lyric = QLabel()
-        self.current_lyric.setObjectName("panelTitle")
-        self.current_lyric.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.current_lyric.setWordWrap(True)
-        self.current_lyric.setMinimumHeight(42)
-        self.current_lyric.setMaximumHeight(84)
+        self.previous_lyric.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding,
+        )
+        self.current_lyric = KaraokeLyricLabel()
+        self.current_lyric.setObjectName("trackLyricCurrent")
+        self.current_lyric.setMinimumHeight(50)
+        self.current_lyric.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred,
+        )
         self.next_lyric = QLabel()
-        self.next_lyric.setObjectName("mutedLabel")
-        self.next_lyric.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.next_lyric.setObjectName("trackLyricContext")
+        self.next_lyric.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         self.next_lyric.setWordWrap(True)
-        self.next_lyric.setMaximumHeight(54)
-        self.lyrics_preview_layout.addWidget(self.previous_lyric)
+        self.next_lyric.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding,
+        )
+        self.lyrics_preview_layout.addWidget(self.previous_lyric, 1)
         self.lyrics_preview_layout.addWidget(self.current_lyric)
-        self.lyrics_preview_layout.addWidget(self.next_lyric)
-        playback_layout.addWidget(self.playback_status)
-        playback_layout.addStretch(1)
-        playback_layout.addWidget(self.lyrics_preview_host)
-        playback_layout.addStretch(1)
+        self.lyrics_preview_layout.addWidget(self.next_lyric, 1)
+        stage_layout.addWidget(self.lyrics_preview_host, 1)
+        playback_layout.addWidget(self.lyrics_stage, 1)
+        self._last_live_position_ms = 0
+        self._last_lyrics_size: tuple[int, int] | None = None
+        self.lyrics_preview_host.installEventFilter(self)
 
         transport_row = QHBoxLayout()
         self.play_button = QPushButton()
