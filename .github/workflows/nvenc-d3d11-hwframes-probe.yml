@@ -38,7 +38,9 @@ jobs:
           data = json.loads(Path("nvenc-d3d11-ci.json").read_text(encoding="utf-8"))
           accepted = {
               "measured",
-              "nvenc_or_ffmpeg_unavailable",
+              "ffmpeg_unavailable",
+              "ffprobe_unavailable",
+              "nvenc_unavailable",
               "d3d11_hardware_frames_unavailable",
               "decode_validation_failed",
           }
