@@ -25,15 +25,15 @@ fn luma(p: u32) -> u32 {
 }
 
 fn chroma_u(r: u32, g: u32, b: u32) -> u32 {
-    let signed = 128 + ((-26 * i32(r) - 87 * i32(g) +
+    let value = 128 + ((-26 * i32(r) - 87 * i32(g) +
                           113 * i32(b) + 128) / 256);
-    return u32(clamp(signed, 16, 240));
+    return u32(clamp(value, 16, 240));
 }
 
 fn chroma_v(r: u32, g: u32, b: u32) -> u32 {
-    let signed = 128 + ((113 * i32(r) - 102 * i32(g) -
+    let value = 128 + ((113 * i32(r) - 102 * i32(g) -
                          11 * i32(b) + 128) / 256);
-    return u32(clamp(signed, 16, 240));
+    return u32(clamp(value, 16, 240));
 }
 
 fn chroma_pair(x: u32, y: u32) -> vec2<u32> {
