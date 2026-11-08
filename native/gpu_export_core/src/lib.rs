@@ -14,6 +14,9 @@
 #[cfg(windows)]
 pub mod d3d11_nv12;
 
+#[cfg(windows)]
+pub mod d3d11_frame_pool;
+
 mod session;
 pub use session::{rgba_to_nv12_reference, GpuFrameSession, PixelRect};
 
