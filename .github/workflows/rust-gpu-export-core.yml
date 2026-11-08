@@ -51,3 +51,32 @@ jobs:
           name: rust-gpu-compositor-ci
           path: rust-gpu-compositor-ci.json
           if-no-files-found: ignore
+
+  gpu-shader-software-vulkan:
+    # The Windows runner can compile the shader but does not expose an RTX.
+    # Run the real WGSL compute shaders on Mesa's software Vulkan adapter.
+    # These tests establish shader correctness, NOT RTX GPU performance.
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      MMS_GPU_TEST_ALLOW_SOFTWARE: "1"
+      MMS_GPU_TEST_REQUIRE_ADAPTER: "1"
+      RUST_TEST_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/gpu_export_core
+      - name: Install Mesa Vulkan software graphics adapter
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers
+          if [ -f /usr/share/vulkan/icd.d/lvp_icd.x86_64.json ]; then
+            echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> "$GITHUB_ENV"
+          fi
+      - name: Execute WGSL overlay and NV12 shaders with strict pixel equality
+        shell: bash
+        run: |
+          cargo test --manifest-path native/gpu_export_core/Cargo.toml --lib -- --nocapture
