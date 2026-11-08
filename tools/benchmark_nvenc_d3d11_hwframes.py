@@ -143,11 +143,15 @@ def measure(
                     timeout=120,
                 )
                 if not result["ok"]:
+                    missing_ffmpeg = (
+                        result["error"].startswith("FileNotFoundError:")
+                    )
                     return {
                         "schema": 1,
                         "status": (
+                            "ffmpeg_unavailable" if missing_ffmpeg else
                             "d3d11_hardware_frames_unavailable" if d3d11
-                            else "nvenc_or_ffmpeg_unavailable"
+                            else "nvenc_unavailable"
                         ),
                         "failed_mode": label,
                         "failure": result["error"],
@@ -159,7 +163,11 @@ def measure(
                 if not inspection["ok"]:
                     return {
                         "schema": 1,
-                        "status": "decode_validation_failed",
+                        "status": (
+                            "ffprobe_unavailable"
+                            if inspection["error"].startswith("FileNotFoundError:")
+                            else "decode_validation_failed"
+                        ),
                         "failed_mode": label,
                         "failure": inspection["error"],
                         "samples": samples,
