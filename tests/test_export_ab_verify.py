@@ -94,6 +94,24 @@ class ExportABVerificationTests(unittest.TestCase):
             "verdict": "measurement_only", "profile_comparison": report,
         }))
 
+    def test_end_to_end_export_wall_time_takes_priority_over_renderer(self) -> None:
+        prior = profile(renderer=290, ffmpeg_cpu=1175, canvas_cpu=694, peak=2400)
+        current = profile(renderer=250, ffmpeg_cpu=1015, canvas_cpu=650, peak=2310)
+        prior["summary"]["stage_timings"]["export.total_wall_seconds"] = {
+            "calls": 1, "inclusive_wall_seconds": 360.0,
+        }
+        current["summary"]["stage_timings"]["export.total_wall_seconds"] = {
+            "calls": 1, "inclusive_wall_seconds": 300.0,
+        }
+        comparison = compare_profiles(prior, current)
+        self.assertEqual(comparison["total_export_wall_seconds"]["change_percent"], -16.67)
+        self.assertNotEqual(comparison["total_export_wall_seconds"],
+                            comparison["renderer_wall_seconds"])
+        document = render_markdown({
+            "verdict": "measurement_only", "profile_comparison": comparison,
+        })
+        self.assertIn("Full video export wall time", document)
+
     def test_identical_flags_or_missing_run_metadata_generate_warnings(self) -> None:
         original = profile(renderer=5, ffmpeg_cpu=5, canvas_cpu=5, peak=5)
         compared = compare_profiles(original, original)
