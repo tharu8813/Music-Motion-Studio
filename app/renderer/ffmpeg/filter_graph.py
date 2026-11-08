@@ -76,7 +76,7 @@ def is_raw_canvas_cfr_input(
     return (
         fps > 0 and width > 0 and height > 0
         and option("-f") == "rawvideo"
-        and option("-pix_fmt") in {"bgr0", "rgba"}
+        and option("-pix_fmt") in {"bgr0", "bgr24", "rgba"}
         and option("-video_size") == f"{width}x{height}"
         and option("-framerate") == str(fps)
         and "-i" in options
