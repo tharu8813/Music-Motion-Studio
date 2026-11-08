@@ -21,6 +21,9 @@ class FfmpegFilterWorkerTuningTests(unittest.TestCase):
         context = dict(
             piped=True,
             base_is_cfr=True,
+            base_already_sized=True,
+            constant_overlays=True,
+            base_bgr24=False,
             static_input_kinds=("pipe", "pipe"),
             has_dynamic_overlays=False,
         )
@@ -81,6 +84,10 @@ class FfmpegFilterWorkerTuningTests(unittest.TestCase):
         variations = (
             (settings, {"piped": False}),
             (settings, {"base_is_cfr": False}),
+            (settings, {"base_already_sized": False}),
+            (settings, {"constant_overlays": False}),
+            (settings, {"base_bgr24": True}),
+            (RenderSettings(fps=30, output_width=320, output_height=180), {}),
             (settings, {"static_input_kinds": ("pipe",)}),
             (settings, {"static_input_kinds": ("concat", "pipe")}),
             (settings, {"has_dynamic_overlays": True}),
