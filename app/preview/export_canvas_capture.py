@@ -51,8 +51,14 @@ class ExportCanvasCapturer:
         output_fps: int | None = None,
         instrumental_spans_by_track: dict[str, dict[str, tuple]] | None = None,
         compiled_plan=None,
+        frozen_worker_scene: bool = False,
     ) -> None:
         self.scene = scene
+        # Only spawned Canvas workers receive immutable source snapshots.
+        # Never retain rendered Source copies while the UI can edit settings.
+        self._frozen_lyric_settings_cache: dict[int, tuple[Source, Source]] | None = (
+            {} if frozen_worker_scene else None
+        )
         self.compiled_plan = compiled_plan
         self.tracks = list(tracks)
         self.playlist_duration = playlist_duration
@@ -488,6 +494,7 @@ class ExportCanvasCapturer:
                 capture_rect=fixed_capture_rect,
                 band_source_items=self._stream_source_items.get(stream_key),
                 output_scale=self.output_scale,
+                _frozen_lyric_settings_cache=self._frozen_lyric_settings_cache,
                 **common,
             )
             artboard = self.scene.artboard_rect

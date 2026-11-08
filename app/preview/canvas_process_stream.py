@@ -125,6 +125,12 @@ def _render_band(jobs, replies, stop, status) -> None:
             bass_fps=config['bass_fps'], output_fps=config['fps'],
             instrumental_spans_by_track=config['instrumental'],
             compiled_plan=config.get('compiled_plan'),
+            # The worker owns an isolated serialized snapshot. There are no
+            # mutable inspector edits while its export frames are rendered.
+            frozen_worker_scene=(
+                os.environ.get("PLAYLIST_CANVAS_DISABLE_WORKER_LYRIC_CACHE", "")
+                .strip().lower() not in {"1", "true", "yes"}
+            ),
         )
         ready = False
         while True:
