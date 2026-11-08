@@ -364,25 +364,8 @@ class ExportSessionTests(unittest.TestCase):
 
 
 
-@unittest.skipUnless(hasattr(os, "mkfifo"), "POSIX FIFO checks")
-class PipedExportSessionTests(unittest.TestCase):
-    """Live capture into the final encoder (the encoder is a reader thread)."""
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.app = QApplication.instance() or QApplication([])
-
-    def _session(self, plan: ExportPlan, root: Path, cancel: threading.Event,
-                 recorder: _StagingRecorder | None = None) -> ExportSession:
-        return ExportSession(
-            scene=object(), renderer=_RendererStub(), plan=plan,
-            render_settings=_Settings(), active_tracks=[_samples()[0].track],
-            stream_root=root, preparation_cancel=cancel, korean=False,
-            staging=(recorder or _StagingRecorder()).staging(),
-            layer_worker_count=lambda count: 2,
-            report_progress=lambda _f, _d: None,
-            pump_ui=lambda: None,
-        )
+class CanvasWorkerEofOrderingTests(unittest.TestCase):
+    """Cross-platform worker EOF scheduling; runs on Windows CI too."""
 
     def test_parallel_worker_eofs_are_signalled_before_any_pipe_finish(self) -> None:
         calls: list[tuple[str, str]] = []
@@ -407,21 +390,17 @@ class PipedExportSessionTests(unittest.TestCase):
                 if not all(pipe.eof_sent for pipe in pipes.values()):
                     raise RuntimeError("A stream was drained before all EOF packets")
 
-        with TemporaryDirectory() as directory:
-            session = self._session(
-                _plan(streamed=True, direct=True, piped=True),
-                Path(directory), threading.Event(),
-            )
-            pipes = {
+        session = ExportSession.__new__(ExportSession)
+        pipes = {
                 "base": _WorkerPipe("base", 60),
                 "layer:0": _WorkerPipe("layer:0", 60),
                 "layer:1": _WorkerPipe("layer:1", 12),
-            }
-            session._pipes = pipes
-            with patch.object(export_session_module, "CanvasProcessStream", _WorkerPipe):
-                session._request_worker_eofs(["base", "layer:0", "layer:1"])
-                for key in ("base", "layer:0", "layer:1"):
-                    pipes[key].finish()
+        }
+        session._pipes = pipes
+        with patch.object(export_session_module, "CanvasProcessStream", _WorkerPipe):
+            session._request_worker_eofs(["base", "layer:0", "layer:1"])
+            for key in ("base", "layer:0", "layer:1"):
+                pipes[key].finish()
         self.assertEqual(
             calls[:3],
             [("request", "layer:1"), ("request", "base"), ("request", "layer:0")],
@@ -431,16 +410,34 @@ class PipedExportSessionTests(unittest.TestCase):
         ])
 
     def test_serial_pipes_are_not_given_worker_eof_packets(self) -> None:
-        with TemporaryDirectory() as directory:
-            session = self._session(
-                _plan(streamed=True, direct=True, piped=True),
-                Path(directory), threading.Event(),
-            )
-            legacy = SimpleNamespace(pipe_fps=60)
-            session._pipes = {"base": legacy}
-            with patch.object(export_session_module, "CanvasProcessStream") as worker:
-                session._request_worker_eofs(["base"])
-                worker.assert_not_called()
+        session = ExportSession.__new__(ExportSession)
+        legacy = SimpleNamespace(pipe_fps=60)
+        session._pipes = {"base": legacy}
+        with patch.object(export_session_module, "CanvasProcessStream") as worker:
+            session._request_worker_eofs(["base"])
+            worker.assert_not_called()
+
+
+
+@unittest.skipUnless(hasattr(os, "mkfifo"), "POSIX FIFO checks")
+class PipedExportSessionTests(unittest.TestCase):
+    """Live capture into the final encoder (the encoder is a reader thread)."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def _session(self, plan: ExportPlan, root: Path, cancel: threading.Event,
+                 recorder: _StagingRecorder | None = None) -> ExportSession:
+        return ExportSession(
+            scene=object(), renderer=_RendererStub(), plan=plan,
+            render_settings=_Settings(), active_tracks=[_samples()[0].track],
+            stream_root=root, preparation_cancel=cancel, korean=False,
+            staging=(recorder or _StagingRecorder()).staging(),
+            layer_worker_count=lambda count: 2,
+            report_progress=lambda _f, _d: None,
+            pump_ui=lambda: None,
+        )
 
     def test_final_render_starts_with_pipe_inputs_and_receives_every_frame(self) -> None:
         received = bytearray()
