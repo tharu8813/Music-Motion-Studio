@@ -210,11 +210,62 @@ fn pcm_waveform<'py>(
     Ok(PyBytes::new(py, &out))
 }
 
+/// Pack a contiguous, little-endian QImage::Format_RGB32 byte buffer from
+/// B,G,R,X (4 bytes) into FFmpeg bgr24 (3 bytes). No pixel math is changed:
+/// only the unused opaque alpha/padding channel is omitted.
+///
+/// Accept the Python buffer protocol so a PySide6 QImage.constBits() memoryview
+/// is read directly without allocating a full 32-bit input copy.
+#[pyfunction]
+fn pack_bgr24<'py>(
+    py: Python<'py>,
+    input: &Bound<'py, PyAny>,
+    width: usize,
+    height: usize,
+) -> PyResult<Bound<'py, PyBytes>> {
+    use pyo3::buffer::PyBuffer;
+
+    if width == 0 || height == 0 {
+        return Err(PyValueError::new_err("Frame dimensions must be positive"));
+    }
+    let pixels = width
+        .checked_mul(height)
+        .ok_or_else(|| PyValueError::new_err("Frame dimensions overflow"))?;
+    let input_bytes = pixels
+        .checked_mul(4)
+        .ok_or_else(|| PyValueError::new_err("Input frame byte count overflow"))?;
+    let output_bytes = pixels
+        .checked_mul(3)
+        .ok_or_else(|| PyValueError::new_err("Output frame byte count overflow"))?;
+    if output_bytes > 512 * 1024 * 1024 {
+        return Err(PyValueError::new_err("Frame is too large"));
+    }
+
+    let buffer = PyBuffer::<u8>::get(input)?;
+    let source = buffer.as_slice(py).ok_or_else(|| {
+        PyValueError::new_err("Expected a contiguous unsigned 8-bit image buffer")
+    })?;
+    if source.len() != input_bytes {
+        return Err(PyValueError::new_err(
+            "Expected exactly width * height * 4 tightly packed RGB32 bytes",
+        ));
+    }
+    PyBytes::new_with(py, output_bytes, |output| {
+        for (pixel, destination) in source.chunks_exact(4).zip(output.chunks_exact_mut(3)) {
+            destination[0] = pixel[0].get();
+            destination[1] = pixel[1].get();
+            destination[2] = pixel[2].get();
+        }
+        Ok(())
+    })
+}
+
 #[pymodule]
 fn music_motion_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(reduce_spectra, m)?)?;
     m.add_function(wrap_pyfunction!(pcm_rms, m)?)?;
     m.add_function(wrap_pyfunction!(pcm_waveform, m)?)?;
+    m.add_function(wrap_pyfunction!(pack_bgr24, m)?)?;
     Ok(())
 }
 
