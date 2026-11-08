@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 from pathlib import Path
 import subprocess
@@ -491,6 +492,40 @@ class PipedFinalRenderIntegrationTests(unittest.TestCase):
         red, _green, blue = decoded[corner:corner + 3]
         self.assertLess(red, 40)  # the base outside the layer
         self.assertGreater(blue, 150)
+
+    def test_rust_bgr24_piped_export_matches_bgr0_decoded_frames(self) -> None:
+        """A real FFmpeg run must keep every output pixel and alpha composite."""
+        if importlib.util.find_spec("music_motion_native") is None:
+            self.skipTest("Optional native extension not installed")
+        from app.renderer.native_export import RUST_BGR24_PIPE_ENV
+        from app.renderer.native_export import native_bgr24_packer
+        with patch.dict(os.environ, {RUST_BGR24_PIPE_ENV: "1"}):
+            self.assertIsNotNone(native_bgr24_packer(), "Rust BGR24 path did not activate")
+        executable = _configured_ffmpeg(self)
+        frames = []
+        with TemporaryDirectory(prefix="playlist-rust-pipe-") as raw_directory:
+            root = Path(raw_directory)
+            for enabled in (False, True):
+                directory = root / ("rust" if enabled else "reference")
+                directory.mkdir()
+                with patch.dict(os.environ, {RUST_BGR24_PIPE_ENV: "1" if enabled else "0"}):
+                    output_path, errors, streams = self._render(executable, directory, 1.0)
+                self.assertEqual(errors, [])
+                base_args = streams["base"].input_arguments()
+                self.assertEqual(
+                    base_args[base_args.index("-pix_fmt") + 1],
+                    "bgr24" if enabled else "bgr0",
+                )
+                decoded = subprocess.run(
+                    [
+                        str(executable), "-hide_banner", "-loglevel", "error",
+                        "-i", str(output_path), "-pix_fmt", "rgb24",
+                        "-f", "rawvideo", "pipe:1",
+                    ],
+                    capture_output=True, check=True,
+                ).stdout
+                frames.append(decoded)
+        self.assertEqual(frames[0], frames[1])
 
     def test_cancel_during_live_encode_leaves_no_output(self) -> None:
         executable = _configured_ffmpeg(self)
