@@ -283,3 +283,52 @@ speed and CPU/GPU utilization have not yet changed.
 
 Dynamic Python/Qt layer invalidation and dirty-rectangle tracking are
 not yet wired to this Rust API. The native core is experimental.
+
+
+## Milestone 5: native D3D11 NV12 video textures (experimental)
+
+A local RTX 5060 FFmpeg compatibility probe succeeded for 1920×1080
+H.264/60FPS, producing **120 decoded frames** through the D3D11VA
+hardware-frame → NVENC path:
+
+- Software NV12 input → NVENC median **408.303ms**.
+- FFmpeg `d3d11va` hardware NV12 frames → NVENC median **438.422ms**
+  (about 7.4% slower for this short, CPU-generated synthetic source).
+- Hardware-frame consumption is supported, but Rust native texture
+  interoperability was **not** tested in that probe.
+
+To progress beyond FFmpeg's internally allocated textures, the Rust
+`d3d11_nv12` Windows module now independently creates a native
+`DXGI_FORMAT_NV12` GPU `ID3D11Texture2D` from an explicit D3D11
+hardware device. It checks NV12 Texture2D support, retains the original
+device/context, and manages dedicated CPU upload/readback staging textures.
+
+A validation-only method uploads a tightly packed NV12 frame with
+driver-reported **RowPitch** correctly handled for both the Y and
+interleaved UV planes. The device copies to a resident GPU texture,
+and a separate diagnostic copy reads back the frame byte-for-byte.
+Every frame changes both Y and UV; tests reject malformed dimensions
+and wrong frame byte lengths. This validates actual native D3D11
+allocation/copy and resource lifetime on a supported adapter.
+
+```powershell
+git pull
+cargo test --manifest-path native/gpu_export_core/Cargo.toml
+cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_nv12_surface_probe -- --width 1920 --height 1080 --frames 20 --output rust-d3d11-nv12-local.json
+```
+
+The report contains `status: measured` only when native hardware texture
+creation, repeated native GPU copies and exact Y+UV data validation succeed.
+In a Windows VM without native D3D11 support, it reports
+`d3d11_nv12_hardware_unavailable`. No actual GPU performance improvement
+or full Music Motion Studio export speedup is implied.
+
+**This is NOT yet wgpu Vulkan → D3D11 cross-API texture sharing, nor an
+in-process FFmpeg `AVHWFramesContext`, nor zero-copy NVENC.** Current
+`upload_reference()` still starts with CPU NV12 bytes. Next work must
+resolve Vulkan vs Direct3D adapter identity and design an in-process
+hardware-encoder device/texture ownership model; passing a raw pointer
+to a separate FFmpeg process is not a correct interoperability mechanism.
+
+Production PySide6/Qt rendering, audio, encoder arguments and the
+`music-motion-native 0.3.0` Python extension remain unchanged.
