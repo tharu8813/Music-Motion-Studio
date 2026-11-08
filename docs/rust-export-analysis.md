@@ -20,8 +20,8 @@ Install Rust MSVC and the stable Rust toolchain, then in the repository:
 ```powershell
 .\.venv\Scripts\python.exe -m pip install "maturin>=1.9.4,<2"
 .\.venv\Scripts\maturin.exe build --release --manifest-path native/export_analysis/Cargo.toml --interpreter .\.venv\Scripts\python.exe
-$wheel = Get-ChildItem native/export_analysis/target/wheels/*.whl | Select-Object -First 1
-.\.venv\Scripts\python.exe -m pip install $wheel.FullName
+$wheel = Get-ChildItem native/export_analysis/target/wheels/*.whl | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+.\.venv\Scripts\python.exe -m pip install --upgrade --force-reinstall --no-deps $wheel.FullName
 $env:PLAYLIST_CANVAS_ENABLE_RUST_EXPORT_ANALYSIS = "1"
 .\.venv\Scripts\python.exe -m unittest -v tests.test_rust_export_analysis tests.test_rust_export_pcm
 .\.venv\Scripts\python.exe tools/benchmark_rust_export_analysis.py
@@ -65,3 +65,7 @@ versus 0.13 ms in Rust (40.73x); 96-point waveform took 9.51 ms versus
 0.67 ms (14.26x). Max absolute differences were below 3e-8. These
 are short, synthetic **kernel** benchmarks, not a measurement of total
 video export. Windows FFmpeg integration testing is tracked separately.
+
+Native module v0.2.0 contains the new PCM APIs. When upgrading an installed
+0.1.x native wheel, rebuild and reinstall it using the commands above. Older
+wheels fall back to the NumPy implementation instead of changing export output.
