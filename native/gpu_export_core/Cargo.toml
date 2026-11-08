@@ -8,6 +8,7 @@ description = "Experimental GPU-resident frame compositor for Music Motion Studi
 [dependencies]
 wgpu = { version = "27.0.1", default-features = false, features = ["dx12", "vulkan", "wgsl"] }
 pollster = "0.4"
+serde_json = "1.0"
 
 [profile.release]
 lto = "thin"
