@@ -202,6 +202,30 @@ class CanvasSnapshot:
     """Captures only the export artboard, without editor handles or workspace chrome."""
 
     @staticmethod
+    def _keyframes_change_capture_bounds(source: Source) -> bool:
+        """Opacity-only keys cannot move or enlarge a source's visible pixels.
+
+        KeyframeAnimation can retain curves in scopes other than the selected
+        mode. Inspect every scope conservatively: if any active non-opacity
+        curve is stored, the full-frame fallback remains in force. This avoids
+        accidentally cropping width, blur or shadow animation in a future
+        project or after switching a keyframe mode.
+        """
+        animation = source.keyframes
+        if not animation.animated:
+            return False
+        curves_by_scope = (
+            animation.global_curves,
+            *animation.single_track_curves.values(),
+            *animation.per_track_curves.values(),
+        )
+        return any(
+            name != "opacity" and bool(points)
+            for curves in curves_by_scope
+            for name, points in curves.items()
+        )
+
+    @staticmethod
     @timed("canvas.qt_scene_paint_seconds")
     def _paint_scene(scene: CanvasScene, painter: QPainter, target: QRectF, source: QRectF) -> None:
         scene.render(painter, target, source, Qt.AspectRatioMode.IgnoreAspectRatio)
@@ -298,8 +322,12 @@ class CanvasSnapshot:
                 or (z_max is not None and source.z_index > z_max)
             ):
                 continue
-            if not transformed_preview and (source.keyframes.animated or has_custom_motion(source)):
-                # A fixed base-pose crop cannot bound arbitrary keyed transforms.
+            if not transformed_preview and (
+                CanvasSnapshot._keyframes_change_capture_bounds(source)
+                or has_custom_motion(source)
+            ):
+                # Opacity-only keyframes do not move the content, but other
+                # animated properties may expand it beyond its base bounds.
                 return None
             item_bounds = item.mapRectToScene(item.content_rect())
             if transformed_preview and source.source_type is SourceType.SHAPE:
@@ -372,7 +400,10 @@ class CanvasSnapshot:
                 or (z_max is not None and source.z_index > z_max)
             ):
                 continue
-            if source.keyframes.animated or has_custom_motion(source):
+            if (CanvasSnapshot._keyframes_change_capture_bounds(source)
+                    or has_custom_motion(source)):
+                # An opacity fade needs no larger fixed export rectangle.
+                # Position/size/rotation/blur/shadow keyframes still fall back.
                 return None
             item_bounds = item.mapRectToScene(item.content_rect())
             scale = max(1.0, abs(item.scale()))
