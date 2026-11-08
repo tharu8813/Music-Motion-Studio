@@ -23,7 +23,9 @@ def image_content_signature(image, *, max_bytes: int = MAX_FINGERPRINT_BYTES):
         return (
             int(getattr(image.format(), "value", image.format())),
             image.width(), image.height(), image.bytesPerLine(),
-            blake2b(image.constBits().tobytes(), digest_size=16).digest(),
+            # constBits() exposes a read-only buffer on PySide6. Hash it
+            # directly instead of allocating a second multi-megabyte copy.
+            blake2b(image.constBits(), digest_size=16).digest(),
         )
     except (BufferError, TypeError, ValueError):
         # Some platform-specific QImage wrappers cannot expose the buffer.

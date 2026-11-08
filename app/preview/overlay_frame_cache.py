@@ -40,7 +40,15 @@ class OverlayFrameCache:
         layers = self._frames.get((track_id, signature, frame_index))
         if layers is None or len(layers) != len(signature):
             same_overlay = self._last_track_id == track_id and self._last_signature == signature
-            last_index = self._last_frame_index if same_overlay else -1
+            # A backward seek can stay on the same track and signature. Its
+            # previous display still belongs to the future and must not be
+            # recycled as a fallback for an earlier requested frame.
+            reuse_last = (
+                same_overlay
+                and self._last_frame_index <= frame_index
+                and len(self._last_layers) == len(signature)
+            )
+            last_index = self._last_frame_index if reuse_last else -1
             prior = (
                 (index, cached) for (track, cached_signature, index), cached in self._frames.items()
                 if track == track_id and cached_signature == signature
@@ -48,7 +56,7 @@ class OverlayFrameCache:
             )
             frame_index, layers = max(
                 prior, key=lambda entry: entry[0],
-                default=(last_index, self._last_layers if same_overlay else ()),
+                default=(last_index, self._last_layers if reuse_last else ()),
             )
             if not layers:
                 return ()

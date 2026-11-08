@@ -91,8 +91,13 @@ class FFmpegProcessTests(unittest.TestCase):
     def test_progress_formats(self):
         for line in ("out_time_us=1500000", "out_time_ms=1500000", "out_time=00:00:01.5"):
             self.assertEqual(parse_progress_seconds(line), 1.5)
-        for line in ("out_time_us=N/A", "out_time=N/A", "progress=end", "out_time=0:0:bad"):
+        for line in (
+            "out_time_us=N/A", "out_time=N/A", "progress=end", "out_time=0:0:bad",
+            "out_time_us=-9223372036854775808", "out_time_us=nan",
+            "out_time_ms=inf", "out_time=00:00:NaN", "out_time=-00:00:01.5",
+        ):
             self.assertIsNone(parse_progress_seconds(line))
+        self.assertEqual(parse_progress_seconds("out_time_us=0"), 0.0)
 
 
 if __name__ == "__main__":
