@@ -27,6 +27,7 @@ OPTIMIZATION_SETTINGS = (
     "PLAYLIST_CANVAS_DISABLE_FIXED_OVERLAY_EVAL",
     "PLAYLIST_CANVAS_DISABLE_OPACITY_KEYFRAME_ROI",
     "PLAYLIST_CANVAS_DISABLE_WORKER_LYRIC_CACHE",
+    "PLAYLIST_CANVAS_DISABLE_CFR_SAMPLE_PRUNING",
 )
 
 
@@ -123,6 +124,7 @@ def load_stage_profiles(path: Path) -> dict[str, object]:
     # maps a stable Canvas band key (e.g. layer:0) to its source worker data.
     streams: dict[str, dict[str, object]] = {}
     parent_queues: dict[str, dict] = {}
+    parent_pruning: dict[str, dict] = {}
     read_files = 0
     for filename in paths:
         try:
@@ -140,6 +142,12 @@ def load_stage_profiles(path: Path) -> dict[str, object]:
                     if isinstance(key, str) and isinstance(info, dict):
                         if key == "base" or (key.startswith("layer:") and key[6:].isdigit()):
                             parent_queues[key] = info
+            pruning_info = context.get("parent_cfr_pruning")
+            if isinstance(pruning_info, dict):
+                for key, info in pruning_info.items():
+                    if isinstance(key, str) and isinstance(info, dict):
+                        if key == "base" or (key.startswith("layer:") and key[6:].isdigit()):
+                            parent_pruning[key] = info
             key = context.get("stream_key")
             if isinstance(key, str) and (key == "base" or (
                     key.startswith("layer:") and key[6:].isdigit())):
@@ -169,6 +177,9 @@ def load_stage_profiles(path: Path) -> dict[str, object]:
     for key, queue in parent_queues.items():
         if key in streams:
             streams[key]["parent_job_queue"] = queue
+    for key, stats in parent_pruning.items():
+        if key in streams:
+            streams[key]["cfr_pruning"] = stats
     return {"profile_files": read_files, "stages": stages, "streams": streams}
 
 
