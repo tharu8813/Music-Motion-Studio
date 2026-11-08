@@ -25,7 +25,7 @@ from app.utils.level_meter_painter import paint_level_meter
 from app.utils.mask_shapes import mask_path
 from app.utils.source_decoration import mirror_content, paint_frame
 from app.utils.particle_painter import paint_particles
-from app.utils.radial_visualizer import paint_radial_bars
+from app.utils.visualizer_paint import draw_visualizer_content
 from app.utils.subprocess_utils import hidden_process_kwargs
 from app.renderer.canvas_pipe import CanvasPipeError, PipedCanvasStream, piped_export_supported
 
@@ -1048,64 +1048,14 @@ class PythonVisualizerRenderer:
                 seed=int(getattr(overlay, "particle_seed", 17)),
                 time_seconds=frame_index / max(1, frame_rate),
             )
-        elif style in {"line", "wave"}:
-            path = QPainterPath(QPointF(rect.left(), rect.center().y()))
-            for index, level in enumerate(levels):
-                x = rect.left() + index * rect.width() / max(1, count - 1)
-                y = rect.center().y() - (float(level) - 0.5) * rect.height() * 0.82
-                if style == "wave":
-                    y = rect.center().y() - math.sin(index * 0.42) * float(level) * rect.height() * 0.36
-                path.lineTo(x, y)
-            painter.drawPath(path)
-        elif style == "radial":
-            paint_radial_bars(
-                painter, rect, [float(level) for level in levels], color, line_width,
-                float(getattr(overlay, "inner_radius", 0.55)),
-            )
-        elif style == "arc":
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            for index, level in enumerate(levels):
-                inset = index * min(rect.width(), rect.height()) / max(1, count * 3.2)
-                arc_rect = rect.adjusted(inset, inset, -inset, -inset)
-                arc_color = QColor(color)
-                arc_color.setAlpha(max(45, int(color.alpha() * float(level))))
-                painter.setPen(QPen(arc_color, max(1.0, line_width * 0.75)))
-                painter.drawArc(arc_rect, 210 * 16, int(120 * 16 * float(level)))
         else:
-            painter.setPen(QPen(color, 0))
-            for index, level in enumerate(levels):
-                value = float(level)
-                x = rect.left() + index * (bar_width + gap)
-                draw_color = QColor.fromHsv(int(300 * index / max(1, count - 1)), 210, 245) if style == "spectrum" else color
-                painter.setBrush(draw_color)
-                if style == "led":
-                    segments = 8
-                    segment_gap = max(1.0, rect.height() * 0.025)
-                    segment_height = (rect.height() - segment_gap * (segments - 1)) / segments
-                    active = max(1, round(value * segments))
-                    for segment in range(active):
-                        y = rect.bottom() - (segment + 1) * segment_height - segment * segment_gap
-                        led_color = QColor(color)
-                        led_color.setAlpha(max(80, color.alpha() - segment * 9))
-                        painter.setBrush(led_color)
-                        painter.drawRoundedRect(QRectF(x, y, bar_width, segment_height), 2, 2)
-                elif style == "center":
-                    bar_height = rect.height() * value
-                    painter.drawRoundedRect(QRectF(x, rect.bottom() - bar_height, bar_width, bar_height), bar_width / 2, bar_width / 2)
-                elif style == "mirror":
-                    bar_height = rect.height() * value * 0.48
-                    painter.drawRoundedRect(QRectF(x, rect.center().y() - bar_height, bar_width, bar_height), bar_width / 2, bar_width / 2)
-                    painter.drawRoundedRect(QRectF(x, rect.center().y(), bar_width, bar_height), bar_width / 2, bar_width / 2)
-                elif style == "dots":
-                    dot_size = max(3.0, min(bar_width * 1.35, rect.height() * 0.16))
-                    for dot_index in range(max(1, int(value * 7))):
-                        y = rect.bottom() - dot_size - dot_index * (dot_size + 3)
-                        painter.drawEllipse(QRectF(x, y, dot_size, dot_size))
-                else:
-                    bar_height = rect.height() * value
-                    draw_width = bar_width * 0.62 if style == "capsule" else bar_width
-                    radius = draw_width / 2
-                    painter.drawRoundedRect(QRectF(x + (bar_width - draw_width) / 2, rect.center().y() - bar_height / 2, draw_width, bar_height), radius, radius)
+            # Editor, preview and video encoder use the same local bar geometry.
+            # mirror_content already applied the source's flip exactly once.
+            draw_visualizer_content(
+                painter, rect, levels,
+                style=style, color=color, line_width=line_width,
+                inner_radius=float(getattr(overlay, "inner_radius", 0.55)),
+            )
         painter.save()
         paint_frame(painter, rect, overlay)
         painter.restore()

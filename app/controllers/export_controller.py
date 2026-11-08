@@ -96,6 +96,7 @@ from app.services.video_encoder_service import (
     VideoEncoderAdvisor,
 )
 from app.utils.logging_setup import report_unexpected_error
+from app.utils.visualizer_geometry import visualizer_export_rect
 from app.utils.qt_worker_lifecycle import stop_qthread_now
 from app.video.timeline import build_video_occurrences
 
@@ -1768,22 +1769,16 @@ class ExportOrchestrator:
                 SourceType.AUDIO_LEVEL_METER: "level_meter",
                 SourceType.PARTICLE_OVERLAY: "particles",
             }[source.source_type]
-            overlay_width = max(8, round(source.width * source.scale))
-            overlay_height = max(8, round(source.height * source.scale))
-            # QGraphicsItem scales around its centre.  Use the same transformed
-            # top-left point for FFmpeg, otherwise scaled visualizers drift down
-            # and right compared with the Canvas placement.  ``render_scale``
-            # then lifts every measure onto the export's pixel grid (identity at
-            # 1.0 since ``round(int * 1.0) == int``).
-            overlay_x = round(source.x + (source.width - overlay_width) / 2.0)
-            overlay_y = round(source.y + (source.height - overlay_height) / 2.0)
+            overlay_x, overlay_y, overlay_width, overlay_height = visualizer_export_rect(
+                source, render_scale,
+            )
             overlays.append(VisualizerOverlay(
                 keyframe_binding=KeyframeRenderBinding.build(
                     source, compiled_plan or compile_playlist(active_tracks), render_scale, sources=window.store.sources()),
-                x=round(overlay_x * render_scale),
-                y=round(overlay_y * render_scale),
-                width=max(8, round(overlay_width * render_scale)),
-                height=max(8, round(overlay_height * render_scale)),
+                x=overlay_x,
+                y=overlay_y,
+                width=overlay_width,
+                height=overlay_height,
                 style=source.visualizer_style,
                 color=source.fill_color,
                 personal_colors=(
