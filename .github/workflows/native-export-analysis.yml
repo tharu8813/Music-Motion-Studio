@@ -93,10 +93,8 @@ jobs:
       - name: Validate native BGR24 FFmpeg frame and audio equivalence
         env:
           PLAYLIST_CANVAS_ENABLE_RUST_EXPORT_ANALYSIS: "1"
-        run: |
-          python -m unittest -v tests.test_visualizer_streaming.VisualizerStreamingIntegrationTests.test_final_video_and_audio_match_movie_path
-          python -m unittest -v tests.test_canvas_pipe.PipedFinalRenderIntegrationTests.test_rust_bgr24_piped_export_matches_bgr0_decoded_frames
-          python -m unittest -v tests.test_canvas_pipe.PipedFinalRenderIntegrationTests.test_piped_base_and_alpha_layer_composite_into_the_final_video
+        # One unittest invocation so ANY failing comparison fails the workflow.
+        run: python -m unittest -v tests.test_visualizer_streaming.VisualizerStreamingIntegrationTests.test_final_video_and_audio_match_movie_path tests.test_canvas_pipe.PipedFinalRenderIntegrationTests.test_rust_bgr24_piped_export_matches_bgr0_decoded_frames tests.test_canvas_pipe.PipedFinalRenderIntegrationTests.test_piped_base_and_alpha_layer_composite_into_the_final_video
 
       - name: Benchmark native BGR24 versus BGR0 FFmpeg input on CI (diagnostic only)
         run: python tools/benchmark_rust_encoder_pipe.py --frames 60 --output rust-encoder-pipe-benchmark.json
