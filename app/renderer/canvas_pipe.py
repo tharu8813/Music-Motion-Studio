@@ -197,6 +197,11 @@ class _WindowsNamedPipeEndpoint(_PipeEndpoint):
 
         self._winapi = _winapi
         self._write_chunk_bytes = _windows_pipe_write_chunk_bytes()
+        self._io_stats = {
+            "write_calls": 0, "immediate_calls": 0, "pending_calls": 0,
+            "partial_calls": 0, "bytes_written": 0,
+            "write_api_seconds": 0.0, "pending_wait_seconds": 0.0,
+        }
         self.path = (
             rf"\\.\pipe\playlist-canvas-{os.getpid()}-"
             f"{secrets.token_hex(8)}-{name}"
@@ -271,13 +276,26 @@ class _WindowsNamedPipeEndpoint(_PipeEndpoint):
             raise CanvasPipeError(f"Could not open a Canvas pipe: {error}") from error
         self._wait(overlapped, cancelled)
 
+    def io_diagnostics(self) -> dict[str, float | int]:
+        """Cumulative writer-side timings, never inferred CPU or FFmpeg work."""
+        return dict(getattr(self, "_io_stats", {}))
+
     def write(self, data: memoryview, cancelled: Callable[[], bool]) -> None:
         offset = 0
         total = len(data)
+        # Some unit tests instantiate the endpoint without the Win32 constructor.
+        if not hasattr(self, "_io_stats"):
+            self._io_stats = {
+                "write_calls": 0, "immediate_calls": 0, "pending_calls": 0,
+                "partial_calls": 0, "bytes_written": 0,
+                "write_api_seconds": 0.0, "pending_wait_seconds": 0.0,
+            }
+        stats = self._io_stats
         while offset < total:
             if cancelled():
                 raise CanvasPipeCancelledError("Canvas pipe was cancelled.")
             chunk = data[offset:offset + self._write_chunk_bytes]
+            api_started = perf_counter() if PROFILE_ENABLED else 0.0
             try:
                 overlapped, error_code = self._winapi.WriteFile(
                     self._handle, chunk, overlapped=True,
@@ -285,15 +303,30 @@ class _WindowsNamedPipeEndpoint(_PipeEndpoint):
             except OSError as error:
                 self._raise_for(int(getattr(error, "winerror", -1) or -1))
                 raise CanvasPipeError(f"Could not write a Canvas frame: {error}") from error
+            finally:
+                if PROFILE_ENABLED:
+                    stats["write_api_seconds"] += perf_counter() - api_started
             if error_code not in (0, self._ERROR_IO_PENDING):
                 self._raise_for(error_code)
-            # A synchronous completion needs no additional event wait.
-            written = (
-                self._result(overlapped) if error_code == 0
-                else self._wait(overlapped, cancelled)
-            )
+            stats["write_calls"] += 1
+            if error_code == 0:
+                stats["immediate_calls"] += 1
+                written = self._result(overlapped)
+            else:
+                stats["pending_calls"] += 1
+                wait_started = perf_counter() if PROFILE_ENABLED else 0.0
+                try:
+                    written = self._wait(overlapped, cancelled)
+                finally:
+                    if PROFILE_ENABLED:
+                        # I/O completion waits include FFmpeg reader backpressure;
+                        # they are NOT CPU usage or proof of an FFmpeg bottleneck.
+                        stats["pending_wait_seconds"] += perf_counter() - wait_started
             if written <= 0:
                 raise _ReaderClosedError("FFmpeg closed the Canvas pipe.")
+            if written < len(chunk):
+                stats["partial_calls"] += 1
+            stats["bytes_written"] += written
             offset += written
 
     def close(self) -> None:
@@ -406,6 +439,11 @@ class PipedCanvasStream:
     def pending_frames(self) -> int:
         return self._pipeline.pending_count if self._pipeline is not None else 0
 
+    def io_diagnostics(self) -> dict[str, float | int]:
+        """Writer I/O aggregate for this stream; no file paths or frame pixels."""
+        reader = getattr(self._endpoint, "io_diagnostics", None)
+        return reader() if callable(reader) else {}
+
     def diagnostics(self) -> dict[str, object]:
         """What this stream did, for logs and bug reports; no frames or paths."""
         pipeline = self._pipeline
@@ -423,6 +461,7 @@ class PipedCanvasStream:
             ),
             "idle_seconds": round(monotonic() - self.last_activity, 3),
             "reader_closed": self._reader_closed,
+            "writer_io": self.io_diagnostics(),
         }
 
     def input_arguments(self) -> list[str]:
