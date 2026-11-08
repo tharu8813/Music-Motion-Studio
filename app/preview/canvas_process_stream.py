@@ -240,6 +240,7 @@ class CanvasProcessStream:
         self._cancel = producer_cancel_event
         self._wait_callback = producer_wait_callback
         self._closed = False
+        self._finish_requested = False
         self._queue_put_wall_seconds = 0.0
         self._queue_full_events = 0
         self._queue_submit_count = 0
@@ -385,8 +386,22 @@ class CanvasProcessStream:
             raise CanvasPipeError('Canvas worker has no frames yet.')
         return list(self._arguments)
 
-    def finish(self):
+    def request_finish(self) -> None:
+        """Queue EOF without waiting for FFmpeg to drain this input.
+
+        FFmpeg framesync may need EOF from a reduced-rate alpha layer to
+        flush its final repeated frames before the full-rate base can drain.
+        All worker EOF packets must therefore be queued before any one
+        worker's finish() blocks waiting for the encoder.
+        """
+        if self._finish_requested:
+            return
         self.submit_sample(None)
+        self._finish_requested = True
+
+    def finish(self):
+        # Legacy direct callers still have a one-call blocking API.
+        self.request_finish()
         while self._result is None:
             self._wait()
             self._process.join(0.01)
