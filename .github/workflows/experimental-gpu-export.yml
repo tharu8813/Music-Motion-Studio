@@ -1,0 +1,48 @@
+name: Experimental OpenGL Canvas export backend
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/preview/gpu_canvas_capture.py'
+      - 'app/preview/canvas_snapshot.py'
+      - 'tools/benchmark_gpu_canvas_capture.py'
+      - 'tests/test_gpu_canvas_capture.py'
+      - '.github/workflows/experimental-gpu-export.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-canvas-gpu-candidate:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      QT_QPA_PLATFORM: offscreen
+      QT_FFMPEG_DECODING_HW_DEVICE_TYPES: ","
+      PLAYLIST_CANVAS_EXPERIMENTAL_GL_EXPORT: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: '.python-version'
+      - name: Install locked application dependencies
+        run: python -m pip install -r requirements-lock.txt
+      - name: Preserve CPU Canvas pixels and test GPU fallback behavior
+        shell: pwsh
+        run: |
+          python -m unittest -v tests.test_gpu_canvas_capture tests.test_lazy_track_cover_capture
+          if ($LASTEXITCODE -ne 0) { throw 'Canvas render parity/regression failed' }
+      - name: Record OpenGL candidate feasibility and GPU/CPU frame timings
+        shell: pwsh
+        run: |
+          python tools/benchmark_gpu_canvas_capture.py --width 1280 --height 720 --frames 20 --repeats 2 --output experimental-gpu-canvas.json
+          if ($LASTEXITCODE -ne 0) { throw 'GPU Canvas experimental benchmark failed' }
+      - name: Upload GPU/CPU comparison or unavailable-device report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-canvas-capture-diagnostics
+          path: experimental-gpu-canvas.json
+          if-no-files-found: ignore
