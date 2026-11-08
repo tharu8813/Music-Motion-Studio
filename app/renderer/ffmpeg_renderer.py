@@ -1505,7 +1505,7 @@ class FFmpegRenderer:
     ) -> int:
         """Tune a narrow, verified multilayer FFmpeg software-encode case.
 
-        Windows A/B tests at <=1080p/30 FPS found 2 filter workers faster
+        Windows A/B tests at <=1080p/30 or 60 FPS found 2 filter workers faster
         than 8 for both the overlay graph and libx264 encoding, without
         changing any decoded frame. Do not apply the synthetic benchmark
         result to GPU encoders, 4K, clips with masks, or single-layer sources.
@@ -1523,7 +1523,7 @@ class FFmpegRenderer:
             or not base_is_cfr
             or has_dynamic_overlays
             or settings.video_codec != "libx264"
-            or settings.fps != 30
+            or settings.fps not in (30, 60)
             or settings.output_width > 1920
             or settings.output_height > 1080
             or len(static_input_kinds) < 2
