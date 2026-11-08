@@ -45,6 +45,18 @@ def main() -> int:
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[1]
+    # Run the repository test/debug harness only with a working Rust toolchain
+    # and current Python native wheel. Imported test modules remain testable
+    # independently so isolated negative prerequisite tests can use mocks.
+    sys.path.insert(0, str(root))
+    from scripts.rust_prerequisites import (
+        RustPrerequisiteError, require_developer_environment,
+    )
+    try:
+        require_developer_environment()
+    except RustPrerequisiteError as error:
+        print(f"[Rust prerequisite] {error}", file=sys.stderr)
+        return 2
     modules = sorted(
         f"tests.{path.stem}"
         for path in (root / "tests").glob("test_*.py")
