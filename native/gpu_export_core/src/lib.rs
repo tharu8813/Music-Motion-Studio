@@ -12,7 +12,7 @@
 //! shared GPU video-frame path are proven.
 
 mod session;
-pub use session::GpuFrameSession;
+pub use session::{rgba_to_nv12_reference, GpuFrameSession};
 
 use std::sync::mpsc;
 use std::time::Duration;
@@ -125,16 +125,29 @@ pub struct GpuCompositor {
 
 impl GpuCompositor {
     pub fn new() -> Result<Self, String> {
+        Self::new_internal(false)
+    }
+
+    /// CI-only path that may execute shaders on a software Vulkan adapter
+    /// such as Mesa lavapipe. Production new() NEVER accepts software GPUs.
+    #[cfg(test)]
+    pub(crate) fn new_for_tests() -> Result<Self, String> {
+        let allow_software = std::env::var("MMS_GPU_TEST_ALLOW_SOFTWARE")
+            .map(|value| value == "1").unwrap_or(false);
+        Self::new_internal(allow_software)
+    }
+
+    fn new_internal(allow_software: bool) -> Result<Self, String> {
         let instance = wgpu::Instance::default();
         let adapter = pollster::block_on(instance.request_adapter(
             &wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: None,
-                force_fallback_adapter: false,
+                force_fallback_adapter: allow_software,
             }
         )).map_err(|error| format!("GPU adapter unavailable: {error}"))?;
         let adapter_info = adapter.get_info();
-        if !matches!(
+        if !allow_software && !matches!(
             adapter_info.device_type,
             wgpu::DeviceType::DiscreteGpu | wgpu::DeviceType::IntegratedGpu
         ) {
@@ -332,9 +345,15 @@ mod tests {
     fn gpu_matches_byte_reference_if_hardware_present() {
         // CI-hosted Windows runners often have no graphics device; a CPU/WARP
         // adapter must not masquerade as evidence of GPU speed.
-        let Ok(gpu) = GpuCompositor::new() else {
-            eprintln!("Hardware GPU unavailable; skipping optional GPU parity");
-            return;
+        let gpu = match GpuCompositor::new_for_tests() {
+            Ok(gpu) => gpu,
+            Err(error) => {
+                if std::env::var("MMS_GPU_TEST_REQUIRE_ADAPTER").as_deref() == Ok("1") {
+                    panic!("GPU parity requires Vulkan adapter in CI: {error}");
+                }
+                eprintln!("GPU adapter unavailable; skipping optional parity: {error}");
+                return;
+            }
         };
         let base = vec![27, 46, 82, 255].repeat(64 * 48);
         let red = vec![245, 13, 35, 128].repeat(30 * 25);

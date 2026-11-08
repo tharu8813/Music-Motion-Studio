@@ -34,6 +34,17 @@ pub struct GpuFrameSession {
     _scratch_b: wgpu::Buffer,
     final_buffer: wgpu::Buffer,
     staging: wgpu::Buffer,
+    nv12: Option<ResidentNv12>,
+}
+
+struct ResidentNv12 {
+    pipeline: wgpu::ComputePipeline,
+    bind_group: wgpu::BindGroup,
+    // Keep the uniform allocation alive for the bind group.
+    _geometry: wgpu::Buffer,
+    _output: wgpu::Buffer,
+    staging: wgpu::Buffer,
+    bytes: usize,
 }
 
 impl GpuCompositor {
@@ -140,6 +151,7 @@ impl GpuCompositor {
             _scratch_b: scratch_b,
             final_buffer,
             staging,
+            nv12: None,
         })
     }
 }
@@ -242,14 +254,244 @@ impl GpuFrameSession {
     }
 }
 
+/// Convert an opaque RGBA8 frame into tightly-packed NV12 using a specified
+/// integer BT.709-limited approximation. This is an independent CPU reference
+/// for the GPU shader, NOT a claim of byte parity with FFmpeg swscale.
+///
+/// Y = clamp(16 + round((47R + 157G + 16B)/256), 16, 235)
+/// U = clamp(128 + (-26R -87G +113B +128)/256, 16, 240)
+/// V = clamp(128 + (113R -102G -11B +128)/256, 16, 240)
+/// Chroma samples use a 2x2 arithmetic RGB average before conversion.
+pub fn rgba_to_nv12_reference(
+    rgba: &[u8], width: u32, height: u32,
+) -> Result<Vec<u8>, String> {
+    nv12_byte_count(width, height)?;
+    let expected = checked_rgba_bytes(width, height)?;
+    if rgba.len() != expected {
+        return Err("RGBA input size does not match NV12 frame dimensions".to_owned());
+    }
+    if rgba.chunks_exact(4).any(|p| p[3] != 255) {
+        return Err("NV12 encoder input must be an opaque RGBA8 frame".to_owned());
+    }
+    let pixels = width as usize * height as usize;
+    let mut result = vec![0; pixels + pixels / 2];
+    for y in 0..height as usize {
+        for x in 0..width as usize {
+            let src = (y * width as usize + x) * 4;
+            let r = i32::from(rgba[src]);
+            let g = i32::from(rgba[src + 1]);
+            let b = i32::from(rgba[src + 2]);
+            let value = 16 + (47 * r + 157 * g + 16 * b + 128) / 256;
+            result[y * width as usize + x] = value.clamp(16, 235) as u8;
+        }
+    }
+    for y in (0..height as usize).step_by(2) {
+        for x in (0..width as usize).step_by(2) {
+            let mut sum = [0i32; 3];
+            for cy in 0..2 {
+                for cx in 0..2 {
+                    let src = ((y + cy) * width as usize + x + cx) * 4;
+                    for ch in 0..3 {
+                        sum[ch] += i32::from(rgba[src + ch]);
+                    }
+                }
+            }
+            let r = (sum[0] + 2) / 4;
+            let g = (sum[1] + 2) / 4;
+            let b = (sum[2] + 2) / 4;
+            let u = 128 + (-26 * r - 87 * g + 113 * b + 128) / 256;
+            let v = 128 + (113 * r - 102 * g - 11 * b + 128) / 256;
+            let uv = pixels + y / 2 * width as usize + x;
+            result[uv] = u.clamp(16, 240) as u8;
+            result[uv + 1] = v.clamp(16, 240) as u8;
+        }
+    }
+    Ok(result)
+}
+
+fn nv12_byte_count(width: u32, height: u32) -> Result<usize, String> {
+    let rgba_bytes = checked_rgba_bytes(width, height)?;
+    if width % 4 != 0 || height % 2 != 0 {
+        return Err("GPU NV12 requires width divisible by four and even height".to_owned());
+    }
+    let pixel_count = rgba_bytes / 4;
+    Ok(pixel_count * 3 / 2)
+}
+
+impl GpuFrameSession {
+    /// Once per session, allocate an on-device NV12 output buffer and
+    /// compile the conversion pipeline that reads the completed RGBA frame.
+    /// The NV12 buffer remains GPU resident across all following frames.
+    pub fn prepare_nv12(&mut self) -> Result<(), String> {
+        if self.nv12.is_some() {
+            return Ok(());
+        }
+        let bytes = nv12_byte_count(self.width, self.height)?;
+        let shader = self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("RGBA to NV12 GPU conversion shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("rgba_to_nv12.wgsl").into(),
+            ),
+        });
+        let pipeline = self.device.create_compute_pipeline(
+            &wgpu::ComputePipelineDescriptor {
+                label: Some("Encoder-ready NV12 GPU conversion"),
+                layout: None,
+                module: &shader,
+                entry_point: Some("main"),
+                compilation_options: Default::default(),
+                cache: None,
+            },
+        );
+        let output = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Resident packed NV12 encoder staging surface"),
+            size: bytes as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Optional NV12 diagnostic readback"),
+            size: bytes as u64,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut size = [0u8; 16];
+        size[0..4].copy_from_slice(&self.width.to_le_bytes());
+        size[4..8].copy_from_slice(&self.height.to_le_bytes());
+        let geometry = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("NV12 format geometry"),
+            contents: &size,
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Composed RGBA -> persistent NV12 buffers"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0, resource: self.final_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1, resource: output.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2, resource: geometry.as_entire_binding(),
+                },
+            ],
+        });
+        self.nv12 = Some(ResidentNv12 {
+            pipeline,
+            bind_group,
+            _geometry: geometry,
+            _output: output,
+            staging,
+            bytes,
+        });
+        Ok(())
+    }
+
+    fn dispatch_nv12(&self, readback: bool) -> Result<Option<Vec<u8>>, String> {
+        let nv12 = self.nv12.as_ref()
+            .ok_or_else(|| "Call prepare_nv12() before GPU NV12 conversion".to_owned())?;
+        let mut encoder = self.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor {
+                label: Some("GPU resident overlay + NV12 export"),
+            },
+        );
+        // All overlays and the format conversion are submitted together to
+        // one queue; no CPU frame download exists between those GPU stages.
+        for group in &self.bind_groups {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Compositing RGBA overlay for NV12"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, group, &[]);
+            pass.dispatch_workgroups(self.width.div_ceil(16), self.height.div_ceil(16), 1);
+        }
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Convert composed RGBA to NV12"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&nv12.pipeline);
+            pass.set_bind_group(0, &nv12.bind_group, &[]);
+            pass.dispatch_workgroups(
+                (self.width / 4).div_ceil(16), self.height.div_ceil(8), 1,
+            );
+        }
+        if readback {
+            encoder.copy_buffer_to_buffer(
+                &nv12._output, 0, &nv12.staging, 0, nv12.bytes as u64,
+            );
+        }
+        let submission = self.queue.submit(Some(encoder.finish()));
+        if !readback {
+            self.device.poll(wgpu::PollType::Wait {
+                submission_index: Some(submission),
+                timeout: Some(Duration::from_secs(30)),
+            }).map_err(|error| format!("GPU NV12 render failed: {error:?}"))?;
+            return Ok(None);
+        }
+        let (sender, receiver) = mpsc::channel();
+        let slice = nv12.staging.slice(..);
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        self.device.poll(wgpu::PollType::Wait {
+            submission_index: Some(submission),
+            timeout: Some(Duration::from_secs(30)),
+        }).map_err(|error| format!("GPU NV12 readback timed out: {error:?}"))?;
+        receiver.recv_timeout(Duration::from_secs(30))
+            .map_err(|error| format!("GPU NV12 callback lost: {error}"))?
+            .map_err(|error| format!("GPU NV12 readback failed: {error}"))?;
+        let mapped = slice.get_mapped_range();
+        let pixels = mapped.to_vec();
+        drop(mapped);
+        nv12.staging.unmap();
+        if pixels.len() != nv12.bytes {
+            return Err("GPU NV12 byte count changed".to_owned());
+        }
+        Ok(Some(pixels))
+    }
+
+    /// Real GPU RGBA composition + NV12 formatting, without reading results
+    /// back to the CPU. The output is currently wgpu storage memory, NOT
+    /// an NVENC-shareable D3D11 texture or AVHWFramesContext.
+    pub fn compose_nv12_gpu_only(&self) -> Result<(), String> {
+        self.dispatch_nv12(false).map(|_| ())
+    }
+
+    /// Diagnostic NV12 bytes for exact parity and future FFmpeg comparison.
+    pub fn compose_nv12_and_readback(&self) -> Result<Vec<u8>, String> {
+        self.dispatch_nv12(true)?
+            .ok_or_else(|| "GPU NV12 output unavailable".to_owned())
+    }
+
+    pub fn nv12_byte_count(&self) -> Result<usize, String> {
+        nv12_byte_count(self.width, self.height)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn required_test_adapter() -> Option<GpuCompositor> {
+        match GpuCompositor::new_for_tests() {
+            Ok(gpu) => Some(gpu),
+            Err(error) => {
+                if std::env::var("MMS_GPU_TEST_REQUIRE_ADAPTER").as_deref() == Ok("1") {
+                    panic!("CI GPU shader test requires an adapter: {error}");
+                }
+                eprintln!("GPU unavailable, skipping hardware shader test: {error}");
+                None
+            }
+        }
+    }
+
     #[test]
     fn prepared_session_validates_overlay_and_opaque_base_before_allocating() {
-        let Ok(gpu) = GpuCompositor::new() else {
-            eprintln!("Hardware GPU unavailable: session validation requires adapter");
+        let Some(gpu) = required_test_adapter() else {
             return;
         };
         let base = vec![10, 25, 50, 255].repeat(4);
@@ -263,8 +505,7 @@ mod tests {
 
     #[test]
     fn persistent_session_preserves_pixels_across_updates_and_multiple_frames() {
-        let Ok(gpu) = GpuCompositor::new() else {
-            eprintln!("Hardware GPU unavailable; skipping optional session GPU test");
+        let Some(gpu) = required_test_adapter() else {
             return;
         };
         let base = vec![27, 46, 82, 255].repeat(64 * 48);
@@ -299,6 +540,94 @@ mod tests {
             session.compose_and_readback().unwrap(),
             super::super::composite_reference(&replacement, 64, 48, &updated_layers).unwrap(),
         );
+    }
+
+    #[test]
+    fn nv12_reference_validates_shape_alpha_and_limited_range() {
+        assert!(rgba_to_nv12_reference(&[], 4, 2).is_err());
+        assert!(rgba_to_nv12_reference(&[0; 12], 4, 2).is_err());
+        assert!(rgba_to_nv12_reference(&[0; 16], 3, 2).is_err());
+        let mut transparent = vec![0, 0, 0, 255].repeat(8);
+        transparent[7] = 0;
+        assert!(rgba_to_nv12_reference(&transparent, 4, 2).is_err());
+        let black = vec![0, 0, 0, 255].repeat(8);
+        let out = rgba_to_nv12_reference(&black, 4, 2).unwrap();
+        assert_eq!(out.len(), 12);
+        assert_eq!(&out[0..8], &[16u8; 8]);
+        assert_eq!(&out[8..12], &[128u8; 4]);
+        let white = vec![255, 255, 255, 255].repeat(8);
+        let out = rgba_to_nv12_reference(&white, 4, 2).unwrap();
+        assert_eq!(&out[0..8], &[235u8; 8]);
+        assert_eq!(&out[8..12], &[128u8; 4]);
+    }
+
+    #[test]
+    fn nv12_reference_is_deterministic_for_nonuniform_pixels() {
+        let width = 12;
+        let height = 6;
+        let mut frame = vec![0u8; width * height * 4];
+        for (idx, px) in frame.chunks_exact_mut(4).enumerate() {
+            px[0] = (idx * 13 % 256) as u8;
+            px[1] = (idx * 17 % 256) as u8;
+            px[2] = (idx * 19 % 256) as u8;
+            px[3] = 255;
+        }
+        let first = rgba_to_nv12_reference(&frame, width as u32, height as u32).unwrap();
+        let second = rgba_to_nv12_reference(&frame, width as u32, height as u32).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(first.len(), width * height * 3 / 2);
+        for y in &first[..width * height] {
+            assert!((16..=235).contains(y));
+        }
+        for uv in &first[width * height..] {
+            assert!((16..=240).contains(uv));
+        }
+    }
+
+    #[test]
+    fn dynamic_gpu_nv12_frames_match_independent_rust_reference_if_hardware_present() {
+        let Some(gpu) = required_test_adapter() else {
+            return;
+        };
+        let width = 64u32;
+        let height = 48u32;
+        let base = vec![50, 60, 70, 255].repeat((width * height) as usize);
+        let overlay_a = vec![245, 50, 15, 130].repeat(32 * 20);
+        let overlay_b = vec![10, 200, 210, 90].repeat(24 * 16);
+        let layers = [
+            Overlay {
+                pixels: &overlay_a, width: 32, height: 20, x: 5, y: 7,
+            },
+            Overlay {
+                pixels: &overlay_b, width: 24, height: 16, x: -6, y: 30,
+            },
+        ];
+        let mut session = gpu.prepare_session(&base, width, height, &layers).unwrap();
+        session.prepare_nv12().unwrap();
+        session.prepare_nv12().unwrap();
+        assert_eq!(session.nv12_byte_count().unwrap(), 64 * 48 * 3 / 2);
+        let cpu_rgba = super::super::composite_reference(&base, width, height, &layers).unwrap();
+        let expected = rgba_to_nv12_reference(&cpu_rgba, width, height).unwrap();
+        assert_eq!(session.compose_nv12_and_readback().unwrap(), expected);
+        session.compose_nv12_gpu_only().unwrap();
+
+        let replacement = vec![90, 120, 170, 255].repeat((width * height) as usize);
+        let replacement_overlay = vec![255, 0, 70, 220].repeat(32 * 20);
+        session.update_base(&replacement).unwrap();
+        session.update_overlay(0, &replacement_overlay).unwrap();
+        let new_layers = [
+            Overlay {
+                pixels: &replacement_overlay, width: 32, height: 20, x: 5, y: 7,
+            },
+            Overlay {
+                pixels: &overlay_b, width: 24, height: 16, x: -6, y: 30,
+            },
+        ];
+        let cpu_rgba = super::super::composite_reference(
+            &replacement, width, height, &new_layers,
+        ).unwrap();
+        let expected = rgba_to_nv12_reference(&cpu_rgba, width, height).unwrap();
+        assert_eq!(session.compose_nv12_and_readback().unwrap(), expected);
     }
 
     #[test]
