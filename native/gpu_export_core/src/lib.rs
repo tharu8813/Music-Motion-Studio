@@ -269,8 +269,9 @@ impl GpuCompositor {
         receiver.recv_timeout(Duration::from_secs(30))
             .map_err(|error| format!("GPU readback callback lost: {error}"))?
             .map_err(|error| format!("GPU readback failed: {error}"))?;
-        let pixels = slice.get_mapped_range().to_vec();
-        drop(slice.get_mapped_range());
+        let mapped = slice.get_mapped_range();
+        let pixels = mapped.to_vec();
+        drop(mapped);
         staging.unmap();
         if pixels.len() != bytes {
             return Err("GPU returned an incorrectly sized frame".to_owned());
