@@ -1,8 +1,10 @@
 """Cropped FFmpeg Z bands remain pixel-identical with opacity keyframes."""
 from __future__ import annotations
 
-from dataclasses import replace
 import os
+from pathlib import Path
+import subprocess
+from tempfile import TemporaryDirectory
 import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -18,6 +20,7 @@ from app.models.source import Source, SourceType
 from app.preview.canvas_snapshot import CanvasSnapshot
 from app.preview.export_canvas_capture import ExportCanvasCapturer
 from app.renderer.ffmpeg_renderer import RenderFrame
+from app.utils.subprocess_utils import hidden_process_kwargs
 
 
 class OpacityKeyframeCropTests(unittest.TestCase):
@@ -118,6 +121,61 @@ class OpacityKeyframeCropTests(unittest.TestCase):
                     bytes(full.constBits()[:full.sizeInBytes()]),
                     bytes(positioned.constBits()[:positioned.sizeInBytes()]),
                 )
+
+    def test_ffmpeg_even_grid_crop_preserves_output_pixels(self) -> None:
+        executable = os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG")
+        if not executable:
+            self.skipTest("Set PLAYLIST_CANVAS_TEST_FFMPEG for real FFmpeg overlay parity.")
+
+        # Simulate an opacity animation over four 30FPS frames, with the same
+        # pixels supplied either as full-frame RGBA or small fixed-ROI RGBA.
+        width, height = 320, 180
+        crop_x, crop_y, crop_width, crop_height = 112, 116, 88, 40
+        full = bytearray()
+        cropped = bytearray()
+        for index in range(4):
+            alpha = min(255, 64 * (index + 1))
+            full_frame = bytearray(width * height * 4)
+            crop_frame = bytearray(crop_width * crop_height * 4)
+            for y in range(120, 152):
+                for x in range(115, 195):
+                    offset = (y * width + x) * 4
+                    crop_offset = ((y - crop_y) * crop_width + x - crop_x) * 4
+                    rgba = bytes((255, 0, 0, alpha))
+                    full_frame[offset:offset + 4] = rgba
+                    crop_frame[crop_offset:crop_offset + 4] = rgba
+            full.extend(full_frame)
+            cropped.extend(crop_frame)
+        self.assertLess(len(cropped), len(full) // 10)
+
+        with TemporaryDirectory(prefix="opacity-overlay-") as raw:
+            directory = Path(raw)
+            full_path = directory / "full.rgba"
+            crop_path = directory / "crop.rgba"
+            full_path.write_bytes(full)
+            crop_path.write_bytes(cropped)
+
+            def render(path: Path, size: str, x: int, y: int) -> bytes:
+                result = subprocess.run([
+                    executable, "-hide_banner", "-loglevel", "error",
+                    "-filter_complex_threads", "1",
+                    "-f", "lavfi", "-i",
+                    f"color=blue:size={width}x{height}:rate=30",
+                    "-f", "rawvideo", "-pix_fmt", "rgba",
+                    "-video_size", size, "-framerate", "30",
+                    "-i", str(path),
+                    "-filter_complex",
+                    f"[0:v][1:v]overlay={x}:{y}:eof_action=pass:eval=init[vout]",
+                    "-map", "[vout]", "-frames:v", "4",
+                    "-pix_fmt", "yuv420p", "-f", "rawvideo", "pipe:1",
+                ], capture_output=True, check=True, timeout=20,
+                    **hidden_process_kwargs())
+                return result.stdout
+
+            old = render(full_path, "320x180", 0, 0)
+            new = render(crop_path, "88x40", crop_x, crop_y)
+            self.assertEqual(len(old), 4 * width * height * 3 // 2)
+            self.assertEqual(new, old)
 
     def test_capturer_stages_the_cropped_image_and_correct_origin(self) -> None:
         scene, source = self._scene(self._animation())
