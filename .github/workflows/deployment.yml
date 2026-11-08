@@ -83,6 +83,11 @@ jobs:
           '@ | python -
           if ($LASTEXITCODE -ne 0) { throw 'Verified FFmpeg installation failed.' }
 
+      - name: Verify real FFmpeg 60-to-12 FPS overlay pixel parity
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest -v tests.test_low_fps_canvas_overlay.LowFpsCanvasOverlayTests.test_real_ffmpeg_lossless_alpha_composite_matches_full_rate_pixels
+
       - name: Validate previously failing preview and keyframe regressions
         env:
           QT_QPA_PLATFORM: offscreen
