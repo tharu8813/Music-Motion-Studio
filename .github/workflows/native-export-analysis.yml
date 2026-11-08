@@ -15,6 +15,11 @@ on:
       - 'playlist_canvas.spec'
       - 'app/renderer/native_export.py'
       - 'app/renderer/python_visualizer.py'
+      - 'app/renderer/canvas_pipe.py'
+      - 'app/renderer/ffmpeg/filter_graph.py'
+      - 'tests/test_canvas_pipe.py'
+      - 'tests/test_rust_encoder_pipe.py'
+      - 'tools/benchmark_rust_encoder_pipe.py'
       - 'tests/test_rust_export_analysis.py'
       - 'tests/test_rust_export_pcm.py'
       - 'tools/benchmark_rust_export_analysis.py'
@@ -64,7 +69,7 @@ jobs:
       - name: Verify Rust toolchain, developer gates and native parity
         run: |
           python scripts/rust_prerequisites.py
-          python -m unittest -v tests.test_rust_prerequisites tests.test_distribution_verification tests.test_rust_export_analysis tests.test_rust_export_pcm
+          python -m unittest -v tests.test_rust_prerequisites tests.test_distribution_verification tests.test_rust_export_analysis tests.test_rust_export_pcm tests.test_rust_encoder_pipe
 
       - name: Benchmark FFT and PCM kernels separately
         run: |
@@ -85,7 +90,21 @@ jobs:
           '@ | python -
           if ($LASTEXITCODE -ne 0) { throw 'Verified FFmpeg installation failed' }
 
-      - name: Validate Rust-enabled actual FFmpeg export and audio/video parity
+      - name: Validate native BGR24 FFmpeg frame and audio equivalence
         env:
           PLAYLIST_CANVAS_ENABLE_RUST_EXPORT_ANALYSIS: "1"
-        run: python -m unittest -v tests.test_visualizer_streaming.VisualizerStreamingIntegrationTests.test_final_video_and_audio_match_movie_path
+        run: |
+          python -m unittest -v tests.test_visualizer_streaming.VisualizerStreamingIntegrationTests.test_final_video_and_audio_match_movie_path
+          python -m unittest -v tests.test_canvas_pipe.PipedFinalRenderIntegrationTests.test_rust_bgr24_piped_export_matches_bgr0_decoded_frames
+          python -m unittest -v tests.test_canvas_pipe.PipedFinalRenderIntegrationTests.test_piped_base_and_alpha_layer_composite_into_the_final_video
+
+      - name: Benchmark native BGR24 versus BGR0 FFmpeg input on CI (diagnostic only)
+        run: python tools/benchmark_rust_encoder_pipe.py --frames 60 --output rust-encoder-pipe-benchmark.json
+
+      - name: Upload encoder-input A/B timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-encoder-pipe-benchmark
+          path: rust-encoder-pipe-benchmark.json
+          if-no-files-found: ignore
