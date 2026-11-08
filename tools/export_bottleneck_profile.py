@@ -70,6 +70,13 @@ def classify_process(name: str, command: list[str], root: bool = False) -> str:
     arguments = " ".join(command).lower()
     if "multiprocessing.spawn" in arguments or "spawn_main(" in arguments or "--multiprocessing-fork" in arguments:
         return "canvas_workers"
+    # On Windows the Python shim selected by a virtualenv can spawn a second
+    # python.exe that actually runs main.py. Do not count its CPU as "other".
+    if executable in {"python.exe", "pythonw.exe", "python"} and any(
+        argument.strip('"').replace("\\", "/").lower().rsplit("/", 1)[-1] == "main.py"
+        for argument in command
+    ):
+        return "editor"
     return "other"
 
 
@@ -112,6 +119,9 @@ def load_stage_profiles(path: Path) -> dict[str, object]:
     """Combine editor and unique worker timing files without adding nested phases."""
     paths = [path, *sorted(path.parent.glob(f"{path.stem}.worker-*{path.suffix}"))]
     stages: dict[str, dict[str, float | int]] = {}
+    # Stream-level evidence is kept separate from the inclusive totals. It
+    # maps a stable Canvas band key (e.g. layer:0) to its source worker data.
+    streams: dict[str, dict[str, object]] = {}
     read_files = 0
     for filename in paths:
         try:
@@ -121,13 +131,35 @@ def load_stage_profiles(path: Path) -> dict[str, object]:
         if not isinstance(data, dict) or not isinstance(data.get("metrics"), dict):
             continue
         read_files += 1
+        context = data.get("context")
+        if isinstance(context, dict):
+            key = context.get("stream_key")
+            if isinstance(key, str) and (key == "base" or (
+                    key.startswith("layer:") and key[6:].isdigit())):
+                streams[key] = {
+                    "worker_pid": data.get("pid"),
+                    "width": context.get("stream_width"),
+                    "height": context.get("stream_height"),
+                    "fps": context.get("output_fps"),
+                    "submitted_states": context.get("submitted_states"),
+                    "written_frames": context.get("written_frames"),
+                    "writer_io": context.get("writer_io", {}),
+                    "stage_timings": {
+                        name: {
+                            "calls": metric.get("count"),
+                            "inclusive_wall_seconds": metric.get("total"),
+                        }
+                        for name, metric in data["metrics"].items()
+                        if name in STAGES and isinstance(metric, dict)
+                    },
+                }
         for name, metric in data["metrics"].items():
             if name not in STAGES or not isinstance(metric, dict):
                 continue
             summary = stages.setdefault(name, {"calls": 0, "inclusive_wall_seconds": 0.0})
             summary["calls"] += int(metric.get("count", 0))
             summary["inclusive_wall_seconds"] += float(metric.get("total", 0.0))
-    return {"profile_files": read_files, "stages": stages}
+    return {"profile_files": read_files, "stages": stages, "streams": streams}
 
 
 def summarize(samples: list[dict], profiles: dict) -> dict:
@@ -152,6 +184,7 @@ def summarize(samples: list[dict], profiles: dict) -> dict:
         "device_nvenc_mean_percent": round(sum(gpu_encoder) / len(gpu_encoder), 1) if gpu_encoder else None,
         "timing_files": profiles["profile_files"],
         "stage_timings": profiles["stages"],
+        "canvas_streams": profiles.get("streams", {}),
     }
 
 
