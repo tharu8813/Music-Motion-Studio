@@ -10,7 +10,7 @@ from math import sin
 from typing import Sequence
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen
 
 from app.utils.radial_visualizer import paint_radial_bars
 
@@ -24,6 +24,7 @@ def draw_visualizer_content(
     color: QColor,
     line_width: float,
     inner_radius: float = 0.55,
+    fill_brush: QBrush | None = None,
 ) -> None:
     """Draw source-local coordinates without implicitly flipping the content.
 
@@ -38,6 +39,7 @@ def draw_visualizer_content(
     bar_width = max(1.0, (rect.width() - gap * (count - 1)) / count)
     painter.save()
     try:
+        painter.setPen(Qt.PenStyle.NoPen)
         if style in {"line", "wave"}:
             painter.setPen(QPen(color, max(float(line_width), rect.height() * 0.025)))
             path = QPainterPath(QPointF(rect.left(), rect.center().y()))
@@ -68,7 +70,7 @@ def draw_visualizer_content(
                 if style == "spectrum":
                     painter.setBrush(QColor.fromHsv(int(300 * index / max(1, count - 1)), 210, 245))
                 else:
-                    painter.setBrush(color)
+                    painter.setBrush(fill_brush if fill_brush is not None else color)
                 if style == "led":
                     segments = 8
                     segment_gap = max(1.0, rect.height() * 0.025)
