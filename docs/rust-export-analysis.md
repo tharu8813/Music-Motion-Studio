@@ -3,11 +3,15 @@
 This is an **opt-in experiment**. The app still uses its existing Qt Canvas,
 FFmpeg encoding, audio processing, project format, and export controls.
 
-Only the reduction of FFT magnitude spectra into logarithmic visualizer bands
-moves to the `music_motion_native` PyO3 extension. NumPy still performs
-the FFT. This can accelerate analysis for many bars and long mixes, but the
-overall export speedup depends on the bottleneck. It does not accelerate
-Qt scene capture or FFmpeg compression.
+The optional `music_motion_native` PyO3 extension accelerates:
+- FFT magnitude spectrum reduction into logarithmic visualizer bands (NumPy still does FFT).
+- Per-frame mono/stereo RMS envelope analysis used by the level meter.
+- Signed PCM waveform sampling and interpolation used by waveform overlays.
+
+The existing NumPy algorithms remain the default and the exact behavioral
+reference. These kernels can help long mixes containing audio-reactive layers,
+but **do not accelerate Qt scene capture, FFmpeg compression or general export
+without those overlays**. The overall export speedup must be measured separately.
 
 ## Windows build in the Python 3.14 environment
 
@@ -19,8 +23,9 @@ Install Rust MSVC and the stable Rust toolchain, then in the repository:
 $wheel = Get-ChildItem native/export_analysis/target/wheels/*.whl | Select-Object -First 1
 .\.venv\Scripts\python.exe -m pip install $wheel.FullName
 $env:PLAYLIST_CANVAS_ENABLE_RUST_EXPORT_ANALYSIS = "1"
-.\.venv\Scripts\python.exe -m unittest -v tests.test_rust_export_analysis
+.\.venv\Scripts\python.exe -m unittest -v tests.test_rust_export_analysis tests.test_rust_export_pcm
 .\.venv\Scripts\python.exe tools/benchmark_rust_export_analysis.py
+.\.venv\Scripts\python.exe tools/benchmark_rust_export_pcm.py
 ```
 
 Compare with Python-only behavior by setting
@@ -46,3 +51,13 @@ Do not infer an end-to-end speedup from a microbenchmark alone.
 
 The switch is for testing only. It doesn't alter the FFmpeg encoder, the
 Canvas pipe protocol, or the fragile low-FPS overlay EOF scheduling.
+
+## Verified baseline (2026-11-09)
+
+The first Windows GitHub Actions run compiled the Rust wheel, passed the FFT
+parity tests, and measured 44.9 ms NumPy versus 30.1 ms Rust on a 20-second,
+60 FPS, 96-band synthetic sample (1.49x faster for that analysis operation).
+The numeric difference reported by that benchmark was zero. This is **not a
+whole-export speedup**; other legacy suite failures were present in the same
+workflow. The second-stage RMS/waveform kernels must pass the focused Windows
+workflow before they are used beyond opt-in experimentation.
