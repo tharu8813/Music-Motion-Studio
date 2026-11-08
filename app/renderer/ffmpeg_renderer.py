@@ -616,6 +616,16 @@ class FFmpegRenderer:
             static_inputs: list[tuple[float, Path, str, int, int]] = []
             piped_input_arguments: dict[int, tuple[str, ...]] = {}
             base_video = piped_video or prepared_video
+            # Only raw CFR pipes guarantee square-pixel Canvas frames.
+            # Prepared files and legacy concat sources keep their original
+            # scale+pad pipeline until their SAR and pixel parity are checked.
+            base_already_sized = bool(
+                piped_video is not None
+                and piped_video.width == selected_settings.output_width
+                and piped_video.height == selected_settings.output_height
+                and os.environ.get("PLAYLIST_CANVAS_DISABLE_IDENTITY_SCALE", "").strip().lower()
+                not in {"1", "true", "yes"}
+            )
             static_stage_start = 0.76 if visualizers else 0.64
             static_stage_span = max(0.0, encoding_start - static_stage_start)
             static_frame_total = sum(
@@ -844,6 +854,7 @@ class FFmpegRenderer:
                     selected_settings.output_width, selected_settings.output_height,
                     video_clips=video_clips,
                     video_input_slots=video_input_slots,
+                    base_already_sized=base_already_sized,
                 )
                 graph_arguments = self._filter_graph_arguments(graph, temporary)
                 video_arguments.extend([
@@ -853,8 +864,11 @@ class FFmpegRenderer:
                 ])
             else:
                 video_arguments.extend([
-                    "-vf", self._output_scaling_filter(selected_settings.fps, selected_settings.output_width,
-                                                        selected_settings.output_height),
+                    "-vf", self._output_scaling_filter(
+                        selected_settings.fps, selected_settings.output_width,
+                        selected_settings.output_height,
+                        already_sized=base_already_sized,
+                    ),
                     *metadata_arguments,
                 ])
             if direct_mux:
@@ -890,6 +904,12 @@ class FFmpegRenderer:
                     *video_container_arguments(target),
                     "-progress", "pipe:1", "-nostats", "-y", str(temporary_video),
                 ])
+            LOGGER.info(
+                "Final FFmpeg output scaling: identity=%s source=%s target=%sx%s",
+                base_already_sized,
+                (f"{base_video.width}x{base_video.height}" if base_video else "legacy-concat"),
+                selected_settings.output_width, selected_settings.output_height,
+            )
             LOGGER.info(
                 "Final FFmpeg stage: codec=%s direct_mux=%s piped=%s duration=%.3fs "
                 "fps=%d resolution=%dx%d filter_workers=%d visualizers=%d "
@@ -986,11 +1006,12 @@ class FFmpegRenderer:
                               ], fps: int,
                               output_width: int, output_height: int,
                               video_clips: list[VideoClipOverlay] | None = None,
-                              video_input_slots: list[int] | None = None) -> str:
+                              video_input_slots: list[int] | None = None,
+                              base_already_sized: bool = False) -> str:
         """Interleave reactive video and transparent static Z bands in Canvas order."""
         return filter_graph.layered_filter_graph(
             visualizers, static_layers, fps, output_width, output_height,
-            video_clips, video_input_slots,
+            video_clips, video_input_slots, base_already_sized,
         )
 
     @staticmethod
@@ -1007,9 +1028,12 @@ class FFmpegRenderer:
 
     @staticmethod
     def _output_scaling_filter(fps: int, output_width: int, output_height: int,
-                               include_fps: bool = True) -> str:
-        """Scale without stretching the authored canvas and pad any aspect mismatch."""
-        return filter_graph.output_scaling_filter(fps, output_width, output_height, include_fps)
+                               include_fps: bool = True,
+                               already_sized: bool = False) -> str:
+        """Scale without stretching the canvas; skip only verified identity work."""
+        return filter_graph.output_scaling_filter(
+            fps, output_width, output_height, include_fps, already_sized,
+        )
 
     @staticmethod
     def _validate_frames(
