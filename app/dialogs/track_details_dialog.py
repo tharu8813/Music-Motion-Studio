@@ -13,7 +13,7 @@ import threading
 
 from mutagen import File as MutagenFile
 from PySide6.QtCore import QEvent, QProcess, QSettings, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QFont, QPixmap
+from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -366,15 +366,25 @@ class TrackDetailsDialog(QDialog):
         self.playback_artwork.setFixedSize(50, 50)
         self.playback_artwork.setObjectName("trackPlayerArtwork")
         self.playback_artwork.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.playback_artwork.setStyleSheet(
+            f"background: {COLORS['field']}; border: 1px solid {COLORS['border']};"
+            " border-radius: 10px; font-size: 23px;"
+        )
         player_header.addWidget(self.playback_artwork)
         player_titles = QVBoxLayout()
         player_titles.setContentsMargins(0, 1, 0, 1)
         player_titles.setSpacing(2)
         self.playback_track_title = QLabel()
         self.playback_track_title.setObjectName("trackPlayerTitle")
+        self.playback_track_title.setStyleSheet(
+            f"color: {COLORS['text']}; font-weight: 700; font-size: 15px;"
+        )
         self.playback_track_title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.playback_track_artist = QLabel()
         self.playback_track_artist.setObjectName("trackPlayerArtist")
+        self.playback_track_artist.setStyleSheet(
+            f"color: {COLORS['muted']}; font-size: 11px;"
+        )
         player_titles.addWidget(self.playback_track_title)
         player_titles.addWidget(self.playback_track_artist)
         player_header.addLayout(player_titles, 1)
@@ -1433,10 +1443,10 @@ class TrackDetailsDialog(QDialog):
             )
             current_indices: tuple[int, ...] = ()
             previous_indices: list[int] = []
-            following_indices = list(range(len(self.selected_lyrics)))
+            following_indices = list(range(min(20, len(self.selected_lyrics))))
         else:
             latest_started = cue_index
-            has_ttml = any(cue.get("format") == "ttml" for cue in self.selected_lyrics)
+            has_ttml = getattr(self, "_has_ttml_lyrics", False)
             active: tuple[int, ...] = ()
             if has_ttml:
                 active = LyricsService.active_cue_indices(self.selected_lyrics, lyric_seconds)
@@ -1459,19 +1469,24 @@ class TrackDetailsDialog(QDialog):
                         lyric_seconds,
                     )
                 )
+            active_set = set(current_indices)
             previous_indices = [
-                index for index in range(latest_started + 1)
-                if index not in current_indices
+                index for index in range(max(0, latest_started - 20), latest_started + 1)
+                if index not in active_set
             ]
-            following_indices = list(range(latest_started + 1, len(self.selected_lyrics)))
+            following_indices = list(range(
+                latest_started + 1,
+                min(len(self.selected_lyrics), latest_started + 21),
+            ))
 
         # Reserve the complete wrapped current group and distribute remaining
         # vertical space between preceding and following cue rows. In a gap
         # or at the start, spare space flows to whichever side has lyrics.
         viewport = self.lyrics_preview_host
         text_width = max(72, viewport.width() - 45)
+        viewport_height = max(175, viewport.height())
         current_height = max(50, min(
-            190,
+            max(50, viewport_height - 16),
             self.current_lyric.fontMetrics().boundingRect(
                 0, 0, text_width, 10_000,
                 Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignHCenter,
@@ -1479,7 +1494,6 @@ class TrackDetailsDialog(QDialog):
             ).height() + 18,
         ))
         self.current_lyric.setMinimumHeight(current_height)
-        viewport_height = max(175, viewport.height())
         available = max(
             0, viewport_height - current_height
             - 2 * self.lyrics_preview_layout.spacing() - 14,
@@ -1527,6 +1541,9 @@ class TrackDetailsDialog(QDialog):
         self.export_lyrics_action.setEnabled(bool(self.selected_lyrics))
         self.detach_lyrics_action.setEnabled(bool(self.selected_lyrics_path or self.selected_lyrics))
         count = len(self.selected_lyrics)
+        self._has_ttml_lyrics = any(
+            cue.get("format") == "ttml" for cue in self.selected_lyrics
+        )
         timed_ttml = any(
             cue.get("format") == "ttml" and cue.get("words")
             for cue in self.selected_lyrics
