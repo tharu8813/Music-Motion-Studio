@@ -122,6 +122,7 @@ def load_stage_profiles(path: Path) -> dict[str, object]:
     # Stream-level evidence is kept separate from the inclusive totals. It
     # maps a stable Canvas band key (e.g. layer:0) to its source worker data.
     streams: dict[str, dict[str, object]] = {}
+    parent_queues: dict[str, dict] = {}
     read_files = 0
     for filename in paths:
         try:
@@ -133,6 +134,12 @@ def load_stage_profiles(path: Path) -> dict[str, object]:
         read_files += 1
         context = data.get("context")
         if isinstance(context, dict):
+            queue_info = context.get("parent_canvas_queues")
+            if isinstance(queue_info, dict):
+                for key, info in queue_info.items():
+                    if isinstance(key, str) and isinstance(info, dict):
+                        if key == "base" or (key.startswith("layer:") and key[6:].isdigit()):
+                            parent_queues[key] = info
             key = context.get("stream_key")
             if isinstance(key, str) and (key == "base" or (
                     key.startswith("layer:") and key[6:].isdigit())):
@@ -159,6 +166,9 @@ def load_stage_profiles(path: Path) -> dict[str, object]:
             summary = stages.setdefault(name, {"calls": 0, "inclusive_wall_seconds": 0.0})
             summary["calls"] += int(metric.get("count", 0))
             summary["inclusive_wall_seconds"] += float(metric.get("total", 0.0))
+    for key, queue in parent_queues.items():
+        if key in streams:
+            streams[key]["parent_job_queue"] = queue
     return {"profile_files": read_files, "stages": stages, "streams": streams}
 
 
