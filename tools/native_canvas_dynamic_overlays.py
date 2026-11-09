@@ -198,8 +198,9 @@ def real_audio_dynamic_frames(
     """
     if abs(start_seconds * fps - round(start_seconds * fps)) > 1e-6:
         raise ValueError("Dynamic diagnostic start must be on an exact CFR frame boundary")
-    if start_seconds > 30:
-        raise ValueError("Dynamic diagnostic start limited to 30 seconds for bounded warm-up")
+    # The audio envelope is analyzed from track start as in production, but
+    # QPainter no longer has to draw every skipped frame before this seek.
+    # Frame-count/disk budgets are separately enforced by the project probe.
     from app.controllers.export_controller import ExportOrchestrator
 
     active_tracks = [t for t in project.playlist if t.enabled and t.duration_seconds > 0]
@@ -254,13 +255,7 @@ def real_audio_dynamic_frames(
             stream = analyzer._layer_frames(
                 overlay, source_levels if source_levels is not None else levels,
                 fps, Event(), None, stereo, windows,
+                start_frame=round(start_seconds * fps),
             )
-            try:
-                for _ in range(round(start_seconds * fps)):
-                    next(stream)
-            except StopIteration as exc:
-                raise ValueError(
-                    "The prepared audio ends before dynamic frame warm-up completes"
-                ) from exc
             streams.append(stream)
         yield overlays, streams, origin

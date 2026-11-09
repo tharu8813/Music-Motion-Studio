@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'tools/native_canvas_*.py'
+      - 'app/renderer/python_visualizer.py'
       - 'app/preview/native_canvas_layer_packets.py'
       - 'tests/test_native_canvas_*.py'
       - '.github/workflows/native-reactive-canvas.yml'

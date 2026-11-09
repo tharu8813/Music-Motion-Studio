@@ -620,8 +620,15 @@ class PythonVisualizerRenderer:
         progress_callback: Callable[[float, int, int], None] | None,
         stereo_levels: tuple[np.ndarray, np.ndarray] | None = None,
         track_windows: Sequence[tuple[float, ...]] = (),
+        *, start_frame: int = 0,
     ) -> Iterator[QImage]:
-        """Share exactly the same drawing, timing and alpha on both output paths."""
+        """Share exactly the same drawing, timing and alpha on both output paths.
+
+        A diagnostic may seek to a distant presentation frame without painting
+        every intervening Qt image. Attack/release and meter peak history are
+        still computed from frame zero using the production sequence processors.
+        This optional path does not alter ordinary export (start_frame=0).
+        """
         width = max(8, int(getattr(overlay, "width")))
         height = max(8, int(getattr(overlay, "height")))
         bar_count = max(4, min(96, int(getattr(overlay, "bar_count", 32))))
@@ -640,10 +647,14 @@ class PythonVisualizerRenderer:
             meter_levels, meter_peaks = self.process_meter_sequence(
                 raw_meter, overlay, fps,
             )
+        if (type(start_frame) is not int or start_frame < 0
+                or (start_frame > 0 and start_frame >= len(processed_levels))):
+            raise ValueError("Requested overlay start frame exceeds the analyzed audio")
         frame_buffer = QImage()
         colored_overlay = overlay
         colored_track_index = -2
-        for frame_index, selected in enumerate(processed_levels):
+        for frame_index in range(start_frame, len(processed_levels)):
+            selected = processed_levels[frame_index]
             if cancel_event.is_set():
                 raise PythonVisualizerError("Rendering was cancelled.")
             channel_values = None

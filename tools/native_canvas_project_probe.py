@@ -23,7 +23,7 @@ from contextlib import ExitStack
 from bisect import bisect_right
 import hashlib
 import json
-from math import isfinite
+from math import ceil, isfinite
 from pathlib import Path
 import subprocess
 import sys
@@ -91,6 +91,28 @@ def project_source_inventory(project: ProjectDocument) -> list[dict[str, object]
             "dynamic_audio_status": status,
         })
     return inventory
+
+
+def inspect_project_track_windows(project: ProjectDocument, fps: int) -> list[dict[str, object]]:
+    """Identify CFR-aligned song starts for read-only late-timeline GPU probes."""
+    if not 1 <= fps <= 120:
+        raise TimelineValidationError("Track window inspection FPS must be 1..120")
+    plan = compile_playlist(project.playlist, enabled_only=True)
+    tracks = [track for track in project.playlist if track.enabled and track.duration_seconds > 0]
+    index = {track.id: i + 1 for i, track in enumerate(tracks)}
+    titles = {track.id: track.title for track in tracks}
+    return [{
+        "track_number": index[window.track_id],
+        "track_id": window.track_id,
+        "title": titles[window.track_id],
+        "timeline_start_seconds": round(window.timeline_start, 9),
+        "timeline_end_seconds": round(window.timeline_end, 9),
+        "recommended_probe_frame": ceil(window.timeline_start * fps - 1e-9),
+        "recommended_probe_start_seconds": round(
+            ceil(window.timeline_start * fps - 1e-9) / fps, 9,
+        ),
+        "fps": fps,
+    } for window in plan.presentation.windows]
 
 
 def _file_sha256(path: Path) -> str:
@@ -620,6 +642,7 @@ def main(argv: list[str] | None = None) -> int:
                 "project": str(path),
                 "source_count": len(project.sources),
                 "sources": project_source_inventory(project),
+                "track_windows": inspect_project_track_windows(project, args.fps),
                 "production_export_changed": False,
             }, indent=2, ensure_ascii=False))
             return 0
