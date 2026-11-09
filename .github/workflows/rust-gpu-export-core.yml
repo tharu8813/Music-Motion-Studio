@@ -200,6 +200,42 @@ jobs:
           print('D3D11 NVENC H264 status:', status)
           '@ | python -
           if ($LASTEXITCODE -ne 0) { throw 'NVENC H264 diagnostics JSON rejected' }
+      - name: Validate native D3D11 Canvas alpha layer composition through NVENC
+        shell: pwsh
+        run: |
+          cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_canvas_layers_probe -- --width 320 --height 180 --frames 6 --slots 2 --validate-alpha --output d3d11-canvas-layers-ci.json
+          if ($LASTEXITCODE -ne 0) { throw 'D3D11 native Canvas GPU alpha / NVENC probe failed' }
+          @'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('d3d11-canvas-layers-ci.json').read_text(encoding='utf-8'))
+          allowed = {
+              'measured', 'd3d11_hardware_unavailable',
+              'd3d11_video_processor_unavailable',
+              'nvenc_library_unavailable', 'canvas_alpha_unsupported',
+          }
+          status = report.get('status')
+          if status not in allowed:
+              raise SystemExit(f"Native Canvas alpha validation failed: {status}: {report.get('reason')}")
+          if status == 'measured' and (
+              report.get('frames_encoded') != 6
+              or report.get('gpu_composited_layers') != 2
+              or not report.get('alpha_validation_passed')
+              or report.get('diagnostic_gpu_nv12_readbacks') != 6
+              or report.get('gpu_to_cpu_nv12_readbacks_on_encode_path') != 0
+              or report.get('qt_canvas_gpu_painting_implemented') is not False
+          ):
+              raise SystemExit('Canvas GPU alpha or NVENC frame contract mismatch')
+          print('D3D11 Canvas GPU alpha status:', status)
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Canvas GPU alpha JSON verification failed' }
+      - name: Upload native D3D11 Canvas layer and NVENC diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d3d11-canvas-layers
+          path: d3d11-canvas-layers-ci.json
+          if-no-files-found: ignore
       - name: Upload H264 NVENC bitstream diagnostics (hardware only)
         if: always()
         uses: actions/upload-artifact@v4
