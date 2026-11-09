@@ -560,3 +560,23 @@ impl Drop for NativeNvencRegistrationSession {
         }
     }
 }
+
+#[cfg(test)]
+mod nvenc_lock_diagnostics_tests {
+    use super::*;
+
+    #[test]
+    fn distinguishes_oom_from_transient_lock_busy() {
+        // The RTX 5060 reproduced status 10: a fatal resource/driver
+        // error, not status 13 (the retryable non-blocking lock case).
+        assert_eq!(NVENCSTATUS::ERR_OUT_OF_MEMORY.0, 10);
+        assert_eq!(NVENCSTATUS::ERR_LOCK_BUSY.0, 13);
+        assert_ne!(NVENCSTATUS::ERR_OUT_OF_MEMORY, NVENCSTATUS::ERR_LOCK_BUSY);
+    }
+
+    #[test]
+    fn sync_default_is_explicit_and_polling_is_opt_in() {
+        assert_eq!(NvencBitstreamLockMode::Blocking.as_str(), "blocking");
+        assert_eq!(NvencBitstreamLockMode::Polling.as_str(), "polling");
+    }
+}
