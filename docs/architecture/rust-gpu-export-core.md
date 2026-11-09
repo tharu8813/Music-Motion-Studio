@@ -1294,8 +1294,11 @@ validates all of the following, then delegates to
   and `production_export_changed=true`, measured D3D11/NVENC completion,
   no NV12 GPU-to-CPU readbacks, correct resolution, FPS, duration, PTS order
   and **every** expected CFR frame.
-* An independent FFprobe frame count, codec, dimensions and rate agrees
-  with the compiled plan. A six-frame diagnostic report is rejected.
+* An independent FFprobe frame count, codec, dimensions and no-B-frame
+  stream constraint agrees with the complete native export. Annex-B H264
+  has no reliable timing; the production FFmpeg reader explicitly stamps
+  `-r <fps>` from the compiled export plan and the completed MP4 is
+  validated. A six-frame diagnostic report is rejected.
 * The prepared AAC audio file and enabled track metadata are present,
   and settings select `h264_nvenc`.
 
