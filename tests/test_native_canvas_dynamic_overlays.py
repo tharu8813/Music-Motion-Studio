@@ -33,7 +33,8 @@ from tools.native_canvas_dynamic_overlays import (
     interleave_dynamic_layers, real_audio_dynamic_frames,
 )
 from tools.native_canvas_project_probe import (
-    capture_project, main as project_probe_main, project_source_inventory,
+    capture_project, inspect_project_track_windows,
+    main as project_probe_main, project_source_inventory,
     validate_project_for_gpu_capture,
 )
 from tools.native_canvas_timeline_probe import TimelineValidationError, load_timeline
@@ -263,6 +264,8 @@ class NativeDynamicOverlayTests(unittest.TestCase):
             self.assertEqual(status, 0)
             result = json.loads(buffer.getvalue())
             self.assertEqual(result["status"], "inspected")
+            self.assertEqual(len(result["track_windows"]), 1)
+            self.assertEqual(result["track_windows"][0]["recommended_probe_frame"], 0)
             self.assertIn(unsupported.id, [
                 entry["source_id"] for entry in result["sources"]
             ])
@@ -338,6 +341,13 @@ class NativeDynamicOverlayTests(unittest.TestCase):
             first_track = project.playlist[0]
             second_track = PlaylistTrack(str(second), "Next track", duration_seconds=1.0)
             project.playlist.append(second_track)
+            windows = inspect_project_track_windows(project, 30)
+            self.assertEqual(
+                [row["recommended_probe_frame"] for row in windows], [0, 30],
+            )
+            self.assertEqual(
+                [row["recommended_probe_start_seconds"] for row in windows], [0.0, 1.0],
+            )
             project.sources[0].source_type = SourceType.BACKGROUND
             project.sources[0].background_bass_reactive = True
             lyrics = next(x for x in project.sources if x.source_type is SourceType.LYRICS)
