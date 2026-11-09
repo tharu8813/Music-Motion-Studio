@@ -347,8 +347,8 @@ impl NativeBgraNv12VideoProcessor {
                 caps.MaxInputStreams, caps.MaxStreamStates, layers.len(),
             ));
         }
-        if layers.len() > 1 && caps.FeatureCaps &
-            D3D11_VIDEO_PROCESSOR_FEATURE_CAPS_ALPHA_STREAM.0 as u32 == 0
+        if layers.len() > 1 && (caps.FeatureCaps &
+            D3D11_VIDEO_PROCESSOR_FEATURE_CAPS_ALPHA_STREAM.0 as u32) == 0
         {
             return Err("D3D11 Canvas GPU layer alpha blending unsupported by the adapter".into());
         }
