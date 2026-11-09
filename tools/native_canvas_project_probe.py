@@ -62,6 +62,37 @@ UNSUPPORTED_SOURCES = frozenset({
 })
 
 
+def project_source_inventory(project: ProjectDocument) -> list[dict[str, object]]:
+    """Show project source eligibility without hiding media or reactive effects.
+
+    This is a read-only diagnostic, never a way to downgrade a strict
+    capture failure or bypass the explicit source policy.
+    """
+    inventory = []
+    for source in project.sources:
+        if not source.visible:
+            status = "hidden"
+        elif source.source_type in DYNAMIC_TYPES:
+            status = "dynamic_audio_supported"
+        elif source.source_type in UNSUPPORTED_SOURCES:
+            status = "unsupported_video"
+        elif source.uses_bass_reaction or (
+            source.source_type is SourceType.BACKGROUND and source.background_bass_reactive
+        ):
+            status = "unsupported_audio_reactive_canvas"
+        else:
+            status = "canvas"
+        inventory.append({
+            "source_id": source.id,
+            "name": source.name,
+            "source_type": source.source_type.value,
+            "z_index": source.z_index,
+            "visible": source.visible,
+            "dynamic_audio_status": status,
+        })
+    return inventory
+
+
 def _file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
@@ -121,7 +152,7 @@ def validate_project_for_gpu_capture(
         dynamic = [s for s in visible if s.source_type in DYNAMIC_TYPES]
         if not dynamic:
             raise TimelineValidationError(
-                "dynamic-audio requires a visible audio visualizer or particle layer"
+                "dynamic-audio requires a visible audio visualizer, waveform, level meter or particle layer"
             )
         unsupported = [s for s in visible if s.source_type in UNSUPPORTED_SOURCES
                        and s.source_type not in DYNAMIC_TYPES]
@@ -130,14 +161,30 @@ def validate_project_for_gpu_capture(
             (s.source_type is SourceType.BACKGROUND and s.background_bass_reactive)
         )]
         if unsupported or reactive:
+            details = [
+                f"{s.name or s.id} [{s.source_type.value}; {s.id}]"
+                for s in unsupported
+            ] + [
+                f"{s.name or s.id} [{s.source_type.value}; {s.id}; audio-reactive Canvas]"
+                for s in reactive if s not in unsupported
+            ]
             raise TimelineValidationError(
-                "dynamic-audio cannot render video, waveform, level meter, "
-                "or separately audio-reactive Canvas sources yet"
+                "dynamic-audio has unsupported project sources: "
+                + ", ".join(details)
+                + ". Video and audio-reactive Canvas sources require separate capture. "
+                "Use --inspect-sources to list all project sources; "
+                "--source-policy canvas-only is explicitly PARTIAL."
             )
-        if any(s.keyframes.animated or s.animation_in == "custom"
-               or s.animation_out == "custom" or s.rotation for s in dynamic):
+        unsupported_motion = [
+            s for s in dynamic
+            if s.keyframes.animated or s.animation_in == "custom"
+            or s.animation_out == "custom" or s.rotation
+        ]
+        if unsupported_motion:
             raise TimelineValidationError(
-                "dynamic-audio does not reproduce custom keyframes or rotation on reactive overlays"
+                "dynamic-audio cannot yet reproduce custom keyframes or rotation: "
+                + ", ".join(f"{s.name or s.id} [{s.source_type.value}; {s.id}]"
+                            for s in unsupported_motion)
             )
         omitted = []
     if omitted and source_policy == "strict":
@@ -524,11 +571,26 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--prepared-audio", type=Path, default=None,
                         help="Optional already normalized/mixed playlist audio for dynamic-audio")
+    parser.add_argument("--inspect-sources", action="store_true",
+                        help="Read-only source inventory; do not render, write or encode frames")
     parser.add_argument("--cargo", default="cargo")
     parser.add_argument("--ffmpeg", default="ffmpeg")
     parser.add_argument("--ffprobe", default="ffprobe")
     args = parser.parse_args(argv)
     try:
+        if args.inspect_sources:
+            path = args.project
+            if not path.is_file() or path.is_symlink() or path.suffix.lower() not in {".pvsproj", ".json"}:
+                raise TimelineValidationError("Select an existing regular .pvsproj or project JSON")
+            project = ProjectService.load(path)
+            print(json.dumps({
+                "status": "inspected",
+                "project": str(path),
+                "source_count": len(project.sources),
+                "sources": project_source_inventory(project),
+                "production_export_changed": False,
+            }, indent=2, ensure_ascii=False))
+            return 0
         path = capture_project(
             args.project, args.output_dir,
             start_seconds=args.start_seconds,
