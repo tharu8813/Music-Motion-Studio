@@ -111,6 +111,81 @@ def interleave_dynamic_layers(
     return NativeCanvasFrame(static_frame.width, static_frame.height, tuple(layers))
 
 
+def analyze_reactive_canvas_tracks(
+    project, tracks, *, fps: int, ffmpeg: str | None = None,
+) -> dict[object, object]:
+    """Use the *production export* per-track music analysis, not mixed-audio FFT.
+
+    ExportCanvasCapturer samples each track's own 24-band audio envelope
+    (including source-specific lyric/text response profiles), while separate
+    visualizer overlays analyze the normalized playlist mix. Combining those
+    two analysis domains would silently change music-reactive Canvas pixels.
+    Only tracks intersecting the requested diagnostic frames are decoded.
+    Every source is still painted by the existing CanvasSnapshot renderer.
+    """
+    from app.models.source import SourceType
+
+    reactive_sources = [
+        source for source in project.sources
+        if source.visible and source.uses_bass_reaction
+    ]
+    if not reactive_sources:
+        return {}
+    profiles = {
+        source.music_reaction_profile
+        for source in reactive_sources
+        if source.source_type in {SourceType.TEXT, SourceType.LYRICS}
+    }
+    analyzer = PythonVisualizerRenderer(FFmpegRenderer(ffmpeg).executable)
+    cancel = Event()
+    envelopes: dict[object, object] = {}
+    by_path: dict[Path, tuple[object, dict[tuple, object]]] = {}
+    for track in tracks:
+        path = Path(track.file_path).resolve()
+        if not path.is_file():
+            raise ValueError(
+                f"Missing original track audio for music-reactive Canvas: {path}"
+            )
+        if path not in by_path:
+            samples = analyzer._decode_mono_audio(path, cancel)
+            levels = analyzer._analyze_levels(samples, fps, 24, cancel)
+            bass = analyzer.bass_envelope(levels, fps)
+            per_profile = {
+                profile: analyzer.music_envelope(levels, fps, profile, cancel)
+                for profile in profiles
+            }
+            by_path[path] = (bass, per_profile)
+        bass, per_profile = by_path[path]
+        envelopes[track.id] = bass
+        for profile, values in per_profile.items():
+            envelopes[(track.id, profile)] = values
+    return envelopes
+
+
+def canvas_reaction_at(
+    track, elapsed_seconds: float, fps: int,
+    sources, envelopes: dict[object, object],
+) -> tuple[float, dict[str, float]]:
+    """Resolve Canvas music signals by the same frame rounding as export."""
+    if not envelopes:
+        return 0.0, {}
+    bass = envelopes.get(track.id)
+    if bass is None:
+        raise ValueError(f"Missing analyzed bass envelope for {track.title}")
+    frame = max(0, round(elapsed_seconds * fps))
+    bass_level = float(bass[min(frame, len(bass) - 1)])
+    music_levels = {
+        source.id: PythonVisualizerRenderer.music_reaction_level(
+            envelopes.get((track.id, source.music_reaction_profile), bass),
+            fps, elapsed_seconds, source.music_reactive_offset,
+        )
+        for source in sources
+        if source.visible and source.source_type in {SourceType.TEXT, SourceType.LYRICS}
+        and source.uses_bass_reaction
+    }
+    return bass_level, music_levels
+
+
 @contextmanager
 def real_audio_dynamic_frames(
     project, plan, *, fps: int, scale: float, start_seconds: float,
