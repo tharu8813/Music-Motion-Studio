@@ -80,7 +80,7 @@ class TranslationPromptTests(unittest.TestCase):
         self.assertEqual(ids[0], 20)
         self.assertEqual(ids[-1], 299)
         self.assertFalse(selected & set(ids))
-        self.assertTrue(all(row["text"] == cues[row["id"]]["text"] for row in context["cues"]))
+        self.assertTrue(all(row["text"] == cues[row["id"]]["text"].strip() for row in context["cues"]))
         self.assertLess(LOCAL_SONG_CONTEXT_MAX_CHARS, SONG_CONTEXT_MAX_CHARS)
 
     def test_song_context_is_data_not_new_translation_targets(self):
