@@ -554,6 +554,17 @@ class FFmpegRenderer:
                     # 4:4:4 stream has no hardware path, and downloads frames to
                     # system memory automatically before the software filters.
                     "-hwaccel", "auto",
+                    # Raw Annex-B H264 has no container PTS. Some encoders'
+                    # SPS/VUI produces a doubled ffprobe r_frame_rate (e.g.
+                    # 60 for a true 30-FPS sequence). Stamp the PREPARED
+                    # GPU stream with the actual CFR timeline on input, so
+                    # output stream-copy muxing preserves the real duration.
+                    *(
+                        ["-r", str(prepared_video.fps)]
+                        if prepared_video.ready_for_mux
+                        and prepared_path.suffix.lower() == ".h264"
+                        else []
+                    ),
                     "-i", str(prepared_path),
                 ]
             else:

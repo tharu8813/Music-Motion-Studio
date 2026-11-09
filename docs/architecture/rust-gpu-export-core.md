@@ -1280,3 +1280,48 @@ both renderers on sustained multi-track projects, crossfades, masks,
 off-screen overlays and transparent edges; validate audio mux, PTS and
 throughput. RTX hardware measurements and real `giggles.pvsproj` validation
 are still needed.
+
+
+## Milestone 19: production MP4 finalizer (real application renderer)
+
+`app/renderer/native_gpu_export.py` is **production export code**, not
+another six-frame diagnostic. It accepts a complete GPU-encoded H.264
+Annex-B stream and the existing export's compiled playlist/audio inputs,
+validates all of the following, then delegates to
+`FFmpegRenderer.render(PreparedVideoInput(..., ready_for_mux=True))`:
+
+* Native report has explicit `production_export_scope=production_complete_playlist`
+  and `production_export_changed=true`, measured D3D11/NVENC completion,
+  no NV12 GPU-to-CPU readbacks, correct resolution, FPS, duration, PTS order
+  and **every** expected CFR frame.
+* An independent FFprobe frame count, codec, dimensions and no-B-frame
+  stream constraint agrees with the complete native export. Annex-B H264
+  has no reliable timing; the production FFmpeg reader explicitly stamps
+  `-r <fps>` from the compiled export plan and the completed MP4 is
+  validated. A six-frame diagnostic report is rejected.
+* The prepared AAC audio file and enabled track metadata are present,
+  and settings select `h264_nvenc`.
+
+The existing production FFmpeg renderer **copies the video bitstream** and
+prepared AAC audio into the final MP4, using its already established
+temporary-output staging, cancellation handling, tags, chapters and
+completed-file validation. Nothing re-encodes video during this step.
+A Windows/FFmpeg integration test constructs a *software* H264 fixture
+only for exercising this mux boundary; that fixture is **not evidence**
+of new GPU hardware encoding.
+
+### Still missing before the new backend can be selected in the UI
+
+The current native D3D11 executable accepts at most 120 packet frames and
+holds the encoded result in memory. It is still a **probe**, not a
+full-length producer. To make this finalizer reachable from the app's
+Export dialog, implement a **long-running, bounded-memory native GPU
+video producer** with persistent NVENC session, sequential CFR PTS,
+backpressure, cancellation, incremental output and a complete-project
+report. Feed it the exact project clock's actual Canvas/visualizer layers
+without staging a full playlist of .bgra files. Only after that,
+connect the producer and finalizer through the export worker and expose
+an explicit user-selectable GPU backend with a safe existing-renderer
+fallback.
+
+No diagnostic output may be marked `production_complete_playlist`.
