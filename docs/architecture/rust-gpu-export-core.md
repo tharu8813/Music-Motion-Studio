@@ -1140,7 +1140,7 @@ From the repository root in PowerShell:
 
     git switch main
     git pull
-    python -m tools.native_canvas_project_probe --project "C:UserswlqorDesktopgiggles.pvsproj" --output-dir qt-giggles-canvas-only --start-seconds 0 --frames 6 --fps 60 --scale 0.5 --source-policy canvas-only --encode-and-verify
+    python -m tools.native_canvas_project_probe --project "C:/path/to/project.pvsproj" --output-dir qt-giggles-canvas-only --start-seconds 0 --frames 6 --fps 60 --scale 0.5 --source-policy canvas-only --encode-and-verify
 
 Result files are in qt-giggles-canvas-only: timeline.json,
 gpu-report.json, project.h264, parity.json. The output folder must
