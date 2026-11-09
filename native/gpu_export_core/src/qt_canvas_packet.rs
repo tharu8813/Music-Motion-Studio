@@ -144,6 +144,56 @@ mod tests {
         assert!(positive_dimension(&serde_json::json!({"width": 10000}), "width", 3840).is_err());
     }
     #[test]
+    fn validates_complete_packet_and_rejects_tampered_pixels() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH)
+            .unwrap().as_nanos();
+        let directory = std::env::temp_dir().join(
+            format!("mms-canvas-packet-{}-{nonce}", std::process::id())
+        );
+        std::fs::create_dir(&directory).unwrap();
+        let base: Vec<u8> = [18, 29, 42, 255].repeat(4 * 4);
+        let alpha: Vec<u8> = [220, 80, 24, 128].repeat(4 * 4);
+        let names = ["base.bgra", "lyric.bgra"];
+        for (name, bytes) in names.iter().zip([&base, &alpha]) {
+            std::fs::write(directory.join(name), bytes).unwrap();
+        }
+        let root = serde_json::json!({
+            "schema":1,
+            "format":"mms_canvas_bgra_layers_v1",
+            "pixel_format":"BGRA8_STRAIGHT",
+            "coordinate_origin":"top_left",
+            "width":4, "height":4,
+            "qt_canvas_rasterized_on_cpu":true,
+            "native_gpu_alpha_composition_required":true,
+            "production_export_changed":false,
+            "layers":[
+                {
+                    "file":names[0], "stream_key":"base", "z_order":0,
+                    "opacity":1.0, "bytes":64,
+                    "sha256":format!("{:x}", Sha256::digest(&base))
+                },
+                {
+                    "file":names[1], "stream_key":"layer:0", "z_order":1,
+                    "opacity":1.0, "bytes":64,
+                    "sha256":format!("{:x}", Sha256::digest(&alpha))
+                }
+            ]
+        });
+        let manifest = directory.join("frame.json");
+        std::fs::write(&manifest, serde_json::to_vec(&root).unwrap()).unwrap();
+        let loaded = load_qt_canvas_packet(&manifest).unwrap();
+        assert_eq!((loaded.width, loaded.height), (4, 4));
+        assert_eq!(loaded.layers.len(), 2);
+        assert_eq!(loaded.layers[1].pixels, alpha);
+        let mut altered = base;
+        altered[0] ^= 0x01;
+        std::fs::write(directory.join(names[0]), altered).unwrap();
+        assert!(load_qt_canvas_packet(&manifest).unwrap_err().contains("checksum mismatch"));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn path_policy_rejects_traversal_and_nested_segments() {
         for p in ["../a.bgra", "dir/a.bgra", "/a.bgra", "a.txt"] {
             let path = Path::new(p);
