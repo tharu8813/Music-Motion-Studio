@@ -151,10 +151,18 @@ pub fn load_canvas_frame_packet(manifest: &Path) -> Result<CanvasFramePacket, St
         if !canonical.starts_with(&root) {
             return Err("Canvas packet BGRA layer escapes its manifest directory".into());
         }
+        // Verify the disk file size before allocation. A manifest must
+        // never provoke an unbounded fs::read from an oversized input.
+        let file_size = fs::metadata(&canonical)
+            .map_err(|e| format!("Cannot stat Canvas BGRA layer {:?}: {e}", layer.name))?.len();
+        if file_size != layer.length as u64 {
+            return Err(format!("Canvas BGRA layer {:?} has incorrect byte length", layer.name));
+        }
         let data = fs::read(&canonical)
             .map_err(|e| format!("Cannot read Canvas BGRA layer {:?}: {e}", layer.name))?;
+        // A writer could replace the file after metadata was checked.
         if data.len() != layer.length {
-            return Err(format!("Canvas BGRA layer {:?} has incorrect byte length", layer.name));
+            return Err(format!("Canvas BGRA layer {:?} changed size while being read", layer.name));
         }
         let actual = format!("{:x}", Sha256::digest(&data));
         if actual != layer.sha256.to_ascii_lowercase() {
