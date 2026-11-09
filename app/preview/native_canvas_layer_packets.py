@@ -201,3 +201,69 @@ def save_native_canvas_frame(
         for path in reversed(created):
             path.unlink(missing_ok=True)
         raise
+
+
+def capture_native_canvas_track_frame(
+    scene: CanvasScene,
+    track: "PlaylistTrack",
+    z_bands: Sequence[tuple[float | None, float | None]],
+    *,
+    elapsed_seconds: float,
+    output_scale: float = 1.0,
+    track_number: int = 1,
+    track_total: int = 1,
+    track_start_seconds: float = 0.0,
+    playlist_duration_seconds: float | None = None,
+) -> NativeCanvasFrame:
+    """Capture a REAL track/lyrics state through the established export painter.
+
+    This is a diagnostics-only counterpart of capture_native_canvas_frame().
+    Unlike that static helper, each Z band calls CanvasSnapshot.capture_track,
+    which resolves TTML overlap, cue timing, lyric animations, keyframes and
+    track-dependent text with the SAME state logic as the normal exporter.
+    It still rasterizes the resulting Qt pixels on the CPU.
+    """
+    from math import isfinite
+
+    from app.models.playlist import PlaylistTrack
+
+    _validate_bands(z_bands)
+    if not isinstance(track, PlaylistTrack):
+        raise TypeError("Expected an existing PlaylistTrack")
+    if not isfinite(elapsed_seconds) or elapsed_seconds < 0:
+        raise ValueError("Elapsed track time must be finite and nonnegative")
+    if not isfinite(output_scale) or not 0.25 <= output_scale <= 64.0:
+        raise ValueError("Invalid native track capture scale")
+    if track_number < 1 or track_total < track_number:
+        raise ValueError("Invalid track index or total")
+    if not isfinite(track_start_seconds) or track_start_seconds < 0:
+        raise ValueError("Invalid track timeline start")
+    duration = (
+        track.duration_seconds
+        if playlist_duration_seconds is None
+        else playlist_duration_seconds
+    )
+    if not isfinite(duration) or duration <= 0:
+        raise ValueError("Invalid playlist duration")
+
+    layers: list[NativeCanvasBgraLayer] = []
+    for index, (z_min, z_max) in enumerate(z_bands):
+        image = CanvasSnapshot.capture_track(
+            scene, track, track_number, track_total, track_start_seconds,
+            elapsed_seconds=elapsed_seconds,
+            timeline_seconds=track_start_seconds + elapsed_seconds,
+            playlist_duration_seconds=duration,
+            playlist_tracks=[track],
+            output_scale=output_scale,
+            z_min=z_min, z_max=z_max,
+            transparent=index != 0,
+        )
+        layers.append(NativeCanvasBgraLayer(
+            stream_key="base" if index == 0 else f"layer:{index - 1}",
+            width=image.width(), height=image.height(),
+            pixels=straight_bgra_bytes(image),
+        ))
+    return NativeCanvasFrame(
+        width=layers[0].width, height=layers[0].height,
+        layers=tuple(layers),
+    )

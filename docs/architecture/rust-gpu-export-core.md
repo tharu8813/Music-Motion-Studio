@@ -983,3 +983,65 @@ composition -> synchronous GPU NVENC. True GPU glyph rendering,
 project-resolved lyrics/timecode, long-duration async NVENC consumer
 scheduling, exact audio sync, and production A/B benchmarks are future
 gated work.
+
+
+## Milestone 17: actual PlaylistTrack timed-lyric source -> GPU packets
+
+The RTX 5060 milestone-16 **moving Qt Canvas** result is verified:
+6/6 640x360 dynamic frames were encoded using native D3D11 alpha
+composition and NVENC API 13.1, with contiguous PTS 0..5 and no
+uncompressed GPU NV12 readbacks. Its independently generated CPU/RTX
+full-frame comparison reports mean RGB MAE **0.5898** codes, worst
+frame MAE **0.6046**, 95th percentile error at most **1 code**,
+and per-frame PSNR about 39.74..40.14 dB. These are lossy output
+quality measurements, not pixel-perfect equality or a benchmark
+of full Music Motion Studio projects.
+
+Until now the changing test's "lyrics" were merely scripted TEXT
+SourceItems. This milestone adds the opt-in
+capture_native_canvas_track_frame() bridge, which calls the *same*
+CanvasSnapshot.capture_track() used by Music Motion Studio's
+export/preview, once per distinct Z band. The native GPU input
+still consists of full-frame straight-alpha BGRA packets, with
+QPainter rendering performed on the CPU, and no change to the
+existing Python/FFmpeg export pipeline.
+
+tools/native_canvas_real_lyrics_probe.py exercises **real
+SourceType.LYRICS** with three timed TTML-style word cues, including
+overlapping active intervals and the existing
+resolve_lyrics_cue_state() timing logic. It creates one original
+Canvas packet and QPainter-composited CPU reference per PTS, with
+resolved cue/active/held indices saved to the validated timeline
+manifest. Optional --track-json can load a real serialized
+PlaylistTrack.to_dict() JSON containing user lyrics; --start-seconds
+selects the exact part of a track to inspect. The visual SourceItem
+layout and sample scene remain diagnostic fixtures, not a full
+serialized project or compiled export plan.
+
+tools/native_canvas_timeline_probe.py verify is reused unchanged for
+full-frame H264 RGB parity after supporting a second manifest kind
+("track_lyrics"). Source-motion fixtures retain their original
+cue-order checks, while real track entries additionally validate
+elapsed audio clock, cue state field types and contiguous PTS.
+Windows deployment CI runs real TTML overlap and Qt capture tests,
+software x264 full-frame parity, then optionally the existing native
+D3D11/NVENC probe. Unsupported hosted hardware remains an explicit
+status, never a claim that RTX encoding happened in CI.
+
+On a Windows PC with RTX NVENC:
+
+    git switch main
+    git pull
+    python -m tools.native_canvas_real_lyrics_probe --output-dir qt-lyrics --frames 6 --fps 60 --scale 0.5
+
+    $packets = @()
+    foreach ($i in (0..5)) { $packets += '--manifest'; $packets += ('qt-lyrics/frame-{0:D4}.json' -f $i) }
+    cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_packet_probe -- @packets --repeat 1 --slots 2 --video-output qt-lyrics/lyrics.h264 --output qt-lyrics/gpu-report.json
+
+    python -m tools.native_canvas_timeline_probe verify --timeline qt-lyrics/timeline.json --video qt-lyrics/lyrics.h264 --report qt-lyrics/parity.json
+
+The hardware proof for this *actual timed-lyric* scene must be
+collected before production feature activation. Planned next steps:
+project-source serialization/compiled render-plan input, audio-clock
+A/V synchronization at duration, sustained async NVENC scheduling,
+full-project fidelity and GPU-native glyph rendering.

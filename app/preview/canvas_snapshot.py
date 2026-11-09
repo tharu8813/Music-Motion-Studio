@@ -1089,11 +1089,11 @@ class CanvasSnapshot:
                         original_cue = track.lyrics[original_index]
                         if source.subtitle_translation_enabled:
                             original_cue = display_cue(original_cue)
-                        original_text = LyricsService.decode_line_breaks(
+                        previous_cue_text = LyricsService.decode_line_breaks(
                             original_cue.get("text", "")
                         ).strip()
                         graphics_item._subtitle_overlap_prior_rows += max(
-                            1, sum(bool(row.strip()) for row in original_text.splitlines())
+                            1, sum(bool(row.strip()) for row in previous_cue_text.splitlines())
                         )
                 lyric = LyricsService.decode_line_breaks(
                     lyric_cue.get("text", "") if lyric_cue else ""
