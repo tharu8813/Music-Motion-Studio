@@ -182,7 +182,7 @@ fn main() {
                     "reason": reason, "production_export_changed": false,
                 }),
                 Ok(mut encoder) => {
-                    let attempted: Result<(Vec<u8>, Vec<u8>), String> = (|| {
+                    let attempted: Result<(Vec<u8>, Vec<u8>, usize), String> = (|| {
                         let packet = layer_manifest.as_deref()
                             .map(load_canvas_frame_packet)
                             .transpose()?;
@@ -265,7 +265,7 @@ fn main() {
                                 }
                             }
                         }
-                        Ok((compressed, center_samples))
+                        Ok((compressed, center_samples, layer_count))
                     })();
                     match attempted {
                         Err(reason) if reason.contains("alpha blending unsupported") ||
@@ -280,7 +280,7 @@ fn main() {
                             "reason": reason, "adapter_name": pool.adapter_name(),
                             "production_export_changed": false,
                         }),
-                        Ok((bytes, samples)) => {
+                        Ok((bytes, samples, layer_count)) => {
                             let file_result = video_path.as_ref().map(|path| -> std::io::Result<()> {
                                 let mut file = OpenOptions::new().write(true)
                                     .create_new(true).open(path)?;
@@ -303,11 +303,7 @@ fn main() {
                                     "nvenc_api_version": encoder.negotiated_api_version(),
                                     "resolution": [width, height],
                                     "frames_encoded": frames,
-                                    "gpu_composited_layers": if layer_manifest.is_some() {
-                                        layer_manifest.as_deref()
-                                            .and_then(|path| load_canvas_frame_packet(path).ok())
-                                            .map_or(0, |packet| packet.layers.len())
-                                    } else { 2 },
+                                    "gpu_composited_layers": layer_count,
                                     "input_mode": if layer_manifest.is_some() { "qt_canvas_manifest" } else { "synthetic_mask" },
                                     "qt_canvas_packet_sha256_checked": layer_manifest.is_some(),
                                     "qt_canvas_cpu_rasterized": layer_manifest.is_some(),
