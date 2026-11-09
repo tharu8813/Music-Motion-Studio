@@ -66,6 +66,7 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             project.settings.title = "Native audio project"
             source = root / "project.json"
             source.write_text(json.dumps(project.to_dict()), encoding="utf8")
+            original_bytes = source.read_bytes()
             target = root / "full.mp4"
             collected = []
 
@@ -94,7 +95,7 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             self.assertEqual(collected[0], (320, 180, 4))
             prepare.assert_called_once()
             render.assert_called_once()
-            self.assertEqual(json.loads(source.read_text("utf8")), project.to_dict())
+            self.assertEqual(source.read_bytes(), original_bytes)
 
     def test_refuses_to_overwrite_user_video_before_audio_or_gpu_start(self):
         with TemporaryDirectory() as temp:
