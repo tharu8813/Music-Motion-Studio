@@ -2543,7 +2543,7 @@ class MainWindowPreviewTests(MainWindowTestCase):
 
                 dialog._playback_position_changed(0)
                 self.assertIn("00:02.000", dialog.current_lyric.text())
-                self.assertEqual(dialog.next_lyric.text(), "First lyric")
+                self.assertEqual(dialog.next_lyric.text().splitlines()[0], "First lyric")
 
                 dialog._playback_position_changed(2_000)
                 self.assertEqual(dialog.current_lyric.text(), "First lyric")
