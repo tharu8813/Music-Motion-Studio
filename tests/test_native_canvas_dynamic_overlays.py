@@ -131,7 +131,7 @@ class NativeDynamicOverlayTests(unittest.TestCase):
                 )
             decode.assert_called_once()
             fft.assert_called_once()
-            self.assertEqual(fft.call_args.args[2:4], (24,))
+            self.assertEqual(fft.call_args.args[2], 24)
             self.assertIn(track.id, envelopes)
             self.assertIn((track.id, lyric.music_reaction_profile), envelopes)
             expected_bass = PythonVisualizerRenderer.bass_envelope(levels, fps)
