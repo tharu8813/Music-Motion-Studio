@@ -781,3 +781,54 @@ rendering, frame-consumer ownership and async scheduling, PCM/audio
 PTS accuracy on full-length projects, arbitrary color range/matrix
 handling, MP4 A/V drift, cancellation/recovery, and sustained
 hardware-backed project A/B performance and visual-fidelity testing.
+
+
+## Milestone 13: same-device D3D11 Canvas layer composition
+
+The previously user-verified RTX 5060 pipeline proved that native
+GPU NV12 inputs can be encoded into a decodable 30-frame H.264 stream.
+The first step toward real Canvas/lyrics compositing adds a *GPU
+layer mixer* on the exact D3D11 device and immediate context already
+used for NVENC:
+
+- Accept 1..=8 full-resolution BGRA textures in Canvas bottom-to-top
+  Z-order. Layer zero must be an opaque full-frame background.
+- For each additional layer, use **straight per-pixel BGRA alpha** with
+  optional global opacity in [0,1]. Qt's ARGB32_Premultiplied must first
+  be converted to straight Format_ARGB32, or text edges would be blended
+  twice by the GPU. This is deliberately separate from Qt's QPainter.
+- Query native VideoProcessorCaps for MaxInputStreams, MaxStreamStates
+  and FEATURE_CAPS_ALPHA_STREAM. Refuse unsupported hardware instead of
+  silently flattening transparent text on the CPU or reporting a false
+  success. D3D11 video processing applies each stream's pixel and planar
+  alpha directly on the GPU.
+- Call one multi-stream VideoProcessorBlt into a reusable *native
+  NV12 GPU texture*, then CopyResource on the same immediate context
+  into a bounded GPU NV12 ring. A D3D11 EVENT query proves that copy
+  finished before the frame is handed to the working in-process NVENC
+  encoder. Reuse occurs only after completed H.264 output.
+- Make a separate synthetic diagnostic that uploads a dark background
+  and a red, straight-alpha lyric-*like* overlay. Its center opacity
+  cycles 0, 128, 255; a diagnostic-only NV12 readback can check that
+  the center luma increases strictly while actual NVENC consumes GPU
+  NV12 textures without any CPU NV12 readback.
+- CI tests validation, compiles the Windows API implementation,
+  executes it only when hardware supports the required capabilities,
+  and reports unsupported drivers explicitly.
+
+On RTX 5060, run the *next* optional hardware probe:
+
+    git switch main
+    git pull
+    cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_canvas_layers_probe -- --width 1920 --height 1080 --frames 6 --slots 2 --validate-alpha --video-output d3d11-canvas-layer-local.h264 --output d3d11-canvas-layer-local.json
+
+**Limits of this step:** The alpha mask above is synthetic. The Qt
+Canvas's scene graph, font glyph rendering, dynamically positioned
+lyrics and source animations are still rasterized in the existing
+QPainter path; they have not yet been moved onto the native D3D11
+device. The synthetic BGRA layer inputs are initially CPU-uploaded
+for reproducibility; only GPU blending / NV12 conversion / NVENC
+compression are resident. A real Canvas capture-to-layer bridge, plus
+full-frame visual and timing parity against QPainter, are required
+before any production renderer switch. The default export remains
+unchanged.
