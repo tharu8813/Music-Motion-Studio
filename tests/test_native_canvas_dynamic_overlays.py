@@ -6,6 +6,7 @@ from contextlib import redirect_stdout
 from io import StringIO
 import math
 import os
+from threading import Event
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import QApplication
 from app.models.playlist import PlaylistTrack
 from app.models.source import Source, SourceType
 from app.renderer.python_visualizer import PythonVisualizerRenderer
+from app.renderer.ffmpeg_renderer import VisualizerOverlay
 from app.preview.native_canvas_layer_packets import NativeCanvasBgraLayer, NativeCanvasFrame
 from app.timeline.compiler import compile_playlist
 from tests.test_native_canvas_project_probe import project_fixture
@@ -265,6 +267,98 @@ class NativeDynamicOverlayTests(unittest.TestCase):
                 entry["source_id"] for entry in result["sources"]
             ])
             self.assertFalse((Path(directory) / "capture").exists())
+
+    def test_distant_frame_seek_is_pixel_identical_to_full_progression(self):
+        import numpy as np
+
+        renderer = PythonVisualizerRenderer(Path("ffmpeg-not-required"))
+        levels = np.full((130, 24), 0.01, dtype=np.float32)
+        levels[30:60, :6] = 0.85
+        levels[95:, 6:18] = 0.55
+        stereo = (
+            np.linspace(0.02, 0.88, len(levels), dtype=np.float32),
+            np.linspace(0.77, 0.03, len(levels), dtype=np.float32),
+        )
+        windows = ((0.0, 2.0), (2.0, 2.4))
+        index = 74  # On the SECOND track, not near project start.
+        for kind in ("visualizer", "particles", "waveform", "level_meter"):
+            with self.subTest(kind=kind):
+                overlay = VisualizerOverlay(
+                    x=6, y=9, width=100, height=55, style="bars",
+                    color="#FFFFFF", kind=kind,
+                    personal_colors=("#FF2244", "#22CC88"),
+                )
+                original = renderer._layer_frames(
+                    overlay, levels, 30, Event(), None, stereo, windows,
+                )
+                for _ in range(index):
+                    next(original)
+                expected = next(original).copy()
+                expected_next = next(original).copy()
+                with patch.object(
+                    renderer, "_draw_frame", wraps=renderer._draw_frame,
+                ) as painter:
+                    sought = renderer._layer_frames(
+                        overlay, levels, 30, Event(), None, stereo, windows,
+                        start_frame=index,
+                    )
+                    actual = next(sought).copy()
+                    actual_next = next(sought).copy()
+                self.assertEqual(painter.call_count, 2)
+                self.assertEqual(bytes(actual.constBits()), bytes(expected.constBits()))
+                self.assertEqual(
+                    bytes(actual_next.constBits()), bytes(expected_next.constBits()),
+                )
+        with self.assertRaisesRegex(ValueError, "start frame"):
+            next(renderer._layer_frames(
+                VisualizerOverlay(x=0,y=0,width=64,height=40,style="bars",
+                                  color="#FFFFFF"),
+                levels,30,Event(),None,start_frame=130,
+            ))
+
+    def test_cross_track_seek_reuses_real_track_clocks_not_time_zero(self):
+        ffmpeg = os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG") or shutil.which("ffmpeg")
+        if not ffmpeg or not Path(ffmpeg).is_file():
+            self.skipTest("FFmpeg needed to seek across real soundtrack track boundary")
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "first.wav"
+            second = root / "second.wav"
+            joined = root / "two-tracks.wav"
+            sample_wav(first)
+            sample_wav(second)
+            with wave.open(str(joined), "wb") as output:
+                output.setnchannels(1)
+                output.setsampwidth(2)
+                output.setframerate(8000)
+                for filename in (first, second):
+                    with wave.open(str(filename), "rb") as part:
+                        output.writeframes(part.readframes(part.getnframes()))
+            project = dynamic_project(first)
+            first_track = project.playlist[0]
+            second_track = PlaylistTrack(str(second), "Next track", duration_seconds=1.0)
+            project.playlist.append(second_track)
+            project.sources[0].source_type = SourceType.BACKGROUND
+            project.sources[0].background_bass_reactive = True
+            lyrics = next(x for x in project.sources if x.source_type is SourceType.LYRICS)
+            lyrics.music_reactive_enabled = True
+            target = root / "project.json"
+            target.write_text(json.dumps(project.to_dict()), encoding="utf8")
+            timeline_file = capture_project(
+                target, root / "after-boundary", source_policy="dynamic-audio",
+                prepared_audio=joined, ffmpeg=ffmpeg,
+                start_seconds=29 / 30, frames=5, fps=30, scale=0.25,
+            )
+            timeline, refs = load_timeline(timeline_file)
+            self.assertEqual(len(refs), 5)
+            frame_ids = [row["track_id"] for row in timeline["frames"]]
+            self.assertEqual(frame_ids[:1], [first_track.id])
+            self.assertEqual(frame_ids[1:], [second_track.id] * 4)
+            self.assertEqual(timeline["frames"][1]["track_number"], 2)
+            self.assertAlmostEqual(timeline["frames"][1]["track_elapsed_seconds"], 0.0)
+            self.assertAlmostEqual(timeline["frames"][1]["timeline_seconds"], 1.0)
+            self.assertEqual(len(timeline["dynamic_sources"]), 2)
+            self.assertEqual(len(timeline["canvas_audio_reactive_source_ids"]), 2)
 
     def test_bgra_alpha_and_order_are_retained(self):
         project = dynamic_project(Path("not-needed.wav"))
