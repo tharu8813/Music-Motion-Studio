@@ -449,3 +449,38 @@ this conversion path and that output video planes have sane values.
    image/lyrics/audio tests are mandatory before default switching.
 
 The existing Python, Qt and NVENC export pipeline remains unchanged.
+
+
+### RTX 5060 D3D11 BGRA input-view regression (2026-11-09)
+
+The first live RTX 5060 run of `d3d11_bgra_nv12_video_probe`
+successfully allocated the D3D11 device, the native video processor,
+the BGRA input resource and the NV12 output, but failed while creating
+`ID3D11VideoProcessorInputView` with `E_INVALIDARG (0x80070057)`.
+
+**Root cause:** the initial BGRA input resource had
+`BindFlags = D3D11_BIND_SHADER_RESOURCE` *only*. Per Microsoft's
+`ID3D11VideoDevice::CreateVideoProcessorInputView` requirements,
+nonzero bind flags must include an eligible video input usage such as
+`D3D11_BIND_RENDER_TARGET`; a shader-resource-only texture is rejected.
+The repair creates BGRA inputs with
+`D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET`, and
+adds a Rust regression test for this required bind combination.
+See: https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11videodevice-createvideoprocessorinputview
+
+When the NVIDIA driver rejects a video-processor enqueue, the probe
+now writes `status: gpu_video_conversion_failed`, the failing frame,
+GPU identity and the original Windows error to its output JSON
+**before exiting unsuccessfully**, rather than panicking without a file.
+
+Re-run on the real hardware:
+
+```powershell
+git pull
+cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_bgra_nv12_video_probe -- --width 1920 --height 1080 --frames 20 --output d3d11-bgra-nv12-local.json
+```
+
+A Windows CI pass checks compilation and bind flags but does not
+prove `CreateVideoProcessorInputView` succeeds on RTX hardware:
+hosted Windows runs on the Microsoft Basic Render Driver. Actual
+NVIDIA BGRA→NV12 conversion and color sanity remain the local gate.

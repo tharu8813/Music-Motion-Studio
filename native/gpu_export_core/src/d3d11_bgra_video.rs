@@ -139,6 +139,17 @@ impl NativeBgraNv12VideoProcessor {
         })
     }
 
+    /// Bind flags used by the synthetic BGRA input texture.
+    ///
+    /// A D3D11 VideoProcessorInputView cannot be created from a texture
+    /// whose only bind flag is D3D11_BIND_SHADER_RESOURCE. According to
+    /// CreateVideoProcessorInputView, the allowed nonzero combinations
+    /// must include a video-processor-compatible flag (e.g. RENDER_TARGET).
+    /// Retain SHADER_RESOURCE for future GPU scene/texture sampling.
+    fn bgra_input_bind_flags() -> u32 {
+        (D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET).0 as u32
+    }
+
     /// Create an opaque full-frame BGRA input texture on this same D3D11
     /// device. A future native D3D11 renderer can instead provide its own
     /// BGRA texture made on this device.
@@ -148,7 +159,7 @@ impl NativeBgraNv12VideoProcessor {
             Format: DXGI_FORMAT_B8G8R8A8_UNORM,
             SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
             Usage: D3D11_USAGE_DEFAULT,
-            BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+            BindFlags: Self::bgra_input_bind_flags(),
             CPUAccessFlags: 0, MiscFlags: 0,
         };
         let mut texture = None;
@@ -170,6 +181,15 @@ impl NativeBgraNv12VideoProcessor {
             || description.MipLevels != 1 || description.ArraySize != 1
         {
             return Err("D3D11 source must be matching full-size BGRA Texture2D".into());
+        }
+        // A shader-resource-only texture is NOT valid for a video processor
+        // input view. Catch this common E_INVALIDARG at the source boundary.
+        // BindFlags=0 remains legal per D3D11 and is deliberately supported.
+        let shader_only = D3D11_BIND_SHADER_RESOURCE.0 as u32;
+        if description.BindFlags == shader_only {
+            return Err(
+                "BGRA texture has SHADER_RESOURCE-only bind flags: D3D11 video input views require 0 or a video-processor-compatible bind flag such as RENDER_TARGET".into()
+            );
         }
         Ok(())
     }
@@ -206,7 +226,14 @@ impl NativeBgraNv12VideoProcessor {
             self.video_device.CreateVideoProcessorInputView(
                 source, &self.enumerator, &input_desc, Some(&mut input_view),
             )
-        }.map_err(|e| format!("Cannot create BGRA video input view: {e}"))?;
+        }.map_err(|e| {
+            let mut desc = D3D11_TEXTURE2D_DESC::default();
+            unsafe { source.GetDesc(&mut desc) };
+            format!(
+                "Cannot create BGRA video input view: {e}; BindFlags=0x{:X}, Usage={:?}, Format={:?}, SampleCount={}",
+                desc.BindFlags, desc.Usage, desc.Format, desc.SampleDesc.Count
+            )
+        })?;
         let input_view = input_view.ok_or("D3D11 returned no BGRA video input view")?;
 
         // D3D11_VIDEO_PROCESSOR_STREAM's COM field is ManuallyDrop; release
@@ -239,6 +266,16 @@ impl NativeBgraNv12VideoProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bgra_video_input_binding_is_compatible_with_d3d11_video_processor() {
+        let flags = NativeBgraNv12VideoProcessor::bgra_input_bind_flags();
+        // Regression: SHADER_RESOURCE alone caused E_INVALIDARG
+        // 0x80070057 on the user's RTX 5060 at CreateVideoProcessorInputView.
+        assert_ne!(flags, D3D11_BIND_SHADER_RESOURCE.0 as u32);
+        assert_ne!(flags & D3D11_BIND_RENDER_TARGET.0 as u32, 0);
+        assert_ne!(flags & D3D11_BIND_SHADER_RESOURCE.0 as u32, 0);
+    }
 
     #[test]
     fn rejects_invalid_opaque_bgra_before_gpu_work() {
