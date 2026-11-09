@@ -20,7 +20,7 @@ use mini_nvcodec::nvenc_sys::{
     NV_ENC_MAP_INPUT_RESOURCE, NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS,
     NV_ENC_PRESET_CONFIG, NV_ENC_REGISTER_RESOURCE, NV_ENC_TUNING_INFO,
     NV_ENC_CREATE_BITSTREAM_BUFFER, NV_ENC_PIC_PARAMS, NV_ENC_PIC_STRUCT,
-    NV_ENC_LOCK_BITSTREAM, NV_ENC_PIC_FLAG_OUTPUT_SPSPPS,
+    NV_ENC_LOCK_BITSTREAM, NV_ENC_PIC_FLAG_OUTPUT_SPSPPS, NV_ENC_PIC_FLAG_FORCEIDR,
     NV_ENC_VUI_COLOR_PRIMARIES, NV_ENC_VUI_TRANSFER_CHARACTERISTIC,
     NV_ENC_VUI_MATRIX_COEFFS,
 };
@@ -384,7 +384,7 @@ impl NativeNvencRegistrationSession {
         pic.frameIdx = frame.pts as u32;
         // First frame gets SPS/PPS, required by a standalone Annex-B file.
         if self.last_encoded_pts.is_none() {
-            pic.encodePicFlags |= NV_ENC_PIC_FLAG_OUTPUT_SPSPPS;
+            pic.encodePicFlags |= NV_ENC_PIC_FLAG_OUTPUT_SPSPPS | NV_ENC_PIC_FLAG_FORCEIDR;
         }
 
         let submitted = unsafe { (self.api.nvEncEncodePicture)(self.encoder, &mut pic) };
