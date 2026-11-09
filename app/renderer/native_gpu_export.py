@@ -83,7 +83,7 @@ def _probe_complete_h264(
     try:
         process = subprocess.run([
             str(ffprobe), "-v", "error", "-f", "h264", "-count_frames",
-            "-show_entries", "stream=codec_name,width,height,nb_read_frames,r_frame_rate",
+            "-show_entries", "stream=codec_name,width,height,nb_read_frames,has_b_frames",
             "-of", "json", str(path),
         ], check=False, capture_output=True, timeout=180)
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -98,15 +98,17 @@ def _probe_complete_h264(
         counted = int(stream["nb_read_frames"])
     except (ValueError, KeyError, TypeError) as exc:
         raise RenderError("Native H264 stream metadata is invalid.") from exc
-    # An Annex-B stream is NOT timestamped. ffprobe can report a doubled
-    # r_frame_rate for a valid CFR stream, so that number is not the FPS
-    # authority. The complete native report establishes the selected CFR
-    # and FFmpegRenderer stamps -r fps BEFORE importing raw H264. The
-    # production output validator then verifies the final MP4's FPS.
+    # An Annex-B stream is NOT timestamped. ffprobe may report a doubled
+    # r_frame_rate for true CFR H264, so the native report is the FPS
+    # authority. Our synchronous NVENC encoder is configured with
+    # frameIntervalP=1 (no B-frames), guaranteeing reorder-free GOPs for
+    # elementary-stream PTS stamping. Require zero B-frames here before
+    # FFmpegRenderer sets -r fps on input and validates the final MP4.
     if (stream.get("codec_name") != "h264"
             or stream.get("width") != width
             or stream.get("height") != height
-            or counted != frame_count):
+            or counted != frame_count
+            or stream.get("has_b_frames") != 0):
         raise RenderError(
             "Native GPU H264 does not match the complete playlist: "
             f"{counted}/{frame_count} frames, "
