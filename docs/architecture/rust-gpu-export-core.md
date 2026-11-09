@@ -622,3 +622,53 @@ for production. Next is real H.264 bitstream output, decoded frame
 count, PTS and color metadata, then the Qt scene renderer with no
 intermediate CPU frames. Existing Python/FFmpeg exporter, audio
 and default settings are unchanged.
+
+
+## Milestone 11: H.264 Annex-B bitstream from native D3D11 GPU NV12
+
+The user's RTX 5060 probe confirmed 12/12 successful NVENC input maps
+through a real SDK 13.1 hardware session on 3 persistent NV12 GPU
+textures, all allocated on the original D3D11 device. No NV12 download
+was needed, but the previous test did not call NvEncEncodePicture.
+
+The new d3d11_nvenc_h264_probe actually submits NV12 GPU textures to
+the synchronous NVENC H.264 encoder, reads only the finished compressed
+Annex-B bitstream packets, and writes a new .h264 elementary stream.
+For this deliberately simple proof, the driver preset is configured
+with frameIntervalP = 1 (no B frames) and lookahead disabled. This
+permits one output-bitstream buffer and one input frame in flight at
+the encoder level. Output NVENC lock polling has a deadline; if no
+complete output becomes available, it fails rather than recycling
+the D3D11 input frame. A successful bitstream lock/unlock is the
+actual encoder consumer completion event for this synchronous path.
+
+Every H.264 frame is checked for nonempty Annex-B data, strictly
+increasing input and output PTS, and GPU slot reuse only after the
+compressed output is collected. The generated .h264 output is never
+silently overwritten. The encode output is NOT a finished Music Motion
+Studio export: it contains no audio, no MP4 container and no Qt Canvas
+or lyric rendering.
+
+The RTX 5060's previous 12-patch native BGRA->NV12 color comparison
+matched FFmpeg BT.709 *full-range*. The H.264 encoder's SPS VUI is now
+explicitly configured for full range, BT.709 primaries, transfer and
+matrix. Optional ffprobe verification requires exactly the requested
+frame count, 1920x1080 resolution and these VUI fields.
+
+Run on the verified RTX 5060 workstation:
+
+    git switch main
+    git pull
+    cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_nvenc_h264_probe -- --width 1920 --height 1080 --frames 30 --slots 3 --video-output d3d11-nvenc-h264-local.h264 --ffprobe ffprobe --output d3d11-nvenc-h264-local.json
+
+Do not compare this synthetic synchronous pipeline's wall time against
+a production playlist render. The synthetic BGRA texture still starts
+on the CPU. The next promotions require output decode/color inspection,
+GPU-native Canvas scene generation, ring-buffered asynchronous NVENC
+delivery with real per-frame consumer completion, MP4/audio muxing and
+same-project A/B speed/fidelity checks. The default Python exporter
+remains unchanged.
+
+Windows CI compiles and smoke tests the command, but a hosted Windows
+runner generally cannot exercise NVIDIA hardware. Only the user's
+RTX 5060 report plus a decoded H.264 file can confirm live encoding.
