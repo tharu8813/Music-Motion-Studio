@@ -24,6 +24,7 @@ import hashlib
 import json
 from math import isfinite
 from pathlib import Path
+import subprocess
 import sys
 
 from PySide6.QtWidgets import QApplication
@@ -62,8 +63,44 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def validate_project_for_gpu_capture(project: ProjectDocument, *, scale: float) -> None:
-    """Fail explicitly instead of silently omitting unsupported project layers."""
+def unsupported_visible_sources(project: ProjectDocument) -> list[dict[str, str]]:
+    """List export-only dynamic layers that the Qt packet painter cannot reproduce.
+
+    Export uses independent FFmpeg/Python overlay streams for these sources.
+    Rendering the editor's static visualizer placeholder would create a
+    deceptively valid H264 file, so such sources are excluded *only* by an
+    explicitly selected canvas-only diagnostic policy.
+    """
+    omitted: list[dict[str, str]] = []
+    for source in project.sources:
+        if not source.visible:
+            continue
+        reason = None
+        if source.source_type in UNSUPPORTED_SOURCES:
+            reason = "requires_separate_export_overlay"
+        elif source.uses_bass_reaction or (
+            source.source_type is SourceType.BACKGROUND and source.background_bass_reactive
+        ):
+            reason = "requires_audio_analysis"
+        if reason:
+            omitted.append({
+                "source_id": source.id,
+                "source_type": source.source_type.value,
+                "reason": reason,
+            })
+    return omitted
+
+
+def validate_project_for_gpu_capture(
+    project: ProjectDocument, *, scale: float, source_policy: str = "strict",
+) -> list[dict[str, str]]:
+    """Validate the frame capture and return any explicitly excluded sources.
+
+    The default remains fail-closed. canvas-only must be opted into by the
+    caller and is always reported as a PARTIAL project visual diagnostic.
+    """
+    if source_policy not in {"strict", "canvas-only"}:
+        raise TimelineValidationError("Source policy must be strict or canvas-only")
     if project.settings.transition_mode != "none":
         raise TimelineValidationError(
             "Project GPU probe currently requires transition_mode=none "
@@ -72,24 +109,19 @@ def validate_project_for_gpu_capture(project: ProjectDocument, *, scale: float) 
     visible = [source for source in project.sources if source.visible]
     if not visible or len(visible) > 64:
         raise TimelineValidationError("Project GPU probe supports 1..64 visible sources")
-    if any(source.source_type in UNSUPPORTED_SOURCES for source in visible):
-        names = sorted({
-            source.source_type.value for source in visible
-            if source.source_type in UNSUPPORTED_SOURCES
-        })
+    omitted = unsupported_visible_sources(project)
+    if omitted and source_policy == "strict":
+        names = sorted({entry["source_type"] for entry in omitted})
         raise TimelineValidationError(
-            f"Project contains separately-rendered dynamic sources: {', '.join(names)}"
+            f"Project contains separately-rendered dynamic sources: {', '.join(names)}. "
+            "For a PARTIAL canvas-only GPU test, explicitly pass "
+            "--source-policy canvas-only; omitted effects are NOT validated."
         )
-    if any(source.uses_bass_reaction for source in visible):
-        raise TimelineValidationError(
-            "Project contains music-reactive sources requiring an audio envelope"
-        )
-    if any(source.source_type is SourceType.BACKGROUND
-           and source.background_bass_reactive for source in visible):
-        raise TimelineValidationError(
-            "Project contains an audio-reactive background without a sound envelope"
-        )
-    for source in visible:
+    excluded_ids = {entry["source_id"] for entry in omitted}
+    included = [source for source in visible if source.id not in excluded_ids]
+    if not included:
+        raise TimelineValidationError("No non-dynamic Canvas sources remain for this GPU test")
+    for source in included:
         if source.source_type in {
             SourceType.IMAGE, SourceType.LOGO, SourceType.WATERMARK,
         } and source.content_path and not Path(source.content_path).is_file():
@@ -106,10 +138,17 @@ def validate_project_for_gpu_capture(project: ProjectDocument, *, scale: float) 
         )
     if not any(track.enabled and track.duration_seconds > 0 for track in project.playlist):
         raise TimelineValidationError("Project has no enabled tracks with positive duration")
+    return omitted
 
 
-def _z_bands(project: ProjectDocument) -> list[tuple[int | None, int | None]]:
-    distinct = sorted({source.z_index for source in project.sources if source.visible})
+def _z_bands(
+    project: ProjectDocument, excluded_ids: set[str] | None = None,
+) -> list[tuple[int | None, int | None]]:
+    excluded_ids = excluded_ids or set()
+    distinct = sorted({
+        source.z_index for source in project.sources
+        if source.visible and source.id not in excluded_ids
+    })
     if len(distinct) < 2:
         return [(None, None)]
     # Qt draws all lowest-Z items on an opaque artboard. All higher
@@ -181,6 +220,7 @@ def capture_project(
     project_path: Path, output_dir: Path, *,
     start_seconds: float = 0.0, frames: int = 6,
     fps: int = 60, scale: float = 0.5,
+    source_policy: str = "strict",
 ) -> Path:
     if (not 3 <= frames <= MAX_FRAMES or not 1 <= fps <= 120
             or not isfinite(start_seconds) or start_seconds < 0):
@@ -193,7 +233,14 @@ def capture_project(
     # ProjectService also resolves packaged media assets using the same
     # application-native loader as the GUI.
     project = ProjectService.load(project_path)
-    validate_project_for_gpu_capture(project, scale=scale)
+    omitted = validate_project_for_gpu_capture(
+        project, scale=scale, source_policy=source_policy,
+    )
+    excluded_ids = {item["source_id"] for item in omitted}
+    included_sources = [
+        source for source in project.sources
+        if source.visible and source.id not in excluded_ids
+    ]
     plan = compile_playlist(project.playlist, enabled_only=True)
     if start_seconds + (frames - 1) / fps >= plan.duration_seconds:
         raise TimelineValidationError("Frame range exceeds compiled project duration")
@@ -201,7 +248,7 @@ def capture_project(
         resolve_project_frame(project, start_seconds + index / fps, plan=plan)
         for index in range(frames)
     ]
-    bands = _z_bands(project)
+    bands = _z_bands(project, excluded_ids)
     width = round(project.canvas.width * scale)
     height = round(project.canvas.height * scale)
     if width * height * 3 * frames > MAX_DECODED_BYTES:
@@ -218,7 +265,7 @@ def capture_project(
     scene.set_artboard_size(project.canvas.width, project.canvas.height)
     scene.show_grid = False
     for source in sorted(
-        (src for src in project.sources if src.visible),
+        included_sources,
         key=lambda source: source.z_index,
     ):
         scene.addItem(SourceItem(source))
@@ -253,8 +300,8 @@ def capture_project(
             if png.exists() or not _make_reference(packet).save(str(png), "PNG"):
                 raise TimelineValidationError(f"Cannot write project reference PNG {index}")
             lyric_states = []
-            for src in project.sources:
-                if src.visible and src.source_type is SourceType.LYRICS:
+            for src in included_sources:
+                if src.source_type is SourceType.LYRICS:
                     lyric = src.resolved_lyrics()
                     cue = resolve_lyrics_cue_state(
                         state["track"], state["track_elapsed_seconds"],
@@ -294,7 +341,13 @@ def capture_project(
             "fps": fps, "start_seconds": start_seconds,
             "frames": entries,
             "source_project_sha256": _file_sha256(project_path),
-            "source_count": len([s for s in project.sources if s.visible]),
+            "source_count": len(included_sources),
+            "excluded_source_count": len(omitted),
+            "excluded_sources": omitted,
+            "capture_scope": (
+                "partial_canvas_only" if omitted else "all_eligible_canvas_sources"
+            ),
+            "full_project_visual_parity_verified": False,
             "compiled_plan_duration_seconds": plan.duration_seconds,
             "qt_canvas_cpu_rasterized": True,
             "native_gpu_text_painting_implemented": False,
@@ -316,6 +369,72 @@ def capture_project(
         _ = app
 
 
+
+
+def _encode_and_verify(timeline_path: Path, args: argparse.Namespace) -> int:
+    """Single fail-fast GPU pipeline. Never run Rust/FFprobe after capture fails."""
+    from tools.native_canvas_timeline_probe import verify_video_parity
+
+    timeline, _ = load_timeline(timeline_path)
+    directory = timeline_path.parent
+    video = directory / "project.h264"
+    gpu_report = directory / "gpu-report.json"
+    parity_report = directory / "parity.json"
+    if any(file.exists() for file in (video, gpu_report, parity_report)):
+        raise TimelineValidationError("Refusing to overwrite prior GPU probe output")
+    command = [
+        args.cargo, "run", "--release", "--manifest-path",
+        "native/gpu_export_core/Cargo.toml",
+        "--bin", "d3d11_qt_canvas_packet_probe", "--",
+    ]
+    for i in range(len(timeline["frames"])):
+        command += ["--manifest", str(directory / f"frame-{i:04d}.json")]
+    command += [
+        "--repeat", "1", "--slots", "2",
+        "--video-output", str(video), "--output", str(gpu_report),
+    ]
+    try:
+        process = subprocess.run(
+            command, capture_output=True, text=True, check=False, timeout=420,
+        )
+    except OSError as exc:
+        raise TimelineValidationError(f"Cannot launch native encoder: {exc}") from exc
+    if process.returncode:
+        raise TimelineValidationError(
+            "Native D3D11 encoder did not succeed: "
+            + (process.stderr or process.stdout)[-1500:]
+        )
+    if not gpu_report.is_file():
+        raise TimelineValidationError("Native encoder did not produce a GPU report")
+    gpu = json.loads(gpu_report.read_text(encoding="utf-8"))
+    if gpu.get("status") != "measured":
+        raise TimelineValidationError(
+            "Native H264 encoder did not run on compatible GPU: "
+            f"{gpu.get('status')}: {gpu.get('reason', '')}"
+        )
+    if (gpu.get("frames_encoded") != len(timeline["frames"])
+            or gpu.get("pts") != list(range(len(timeline["frames"])))
+            or gpu.get("gpu_nv12_to_cpu_readbacks") != 0
+            or not video.is_file()):
+        raise TimelineValidationError("Native encoder reported incomplete PTS or missing H264")
+    parity = verify_video_parity(
+        timeline_path, video, ffmpeg=args.ffmpeg, ffprobe=args.ffprobe,
+    )
+    with parity_report.open("x", encoding="utf-8") as output:
+        json.dump(parity, output, indent=2, ensure_ascii=False)
+        output.write("\n")
+    print(json.dumps({
+        "status": "verified", "gpu_report": str(gpu_report),
+        "h264_file": str(video), "parity_report": str(parity_report),
+        "frames_encoded": gpu["frames_encoded"],
+        "capture_scope": timeline["capture_scope"],
+        "excluded_sources": timeline["excluded_sources"],
+        "full_project_visual_parity_verified": False,
+        "mean_rgb_mae": parity["mean_mae_codes"],
+        "production_export_changed": False,
+    }, indent=2, ensure_ascii=False))
+    return 0
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", required=True, type=Path)
@@ -324,26 +443,46 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--frames", default=6, type=int)
     parser.add_argument("--fps", default=60, type=int)
     parser.add_argument("--scale", default=0.5, type=float)
+    parser.add_argument(
+        "--source-policy", choices=("strict", "canvas-only"), default="strict",
+        help="Default strict rejects unsupported effects; canvas-only explicitly "
+             "omits them and reports PARTIAL project parity",
+    )
+    parser.add_argument(
+        "--encode-and-verify", action="store_true",
+        help="On Windows, run Rust D3D11/NVENC and per-frame H264 parity ONLY after successful capture",
+    )
+    parser.add_argument("--cargo", default="cargo")
+    parser.add_argument("--ffmpeg", default="ffmpeg")
+    parser.add_argument("--ffprobe", default="ffprobe")
     args = parser.parse_args(argv)
     try:
         path = capture_project(
             args.project, args.output_dir,
             start_seconds=args.start_seconds,
             frames=args.frames, fps=args.fps, scale=args.scale,
+            source_policy=args.source_policy,
         )
         timeline, _ = load_timeline(path)
         print(json.dumps({
             "status": "captured", "schema": 1,
             "frames": len(timeline["frames"]),
             "source_count": timeline["source_count"],
+            "excluded_sources": timeline["excluded_sources"],
+            "capture_scope": timeline["capture_scope"],
+            "full_project_visual_parity_verified": False,
             "track_ids": [f["track_id"] for f in timeline["frames"]],
             "timeline": str(path),
             "resolution": [timeline["width"], timeline["height"]],
             "fps": timeline["fps"],
             "production_export_changed": False,
         }, indent=2, ensure_ascii=False))
+        if args.encode_and_verify:
+            if sys.platform != "win32":
+                raise TimelineValidationError("Native D3D11/NVENC integration requires Windows")
+            return _encode_and_verify(path, args)
         return 0
-    except (OSError, ValueError, TypeError) as exc:
+    except (OSError, ValueError, TypeError, subprocess.TimeoutExpired) as exc:
         print(json.dumps({
             "status": "validation_failed", "reason": str(exc),
             "production_export_changed": False,
