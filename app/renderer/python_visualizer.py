@@ -647,7 +647,8 @@ class PythonVisualizerRenderer:
             meter_levels, meter_peaks = self.process_meter_sequence(
                 raw_meter, overlay, fps,
             )
-        if type(start_frame) is not int or not 0 <= start_frame < len(processed_levels):
+        if (type(start_frame) is not int or start_frame < 0
+                or (start_frame > 0 and start_frame >= len(processed_levels))):
             raise ValueError("Requested overlay start frame exceeds the analyzed audio")
         frame_buffer = QImage()
         colored_overlay = overlay
