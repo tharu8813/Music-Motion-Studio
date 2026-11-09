@@ -35,6 +35,18 @@ ExportCanvasCapturer to capture selected prepared timeline frames;
 The fixture text is representative of Qt glyph rendering but is not
 a real user's track-synchronized lyrics project.
 
+## Validate the full Qt packet without an NVIDIA GPU
+
+The hardware-independent Rust CLI reads every raw layer byte and verifies
+the manifest schema, hashes, opacity, dimensions and source order:
+
+    cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin canvas_layer_manifest_probe -- --manifest native-canvas-fixture/qt-canvas-layers.json --output native-qt-packet-validated.json
+
+It returns status=verified only after inspecting the complete real Qt
+BGRA files. The Windows CI executes this check even when its GPU has
+no compatible NVENC hardware. Oversized or checksum-mismatched packets
+are rejected before GPU allocation.
+
 ## Compose and H.264-encode the Qt fixture on RTX
 
     cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_canvas_layers_probe -- --width 640 --height 360 --frames 6 --slots 2 --layer-manifest native-canvas-fixture/qt-canvas-layers.json --video-output native-qt-canvas-local.h264 --output native-qt-canvas-local.json
