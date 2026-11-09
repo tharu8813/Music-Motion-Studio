@@ -318,6 +318,17 @@ class NativeDynamicOverlayTests(unittest.TestCase):
                                   color="#FFFFFF"),
                 levels,30,Event(),None,start_frame=130,
             ))
+        # Seek 45 seconds into a long playlist: no 2700-frame Qt warm-up.
+        distant_levels = np.full((2703, 24), 0.05, dtype=np.float32)
+        with patch.object(renderer, "_draw_frame", wraps=renderer._draw_frame) as paint:
+            long_seek = renderer._layer_frames(
+                VisualizerOverlay(
+                    x=0, y=0, width=90, height=50,
+                    style="bars", color="#FFFFFF", kind="particles",
+                ), distant_levels, 60, Event(), None, start_frame=2700,
+            )
+            self.assertFalse(next(long_seek).isNull())
+        self.assertEqual(paint.call_count, 1)
 
     def test_cross_track_seek_reuses_real_track_clocks_not_time_zero(self):
         ffmpeg = os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG") or shutil.which("ffmpeg")
