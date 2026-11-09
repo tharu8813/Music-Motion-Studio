@@ -10,9 +10,11 @@
 //! finished using its GPU texture. GPU fences/synchronization and FFmpeg
 //! AVHWFramesContext are explicitly NOT implemented here.
 
+use std::time::{Duration, Instant};
 use windows::core::Interface;
 use windows::Win32::Graphics::Direct3D11::{
-    ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
+    D3D11_QUERY_DESC, D3D11_QUERY_EVENT,
+    ID3D11Device, ID3D11DeviceContext, ID3D11Query, ID3D11Texture2D,
 };
 use crate::d3d11_bgra_video::NativeBgraNv12VideoProcessor;
 use crate::d3d11_nv12::{nv12_size, NativeD3d11Nv12Surface};
@@ -38,6 +40,10 @@ impl FrameSlotState {
 
 struct FrameSlot {
     texture: ID3D11Texture2D,
+    // EVENT query is ended after CopyResource, so it confirms the GPU
+    // finished writing the texture. It does NOT confirm NVENC has read it.
+    copy_done: ID3D11Query,
+    copy_query_issued: bool,
     state: FrameSlotState,
 }
 
@@ -95,8 +101,16 @@ impl NativeNv12FramePool {
         let source = NativeD3d11Nv12Surface::new(width, height)?;
         let mut entries = Vec::with_capacity(slots);
         for _ in 0..slots {
+            let query_desc = D3D11_QUERY_DESC {
+                Query: D3D11_QUERY_EVENT, MiscFlags: 0,
+            };
+            let mut query = None;
+            unsafe { source.device().CreateQuery(&query_desc, Some(&mut query)) }
+                .map_err(|e| format!("Cannot allocate D3D11 GPU copy-completion query: {e}"))?;
             entries.push(FrameSlot {
                 texture: source.allocate_same_device_texture()?,
+                copy_done: query.ok_or("D3D11 returned no copy-completion query")?,
+                copy_query_issued: false,
                 state: FrameSlotState::Free,
             });
         }
@@ -172,6 +186,8 @@ impl NativeNv12FramePool {
         // are enqueued in submission order on the same immediate context.
         self.source.upload_reference(bytes)?;
         self.source.copy_to_same_device_texture(&self.slots[index].texture);
+        unsafe { self.source.context().End(&self.slots[index].copy_done) };
+        self.slots[index].copy_query_issued = true;
         self.slots[index].state = FrameSlotState::Ready { pts };
         self.last_submitted_pts = Some(pts);
         self.submitted += 1;
@@ -207,11 +223,73 @@ impl NativeNv12FramePool {
         let converted = bridge.convert_gpu_bgra_to_nv12(input)?;
         unsafe {
             self.source.context().CopyResource(&self.slots[index].texture, converted);
+            self.source.context().End(&self.slots[index].copy_done);
         }
+        self.slots[index].copy_query_issued = true;
         self.slots[index].state = FrameSlotState::Ready { pts };
         self.last_submitted_pts = Some(pts);
         self.submitted += 1;
         Ok(index)
+    }
+
+    /// Non-blocking GPU *copy* completion query. Unlike the old Ready state,
+    /// true means D3D11 finished all commands up through CopyResource.
+    ///
+    /// This is not an NVENC completion signal. The future encoder must
+    /// separately signal that it has released a frame before recycling it.
+    /// GetData uses flags=0 so that the driver can flush queued commands;
+    /// a non-flushing query can remain pending forever.
+    pub fn gpu_copy_complete(&self, slot_index: usize) -> Result<bool, String> {
+        let slot = self.slots.get(slot_index)
+            .ok_or_else(|| "D3D11 copy-completion slot index is out of range".to_owned())?;
+        if slot.state == FrameSlotState::Free || !slot.copy_query_issued {
+            return Err("No outstanding D3D11 copy for that frame slot".to_owned());
+        }
+        // On an EVENT query GetData writes Win32 BOOL=TRUE when complete.
+        // It returns S_FALSE while pending (mapped to Ok by windows-rs);
+        // initialize the data to FALSE and inspect it, not Result::is_ok().
+        let mut done: i32 = 0;
+        unsafe {
+            self.source.context().GetData(
+                &slot.copy_done,
+                Some((&mut done as *mut i32).cast()),
+                std::mem::size_of::<i32>() as u32, 0,
+            )
+        }.map_err(|e| format!("D3D11 GPU copy-completion query failed: {e}"))?;
+        Ok(done != 0)
+    }
+
+    /// Wait only for an explicit, bounded diagnostic/scheduling deadline.
+    /// Never busy-spin: GPU work must be allowed to run independently.
+    pub fn wait_for_gpu_copy(
+        &self, slot_index: usize, timeout: Duration,
+    ) -> Result<(), String> {
+        let started = Instant::now();
+        loop {
+            if self.gpu_copy_complete(slot_index)? {
+                return Ok(());
+            }
+            if started.elapsed() >= timeout {
+                return Err(format!(
+                    "Timed out waiting for D3D11 copy completion on slot {slot_index}"
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    /// Acquire only the oldest PTS frame once its GPU-side copy is complete.
+    /// This is the safer handoff for an eventual separate hardware encoder.
+    pub fn acquire_gpu_complete_ready(
+        &mut self,
+    ) -> Result<Option<ReservedGpuFrame>, String> {
+        let Some(index) = oldest_ready(&self.states()) else {
+            return Ok(None);
+        };
+        if !self.gpu_copy_complete(index)? {
+            return Ok(None);
+        }
+        Ok(self.acquire_ready())
     }
 
     /// Diagnostic-only readback for inspecting the native video processor's
@@ -248,12 +326,19 @@ impl NativeNv12FramePool {
     pub fn complete_encode(&mut self, slot_index: usize, pts: i64)
         -> Result<(), String>
     {
-        let slot = self.slots.get_mut(slot_index)
-            .ok_or_else(|| "Frame slot index is out of bounds".to_owned())?;
-        if slot.state != (FrameSlotState::InFlight { pts }) {
+        let state = self.slots.get(slot_index)
+            .ok_or_else(|| "Frame slot index is out of bounds".to_owned())?.state;
+        if state != (FrameSlotState::InFlight { pts }) {
             return Err("Frame slot is not encoding at that exact PTS".to_owned());
         }
-        slot.state = FrameSlotState::Free;
+        // Do not permit reuse until D3D11 itself confirms the copy is done,
+        // even if a caller incorrectly signals encoder completion early.
+        // This is necessary but NOT sufficient for real NVENC safety.
+        if !self.gpu_copy_complete(slot_index)? {
+            return Err("Cannot reclaim frame before GPU copy completion".to_owned());
+        }
+        self.slots[slot_index].copy_query_issued = false;
+        self.slots[slot_index].state = FrameSlotState::Free;
         self.completed += 1;
         Ok(())
     }
@@ -360,5 +445,7 @@ mod tests {
 
         assert_eq!(pool.completed_count(), 3);
         assert_eq!(pool.states(), vec![FrameSlotState::Free; 2]);
+        assert!(pool.gpu_copy_complete(index_first).is_err());
+        assert!(pool.acquire_gpu_complete_ready().unwrap().is_none());
     }
 }
