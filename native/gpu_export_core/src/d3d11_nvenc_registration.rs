@@ -51,6 +51,9 @@ pub struct NativeNvencRegistrationSession {
     successful_maps: usize,
     output_bitstream: *mut c_void,
     last_encoded_pts: Option<u64>,
+    // Pending GPU input MUST NOT be unmapped/reused on encode failure.
+    // Session teardown will abort and discard this pending work.
+    incomplete_encode: bool,
 }
 
 fn check(status: NVENCSTATUS, stage: &str) -> Result<(), String> {
@@ -157,6 +160,7 @@ impl NativeNvencRegistrationSession {
                 device: pool.native_device().clone(),
                 registered: HashMap::new(), successful_maps: 0,
                 output_bitstream: ptr::null_mut(), last_encoded_pts: None,
+                incomplete_encode: false,
             };
             if !supported_codec(api, session)? {
                 return Err("NVENC device does not support H.264".into());
@@ -356,11 +360,15 @@ impl NativeNvencRegistrationSession {
     pub fn encode_gpu_complete_frame(
         &mut self, frame: &ReservedGpuFrame,
     ) -> Result<(Vec<u8>, u64), String> {
+        if self.incomplete_encode {
+            return Err("NVENC session has an unfinished encode; recreate session".into());
+        }
         if frame.pts < 0 || self.last_encoded_pts.is_some_and(|p| frame.pts as u64 <= p) {
             return Err("NVENC frame PTS must increase strictly".into());
         }
         let output = self.ensure_bitstream_buffer()?;
         let map = self.map_native_nv12(frame)?;
+        self.incomplete_encode = true;
 
         let mut pic: NV_ENC_PIC_PARAMS = unsafe { std::mem::zeroed() };
         pic.version = self.version.pic_params_ver();
@@ -381,10 +389,9 @@ impl NativeNvencRegistrationSession {
 
         let submitted = unsafe { (self.api.nvEncEncodePicture)(self.encoder, &mut pic) };
         if submitted != NVENCSTATUS::SUCCESS {
-            // NEED_MORE_INPUT also signals an unfinished encode: do not
-            // claim an output, and do not release the frame slot upstream.
-            // The caller must abort this diagnostic session.
-            let _ = self.unmap_input(map.mappedResource);
+            // An accepted input may still be queued on NEED_MORE_INPUT.
+            // Never unmap or recycle it before GPU completion is proven.
+            // The diagnostic caller must abort this encoder session.
             return Err(format!("NvEncEncodePicture failed: {submitted:?}; synchronous output not available"));
         }
 
@@ -438,6 +445,7 @@ impl NativeNvencRegistrationSession {
         // its slot: we do not claim encoder completion.
         if bytes_and_pts.is_ok() {
             self.unmap_input(map.mappedResource)?;
+            self.incomplete_encode = false;
             self.last_encoded_pts = Some(frame.pts as u64);
         }
         bytes_and_pts
@@ -446,6 +454,19 @@ impl NativeNvencRegistrationSession {
 
 impl Drop for NativeNvencRegistrationSession {
     fn drop(&mut self) {
+        if self.incomplete_encode {
+            // The encode might still own a mapped texture. Do not unmap,
+            // unregister or recycle it prematurely. Teardown the whole
+            // encoder first, which discards pending encoder resources.
+            // Keep COM texture references alive until after teardown.
+            if !self.encoder.is_null() {
+                unsafe { (self.api.nvEncDestroyEncoder)(self.encoder) };
+                self.encoder = ptr::null_mut();
+            }
+            self.registered.clear();
+            self.output_bitstream = ptr::null_mut();
+            return;
+        }
         // Destroy the bitstream buffer before encoder teardown. In this
         // single-frame synchronous mode it is never locked on normal exit.
         if !self.output_bitstream.is_null() {
