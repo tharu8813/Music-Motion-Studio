@@ -55,6 +55,11 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q main.py app tests scripts tools
 
+      - name: Verify actual Qt Canvas Z-band and straight-alpha GPU layer packets
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest -v tests.test_native_canvas_layer_packets
+
       - name: Verify track lyrics player, TTML karaoke, and responsive cue layout
         env:
           QT_QPA_PLATFORM: offscreen
