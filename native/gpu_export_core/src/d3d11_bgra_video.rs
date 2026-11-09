@@ -12,8 +12,7 @@
 
 use std::mem::ManuallyDrop;
 
-use windows::core::Interface;
-use windows::Win32::Foundation::BOOL;
+use windows::core::{BOOL, Interface};
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE,
     D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT,
