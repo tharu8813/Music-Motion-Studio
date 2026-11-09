@@ -682,3 +682,42 @@ diagnostic now preserves the generated .h264 file and includes its
 location under diagnostic_h264_file in the failed JSON report.
 Partial file writes still remove incomplete output. Re-running a test
 never silently overwrites an existing diagnostic video.
+
+
+### RTX 5060 first-frame NVENC lock failure (2026-11-09)
+
+Actual 1920x1080 RTX 5060 run opened a native NVENC API V13_1 session
+but returned NvEncLockBitstream status 10 on the first submitted frame.
+Per NVIDIA's NVENC status enum, code 10 is
+NV_ENC_ERR_OUT_OF_MEMORY, NOT the transient
+NV_ENC_ERR_LOCK_BUSY (13). The failure occurs after encoder session
+initialization, resource mapping and picture submission, but the output
+packet cannot be retrieved. This does not alone prove physical VRAM
+exhaustion: driver-level resource allocation or an API configuration
+difference could surface the same code.
+
+This repair uses NVIDIA's documented synchronous-lock mode:
+NV_ENC_INITIALIZE_PARAMS::enableEncodeAsync = 0 together with
+NV_ENC_LOCK_BITSTREAM::doNotWait = 0. Polling mode remains available
+explicitly with --lock-mode polling, to compare driver behavior only.
+Fatal codes such as 10 are NOT retried as lock-busy.
+
+Because the blocking lock can wait indefinitely in a faulty driver,
+the diagnostic CLI now launches a dedicated GPU worker process and
+the parent terminates it after a 180-second watchdog deadline.
+Successful output still follows the original JSON/Annex-B checks.
+On failure, NvEncGetLastErrorString is captured immediately and included
+with the named code and stage in the JSON report. This provides useful
+hardware evidence without guessing about the underlying allocation.
+
+Run again after merging:
+
+    git switch main
+    git pull
+    cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_nvenc_h264_probe -- --width 1920 --height 1080 --frames 30 --slots 3 --lock-mode blocking --video-output d3d11-nvenc-h264-sync-local.h264 --ffprobe ffprobe --output d3d11-nvenc-h264-sync-local.json
+
+If this still returns NV_ENC_ERR_OUT_OF_MEMORY, preserve the new JSON
+containing the driver's detailed message. A 320x180 repeat with a
+different filename can help distinguish a resolution-driven allocation
+limit from a configuration/driver-level error. No production exporter
+feature flag or default encoding behavior was changed.

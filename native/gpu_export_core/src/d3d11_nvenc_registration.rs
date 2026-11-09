@@ -8,7 +8,7 @@
 //! Keep this isolated from the production exporter until bitstream encoding,
 //! consumer completion, timestamps, color metadata and audio are verified.
 use std::collections::HashMap;
-use std::ffi::c_void;
+use std::ffi::{c_void, CStr};
 use std::ptr;
 use std::time::{Duration, Instant};
 
@@ -32,6 +32,23 @@ use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_NV12;
 
 use crate::d3d11_frame_pool::{NativeNv12FramePool, ReservedGpuFrame};
 
+/// Synchronous NVENC sessions normally use a blocking bitstream lock.
+/// Polling is retained only for diagnosing driver-specific behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NvencBitstreamLockMode {
+    Blocking,
+    Polling,
+}
+
+impl NvencBitstreamLockMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Blocking => "blocking",
+            Self::Polling => "polling",
+        }
+    }
+}
+
 struct RegisteredNv12 {
     // A COM reference must outlive NVENC's registration handle.
     texture: ID3D11Texture2D,
@@ -54,6 +71,7 @@ pub struct NativeNvencRegistrationSession {
     // Pending GPU input MUST NOT be unmapped/reused on encode failure.
     // Session teardown will abort and discard this pending work.
     incomplete_encode: bool,
+    bitstream_lock_mode: NvencBitstreamLockMode,
 }
 
 fn check(status: NVENCSTATUS, stage: &str) -> Result<(), String> {
@@ -155,12 +173,13 @@ impl NativeNvencRegistrationSession {
             }
             // On subsequent failures Drop cleans up the partially opened
             // encoder session; it is never leaked or published.
-            let mut result = Self {
+            let result = Self {
                 api, encoder: session, version, width, height,
                 device: pool.native_device().clone(),
                 registered: HashMap::new(), successful_maps: 0,
                 output_bitstream: ptr::null_mut(), last_encoded_pts: None,
                 incomplete_encode: false,
+                bitstream_lock_mode: NvencBitstreamLockMode::Blocking,
             };
             if !supported_codec(api, session)? {
                 return Err("NVENC device does not support H.264".into());
@@ -240,6 +259,52 @@ impl NativeNvencRegistrationSession {
 
     pub fn successful_map_count(&self) -> usize {
         self.successful_maps
+    }
+
+    pub fn bitstream_lock_mode(&self) -> NvencBitstreamLockMode {
+        self.bitstream_lock_mode
+    }
+
+    /// Change lock mode only before the first hardware operation. The
+    /// registration-only probe retains its prior semantics.
+    pub fn set_bitstream_lock_mode(
+        &mut self, mode: NvencBitstreamLockMode,
+    ) -> Result<(), String> {
+        if self.incomplete_encode || self.last_encoded_pts.is_some() ||
+            !self.output_bitstream.is_null() || !self.registered.is_empty()
+        {
+            return Err("NVENC bitstream lock mode cannot change after first use".into());
+        }
+        self.bitstream_lock_mode = mode;
+        Ok(())
+    }
+
+    fn driver_status_message(&self, stage: &str, status: NVENCSTATUS) -> String {
+        let name = if status == NVENCSTATUS::ERR_OUT_OF_MEMORY {
+            "NV_ENC_ERR_OUT_OF_MEMORY"
+        } else if status == NVENCSTATUS::ERR_LOCK_BUSY {
+            "NV_ENC_ERR_LOCK_BUSY"
+        } else if status == NVENCSTATUS::ERR_NEED_MORE_INPUT {
+            "NV_ENC_ERR_NEED_MORE_INPUT"
+        } else if status == NVENCSTATUS::ERR_INVALID_PARAM {
+            "NV_ENC_ERR_INVALID_PARAM"
+        } else if status == NVENCSTATUS::ERR_INVALID_VERSION {
+            "NV_ENC_ERR_INVALID_VERSION"
+        } else {
+            "NVENC error"
+        };
+        // Immediately after the failing API call, retrieve the driver's
+        // explanation before any other encoder call can overwrite it.
+        let details = unsafe {
+            let p = (self.api.nvEncGetLastErrorString)(self.encoder);
+            if p.is_null() {
+                String::from("(driver did not provide an error string)")
+            } else {
+                CStr::from_ptr(p).to_string_lossy()
+                    .chars().take(2048).collect::<String>()
+            }
+        };
+        format!("{stage}: {name} (code {}); driver: {details}", status.0)
     }
 
     /// Register a native GPU input once per slot and map it for a single
@@ -391,8 +456,8 @@ impl NativeNvencRegistrationSession {
         if submitted != NVENCSTATUS::SUCCESS {
             // An accepted input may still be queued on NEED_MORE_INPUT.
             // Never unmap or recycle it before GPU completion is proven.
-            // The diagnostic caller must abort this encoder session.
-            return Err(format!("NvEncEncodePicture failed: {submitted:?}; synchronous output not available"));
+            let detail = self.driver_status_message("NvEncEncodePicture", submitted);
+            return Err(format!("{detail}; synchronous output not available"));
         }
 
         let start = Instant::now();
@@ -400,7 +465,12 @@ impl NativeNvencRegistrationSession {
             let mut locked: NV_ENC_LOCK_BITSTREAM = unsafe { std::mem::zeroed() };
             locked.version = self.version.lock_bitstream_ver();
             locked.outputBitstream = output;
-            locked.set_doNotWait(1);
+            // The encoder was initialized with enableEncodeAsync=0.
+            // NVIDIA's documented synchronous path uses doNotWait=0.
+            // Keep doNotWait=1 as an explicit debug-only comparison.
+            locked.set_doNotWait(u32::from(
+                self.bitstream_lock_mode == NvencBitstreamLockMode::Polling
+            ));
             let status = unsafe { (self.api.nvEncLockBitstream)(self.encoder, &mut locked) };
             if status == NVENCSTATUS::ERR_LOCK_BUSY {
                 if start.elapsed() >= Duration::from_secs(20) {
@@ -410,7 +480,9 @@ impl NativeNvencRegistrationSession {
                 continue;
             }
             if status != NVENCSTATUS::SUCCESS {
-                break Err(format!("NvEncLockBitstream failed: {status:?}"));
+                // OOM (10) is NOT LOCK_BUSY (13): don't mask or blindly
+                // retry a driver/resource error as a transient condition.
+                break Err(self.driver_status_message("NvEncLockBitstream", status));
             }
             let valid = !locked.bitstreamBufferPtr.is_null()
                 && locked.bitstreamSizeInBytes > 0
@@ -486,5 +558,25 @@ impl Drop for NativeNvencRegistrationSession {
             unsafe { (self.api.nvEncDestroyEncoder)(self.encoder) };
             self.encoder = ptr::null_mut();
         }
+    }
+}
+
+#[cfg(test)]
+mod nvenc_lock_diagnostics_tests {
+    use super::*;
+
+    #[test]
+    fn distinguishes_oom_from_transient_lock_busy() {
+        // The RTX 5060 reproduced status 10: a fatal resource/driver
+        // error, not status 13 (the retryable non-blocking lock case).
+        assert_eq!(NVENCSTATUS::ERR_OUT_OF_MEMORY.0, 10);
+        assert_eq!(NVENCSTATUS::ERR_LOCK_BUSY.0, 13);
+        assert_ne!(NVENCSTATUS::ERR_OUT_OF_MEMORY, NVENCSTATUS::ERR_LOCK_BUSY);
+    }
+
+    #[test]
+    fn sync_default_is_explicit_and_polling_is_opt_in() {
+        assert_eq!(NvencBitstreamLockMode::Blocking.as_str(), "blocking");
+        assert_eq!(NvencBitstreamLockMode::Polling.as_str(), "polling");
     }
 }
