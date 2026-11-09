@@ -16,7 +16,8 @@ use windows::Win32::Graphics::Direct3D11::{
     D3D11_QUERY_DESC, D3D11_QUERY_EVENT,
     ID3D11Device, ID3D11DeviceContext, ID3D11Query, ID3D11Texture2D,
 };
-use crate::d3d11_bgra_video::NativeBgraNv12VideoProcessor;
+use crate::d3d11_bgra_video::{NativeBgraNv12VideoProcessor, NativeCanvasBgraLayer};
+use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_NV12;
 use crate::d3d11_nv12::{nv12_size, NativeD3d11Nv12Surface};
 
 pub const MIN_SLOTS: usize = 2;
@@ -230,6 +231,69 @@ impl NativeNv12FramePool {
         self.last_submitted_pts = Some(pts);
         self.submitted += 1;
         Ok(index)
+    }
+
+    /// Queue an already GPU-composited NV12 texture from the same D3D11
+    /// device. The producer may be a Canvas GPU compositor or decoder;
+    /// all NV12 pixels stay on the GPU. GPU copy completion and subsequent
+    /// real NVENC bitstream completion remain separate lifetime events.
+    pub fn queue_gpu_nv12(
+        &mut self, input: &ID3D11Texture2D, pts: i64,
+    ) -> Result<usize, String> {
+        validate_pts(self.last_submitted_pts, pts)?;
+        let index = first_free(&self.states())
+            .ok_or_else(|| "D3D11 NV12 frame pool full; encoder backpressure required".to_owned())?;
+        let device = unsafe { input.GetDevice() }
+            .map_err(|e| format!("Cannot inspect source NV12 device: {e}"))?;
+        if device.as_raw() != self.native_device().as_raw() {
+            return Err("Canvas NV12 source belongs to a different D3D11 device".into());
+        }
+        let mut desc = windows::Win32::Graphics::Direct3D11::D3D11_TEXTURE2D_DESC::default();
+        unsafe { input.GetDesc(&mut desc) };
+        let (width, height) = self.dimensions();
+        if desc.Width != width || desc.Height != height ||
+            desc.Format != DXGI_FORMAT_NV12 || desc.MipLevels != 1 ||
+            desc.ArraySize != 1 || desc.SampleDesc.Count != 1
+        {
+            return Err("Canvas NV12 source must be a matching single-plane-array GPU texture".into());
+        }
+        // The producer and this pool share one immediate context. The
+        // queued CopyResource therefore occurs after video compositing.
+        unsafe {
+            self.source.context().CopyResource(&self.slots[index].texture, input);
+            self.source.context().End(&self.slots[index].copy_done);
+        }
+        self.slots[index].copy_query_issued = true;
+        self.slots[index].state = FrameSlotState::Ready { pts };
+        self.last_submitted_pts = Some(pts);
+        self.submitted += 1;
+        Ok(index)
+    }
+
+    /// Composite a background plus ordered Canvas/lyric BGRA textures
+    /// directly into the NV12 GPU frame pool. No QImage readback or
+    /// CPU-side blending is performed in this D3D11 stage.
+    ///
+    /// This is a GPU compositing experiment; actual Qt Canvas text and
+    /// images have not yet been moved to a native GPU paint engine.
+    pub fn queue_gpu_canvas_layers(
+        &mut self,
+        compositor: &NativeBgraNv12VideoProcessor,
+        layers: &[NativeCanvasBgraLayer<'_>],
+        pts: i64,
+    ) -> Result<usize, String> {
+        // Fail *before* issuing GPU commands when the ring is full.
+        validate_pts(self.last_submitted_pts, pts)?;
+        if first_free(&self.states()).is_none() {
+            return Err("D3D11 Canvas frame pool full; encoder backpressure required".into());
+        }
+        if compositor.dimensions() != self.dimensions() ||
+            compositor.device().as_raw() != self.native_device().as_raw()
+        {
+            return Err("D3D11 Canvas compositor and NV12 pool must share one device and size".into());
+        }
+        let nv12 = compositor.composite_canvas_layers_to_nv12(layers)?;
+        self.queue_gpu_nv12(nv12, pts)
     }
 
     /// Non-blocking GPU *copy* completion query. Unlike the old Ready state,
