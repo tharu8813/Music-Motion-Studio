@@ -200,14 +200,14 @@ def real_audio_dynamic_frames(
         raise ValueError("Dynamic diagnostic start must be on an exact CFR frame boundary")
     if start_seconds > 30:
         raise ValueError("Dynamic diagnostic start limited to 30 seconds for bounded warm-up")
-    from app.controllers.export_controller import ExportController
+    from app.controllers.export_controller import ExportOrchestrator
 
     active_tracks = [t for t in project.playlist if t.enabled and t.duration_seconds > 0]
     mock_window = SimpleNamespace(
         store=SimpleNamespace(sources=lambda: project.sources),
         playlist_service=SimpleNamespace(tracks=active_tracks),
     )
-    overlays = ExportController.visualizers(
+    overlays = ExportOrchestrator.visualizers(
         SimpleNamespace(window=mock_window),
         tracks=active_tracks, render_scale=1.0, compiled_plan=plan,
     )
