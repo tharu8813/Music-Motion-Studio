@@ -333,6 +333,16 @@ class NativeDynamicOverlayTests(unittest.TestCase):
             self.assertEqual(source.read_bytes(), snapshot)
             packet = json.loads((output / "frame-0000.json").read_text("utf8"))
             self.assertEqual(len(packet["layers"]), 4)
+            # The timeline validator must accept 4 actual project layers but
+            # reject a reordered packet before hardware encoding.
+            packet_path = output / "frame-0000.json"
+            original_packet = packet_path.read_text(encoding="utf8")
+            packet["layers"][1]["stream_key"] = "layer:99"
+            packet_path.write_text(json.dumps(packet), encoding="utf8")
+            with self.assertRaisesRegex(TimelineValidationError, "ordering"):
+                load_timeline(timeline)
+            packet_path.write_text(original_packet, encoding="utf8")
+            load_timeline(timeline)
             # Reject a forged diagnostic that fails to disclose rendered sources.
             meta["dynamic_sources"] = []
             timeline.write_text(json.dumps(meta), encoding="utf8")
