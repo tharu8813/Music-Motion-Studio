@@ -230,10 +230,26 @@ def load_timeline(path: Path) -> tuple[dict, list[Path]]:
                 or type(excluded_count) is not int
                 or excluded_count != len(excluded)
                 or not 0 <= excluded_count <= 64
-                or capture_scope not in ("partial_canvas_only", "all_eligible_canvas_sources")
+                or capture_scope not in ("partial_canvas_only", "all_eligible_canvas_sources",
+                                         "dynamic_overlay_audio_diagnostic")
                 or (capture_scope == "partial_canvas_only") != bool(excluded)
                 or timeline.get("full_project_visual_parity_verified") is not False):
             raise TimelineValidationError("Invalid project excluded dynamic source disclosure")
+        dynamic = timeline.get("dynamic_sources", [])
+        dynamic_origin = timeline.get("dynamic_audio_origin")
+        if (not isinstance(dynamic, list)
+                or ((capture_scope == "dynamic_overlay_audio_diagnostic") != bool(dynamic))
+                or (dynamic_origin in ("provided_prepared_audio", "application_export_mixed_audio"))
+                   != (capture_scope == "dynamic_overlay_audio_diagnostic")):
+            raise TimelineValidationError("Invalid project dynamic overlay disclosure")
+        for rendered in dynamic:
+            if (not isinstance(rendered, dict)
+                    or not isinstance(rendered.get("source_id"), str)
+                    or not rendered["source_id"].strip()
+                    or rendered.get("source_type") not in ("audio_visualizer", "particle_overlay")):
+                raise TimelineValidationError("Invalid rendered dynamic source metadata")
+        if len({x["source_id"] for x in dynamic}) != len(dynamic):
+            raise TimelineValidationError("Duplicate rendered dynamic source ID")
         for omitted in excluded:
             if (not isinstance(omitted, dict)
                     or not isinstance(omitted.get("source_id"), str)
@@ -250,6 +266,7 @@ def load_timeline(path: Path) -> tuple[dict, list[Path]]:
                 or not math.isfinite(start) or start < 0
                 or type(timeline.get("source_count")) is not int
                 or not 1 <= timeline["source_count"] <= 64
+                or len(dynamic) > timeline["source_count"]
                 or timeline["source_count"] + excluded_count > 64
                 or not isinstance(duration, (int, float))
                 or not math.isfinite(duration) or duration <= 0
@@ -452,6 +469,8 @@ def verify_video_parity(
             "capture_scope": timeline["capture_scope"],
             "excluded_source_count": timeline["excluded_source_count"],
             "excluded_sources": timeline["excluded_sources"],
+            "dynamic_sources": timeline.get("dynamic_sources", []),
+            "dynamic_audio_origin": timeline.get("dynamic_audio_origin"),
             "full_project_visual_parity_verified": False,
         } if timeline.get("kind") == "project_timeline" else {}),
     }

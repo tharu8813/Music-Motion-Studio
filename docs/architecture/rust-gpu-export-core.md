@@ -1151,3 +1151,58 @@ PythonVisualizerRenderer audio envelope and particle overlay layer
 streams to the D3D11 frame composition in correct Z order and verify
 against the established FFmpeg exporter. This is NOT done by the
 partial canvas-only diagnostic.
+
+
+
+## Milestone 18b: opt-in real-audio visualizer and particles packet diagnostic
+
+The isolated project probe now supports an additional, **opt-in**
+`--source-policy dynamic-audio` policy. It constructs the same production
+`VisualizerOverlay` settings through `ExportController.visualizers`, uses
+`FFmpegRenderer.prepare_playlist_audio` to normalize and concatenate the
+actual playlist soundtrack (or accepts the caller's already prepared mix with
+`--prepared-audio`), and runs `PythonVisualizerRenderer`'s FFT, attack/
+release, drawing and deterministic particle clock.
+
+The dynamic RGBA drawings are placed into full-frame **straight-alpha**
+BGRA packets, interleaved at their actual source Z positions with the Qt
+Canvas's timed and lyric-aware raster bands. Existing Rust D3D11 compositor
+and NVENC integration then consume the same versioned packet format.
+
+This is **not** the final production full-export GPU backend. The Qt Canvas
+and dynamic drawing both still run on the CPU; Rust handles GPU layer
+composition and NV12/H.264 conversion. The generated H264 can be compared
+to the same diagnostic's flattened QPainter reference, **not** to an
+independent full FFmpeg export. The manifest and parity output always
+retain `full_project_visual_parity_verified=false`.
+
+Run on the repository's Windows development environment with FFmpeg,
+PySide6, Rust and a compatible NVIDIA driver:
+
+```powershell
+git switch main
+git pull
+python -m tools.native_canvas_project_probe --project "C:\Users\wlqor\Desktop\giggles.pvsproj" --output-dir qt-giggles-dynamic --start-seconds 0 --frames 6 --fps 60 --scale 0.5 --source-policy dynamic-audio --encode-and-verify
+```
+
+Use a **new or empty** output directory; the probe intentionally refuses to
+overwrite previous results. It creates `timeline.json`,
+`frame-0000.json` + layer BGRA files, reference PNGs, and (on successful
+measured NVENC encode) `project.h264`, `gpu-report.json` and
+`parity.json`.
+
+Safety limits: this diagnostic only supports `audio_visualizer` and
+`particle_overlay` from the dynamic source family, with other Canvas
+sources between or below them. Video, waveform, level meter, bass-reactive
+Canvas elements, dynamic custom keyframes or rotations, ambiguous
+same-Z static/dynamic sources, AutoMix/crossfade and more than eight layers
+are rejected. Start timestamps must be exact CFR boundaries and <=30 s
+to bound frame warm-up. An optional `--prepared-audio` must contain the
+corresponding mixed playlist audio, or the application generates it
+using its existing sequential export path.
+
+Before enabling any production GPU exporter, compare *actual* output from
+both renderers on sustained multi-track projects, crossfades, masks,
+off-screen overlays and transparent edges; validate audio mux, PTS and
+throughput. RTX hardware measurements and real `giggles.pvsproj` validation
+are still needed.
