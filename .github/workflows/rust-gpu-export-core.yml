@@ -174,6 +174,41 @@ jobs:
           print('NVENC D3D11 registration:', report['status'])
           '@ | python -
           if ($LASTEXITCODE -ne 0) { throw 'NVENC registration JSON validation failed' }
+      - name: Compile and probe real H264 NVENC bitstream in D3D11 ring
+        shell: pwsh
+        run: |
+          cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_nvenc_h264_probe -- --width 320 --height 180 --frames 6 --slots 2 --video-output d3d11-nvenc-h264-ci.h264 --output d3d11-nvenc-h264-ci.json
+          if ($LASTEXITCODE -ne 0) { throw 'GPU to NVENC H264 bitstream diagnostic failed' }
+          @'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('d3d11-nvenc-h264-ci.json').read_text(encoding='utf-8'))
+          allowed = {'measured','d3d11_hardware_unavailable','d3d11_video_processor_unavailable','nvenc_library_unavailable'}
+          status = report.get('status')
+          if status not in allowed:
+              raise SystemExit(f'Unexpected NVENC H264 probe status: {status}, reason: {report.get("reason")}')
+          if status == 'measured':
+              if (not report.get('nvenc_h264_bitstream_encoded')
+                      or report.get('frames_encoded') != 6
+                      or report.get('pts') != list(range(6))
+                      or report.get('nv12_gpu_to_cpu_readbacks') != 0
+                      or report.get('h264_annexb_bytes', 0) <= 0
+                      or not Path('d3d11-nvenc-h264-ci.h264').is_file()):
+                  raise SystemExit('Missing NVENC H264 frames, timestamps, or file')
+          elif Path('d3d11-nvenc-h264-ci.h264').exists():
+              raise SystemExit('Unsupported NVENC hardware emitted an unexpected video file')
+          print('D3D11 NVENC H264 status:', status)
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'NVENC H264 diagnostics JSON rejected' }
+      - name: Upload H264 NVENC bitstream diagnostics (hardware only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d3d11-nvenc-h264-probe
+          path: |
+            d3d11-nvenc-h264-ci.json
+            d3d11-nvenc-h264-ci.h264
+          if-no-files-found: ignore
       - name: Upload D3D11 -> NVENC registration diagnostics
         if: always()
         uses: actions/upload-artifact@v4
