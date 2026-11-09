@@ -576,3 +576,49 @@ FFmpeg AVHWFramesContext integration, D3D11 scene rendering,
 full-frame color validation, encoded media and audio correctness, and
 a real benchmark are still required. No production export setting
 or default pipeline has been changed.
+
+
+## Milestone 10: same-process DirectX11 NV12 to NVENC resource registration
+
+The RTX 5060 result from milestone 9 confirmed 30/30 D3D11_QUERY_EVENT
+producer-copy completions, 30/30 validated NV12 slot contents, and
+27 bounded-ring backpressure rejections. Enqueue and wait values
+reflect CPU wall time and driver polling, not actual GPU encoding.
+
+A new Windows-only experimental d3d11_nvenc_registration module
+establishes the next interface boundary. It uses the runtime-loaded
+NVENC Video Codec SDK C ABI (via mini-nvcodec 0.1.0)
+without a mandatory SDK install or DLL import link at build time:
+
+1. Obtain the same ID3D11Device already owned by NativeNv12FramePool.
+2. Dynamically resolve nvEncodeAPI64.dll and negotiate an API version.
+3. Open a DirectX NVENC encoder session on that device.
+4. Verify H.264 and NV12 format support, query a driver preset and
+   initialize the encoder session at the requested resolution and 60 fps.
+5. Convert changing opaque BGRA textures to same-device GPU NV12 slots,
+   wait for D3D11 EVENT copy completion, and acquire frames in PTS order.
+6. Register each distinct D3D11 NV12 texture once per pool slot with
+   nvEncRegisterResource, map and unmap it for each test frame,
+   and unregister all resources before encoder-session teardown.
+7. Retain NV12 COM texture references throughout registration. Do
+   not perform NV12 GPU-to-CPU readback in this test.
+
+Example RTX 5060 run:
+
+    git switch main
+    git pull
+    cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_nvenc_registration_probe -- --width 1920 --height 1080 --frames 12 --slots 3 --output d3d11-nvenc-register-local.json
+
+Status measured means NVENC accepted GPU-resident D3D11 NV12 texture
+registration and mapping on the same device. CI machines without
+NVIDIA encode support return an explicit nvenc_library_unavailable or
+d3d11_hardware_unavailable and cannot prove RTX compatibility.
+
+**Remaining blocker:** This does NOT call NvEncEncodePicture,
+create/lock a bitstream buffer, produce H.264, or signal an encoder
+completion event. The test acknowledges an unencoded frame only
+after map/unmap; that is safe for this registration probe but not
+for production. Next is real H.264 bitstream output, decoded frame
+count, PTS and color metadata, then the Qt scene renderer with no
+intermediate CPU frames. Existing Python/FFmpeg exporter, audio
+and default settings are unchanged.
