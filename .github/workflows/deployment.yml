@@ -96,7 +96,7 @@ jobs:
       - name: Benchmark Canvas preview Z-band optimization
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python tools/preview_ordered_canvas_benchmark.py --output preview-zband-benchmark.json
+        run: python -m tools.preview_ordered_canvas_benchmark --output preview-zband-benchmark.json
         continue-on-error: true
 
       - name: Upload preview rendering benchmark
@@ -112,10 +112,27 @@ jobs:
         run: |
           @'
           import os
+          import time
           from pathlib import Path
-          from app.ffmpeg.managed_installer import ManagedFFmpegInstaller
+          from app.ffmpeg.managed_installer import ManagedFFmpegInstaller, FFmpegInstallError
 
-          installation = ManagedFFmpegInstaller(Path(os.environ["RUNNER_TEMP"]) / "ffmpeg-tests").install_latest()
+          # Official FFmpeg mirror requests occasionally return transient
+          # 502/503/504 errors. Retry the *verified* managed installer,
+          # isolating each attempt so partial archives are never reused.
+          installation = None
+          for attempt in range(1, 4):
+              try:
+                  destination = Path(os.environ["RUNNER_TEMP"]) / f"ffmpeg-tests-attempt-{attempt}"
+                  installation = ManagedFFmpegInstaller(destination).install_latest()
+                  break
+              except FFmpegInstallError as error:
+                  if attempt == 3:
+                      raise RuntimeError("Verified FFmpeg download failed after 3 attempts") from error
+                  delay = (5, 20)[attempt - 1]
+                  print(f"FFmpeg download attempt {attempt}/3 failed: {error}; retrying", flush=True)
+                  time.sleep(delay)
+          if installation is None:
+              raise RuntimeError("Verified FFmpeg installation was not created")
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as environment:
               environment.write(f"PLAYLIST_CANVAS_TEST_FFMPEG={installation.executable}\n")
           '@ | python -
