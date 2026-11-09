@@ -95,8 +95,42 @@ fn main() {
                     bridge.upload_bgra_for_validation(&texture, &rgba)
                         .expect("Upload test BGRA frame");
                     let started = Instant::now();
-                    let slot = pool.queue_gpu_bgra(&bridge, &texture, index as i64)
-                        .expect("Enqueue GPU-only BGRA->NV12 into persistent slot");
+                    let slot = match pool.queue_gpu_bgra(
+                        &bridge, &texture, index as i64,
+                    ) {
+                        Ok(slot) => slot,
+                        Err(reason) => {
+                            // On real RTX hardware the CI runner cannot
+                            // reproduce driver-specific D3D11 failures.
+                            // Preserve an inspectable JSON diagnostic rather
+                            // than losing the reason in a Rust panic.
+                            let failure = json!({
+                                "schema": 1,
+                                "status": "gpu_video_conversion_failed",
+                                "stage": "queue_gpu_bgra",
+                                "failed_frame": index,
+                                "reason": reason,
+                                "adapter_name": pool.adapter_name(),
+                                "adapter_vendor_id": pool.adapter_vendor_id(),
+                                "adapter_device_id": pool.adapter_device_id(),
+                                "resolution": [width, height],
+                                "production_export_changed": false,
+                                "nvenc_interop_implemented": false,
+                            });
+                            let text = serde_json::to_string_pretty(&failure)
+                                .expect("Serialize driver error report");
+                            eprintln!("{text}");
+                            if let Some(path) = output.as_ref() {
+                                if let Some(parent) = path.parent() {
+                                    fs::create_dir_all(parent)
+                                        .expect("Create diagnostics folder");
+                                }
+                                fs::write(path, text + "\n")
+                                    .expect("Save D3D11 driver error JSON");
+                            }
+                            std::process::exit(1);
+                        }
+                    };
                     samples.push(started.elapsed().as_secs_f64());
                     // The only readback is *outside* the measured GPU path
                     // and is not used by any future native encoder.
