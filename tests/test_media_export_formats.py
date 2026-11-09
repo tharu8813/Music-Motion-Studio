@@ -84,6 +84,8 @@ class ExportDestinationTests(unittest.TestCase):
         root = Path(self.directory.name)
         (root / "playlist.mp3").write_bytes(b"original")
         (root / "playlist (2).mp3").write_bytes(b"second")
+        # The files were created outside the dialog after its initial preview.
+        self.dialog._update_output_filename()
         self.assertEqual(self.dialog.output_path, (root / "playlist (3).mp3").resolve())
         self.assertIn("playlist (3).mp3", self.dialog.output_filename_label.text())
         self.dialog._accept_if_valid()
@@ -95,6 +97,7 @@ class ExportDestinationTests(unittest.TestCase):
     def test_changing_folder_updates_name_preview_without_overwriting(self):
         root = Path(self.directory.name)
         (root / "playlist.mp4").write_bytes(b"existing")
+        self.dialog._update_output_filename()
         self.assertIn("playlist (2).mp4", self.dialog.output_filename_label.text())
         alternate = root / "other"
         alternate.mkdir()
