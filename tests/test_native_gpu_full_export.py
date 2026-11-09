@@ -101,10 +101,12 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             root = Path(temp)
             existing = root / "full.mp4"
             existing.write_bytes(b"USER-ORIGINAL-VIDEO")
+            source = root / "project.json"
+            source.write_text(json.dumps(dynamic_project(root / "test.wav").to_dict()),
+                              encoding="utf8")
             with self.assertRaisesRegex(ValueError, "will not be overwritten"):
                 export_complete_project(
-                    root / "does-not-exist.pvsproj", existing,
-                    native_exe=root / "native.exe",
+                    source, existing, native_exe=root / "native.exe",
                 )
             self.assertEqual(existing.read_bytes(), b"USER-ORIGINAL-VIDEO")
 
