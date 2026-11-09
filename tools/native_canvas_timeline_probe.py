@@ -252,6 +252,19 @@ def load_timeline(path: Path) -> tuple[dict, list[Path]]:
                 raise TimelineValidationError("Invalid rendered dynamic source metadata")
         if len({x["source_id"] for x in dynamic}) != len(dynamic):
             raise TimelineValidationError("Duplicate rendered dynamic source ID")
+        reactive_ids = timeline.get("canvas_audio_reactive_source_ids", [])
+        reactive_analysis = timeline.get("canvas_audio_reaction_analysis")
+        if (not isinstance(reactive_ids, list)
+                or len(reactive_ids) > 64
+                or any(not isinstance(item, str) or not item.strip()
+                       for item in reactive_ids)
+                or len(set(reactive_ids)) != len(reactive_ids)
+                or (reactive_analysis == "per_track_export_fft24") != bool(reactive_ids)
+                or (bool(reactive_ids)
+                    and capture_scope != "dynamic_overlay_audio_diagnostic")
+                or any(item in {x["source_id"] for x in dynamic}
+                       for item in reactive_ids)):
+            raise TimelineValidationError("Invalid per-track music-reactive Canvas analysis disclosure")
         for omitted in excluded:
             if (not isinstance(omitted, dict)
                     or not isinstance(omitted.get("source_id"), str)
