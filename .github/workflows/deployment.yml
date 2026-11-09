@@ -60,6 +60,52 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: python -m unittest -v tests.test_native_canvas_layer_packets
 
+      - name: Replay actual Qt Canvas source and lyric packets through native D3D11 NVENC
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m tools.native_canvas_fixture_capture --output-dir qt-canvas-ci --stem scene --scale 0.25
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot capture real Qt Canvas GPU layer fixture' }
+          cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_packet_probe -- --manifest qt-canvas-ci/scene.json --repeat 3 --slots 2 --video-output qt-canvas-ci/scene-output.h264 --output qt-canvas-ci/scene-report.json
+          if ($LASTEXITCODE -ne 0) { throw 'Qt Canvas native D3D11 GPU integration failed' }
+          @'
+          import json
+          from pathlib import Path
+          from app.preview.native_canvas_layer_packets import capture_native_canvas_frame
+          manifest = json.loads(Path('qt-canvas-ci/scene.json').read_text(encoding='utf-8'))
+          result = json.loads(Path('qt-canvas-ci/scene-report.json').read_text(encoding='utf-8'))
+          if manifest.get('format') != 'mms_canvas_bgra_layers_v1' or len(manifest.get('layers', [])) != 2:
+              raise SystemExit('Real Qt Canvas packet manifest was not generated')
+          allowed = {
+              'measured', 'd3d11_hardware_unavailable',
+              'nvenc_library_unavailable', 'canvas_gpu_compositor_unsupported',
+          }
+          if result.get('status') not in allowed:
+              raise SystemExit(f"Qt Canvas native GPU integration failed: {result}")
+          if result['status'] == 'measured':
+              if (result.get('frames_encoded') != 3
+                  or result.get('pts') != [0, 1, 2]
+                  or result.get('layers_per_frame') != [2, 2, 2]
+                  or result.get('gpu_nv12_to_cpu_readbacks') != 0
+                  or result.get('qt_canvas_rasterized_on_cpu') is not True
+                  or not Path('qt-canvas-ci/scene-output.h264').is_file()):
+                  raise SystemExit('Real Qt layer GPU composition and NVENC replay violated frame contract')
+          elif Path('qt-canvas-ci/scene-output.h264').exists():
+              raise SystemExit('Unsupported NVENC setup produced a misleading H264 file')
+          print('Real Qt -> native GPU -> NVENC replay:', result['status'])
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Qt Canvas NVENC replay report failed validation' }
+      - name: Upload real Qt Canvas and D3D11 GPU replay diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-canvas-native-gpu-replay
+          path: |
+            qt-canvas-ci/scene.json
+            qt-canvas-ci/scene-report.json
+          if-no-files-found: ignore
+
       - name: Verify track lyrics player, TTML karaoke, and responsive cue layout
         env:
           QT_QPA_PLATFORM: offscreen
