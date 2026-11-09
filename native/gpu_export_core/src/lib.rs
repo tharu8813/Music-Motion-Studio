@@ -20,6 +20,9 @@ pub mod d3d11_frame_pool;
 #[cfg(windows)]
 pub mod d3d11_bgra_video;
 
+#[cfg(windows)]
+pub mod d3d11_nvenc_registration;
+
 mod session;
 pub use session::{rgba_to_nv12_reference, GpuFrameSession, PixelRect};
 
