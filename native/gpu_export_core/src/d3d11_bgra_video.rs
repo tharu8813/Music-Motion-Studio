@@ -17,6 +17,7 @@ use windows::Win32::Graphics::Direct3D11::{
     D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE,
     D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT,
     D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE, D3D11_VIDEO_PROCESSOR_CONTENT_DESC,
+    D3D11_VIDEO_PROCESSOR_CAPS, D3D11_VIDEO_PROCESSOR_FEATURE_CAPS_ALPHA_STREAM,
     D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_INPUT,
     D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT,
     D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC,
@@ -25,6 +26,7 @@ use windows::Win32::Graphics::Direct3D11::{
     D3D11_VIDEO_USAGE_PLAYBACK_NORMAL, D3D11_VPIV_DIMENSION_TEXTURE2D,
     D3D11_VPOV_DIMENSION_TEXTURE2D, ID3D11Device,
     ID3D11DeviceContext, ID3D11Texture2D, ID3D11VideoDevice,
+    ID3D11VideoProcessorInputView,
     ID3D11VideoContext, ID3D11VideoProcessor,
     ID3D11VideoProcessorEnumerator, ID3D11VideoProcessorOutputView,
 };
@@ -51,6 +53,51 @@ pub fn validate_opaque_bgra(
     }
     if bytes.chunks_exact(4).any(|px| px[3] != 255) {
         return Err("GPU NV12 video processor only accepts opaque BGRA".to_owned());
+    }
+    Ok(())
+}
+
+/// One full-frame GPU BGRA Canvas layer in bottom-to-top paint order.
+///
+/// The alpha in each GPU pixel must be STRAIGHT (not QImage's premultiplied
+/// variant). The D3D11 video processor additionally applies layer.opacity
+/// as planar alpha, so no CPU bitmap flattening is needed.
+pub struct NativeCanvasBgraLayer<'a> {
+    pub texture: &'a ID3D11Texture2D,
+    pub opacity: f32,
+}
+
+pub const MAX_CANVAS_VIDEO_STREAMS: usize = 8;
+
+/// Pure validation independent of the Windows GPU driver. The first layer
+/// must be a full-frame opaque background, and further layers carry straight
+/// per-pixel alpha. Reject invalid pixels before D3D11 UpdateSubresource.
+pub fn validate_canvas_bgra_layer(
+    width: u32, height: u32, pixels: &[u8],
+) -> Result<(), String> {
+    if width < 2 || height < 2 || width > 3840 || height > 2160
+        || width % 2 != 0 || height % 2 != 0
+    {
+        return Err("Canvas BGRA dimensions must be even and <=3840x2160".into());
+    }
+    let expected = (width as usize).checked_mul(height as usize)
+        .and_then(|n| n.checked_mul(4))
+        .ok_or("Canvas BGRA byte count overflow")?;
+    if pixels.len() != expected {
+        return Err(format!("Canvas BGRA buffer must contain {expected} bytes"));
+    }
+    Ok(())
+}
+
+fn validate_canvas_opacities(opacities: &[f32]) -> Result<(), String> {
+    if opacities.is_empty() || opacities.len() > MAX_CANVAS_VIDEO_STREAMS {
+        return Err("D3D11 Canvas requires 1..=8 ordered input layers".into());
+    }
+    if !opacities.iter().all(|alpha| alpha.is_finite() && (0.0..=1.0).contains(alpha)) {
+        return Err("Canvas layer opacity must be finite and in [0,1]".into());
+    }
+    if opacities[0] != 1.0 {
+        return Err("Canvas base layer must have opacity 1.0".into());
     }
     Ok(())
 }
@@ -254,6 +301,110 @@ impl NativeBgraNv12VideoProcessor {
         Ok(&self.output)
     }
 
+    /// Upload BGRA Canvas pixels with straight alpha. Only a diagnostic
+    /// bridge for Qt QImage layers: the future native GPU Canvas painter
+    /// will supply resident textures and skip these CPU uploads entirely.
+    /// The background image must be opaque; overlay images may have alpha.
+    pub fn upload_canvas_layer_for_validation(
+        &self, texture: &ID3D11Texture2D, pixels: &[u8],
+    ) -> Result<(), String> {
+        self.validate_source(texture)?;
+        validate_canvas_bgra_layer(self.width, self.height, pixels)?;
+        unsafe {
+            self.context.UpdateSubresource(
+                texture, 0, None, pixels.as_ptr().cast(), self.width * 4, 0,
+            )
+        };
+        Ok(())
+    }
+
+    /// Composite native D3D11 BGRA layers in their original Canvas Z-order
+    /// using the hardware video processor; write NV12 directly on this SAME
+    /// device, no intermediate CPU flattened RGBA frame.
+    ///
+    /// The underlying video processor must expose MAX_INPUT_STREAMS and
+    /// ALPHA_STREAM support. Unsupported adapters fail explicitly rather
+    /// than silently producing an incorrect transparent subtitle blend.
+    /// The BGRA source alpha is STRAIGHT; Qt ARGB32_Premultiplied must be
+    /// converted to plain ARGB32 before GPU upload.
+    ///
+    /// Output is an intermediate GPU NV12 texture. The caller must issue
+    /// a same-immediate-context CopyResource into its retained pool slot
+    /// BEFORE calling this again, then await D3D11 query completion.
+    pub fn composite_canvas_layers_to_nv12(
+        &self, layers: &[NativeCanvasBgraLayer<'_>],
+    ) -> Result<&ID3D11Texture2D, String> {
+        let alphas: Vec<f32> = layers.iter().map(|l| l.opacity).collect();
+        validate_canvas_opacities(&alphas)?;
+        let mut caps = D3D11_VIDEO_PROCESSOR_CAPS::default();
+        unsafe { self.enumerator.GetVideoProcessorCaps(&mut caps) }
+            .map_err(|e| format!("Cannot query D3D11 multi-stream composition: {e}"))?;
+        if layers.len() > caps.MaxInputStreams as usize ||
+            layers.len() > caps.MaxStreamStates as usize
+        {
+            return Err(format!(
+                "D3D11 video processor supports {} input streams and {} stream states; requested {}",
+                caps.MaxInputStreams, caps.MaxStreamStates, layers.len(),
+            ));
+        }
+        if layers.len() > 1 && caps.FeatureCaps &
+            D3D11_VIDEO_PROCESSOR_FEATURE_CAPS_ALPHA_STREAM.0 as u32 == 0
+        {
+            return Err("D3D11 Canvas GPU layer alpha blending unsupported by the adapter".into());
+        }
+
+        let input_desc = D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC {
+            FourCC: 0,
+            ViewDimension: D3D11_VPIV_DIMENSION_TEXTURE2D,
+            ..Default::default()
+        };
+        let mut views: Vec<ID3D11VideoProcessorInputView> = Vec::with_capacity(layers.len());
+        for layer in layers {
+            self.validate_source(layer.texture)?;
+            let mut input_view = None;
+            unsafe {
+                self.video_device.CreateVideoProcessorInputView(
+                    layer.texture, &self.enumerator, &input_desc,
+                    Some(&mut input_view),
+                )
+            }.map_err(|e| format!("Cannot create Canvas GPU video input view: {e}"))?;
+            views.push(input_view.ok_or("D3D11 Canvas input view was null")?);
+        }
+
+        // Per-pixel alpha (straight BGRA), multiplied by a planar alpha, is
+        // applied by the video processor. Disable driver automatic filters
+        // to avoid unspecified enhancement of Canvas text and colors.
+        for (index, layer) in layers.iter().enumerate() {
+            unsafe {
+                self.video_context.VideoProcessorSetStreamAutoProcessingMode(
+                    &self.processor, index as u32, false,
+                );
+                self.video_context.VideoProcessorSetStreamAlpha(
+                    &self.processor, index as u32, index > 0, layer.opacity,
+                );
+            }
+        }
+        // D3D11_VIDEO_PROCESSOR_STREAM contains ManuallyDrop COM fields:
+        // explicitly drop each extra cloned reference after VideoProcessorBlt.
+        let mut streams: Vec<D3D11_VIDEO_PROCESSOR_STREAM> = views.iter()
+            .map(|view| D3D11_VIDEO_PROCESSOR_STREAM {
+                Enable: BOOL(1),
+                pInputSurface: ManuallyDrop::new(Some(view.clone())),
+                ..Default::default()
+            })
+            .collect();
+        let operation = unsafe {
+            self.video_context.VideoProcessorBlt(
+                &self.processor, &self.output_view, 0, &streams,
+            )
+        };
+        for stream in &mut streams {
+            unsafe { ManuallyDrop::drop(&mut stream.pInputSurface) };
+        }
+        operation.map_err(|e| format!("D3D11 Canvas GPU layer composition failed: {e}"))?;
+        Ok(&self.output)
+    }
+
     pub(crate) fn device(&self) -> &ID3D11Device {
         &self.device
     }
@@ -266,6 +417,20 @@ impl NativeBgraNv12VideoProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canvas_layer_bytes_and_opacity_fail_closed() {
+        assert!(validate_canvas_bgra_layer(4, 4, &[0; 63]).is_err());
+        assert!(validate_canvas_bgra_layer(4, 4, &[0; 64]).is_ok());
+        assert!(validate_canvas_bgra_layer(3, 4, &[0; 48]).is_err());
+        assert!(validate_canvas_opacities(&[1.0, 0.25, 1.0]).is_ok());
+        assert!(validate_canvas_opacities(&[]).is_err());
+        assert!(validate_canvas_opacities(&[0.9, 1.0]).is_err());
+        assert!(validate_canvas_opacities(&[1.0, f32::NAN]).is_err());
+        assert!(validate_canvas_opacities(&[1.0, -0.2]).is_err());
+        assert!(validate_canvas_opacities(&[1.0, 1.1]).is_err());
+        assert!(validate_canvas_opacities(&[1.0; 9]).is_err());
+    }
 
     #[test]
     fn bgra_video_input_binding_is_compatible_with_d3d11_video_processor() {
