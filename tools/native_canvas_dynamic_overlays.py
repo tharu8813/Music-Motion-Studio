@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event
@@ -133,8 +133,26 @@ def real_audio_dynamic_frames(
     )
     overlays = ExportController.visualizers(
         SimpleNamespace(window=mock_window),
-        tracks=active_tracks, render_scale=scale, compiled_plan=plan,
+        tracks=active_tracks, render_scale=1.0, compiled_plan=plan,
     )
+    # Export production renders at >=1x and its geometry helper intentionally
+    # clamps downscaling. Native diagnostic packets may be 0.25x, so scale
+    # the *already resolved* export geometry rather than misplace effects.
+    if scale != 1.0:
+        overlays = [
+            replace(
+                item, x=round(item.x * scale), y=round(item.y * scale),
+                width=max(8, round(item.width * scale)),
+                height=max(8, round(item.height * scale)),
+                line_width=item.line_width * scale,
+                level_meter_gap=item.level_meter_gap * scale,
+                particle_min_size=item.particle_min_size * scale,
+                particle_max_size=item.particle_max_size * scale,
+                frame_width=item.frame_width * scale,
+                frame_inset=item.frame_inset * scale,
+            )
+            for item in overlays
+        ]
     if len(overlays) == 0:
         raise ValueError("No export-compatible dynamic overlay was generated")
     renderer = FFmpegRenderer(ffmpeg)
