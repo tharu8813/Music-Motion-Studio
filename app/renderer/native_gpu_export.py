@@ -11,7 +11,6 @@ FFmpegRenderer production audio/metadata mux without re-encoding video.
 """
 from __future__ import annotations
 
-from fractions import Fraction
 import json
 import math
 from pathlib import Path
@@ -97,19 +96,21 @@ def _probe_complete_h264(
     try:
         stream, = json.loads(process.stdout)["streams"]
         counted = int(stream["nb_read_frames"])
-        rate = Fraction(str(stream["r_frame_rate"]))
     except (ValueError, KeyError, TypeError) as exc:
         raise RenderError("Native H264 stream metadata is invalid.") from exc
+    # An Annex-B stream is NOT timestamped. ffprobe can report a doubled
+    # r_frame_rate for a valid CFR stream, so that number is not the FPS
+    # authority. The complete native report establishes the selected CFR
+    # and FFmpegRenderer stamps -r fps BEFORE importing raw H264. The
+    # production output validator then verifies the final MP4's FPS.
     if (stream.get("codec_name") != "h264"
             or stream.get("width") != width
             or stream.get("height") != height
-            or counted != frame_count
-            or rate != fps):
+            or counted != frame_count):
         raise RenderError(
-            "Native GPU stream does not match the complete playlist: "
+            "Native GPU H264 does not match the complete playlist: "
             f"{counted}/{frame_count} frames, "
-            f"{stream.get('width')}x{stream.get('height')}, "
-            f"FPS {rate}/{fps}."
+            f"{stream.get('width')}x{stream.get('height')}."
         )
 
 
