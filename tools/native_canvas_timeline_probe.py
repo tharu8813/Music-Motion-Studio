@@ -246,7 +246,9 @@ def load_timeline(path: Path) -> tuple[dict, list[Path]]:
             if (not isinstance(rendered, dict)
                     or not isinstance(rendered.get("source_id"), str)
                     or not rendered["source_id"].strip()
-                    or rendered.get("source_type") not in ("audio_visualizer", "particle_overlay")):
+                    or rendered.get("source_type") not in (
+                        "audio_visualizer", "audio_waveform",
+                        "audio_level_meter", "particle_overlay")):
                 raise TimelineValidationError("Invalid rendered dynamic source metadata")
         if len({x["source_id"] for x in dynamic}) != len(dynamic):
             raise TimelineValidationError("Duplicate rendered dynamic source ID")

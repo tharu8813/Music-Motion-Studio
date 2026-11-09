@@ -30,7 +30,8 @@ from app.utils.visualizer_geometry import visualizer_export_rect
 
 
 DYNAMIC_TYPES = frozenset({
-    SourceType.AUDIO_VISUALIZER, SourceType.PARTICLE_OVERLAY,
+    SourceType.AUDIO_VISUALIZER, SourceType.AUDIO_WAVEFORM,
+    SourceType.AUDIO_LEVEL_METER, SourceType.PARTICLE_OVERLAY,
 })
 
 
@@ -51,7 +52,7 @@ def build_dynamic_stack(project, scale: float) -> DynamicStack:
     """
     dynamic = [s for s in project.sources if s.visible and s.source_type in DYNAMIC_TYPES]
     if not dynamic:
-        raise ValueError("Dynamic GPU diagnostic requires a visible visualizer or particles")
+        raise ValueError("Dynamic GPU diagnostic requires a visible audio overlay")
     dynamic.sort(key=lambda s: (
         s.z_index, visualizer_export_rect(s, scale)[1],
         visualizer_export_rect(s, scale)[0],

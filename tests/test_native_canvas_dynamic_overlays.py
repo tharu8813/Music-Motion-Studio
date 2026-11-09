@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+from contextlib import redirect_stdout
+from io import StringIO
 import math
 import os
 from pathlib import Path
@@ -24,7 +26,10 @@ from tests.test_native_canvas_project_probe import project_fixture
 from tools.native_canvas_dynamic_overlays import (
     build_dynamic_stack, interleave_dynamic_layers, real_audio_dynamic_frames,
 )
-from tools.native_canvas_project_probe import capture_project, validate_project_for_gpu_capture
+from tools.native_canvas_project_probe import (
+    capture_project, main as project_probe_main, project_source_inventory,
+    validate_project_for_gpu_capture,
+)
 from tools.native_canvas_timeline_probe import TimelineValidationError, load_timeline
 
 
@@ -84,6 +89,76 @@ class NativeDynamicOverlayTests(unittest.TestCase):
         project.sources[-2].rotation = 15
         with self.assertRaisesRegex(TimelineValidationError, "rotation"):
             validate_project_for_gpu_capture(project, scale=0.25, source_policy="dynamic-audio")
+
+    def test_waveform_and_stereo_meter_are_supported_with_real_audio(self):
+        ffmpeg = os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG") or shutil.which("ffmpeg")
+        if not ffmpeg or not Path(ffmpeg).is_file():
+            self.skipTest("FFmpeg needed for waveform and meter analysis")
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            audio = root / "sine.wav"
+            sample_wav(audio)
+            project = dynamic_project(audio)
+            project.sources[-2].source_type = SourceType.AUDIO_WAVEFORM
+            project.sources[-1].source_type = SourceType.AUDIO_LEVEL_METER
+            self.assertEqual(
+                validate_project_for_gpu_capture(
+                    project, scale=0.25, source_policy="dynamic-audio",
+                ), [],
+            )
+            with real_audio_dynamic_frames(
+                project, compile_playlist(project.playlist),
+                fps=30, scale=0.25, start_seconds=0,
+                prepared_audio=audio, ffmpeg=ffmpeg,
+            ) as (overlays, streams, origin):
+                self.assertEqual(origin, "provided_prepared_audio")
+                self.assertEqual([x.kind for x in overlays], ["waveform", "level_meter"])
+                self.assertTrue(all(not next(stream).isNull() for stream in streams))
+            saved = root / "project.json"
+            saved.write_text(json.dumps(project.to_dict()), encoding="utf8")
+            timeline = capture_project(
+                saved, root / "output", source_policy="dynamic-audio",
+                prepared_audio=audio, ffmpeg=ffmpeg,
+                frames=3, fps=30, scale=0.25,
+            )
+            data, refs = load_timeline(timeline)
+            self.assertEqual(len(refs), 3)
+            self.assertEqual(
+                {src["source_type"] for src in data["dynamic_sources"]},
+                {"audio_waveform", "audio_level_meter"},
+            )
+            packet = json.loads((root / "output" / "frame-0000.json").read_text("utf8"))
+            self.assertEqual(len(packet["layers"]), 4)
+
+    def test_inventory_and_rejection_identify_exact_unsupported_sources(self):
+        with TemporaryDirectory() as directory:
+            project = dynamic_project(Path("unused.wav"))
+            unsupported = Source(SourceType.VIDEO, "Video background", z_index=8)
+            project.sources.append(unsupported)
+            report = project_source_inventory(project)
+            video = next(row for row in report if row["source_id"] == unsupported.id)
+            self.assertEqual(video["dynamic_audio_status"], "unsupported_video")
+            with self.assertRaisesRegex(
+                TimelineValidationError, "Video background"
+            ) as caught:
+                validate_project_for_gpu_capture(
+                    project, scale=0.25, source_policy="dynamic-audio",
+                )
+            self.assertIn(unsupported.id, str(caught.exception))
+            project_path = Path(directory) / "project.json"
+            project_path.write_text(json.dumps(project.to_dict()), encoding="utf8")
+            buffer = StringIO()
+            with redirect_stdout(buffer):
+                status = project_probe_main([
+                    "--project", str(project_path), "--inspect-sources",
+                ])
+            self.assertEqual(status, 0)
+            result = json.loads(buffer.getvalue())
+            self.assertEqual(result["status"], "inspected")
+            self.assertIn(unsupported.id, [
+                entry["source_id"] for entry in result["sources"]
+            ])
+            self.assertFalse((Path(directory) / "capture").exists())
 
     def test_bgra_alpha_and_order_are_retained(self):
         project = dynamic_project(Path("not-needed.wav"))

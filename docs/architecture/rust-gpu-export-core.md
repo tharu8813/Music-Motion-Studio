@@ -1191,15 +1191,28 @@ overwrite previous results. It creates `timeline.json`,
 measured NVENC encode) `project.h264`, `gpu-report.json` and
 `parity.json`.
 
-Safety limits: this diagnostic only supports `audio_visualizer` and
-`particle_overlay` from the dynamic source family, with other Canvas
-sources between or below them. Video, waveform, level meter, bass-reactive
-Canvas elements, dynamic custom keyframes or rotations, ambiguous
+Safety limits: this diagnostic supports `audio_visualizer`,
+`audio_waveform`, `audio_level_meter`, and `particle_overlay` from the
+dynamic source family, with other Canvas sources between or below them.
+Video and bass-reactive Canvas elements, dynamic custom keyframes or
+rotations, ambiguous
 same-Z static/dynamic sources, AutoMix/crossfade and more than eight layers
 are rejected. Start timestamps must be exact CFR boundaries and <=30 s
 to bound frame warm-up. An optional `--prepared-audio` must contain the
 corresponding mixed playlist audio, or the application generates it
 using its existing sequential export path.
+
+### Source inventory without rendering
+
+```powershell
+python -m tools.native_canvas_project_probe --project "C:\Users\wlqor\Desktop\giggles.pvsproj" --inspect-sources
+```
+
+This read-only command prints the exact source name, type, ID, Z index,
+visibility and eligibility. It does not need `--output-dir`, create video
+files or disable source-policy validation. New validation errors name each
+unsupported source instead of vaguely listing possible unsupported kinds.
+Video and separately reactive Canvas elements still fail closed.
 
 Before enabling any production GPU exporter, compare *actual* output from
 both renderers on sustained multi-track projects, crossfades, masks,
