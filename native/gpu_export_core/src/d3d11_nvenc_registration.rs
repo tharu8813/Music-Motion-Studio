@@ -21,7 +21,7 @@ use mini_nvcodec::nvenc_sys::{
 };
 use windows::core::Interface;
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11_TEXTURE2D_DESC, ID3D11Texture2D,
+    D3D11_TEXTURE2D_DESC, ID3D11Device, ID3D11Texture2D,
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_NV12;
 
@@ -41,6 +41,7 @@ pub struct NativeNvencRegistrationSession {
     version: NvencApiVersion,
     width: u32,
     height: u32,
+    device: ID3D11Device,
     registered: HashMap<usize, RegisteredNv12>,
     successful_maps: usize,
 }
@@ -146,6 +147,7 @@ impl NativeNvencRegistrationSession {
             // encoder session; it is never leaked or published.
             let mut result = Self {
                 api, encoder: session, version, width, height,
+                device: pool.native_device().clone(),
                 registered: HashMap::new(), successful_maps: 0,
             };
             if !supported_codec(api, session)? {
@@ -220,6 +222,13 @@ impl NativeNvencRegistrationSession {
     pub fn probe_gpu_complete_frame(
         &mut self, frame: &ReservedGpuFrame,
     ) -> Result<(), String> {
+        // Confirm the actual COM GPU device, not just matching PCI IDs
+        // or a matching texture width/format.
+        let actual_device = unsafe { frame.texture.GetDevice() }
+            .map_err(|e| format!("Cannot inspect encoder texture device: {e}"))?;
+        if actual_device.as_raw() != self.device.as_raw() {
+            return Err("NVENC input texture belongs to a different D3D11 device".into());
+        }
         let mut desc = D3D11_TEXTURE2D_DESC::default();
         unsafe { frame.texture.GetDesc(&mut desc) };
         if desc.Width != self.width || desc.Height != self.height
@@ -228,9 +237,8 @@ impl NativeNvencRegistrationSession {
         {
             return Err("NVENC input must be an exact-size NV12 D3D11 texture".into());
         }
-        // Same-device verification is inherent to NVENC registration, but
-        // check the current registered slot texture is byte-identical COM
-        // identity before reusing its persistent registered handle.
+        // Check current registered-slot COM identity before reusing
+        // its persistent NVENC handle (not merely matching PCI IDs).
         if !self.registered.contains_key(&frame.slot_index) {
             let mut registration: NV_ENC_REGISTER_RESOURCE =
                 unsafe { std::mem::zeroed() };
