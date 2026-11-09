@@ -123,7 +123,7 @@ class SubtitleTimingTests(unittest.TestCase):
                 target = service.export(tracks, Path(directory) / f"mix.{extension}", plan)
                 text = target.read_text(encoding="utf-8")
                 self.assertIn("- a 가사\n- b 가사", text)
-                self.assertNotIn("\n", text)
+                self.assertNotIn(r"\n", text)
                 parsed = LyricsService.load(target)
                 self.assertEqual(LyricsService.current_text(parsed, 9), "- a 가사\n- b 가사")
                 self.assertEqual(LyricsService.current_text(parsed, 10), "b 가사")
