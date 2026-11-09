@@ -213,11 +213,22 @@ fn main() {
                                 if reference_error.is_some() { break; }
                             }
                         }
-                        let best = profiles.iter()
+                        // Own the summary before moving the profiles into
+                        // the JSON report; do not retain a borrow of profiles.
+                        let best: Option<Value> = profiles.iter()
                             .min_by(|a, b| a["mean_patch_center_channel_delta"]
                                 .as_f64().unwrap_or(f64::INFINITY)
                                 .total_cmp(&b["mean_patch_center_channel_delta"]
-                                    .as_f64().unwrap_or(f64::INFINITY)));
+                                    .as_f64().unwrap_or(f64::INFINITY)))
+                            .map(|p| json!({
+                                "matrix": p["matrix"], "range": p["range"],
+                                "mean_patch_center_channel_delta": p["mean_patch_center_channel_delta"],
+                                "max_patch_center_channel_delta": p["max_patch_center_channel_delta"],
+                            }));
+                        let near_reference = best.as_ref().is_some_and(|p|
+                            p["max_patch_center_channel_delta"].as_u64()
+                                .is_some_and(|difference| difference <= 3)
+                        );
                         json!({
                             "schema": 1, "status": "measured",
                             "adapter_name": pool.adapter_name(),
@@ -227,14 +238,8 @@ fn main() {
                             "ffmpeg_reference_requested": ffmpeg.is_some(),
                             "ffmpeg_reference_error": reference_error,
                             "ffmpeg_color_profiles": profiles,
-                            "closest_ffmpeg_profile": best.map(|p| json!({
-                                "matrix": p["matrix"], "range": p["range"],
-                                "mean_patch_center_channel_delta": p["mean_patch_center_channel_delta"],
-                                "max_patch_center_channel_delta": p["max_patch_center_channel_delta"],
-                            })),
-                            "patch_centers_within_3_codes_of_closest_ffmpeg_profile":
-                                best.is_some_and(|p| p["max_patch_center_channel_delta"].as_u64()
-                                    .is_some_and(|difference| difference <= 3)),
+                            "closest_ffmpeg_profile": best,
+                            "patch_centers_within_3_codes_of_closest_ffmpeg_profile": near_reference,
                             "full_frame_color_accuracy_verified": false,
                             "nvenc_interop_implemented": false,
                             "vulkan_wgpu_to_d3d11_interop_implemented": false,
