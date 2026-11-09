@@ -872,3 +872,51 @@ capture or default encoding paths have changed. The next integration
 must consume this manifest on the D3D11 device, preserve Z order,
 and compare complex Qt frames against decoded NVENC outputs before
 it can be promoted to a full GPU painter.
+
+
+## Milestone 15: real Qt text/Canvas layer packet -> native D3D11 -> NVENC
+
+Existing milestones 13 and 14 supplied the same-device D3D11
+multi-layer alpha compositor and a real Qt CanvasSnapshot raster
+layer capture, respectively. This milestone joins them experimentally
+without changing application exports.
+
+- Qt CanvasSnapshot remains the source of truth for real SourceItem
+  backgrounds, text/lyric paint, z-order and appearance at a supplied
+  timestamp. Qt still rasterizes pixels **on the CPU**.
+- Python writes one **BGRA8_STRAIGHT** full-frame layer file per Z band
+  with SHA-256 and a versioned JSON manifest. The Rust
+  qt_canvas_packet::load_qt_canvas_packet() parser checks the checksum,
+  file lengths, manifest schema, Z-order, opacity, fixed dimensions,
+  path traversal, and opaque base, before any D3D11 command.
+- d3d11_qt_canvas_packet_probe replays one or more packet manifests,
+  optionally repeating the sequence for a few frames, into native
+  GPU BGRA textures on the same D3D11 device used by the frame pool.
+  GPU VideoProcessorBlt composites ordered alpha bands and converts
+  BGRA to NV12. GPU CopyResource places the result in the bounded
+  pool, which waits for producer completion. NVENC then synchronously
+  encodes to H.264, and only after a finished output packet may a
+  pool slot be returned.
+- Raw Qt BGRA buffers are **uploaded from CPU**, so this is NOT a
+  fully GPU-native Canvas painter or end-to-end zero-copy export.
+  There is no GPU->CPU **NV12** transfer on the encode path; the
+  compressed H.264 packet is copied to host memory.
+- The new parser has GPU-independent unit tests for valid source
+  packets, tampered SHA-256 data, dimensions and path policies.
+  Windows deployment CI captures the actual Qt text/shape fixture,
+  replays it through the native Rust CLI and validates the report,
+  accepting explicit hardware-unavailable statuses on hosted runners
+  that cannot expose RTX encode hardware.
+
+Test real Qt raster sources locally:
+
+    python -m tools.native_canvas_fixture_capture --output-dir qt-native-sample --stem scene --scale 0.5
+    cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_packet_probe -- --manifest qt-native-sample/scene.json --repeat 6 --slots 2 --video-output qt-native-sample/scene-encoded.h264 --output qt-native-sample/scene-result.json
+
+If measured, the video is a six-frame repetition of a **real Qt painted
+static scene**. It does not validate dynamic timed lyric changes or
+arbitrary source animations yet. A later stage must replay real timeline
+snapshots with reproducible PTS/metadata, compare full pixels against
+CPU CanvasSnapshot and check actual MP4 audio timing on the RTX 5060.
+The application exporter remains unchanged. Real-time native GPU
+glyph rendering is a separate much larger renderer project.
