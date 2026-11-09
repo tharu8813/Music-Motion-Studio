@@ -90,6 +90,30 @@ jobs:
           print('D3D11 NV12 frame pool status:', report['status'])
           '@ | python -
           if ($LASTEXITCODE -ne 0) { throw 'D3D11 frame pool JSON checks failed' }
+      - name: Validate same-device GPU BGRA to NV12 video conversion probe
+        shell: pwsh
+        run: |
+          cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_bgra_nv12_video_probe -- --width 320 --height 180 --frames 4 --output d3d11-bgra-nv12-ci.json
+          if ($LASTEXITCODE -ne 0) { throw 'Rust native video processor GPU conversion failed' }
+          @'
+          import json
+          from pathlib import Path
+          payload = json.loads(Path('d3d11-bgra-nv12-ci.json').read_text(encoding='utf-8'))
+          accepted = {'measured','d3d11_hardware_unavailable','d3d11_video_processor_unavailable'}
+          if payload.get('status') not in accepted:
+              raise SystemExit(f"Unknown D3D11 video processor status: {payload.get('status')}")
+          if payload['status'] == 'measured' and not payload.get('nv12_output_sanity_checks_passed'):
+              raise SystemExit('D3D11 video processor failed NV12 GPU test')
+          print('D3D11 GPU BGRA/NV12:', payload['status'])
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Invalid D3D11 video processor report' }
+      - name: Upload BGRA-to-NV12 GPU video processor diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d3d11-bgra-nv12-video-processor
+          path: d3d11-bgra-nv12-ci.json
+          if-no-files-found: ignore
       - name: Upload native D3D11 GPU frame pool report
         if: always()
         uses: actions/upload-artifact@v4

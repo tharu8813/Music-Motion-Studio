@@ -25,6 +25,7 @@ venv/
 /nvenc-d3d11-hwframes*.json
 /rust-d3d11-nv12*.json
 /rust-d3d11-frame-pool*.json
+/d3d11-bgra-nv12*.json
 /gpu-nv12-compat-test.mp4
 /gpu-canvas-local.json
 /cuda-probe.json
