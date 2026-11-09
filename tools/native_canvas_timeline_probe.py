@@ -53,7 +53,10 @@ def _safe_local_file(directory: Path, name: object, expected: str) -> Path:
     return path
 
 
-def _verify_manifest(directory: Path, name: str, width: int, height: int) -> None:
+def _verify_manifest(
+    directory: Path, name: str, width: int, height: int, *,
+    project_timeline: bool = False,
+) -> None:
     path = _safe_local_file(directory, name, name)
     if path.stat().st_size > 64 * 1024:
         raise TimelineValidationError("Qt BGRA manifest exceeds 64 KiB")
@@ -67,15 +70,41 @@ def _verify_manifest(directory: Path, name: str, width: int, height: int) -> Non
             or doc.get("production_export_changed") is not False):
         raise TimelineValidationError(f"Qt frame manifest dimensions or format invalid: {path}")
     layers = doc.get("layers")
-    if not isinstance(layers, list) or len(layers) != 2:
-        raise TimelineValidationError("Expected background plus one ordered text/shape layer")
+    # The older synthetic timelines intentionally require exactly two layers.
+    # Real projects interleave Qt bands and real-audio overlays and therefore
+    # need the full 1..8 native packet range. Never relax the legacy fixture.
+    if (not isinstance(layers, list)
+            or not (1 <= len(layers) <= 8 if project_timeline else len(layers) == 2)):
+        raise TimelineValidationError(
+            "Expected 1..8 ordered project GPU layers"
+            if project_timeline else
+            "Expected background plus one ordered text/shape layer"
+        )
+    if (doc.get("schema") != 1
+            or doc.get("coordinate_origin") != "top_left"
+            or doc.get("qt_canvas_rasterized_on_cpu") is not True
+            or doc.get("native_gpu_alpha_composition_required") != (len(layers) > 1)):
+        raise TimelineValidationError("Invalid native Qt GPU layer packet flags")
     for i, layer in enumerate(layers):
-        _safe_local_file(directory, layer.get("file"), name.removesuffix(".json") + f"-layer-{i:02d}.bgra")
-        raw = (directory / layer["file"]).read_bytes()
-        if len(raw) != width * height * 4:
+        if not isinstance(layer, dict):
+            raise TimelineValidationError("Invalid Qt BGRA layer descriptor")
+        expected_key = "base" if i == 0 else f"layer:{i - 1}"
+        opacity = layer.get("opacity")
+        if (layer.get("z_order") != i or layer.get("stream_key") != expected_key
+                or not isinstance(opacity, (int, float))
+                or not math.isfinite(opacity) or not 0 <= opacity <= 1
+                or (i == 0 and opacity != 1)):
+            raise TimelineValidationError("Qt native GPU layer ordering or opacity mismatch")
+        filename = name.removesuffix(".json") + f"-layer-{i:02d}.bgra"
+        file = _safe_local_file(directory, layer.get("file"), filename)
+        raw = file.read_bytes()
+        if (len(raw) != width * height * 4
+                or layer.get("bytes") != len(raw)):
             raise TimelineValidationError("Canvas BGRA layer byte count changed")
-        if _sha256(directory / layer["file"]) != layer.get("sha256"):
+        if _sha256(file) != layer.get("sha256"):
             raise TimelineValidationError("Canvas BGRA checksum mismatch")
+        if i == 0 and any(raw[offset] != 255 for offset in range(3, len(raw), 4)):
+            raise TimelineValidationError("Native GPU Canvas base must be fully opaque")
 
 
 def capture_timeline(output_dir: Path, *, frames: int = 6, fps: int = 60, scale: float = 0.5) -> Path:
@@ -353,7 +382,10 @@ def load_timeline(path: Path) -> tuple[dict, list[Path]]:
         if name != expected_manifest or name in seen:
             raise TimelineValidationError("Qt timeline frame manifest path or order invalid")
         seen.add(name)
-        _verify_manifest(directory, name, width, height)
+        _verify_manifest(
+            directory, name, width, height,
+            project_timeline=(kind == "project_timeline"),
+        )
         reference = _safe_local_file(directory, item.get("reference_png"), expected_reference)
         if _sha256(reference) != item.get("reference_sha256"):
             raise TimelineValidationError(f"Qt CPU frame {i} reference SHA-256 mismatch")
