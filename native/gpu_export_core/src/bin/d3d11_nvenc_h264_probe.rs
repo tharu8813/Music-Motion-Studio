@@ -11,6 +11,10 @@
 //!   --slots 3 --video-output d3d11-nvenc-h264-local.h264 --ffprobe ffprobe
 //!   --output d3d11-nvenc-h264-local.json
 //!
+//! Default bitstream lock mode is blocking (recommended for synchronous
+//! NVENC). --lock-mode polling is a diagnostic comparison only.
+//! Parent process enforces a 180-second worker watchdog.
+//!
 //! This is NOT connected to Music Motion Studio production exports:
 //! no real Canvas rendering, no audio/muxing or async streaming yet.
 
@@ -23,14 +27,16 @@ fn main() {
 fn main() {
     use music_motion_gpu_core::d3d11_bgra_video::NativeBgraNv12VideoProcessor;
     use music_motion_gpu_core::d3d11_frame_pool::NativeNv12FramePool;
-    use music_motion_gpu_core::d3d11_nvenc_registration::NativeNvencRegistrationSession;
+    use music_motion_gpu_core::d3d11_nvenc_registration::{
+        NativeNvencRegistrationSession, NvencBitstreamLockMode,
+    };
     use serde_json::{json, Value};
     use std::collections::VecDeque;
     use std::env;
     use std::fs::{self, OpenOptions};
     use std::io::Write;
     use std::path::{Path, PathBuf};
-    use std::process::Command;
+    use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};
 
     fn median(input: &[f64]) -> f64 {
@@ -128,6 +134,55 @@ fn main() {
         Ok(())
     }
 
+    // The documented synchronous NVENC lock is allowed to block in the
+    // NVIDIA driver. Run that work in a child process so a hung driver
+    // cannot leave the user's terminal stuck indefinitely. Only the child
+    // touches the D3D11/NVENC device and its resources.
+    let mut argv: Vec<String> = env::args().skip(1).collect();
+    if argv.first().map(String::as_str) != Some("--internal-worker") {
+        let exe = env::current_exe().expect("Locate NVENC diagnostic executable");
+        let mut child = Command::new(exe)
+            .arg("--internal-worker")
+            .args(&argv)
+            .stdin(Stdio::null())
+            .spawn().expect("Launch bounded NVENC diagnostic worker");
+        let start = Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => std::process::exit(status.code().unwrap_or(1)),
+                Ok(None) if start.elapsed() < Duration::from_secs(180) => {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let reason = "NVENC worker exceeded 180 seconds; terminated to avoid an indefinite driver lock";
+                    eprintln!("{reason}");
+                    if let Some(position) = argv.iter().position(|a| a == "--output") {
+                        if let Some(path) = argv.get(position + 1) {
+                            let result = json!({
+                                "schema": 1, "status": "nvenc_watchdog_timeout",
+                                "reason": reason,
+                                "nvenc_h264_bitstream_encoded": false,
+                                "production_export_changed": false,
+                            });
+                            let _ = fs::write(path,
+                                serde_json::to_string_pretty(&result).unwrap_or_default() + "\n");
+                        }
+                    }
+                    std::process::exit(1);
+                }
+                Err(error) => {
+                    eprintln!("Unable to monitor NVENC worker: {error}");
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
+    argv.remove(0);
+
     let mut width = 1920u32;
     let mut height = 1080u32;
     let mut frames = 30usize;
@@ -135,7 +190,8 @@ fn main() {
     let mut output: Option<PathBuf> = None;
     let mut video: Option<PathBuf> = None;
     let mut ffprobe: Option<String> = None;
-    let mut iter = env::args().skip(1);
+    let mut lock_mode = NvencBitstreamLockMode::Blocking;
+    let mut iter = argv.into_iter();
     while let Some(option) = iter.next() {
         let value = iter.next().unwrap_or_else(|| {
             eprintln!("Missing argument for {option}"); std::process::exit(2);
@@ -148,6 +204,14 @@ fn main() {
             "--output" => output = Some(value.into()),
             "--video-output" => video = Some(value.into()),
             "--ffprobe" => ffprobe = Some(value),
+            "--lock-mode" => lock_mode = match value.as_str() {
+                "blocking" => NvencBitstreamLockMode::Blocking,
+                "polling" => NvencBitstreamLockMode::Polling,
+                _ => {
+                    eprintln!("--lock-mode must be blocking or polling");
+                    std::process::exit(2);
+                }
+            },
             _ => { eprintln!("Unknown argument {option}"); std::process::exit(2); }
         }
     }
@@ -188,6 +252,7 @@ fn main() {
                 }),
                 Ok(mut session) => {
                     let run: Result<Value, String> = (|| {
+                        session.set_bitstream_lock_mode(lock_mode)?;
                         let texture = bridge.create_bgra_input_texture()?;
                         let mut pending = VecDeque::new();
                         let mut bitstream = Vec::new();
@@ -254,6 +319,7 @@ fn main() {
                             "frames_encoded": frames,
                             "pts": pts,
                             "nvenc_api_version": session.negotiated_api_version(),
+                            "bitstream_lock_mode": session.bitstream_lock_mode().as_str(),
                             "registered_nv12_gpu_slots": session.registered_slot_count(),
                             "nvenc_h264_bitstream_encoded": true,
                             "h264_annexb_bytes": bitstream.len(),
@@ -275,6 +341,7 @@ fn main() {
                             "schema": 1, "status": "nvenc_bitstream_validation_failed",
                             "reason": reason, "adapter_name": pool.adapter_name(),
                             "nvenc_api_version": session.negotiated_api_version(),
+                            "bitstream_lock_mode": session.bitstream_lock_mode().as_str(),
                             "frames_mapped": session.successful_map_count(),
                             "diagnostic_h264_file": if video.is_file() {
                                 Some(video.display().to_string())
