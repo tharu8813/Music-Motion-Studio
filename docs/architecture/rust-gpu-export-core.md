@@ -1194,13 +1194,34 @@ measured NVENC encode) `project.h264`, `gpu-report.json` and
 Safety limits: this diagnostic supports `audio_visualizer`,
 `audio_waveform`, `audio_level_meter`, and `particle_overlay` from the
 dynamic source family, with other Canvas sources between or below them.
-Video and bass-reactive Canvas elements, dynamic custom keyframes or
-rotations, ambiguous
+Video sources, dynamic custom keyframes or rotations, ambiguous
 same-Z static/dynamic sources, AutoMix/crossfade and more than eight layers
 are rejected. Start timestamps must be exact CFR boundaries and <=30 s
 to bound frame warm-up. An optional `--prepared-audio` must contain the
 corresponding mixed playlist audio, or the application generates it
 using its existing sequential export path.
+
+### Actual music-reactive Canvas background and lyrics
+
+The same `dynamic-audio` diagnostic now handles **background bass scaling**
+and **text/lyrics music reaction** without dropping or disabling those
+sources. It preserves the export's two distinct audio domains:
+
+- Audio visualizer/waveform/meter/particle overlay frames use the prepared
+  playlist mix and existing `PythonVisualizerRenderer._layer_frames`.
+- Background, text and lyric music reaction use the **original per-track
+  audio**, analyzed with the export's exact 24-band FFT, bass normalization,
+  music response profile and source-specific offset. The completed envelope
+  is sampled at each track-local presentation timestamp and supplied through
+  `CanvasSnapshot.capture_track(bass_level=..., music_levels=...)`.
+
+The test-window subset of tracks is analyzed in full, not just the first
+six frames: full-track percentiles are necessary for faithful bass
+normalization. The timeline manifest records the Canvas-reactive source IDs
+and `canvas_audio_reaction_analysis=per_track_export_fft24`. The probe
+still does **not** prove independent FFmpeg full-export parity and still
+rasterizes reactive Canvas content with Qt on the CPU. The usual static
+Canvas, TTML cue state and dynamic Z ordering are retained.
 
 ### Source inventory without rendering
 
@@ -1212,7 +1233,7 @@ This read-only command prints the exact source name, type, ID, Z index,
 visibility and eligibility. It does not need `--output-dir`, create video
 files or disable source-policy validation. New validation errors name each
 unsupported source instead of vaguely listing possible unsupported kinds.
-Video and separately reactive Canvas elements still fail closed.
+Unknown reactive source types and video sources still fail closed.
 
 Before enabling any production GPU exporter, compare *actual* output from
 both renderers on sustained multi-track projects, crossfades, masks,

@@ -39,8 +39,8 @@ from app.preview.native_canvas_layer_packets import (
     capture_native_canvas_track_frame, save_native_canvas_frame,
 )
 from tools.native_canvas_dynamic_overlays import (
-    DYNAMIC_TYPES, build_dynamic_stack, interleave_dynamic_layers,
-    real_audio_dynamic_frames,
+    DYNAMIC_TYPES, analyze_reactive_canvas_tracks, build_dynamic_stack,
+    canvas_reaction_at, interleave_dynamic_layers, real_audio_dynamic_frames,
 )
 from app.renderer.export_timeline import ExportTimelinePlanner
 from app.renderer.ffmpeg_renderer import FFmpegNotFoundError, RenderError
@@ -76,10 +76,10 @@ def project_source_inventory(project: ProjectDocument) -> list[dict[str, object]
             status = "dynamic_audio_supported"
         elif source.source_type in UNSUPPORTED_SOURCES:
             status = "unsupported_video"
-        elif source.uses_bass_reaction or (
-            source.source_type is SourceType.BACKGROUND and source.background_bass_reactive
-        ):
-            status = "unsupported_audio_reactive_canvas"
+        elif source.uses_bass_reaction and source.source_type in {
+            SourceType.BACKGROUND, SourceType.TEXT, SourceType.LYRICS,
+        }:
+            status = "canvas_audio_reactive_supported"
         else:
             status = "canvas"
         inventory.append({
@@ -156,10 +156,13 @@ def validate_project_for_gpu_capture(
             )
         unsupported = [s for s in visible if s.source_type in UNSUPPORTED_SOURCES
                        and s.source_type not in DYNAMIC_TYPES]
-        reactive = [s for s in visible if s.source_type not in DYNAMIC_TYPES and (
-            s.uses_bass_reaction or
-            (s.source_type is SourceType.BACKGROUND and s.background_bass_reactive)
-        )]
+        reactive = [
+            s for s in visible
+            if s.source_type not in DYNAMIC_TYPES and s.uses_bass_reaction
+            and s.source_type not in {
+                SourceType.BACKGROUND, SourceType.TEXT, SourceType.LYRICS,
+            }
+        ]
         if unsupported or reactive:
             details = [
                 f"{s.name or s.id} [{s.source_type.value}; {s.id}]"
@@ -171,7 +174,7 @@ def validate_project_for_gpu_capture(
             raise TimelineValidationError(
                 "dynamic-audio has unsupported project sources: "
                 + ", ".join(details)
-                + ". Video and audio-reactive Canvas sources require separate capture. "
+                + ". Video and unknown music-reactive source types require dedicated capture. "
                 "Use --inspect-sources to list all project sources; "
                 "--source-policy canvas-only is explicitly PARTIAL."
             )
@@ -322,6 +325,10 @@ def capture_project(
         if dynamic_mode and source.visible and source.source_type in DYNAMIC_TYPES
     ]
     dynamic_ids = {source.id for source in dynamic_sources}
+    reactive_canvas_sources = [
+        source for source in project.sources
+        if dynamic_mode and source.visible and source.uses_bass_reaction
+    ]
     included_sources = [
         source for source in project.sources
         if source.visible and source.id not in excluded_ids and source.id not in dynamic_ids
@@ -362,6 +369,7 @@ def capture_project(
     try:
         with ExitStack() as resources:
             dynamic_overlays, dynamic_streams, audio_origin = ([], [], None)
+            reactive_envelopes = {}
             if dynamic_mode:
                 dynamic_overlays, dynamic_streams, audio_origin = resources.enter_context(
                     real_audio_dynamic_frames(
@@ -374,11 +382,27 @@ def capture_project(
                     raise TimelineValidationError(
                         "Dynamic source/overlay count changed during export overlay creation"
                     )
+                if reactive_canvas_sources:
+                    selected_tracks = list({
+                        state["track"].id: state["track"]
+                        for state in resolved
+                    }.values())
+                    reactive_envelopes = analyze_reactive_canvas_tracks(
+                        project, selected_tracks, fps=fps, ffmpeg=ffmpeg,
+                    )
+                    if not all(track.id in reactive_envelopes for track in selected_tracks):
+                        raise TimelineValidationError(
+                            "Missing required per-track music reactive Canvas analysis"
+                        )
             for index, state in enumerate(resolved):
                 # A normal export worker keeps source state frozen; verify the
                 # diagnostic did not mutate it between PTS captures.
                 if project.to_dict() != original_document:
                     raise TimelineValidationError("Project source state mutated between frames")
+                bass_level, music_levels = canvas_reaction_at(
+                    state["track"], state["track_elapsed_seconds"], fps,
+                    reactive_canvas_sources, reactive_envelopes,
+                )
                 packet = capture_native_canvas_track_frame(
                     scene, state["track"], bands,
                     elapsed_seconds=state["track_elapsed_seconds"],
@@ -393,6 +417,8 @@ def capture_project(
                     animation_progress=state["animation_progress"],
                     animation_phase_duration=state["animation_phase_duration"],
                     compiled_plan=plan,
+                    bass_level=bass_level,
+                    music_levels=music_levels,
                 )
                 if dynamic_mode:
                     rendered = []
@@ -456,6 +482,10 @@ def capture_project(
                 "dynamic_sources": ([{"source_id": s.id, "source_type": s.source_type.value}
                                     for s in dynamic_sources] if dynamic_mode else []),
                 "dynamic_audio_origin": audio_origin,
+                "canvas_audio_reactive_source_ids": [s.id for s in reactive_canvas_sources],
+                "canvas_audio_reaction_analysis": (
+                    "per_track_export_fft24" if reactive_canvas_sources else None
+                ),
                 "excluded_source_count": len(omitted),
                 "excluded_sources": omitted,
                 "capture_scope": (
@@ -546,6 +576,7 @@ def _encode_and_verify(timeline_path: Path, args: argparse.Namespace) -> int:
         "excluded_sources": timeline["excluded_sources"],
         "dynamic_sources": timeline.get("dynamic_sources", []),
         "dynamic_audio_origin": timeline.get("dynamic_audio_origin"),
+        "canvas_audio_reactive_source_ids": timeline.get("canvas_audio_reactive_source_ids", []),
         "full_project_visual_parity_verified": False,
         "mean_rgb_mae": parity["mean_mae_codes"],
         "production_export_changed": False,
@@ -611,6 +642,7 @@ def main(argv: list[str] | None = None) -> int:
             "capture_scope": timeline["capture_scope"],
             "dynamic_sources": timeline.get("dynamic_sources", []),
             "dynamic_audio_origin": timeline.get("dynamic_audio_origin"),
+            "canvas_audio_reactive_source_ids": timeline.get("canvas_audio_reactive_source_ids", []),
             "full_project_visual_parity_verified": False,
             "track_ids": [f["track_id"] for f in timeline["frames"]],
             "timeline": str(path),

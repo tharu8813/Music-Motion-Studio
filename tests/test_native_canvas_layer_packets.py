@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -21,9 +22,12 @@ from PySide6.QtWidgets import QApplication
 from app.canvas.live_canvas import CanvasScene
 from app.canvas.source_item import SourceItem
 from app.models.source import Source, SourceType
+from app.models.playlist import PlaylistTrack
+from app.preview.canvas_snapshot import CanvasSnapshot
 from app.preview.native_canvas_layer_packets import (
     NativeCanvasBgraLayer, NativeCanvasFrame,
-    capture_native_canvas_frame, save_native_canvas_frame,
+    capture_native_canvas_frame, capture_native_canvas_track_frame,
+    save_native_canvas_frame,
     straight_bgra_bytes,
 )
 
@@ -90,6 +94,25 @@ class NativeCanvasGpuPacketTests(unittest.TestCase):
             # Qt source visibility must be fully restored by snapshot.
             self.assertEqual(len([i for i in scene.items()
                                   if isinstance(i, SourceItem) and i.isVisible()]), 3)
+        finally:
+            scene.clear()
+
+    def test_track_reactive_signals_reach_the_real_canvas_painter(self):
+        scene = self.build_scene()
+        track = PlaylistTrack("", "Track", duration_seconds=1.0)
+        try:
+            with patch.object(CanvasSnapshot, "capture_track",
+                              wraps=CanvasSnapshot.capture_track) as capture:
+                frame = capture_native_canvas_track_frame(
+                    scene, track, [(None, None)], elapsed_seconds=0.2,
+                    output_scale=0.25, bass_level=0.82,
+                    music_levels={"example-lyrics-id": 0.43},
+                )
+            self.assertEqual((frame.width, frame.height), (320, 180))
+            self.assertEqual(capture.call_count, 1)
+            self.assertAlmostEqual(capture.call_args.kwargs["bass_level"], 0.82)
+            self.assertEqual(capture.call_args.kwargs["music_levels"],
+                             {"example-lyrics-id": 0.43})
         finally:
             scene.clear()
 
