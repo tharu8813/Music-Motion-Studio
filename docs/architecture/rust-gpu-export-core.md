@@ -1325,3 +1325,65 @@ an explicit user-selectable GPU backend with a safe existing-renderer
 fallback.
 
 No diagnostic output may be marked `production_complete_playlist`.
+
+
+## Milestone 20: persistent full-length Rust NVENC stream and product MP4 CLI
+
+The new `d3d11_qt_canvas_stream_export` binary (under
+`native/gpu_export_core/src/bin/`) replaces the **120-frame diagnostic**
+constraint with a full playlist CFR protocol. The app sends each immutable
+`NativeCanvasFrame` as one BGRA packet manifest path on stdin. The binary
+uses one same-device D3D11 converter, a bounded 2..8-slot NV12 ring and one
+persistent native NVENC H.264 encoder, with the requested **1..240 FPS**,
+without accumulating all encoded pictures or PTS values. Every NVENC
+picture is written immediately to a `.h264.part` staging file, finalized
+after the exact expected frame count and GPU completion. The production
+JSON report is written only after the video was published.
+
+The native process sends one `MMS_FRAME_ACCEPTED <PTS>` line on stdout
+after uploading the Qt packet to D3D11. The Python
+`app/renderer/native_gpu_stream.py` producer waits for this acknowledgment
+before deleting the corresponding packet and BGRA files and requesting the
+next image. On ordinary failure it terminates the worker and clears
+temporary files. A forcibly killed process can leave an incomplete
+`.h264.part` which must never be treated as an export.
+
+`tools/native_gpu_full_export.py` is the **first actual complete-project
+video exporter** using this path. It loads the user's real `.pvsproj`,
+validates supported source types, builds the original playlist timeline,
+prepares AAC audio with the production FFmpeg renderer, captures the
+actual Qt Canvas+lyrics+background reaction, and paints actual dynamic
+audio overlays in the original Z order. Frames are generated lazily,
+passed to the native streaming encoder, and the completed H264 is handed
+off to `finalize_native_gpu_mp4` for chapters/metadata/audio stream
+copy into the final MP4. No 6-frame diagnostic shortcuts are involved.
+
+### Local Windows developer operation (RTX hardware required)
+
+```powershell
+cd C:\Users\wlqor\Desktop\playlist_project
+git switch main
+git pull --ff-only
+cargo build --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_stream_export
+python -m tools.native_gpu_full_export --project "C:\Users\wlqor\Desktop\giggles.pvsproj" --output "C:\Users\wlqor\Desktop\giggles-native-full.mp4" --native-exe ".\native\gpu_export_core\target\release\d3d11_qt_canvas_stream_export.exe" --fps 60 --scale 0.5
+```
+
+Use a **new output filename** each time, never an existing MP4.
+These commands process the *entire* `giggles.pvsproj` playlist. Real
+full-length throughput, GPU driver stability, audio sync and completed-file
+quality still need RTX 5060 verification. The reported Rust encoder timing
+does not include Qt image rasterization, audio analysis or final mux.
+
+### Current limitations and next product milestone
+
+The native GPU stream *composes/encodes* the Qt rasterized BGRA layers;
+it does not move source text drawing, lyrics or particles off CPU. This
+first full-project path supports sequential (no-crossfade/AutoMix)
+projects with the validated dynamic-audio source family. Video sources,
+ambiguous same-Z layers, custom source motion and missing audio assets
+fail closed rather than being omitted. The independent production FFmpeg
+full-movie visual parity has not yet been established. **The application's
+Export dialog still selects the existing renderer.** Once the explicit
+developer CLI completes a real full-length hardware run, wire this
+producer/finalizer through `ExportOrchestrator` and UI settings with
+safe fallback and cancellation.
