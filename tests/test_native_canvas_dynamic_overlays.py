@@ -7,6 +7,8 @@ from io import StringIO
 import math
 import os
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 import shutil
 import struct
 from tempfile import TemporaryDirectory
@@ -20,11 +22,13 @@ from PySide6.QtWidgets import QApplication
 
 from app.models.playlist import PlaylistTrack
 from app.models.source import Source, SourceType
+from app.renderer.python_visualizer import PythonVisualizerRenderer
 from app.preview.native_canvas_layer_packets import NativeCanvasBgraLayer, NativeCanvasFrame
 from app.timeline.compiler import compile_playlist
 from tests.test_native_canvas_project_probe import project_fixture
 from tools.native_canvas_dynamic_overlays import (
-    build_dynamic_stack, interleave_dynamic_layers, real_audio_dynamic_frames,
+    analyze_reactive_canvas_tracks, build_dynamic_stack, canvas_reaction_at,
+    interleave_dynamic_layers, real_audio_dynamic_frames,
 )
 from tools.native_canvas_project_probe import (
     capture_project, main as project_probe_main, project_source_inventory,
@@ -83,12 +87,114 @@ class NativeDynamicOverlayTests(unittest.TestCase):
             build_dynamic_stack(project, 0.25)
         project.sources[-2].z_index = 2
         project.sources.append(Source(SourceType.VIDEO, "Unsupported video", z_index=8))
-        with self.assertRaisesRegex(TimelineValidationError, "cannot render"):
+        with self.assertRaisesRegex(TimelineValidationError, "unsupported project sources"):
             validate_project_for_gpu_capture(project, scale=0.25, source_policy="dynamic-audio")
         project.sources.pop()
         project.sources[-2].rotation = 15
         with self.assertRaisesRegex(TimelineValidationError, "rotation"):
             validate_project_for_gpu_capture(project, scale=0.25, source_policy="dynamic-audio")
+
+    def test_music_reaction_uses_original_track_fft_and_source_profiles(self):
+        import numpy as np
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            audio = root / "sine.wav"
+            sample_wav(audio)
+            project = dynamic_project(audio)
+            background = project.sources[0]
+            background.source_type = SourceType.BACKGROUND
+            background.background_bass_reactive = True
+            lyric = next(s for s in project.sources if s.source_type is SourceType.LYRICS)
+            lyric.music_reactive_enabled = True
+            lyric.music_reactive_attack = 0.0
+            lyric.music_reactive_release = 0.0
+            lyric.music_reactive_sensitivity = 1.0
+            lyric.music_reactive_threshold = 0.0
+            project.sources[-2].source_type = SourceType.AUDIO_WAVEFORM
+            track = project.playlist[0]
+            fps = 30
+            levels = np.full((30, 24), 0.002, dtype=np.float32)
+            levels[8:16, :4] = 0.9
+            sample_data = np.zeros(8000, dtype=np.float32)
+            with patch(
+                "tools.native_canvas_dynamic_overlays.FFmpegRenderer",
+                return_value=SimpleNamespace(executable=Path("unused-ffmpeg")),
+            ), patch.object(
+                PythonVisualizerRenderer, "_decode_mono_audio",
+                return_value=sample_data,
+            ) as decode, patch.object(
+                PythonVisualizerRenderer, "_analyze_levels", return_value=levels,
+            ) as fft:
+                envelopes = analyze_reactive_canvas_tracks(
+                    project, [track], fps=fps,
+                )
+            decode.assert_called_once()
+            fft.assert_called_once()
+            self.assertEqual(fft.call_args.args[2:4], (24,))
+            self.assertIn(track.id, envelopes)
+            self.assertIn((track.id, lyric.music_reaction_profile), envelopes)
+            expected_bass = PythonVisualizerRenderer.bass_envelope(levels, fps)
+            expected_music = PythonVisualizerRenderer.music_envelope(
+                levels, fps, lyric.music_reaction_profile,
+            )
+            np.testing.assert_allclose(envelopes[track.id], expected_bass)
+            np.testing.assert_allclose(
+                envelopes[(track.id, lyric.music_reaction_profile)],
+                expected_music,
+            )
+            bass, per_source = canvas_reaction_at(
+                track, 9 / fps, fps, [background, lyric], envelopes,
+            )
+            self.assertAlmostEqual(bass, float(expected_bass[9]))
+            self.assertAlmostEqual(per_source[lyric.id], float(expected_music[9]))
+            self.assertGreater(bass, 0.1)
+            self.assertGreater(per_source[lyric.id], 0.1)
+            self.assertEqual(
+                canvas_reaction_at(track, 0, fps, [lyric], {}), (0.0, {}),
+            )
+
+    def test_real_reactive_canvas_included_in_gpu_packet_manifest(self):
+        ffmpeg = os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG") or shutil.which("ffmpeg")
+        if not ffmpeg or not Path(ffmpeg).is_file():
+            self.skipTest("FFmpeg needed for music-reactive source integration")
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            audio = root / "sine.wav"
+            sample_wav(audio)
+            project = dynamic_project(audio)
+            project.sources[0].source_type = SourceType.BACKGROUND
+            project.sources[0].background_bass_reactive = True
+            lyric = next(x for x in project.sources if x.source_type is SourceType.LYRICS)
+            lyric.music_reactive_enabled = True
+            self.assertEqual(
+                validate_project_for_gpu_capture(
+                    project, scale=0.25, source_policy="dynamic-audio",
+                ), [],
+            )
+            inventory = project_source_inventory(project)
+            self.assertEqual([
+                x["dynamic_audio_status"] for x in inventory
+                if x["source_id"] in {project.sources[0].id, lyric.id}
+            ], ["canvas_audio_reactive_supported"] * 2)
+            project_file = root / "project.json"
+            project_file.write_text(json.dumps(project.to_dict()), encoding="utf8")
+            timeline_file = capture_project(
+                project_file, root / "out", source_policy="dynamic-audio",
+                prepared_audio=audio, ffmpeg=ffmpeg,
+                frames=3, fps=30, scale=0.25,
+            )
+            meta, _ = load_timeline(timeline_file)
+            self.assertEqual(
+                meta["canvas_audio_reactive_source_ids"],
+                [project.sources[0].id, lyric.id],
+            )
+            self.assertEqual(meta["canvas_audio_reaction_analysis"], "per_track_export_fft24")
+            self.assertFalse(meta["full_project_visual_parity_verified"])
+            meta["canvas_audio_reactive_source_ids"] = []
+            timeline_file.write_text(json.dumps(meta), encoding="utf8")
+            with self.assertRaisesRegex(TimelineValidationError, "music-reactive Canvas"):
+                load_timeline(timeline_file)
 
     def test_waveform_and_stereo_meter_are_supported_with_real_audio(self):
         ffmpeg = os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG") or shutil.which("ffmpeg")
