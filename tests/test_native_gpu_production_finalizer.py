@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+from fractions import Fraction
 import math
 import os
 import subprocess
@@ -196,16 +197,15 @@ class NativeGpuProductionFinalizerTests(unittest.TestCase):
             self.assertTrue(output.is_file())
             probe = subprocess.run([
                 str(ffprobe), "-v", "error",
-                "-show_entries", "stream=codec_name,nb_frames",
+                "-show_entries", "stream=codec_name,nb_frames,avg_frame_rate",
                 "-of", "json", str(output),
             ], capture_output=True, check=True, timeout=40)
             streams = json.loads(probe.stdout)["streams"]
             self.assertIn("h264", [x["codec_name"] for x in streams])
             self.assertIn("aac", [x["codec_name"] for x in streams])
-            self.assertEqual(
-                next(x["nb_frames"] for x in streams if x["codec_name"] == "h264"),
-                "30",
-            )
+            video_stream = next(x for x in streams if x["codec_name"] == "h264")
+            self.assertEqual(video_stream["nb_frames"], "30")
+            self.assertEqual(Fraction(video_stream["avg_frame_rate"]), 30)
 
 
 if __name__ == "__main__":
