@@ -22,12 +22,14 @@ fn main() {
     use music_motion_gpu_core::d3d11_bgra_video::{
         NativeBgraNv12VideoProcessor, NativeCanvasBgraLayer,
     };
+    use music_motion_gpu_core::canvas_layer_manifest::load_canvas_frame_packet;
     use music_motion_gpu_core::d3d11_frame_pool::NativeNv12FramePool;
     use music_motion_gpu_core::d3d11_nvenc_registration::NativeNvencRegistrationSession;
     use serde_json::{json, Value};
     use std::collections::VecDeque;
     use std::env;
-    use std::fs;
+    use std::fs::{self, OpenOptions};
+    use std::io::Write;
     use std::path::PathBuf;
     use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};
@@ -125,6 +127,7 @@ fn main() {
     let mut report_path: Option<PathBuf> = None;
     let mut video_path: Option<PathBuf> = None;
     let mut validate_alpha = false;
+    let mut layer_manifest: Option<PathBuf> = None;
     let mut iter = argv.into_iter();
     while let Some(flag) = iter.next() {
         if flag == "--validate-alpha" {
@@ -142,6 +145,7 @@ fn main() {
             "--slots" => slots = value.parse().expect("integer slots"),
             "--output" => report_path = Some(value.into()),
             "--video-output" => video_path = Some(value.into()),
+            "--layer-manifest" => layer_manifest = Some(value.into()),
             _ => { eprintln!("Unknown option: {flag}"); std::process::exit(2); }
         }
     }
@@ -179,11 +183,33 @@ fn main() {
                 }),
                 Ok(mut encoder) => {
                     let attempted: Result<(Vec<u8>, Vec<u8>), String> = (|| {
-                        let base_tex = bridge.create_bgra_input_texture()?;
-                        let lyric_tex = bridge.create_bgra_input_texture()?;
-                        let base = [32, 32, 32, 255]
-                            .repeat(width as usize * height as usize);
-                        bridge.upload_canvas_layer_for_validation(&base_tex, &base)?;
+                        let packet = layer_manifest.as_deref()
+                            .map(load_canvas_frame_packet)
+                            .transpose()?;
+                        if packet.as_ref().is_some_and(|p| p.width != width || p.height != height) {
+                            return Err("Qt Canvas packet dimensions do not match requested GPU dimensions".into());
+                        }
+                        if packet.is_some() && validate_alpha {
+                            return Err("--validate-alpha is only for the synthetic mask test, not Qt Canvas content".into());
+                        }
+                        let layer_count = packet.as_ref().map_or(2, |p| p.layers.len());
+                        let textures: Vec<_> = (0..layer_count)
+                            .map(|_| bridge.create_bgra_input_texture())
+                            .collect::<Result<Vec<_>, String>>()?;
+                        let opacities: Vec<f32> = match &packet {
+                            Some(p) => {
+                                for (layer, texture) in p.layers.iter().zip(&textures) {
+                                    bridge.upload_canvas_layer_for_validation(texture, &layer.bgra)?;
+                                }
+                                p.layers.iter().map(|l| l.opacity).collect()
+                            }
+                            None => {
+                                let base = [32, 32, 32, 255]
+                                    .repeat(width as usize * height as usize);
+                                bridge.upload_canvas_layer_for_validation(&textures[0], &base)?;
+                                vec![1.0, 1.0]
+                            }
+                        };
                         let mut pending = VecDeque::new();
                         let mut compressed = Vec::new();
                         let mut center_samples = Vec::new();
@@ -193,22 +219,24 @@ fn main() {
                                     &mut compressed, &mut center_samples,
                                     validate_alpha, (width as usize, height as usize))?;
                             }
-                            // A filled rectangle stands in for a straight-
-                            // alpha QPainter lyric glyph. Every third frame:
-                            // transparent, half-alpha, then opaque.
-                            let ink_alpha = match i % 3 { 0 => 0, 1 => 128, _ => 255 };
-                            let mut lyric = vec![0_u8; width as usize * height as usize * 4];
-                            for y in height / 3..height * 2 / 3 {
-                                for x in width / 3..width * 2 / 3 {
-                                    let off = (y as usize * width as usize + x as usize) * 4;
-                                    lyric[off..off + 4].copy_from_slice(&[0, 0, 255, ink_alpha]);
+                            if packet.is_none() {
+                                // In synthetic mode, vary only the lyric mask.
+                                let ink_alpha = match i % 3 { 0 => 0, 1 => 128, _ => 255 };
+                                let mut lyric = vec![0_u8; width as usize * height as usize * 4];
+                                for y in height / 3..height * 2 / 3 {
+                                    for x in width / 3..width * 2 / 3 {
+                                        let off = (y as usize * width as usize + x as usize) * 4;
+                                        lyric[off..off + 4].copy_from_slice(&[0, 0, 255, ink_alpha]);
+                                    }
                                 }
+                                bridge.upload_canvas_layer_for_validation(&textures[1], &lyric)?;
                             }
-                            bridge.upload_canvas_layer_for_validation(&lyric_tex, &lyric)?;
-                            let composed = [
-                                NativeCanvasBgraLayer { texture: &base_tex, opacity: 1.0 },
-                                NativeCanvasBgraLayer { texture: &lyric_tex, opacity: 1.0 },
-                            ];
+                            let composed: Vec<NativeCanvasBgraLayer<'_>> = textures.iter()
+                                .zip(&opacities)
+                                .map(|(texture, &opacity)| NativeCanvasBgraLayer {
+                                    texture, opacity,
+                                })
+                                .collect();
                             let slot = pool.queue_gpu_canvas_layers(
                                 &bridge, &composed, i as i64,
                             )?;
@@ -253,8 +281,15 @@ fn main() {
                             "production_export_changed": false,
                         }),
                         Ok((bytes, samples)) => {
-                            let file_result = video_path.as_ref().map(|path| {
-                                fs::write(path, &bytes)
+                            let file_result = video_path.as_ref().map(|path| -> std::io::Result<()> {
+                                let mut file = OpenOptions::new().write(true)
+                                    .create_new(true).open(path)?;
+                                if let Err(error) = file.write_all(&bytes).and_then(|_| file.flush()) {
+                                    drop(file);
+                                    let _ = fs::remove_file(path);
+                                    return Err(error);
+                                }
+                                Ok(())
                             });
                             match file_result {
                                 Some(Err(error)) => json!({
@@ -268,7 +303,14 @@ fn main() {
                                     "nvenc_api_version": encoder.negotiated_api_version(),
                                     "resolution": [width, height],
                                     "frames_encoded": frames,
-                                    "gpu_composited_layers": 2,
+                                    "gpu_composited_layers": if layer_manifest.is_some() {
+                                        layer_manifest.as_deref()
+                                            .and_then(|path| load_canvas_frame_packet(path).ok())
+                                            .map_or(0, |packet| packet.layers.len())
+                                    } else { 2 },
+                                    "input_mode": if layer_manifest.is_some() { "qt_canvas_manifest" } else { "synthetic_mask" },
+                                    "qt_canvas_packet_sha256_checked": layer_manifest.is_some(),
+                                    "qt_canvas_cpu_rasterized": layer_manifest.is_some(),
                                     "per_pixel_straight_alpha": true,
                                     "alpha_validation_requested": validate_alpha,
                                     "alpha_validation_passed": validate_alpha,
