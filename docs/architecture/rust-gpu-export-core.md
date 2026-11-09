@@ -832,3 +832,43 @@ compression are resident. A real Canvas capture-to-layer bridge, plus
 full-frame visual and timing parity against QPainter, are required
 before any production renderer switch. The default export remains
 unchanged.
+## Milestone 14: Qt Canvas and lyric-ready straight-alpha layer packets
+
+The real CanvasSnapshot.capture() renderer can now be called for each
+prepared Z-band of an export scene using
+app.preview.native_canvas_layer_packets.capture_native_canvas_frame().
+The returned immutable NativeCanvasFrame contains full-size, ordered
+BGRA8 byte planes with a known top-left coordinate origin. The base
+layer is opaque; higher Z bands are transparent. QImage's
+Format_ARGB32_Premultiplied is converted to **straight**
+Format_ARGB32 before bytes are copied, to avoid multiplying already
+premultiplied lyric antialiasing by alpha a second time in D3D11.
+
+The caller supplies the original CanvasScene with source, track and
+lyric state already resolved to the target timestamp by the existing
+export timeline logic. This bridge does **not** recalculate lyric
+timings, keyframes or playlist boundaries. Native video input limits
+are checked early: 1..8 disjoint, ordered Z bands, <=3840x2160 and
+even dimensions. Each band has 4 bytes/pixel and no row padding.
+
+For reproducible diagnostics only, save_native_canvas_frame() writes
+one BGRA file per band and an immutable JSON manifest with SHA-256
+digests and ordered stream metadata. Refuse preexisting file targets.
+There is also a fixture generator that paints real SourceItem Shape
+and Text sources in a Qt offscreen scene:
+
+    python -m tools.native_canvas_fixture_capture --output-dir native-canvas-fixture --scale 0.5
+
+The fixture creates a 640x360 two-layer BGRA packet and a JSON manifest
+for a future native D3D11 ingestion/visual parity diagnostic. Windows
+CI checks real SourceItem rendering, returned source visibility,
+QImage alpha unpremultiplication and manifest hashes without requiring
+an NVIDIA GPU.
+
+**Important boundary:** SourceItem text/lyrics are still drawn by the
+original Qt raster renderer, using CPU QImage. This is a migration
+adapter, not native GPU text/glyph painting. No production Canvas
+capture or default encoding paths have changed. The next integration
+must consume this manifest on the D3D11 device, preserve Z order,
+and compare complex Qt frames against decoded NVENC outputs before
+it can be promoted to a full GPU painter.
