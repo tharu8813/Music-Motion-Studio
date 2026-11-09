@@ -721,3 +721,63 @@ containing the driver's detailed message. A 320x180 repeat with a
 different filename can help distinguish a resolution-driven allocation
 limit from a configuration/driver-level error. No production exporter
 feature flag or default encoding behavior was changed.
+
+
+## Milestone 12: verified H.264 -> 60 FPS MP4 container, optional AAC
+
+On the RTX 5060, the blocking NVENC API V13_1 H.264 probe has now
+successfully encoded **30/30 frames** at **1920x1080** with zero
+uncompressed GPU NV12 readbacks. The submitted 30-frame Annex-B file
+was independently decoded with FFmpeg: all frames were intact, center
+YUV samples across five six-color cycles matched the native BT.709
+full-range reference within one 8-bit channel code, and H.264 SPS
+reported color_range=pc with bt709 matrix/transfer/primaries.
+The synthetic test reported 1.81905 ms median synchronous encode/output
+CPU wall time and 146.0615 ms total wall time. These are NOT a
+full real-world Canvas export performance benchmark.
+
+A raw H.264 elementary stream is not a complete video container. FFprobe
+may infer different average and nominal frame rates when timestamps
+are absent. The same uploaded 30-frame stream remuxed as MP4 with
+a 60 FPS input rate successfully reported 30 frames, 60/1 FPS and
+0.500000 seconds, retaining the BT.709 full-range VUI.
+
+The separate CPU-side tool tools/nvenc_probe_mux.py implements this
+conversion without changing the default application exporter. The
+diagnostic tool:
+
+- Checks the input H.264 frame count, resolution, and BT.709 full-range
+  metadata before muxing.
+- Uses input-side -r 60 for constant-frame-rate timestamps, copy-only
+  H.264 video, and a fast-start MP4 container; there is **no video
+  re-encoding** and no GPU frame download.
+- Optionally takes an audio track and encodes it as AAC, padding/trimming
+  the soundtrack to the video's exact frame-count duration.
+- Validates output decoded frame count, resolution, exact rational FPS,
+  monotonic CFR presentation timestamps, duration, and color metadata.
+- Optionally checks the synthetic six-color diagnostic center YUV
+  samples (tolerance <=4 codes). This is **not full-frame color parity**.
+- Uses a same-directory temporary MP4, then an atomic exclusive file
+  creation operation. Existing destination files are never overwritten;
+  incomplete/invalid MP4 output is not exposed as a finished result.
+- Produces SHA-256 fingerprints and an inspectable validation JSON;
+  leaves normal project playback, audio processing and export untouched.
+
+Example after native H.264 generation:
+
+    python -m tools.nvenc_probe_mux --input d3d11-nvenc-h264-sync-local.h264 --output nvenc-sample-60fps.mp4 --fps 60 --expected-frames 30 --validate-color-cycle --report nvenc-mp4-validation.json
+
+Optional soundtrack:
+
+    python -m tools.nvenc_probe_mux --input d3d11-nvenc-h264-sync-local.h264 --output nvenc-with-audio.mp4 --fps 60 --expected-frames 30 --audio path/to/soundtrack.mp3 --report nvenc-mp4-audio.json
+
+An independent Windows CI test creates a synthetic H.264 stream via
+software FFmpeg (no NVIDIA GPU), verifies MP4 video stream-copy, exact
+CFR, metadata, non-overwrite behavior and optional AAC audio. The
+previous real RTX H.264 file remains the hardware validation evidence.
+
+Remaining production blockers: real Qt Canvas/lyrics GPU-native scene
+rendering, frame-consumer ownership and async scheduling, PCM/audio
+PTS accuracy on full-length projects, arbitrary color range/matrix
+handling, MP4 A/V drift, cancellation/recovery, and sustained
+hardware-backed project A/B performance and visual-fidelity testing.
