@@ -229,6 +229,40 @@ mod tests {
     }
 
     #[test]
+    fn verifies_actual_bgra_files_and_rejects_corruption() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let token = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "mms-canvas-qt-packet-{}-{token}", std::process::id(),
+        ));
+        fs::create_dir(&root).unwrap();
+        let outcome = (|| -> Result<(), String> {
+            let background = vec![32, 48, 64, 255].repeat(16);
+            let transparent = vec![255, 128, 64, 80].repeat(16);
+            fs::write(root.join("frame-base.bgra"), &background).unwrap();
+            fs::write(root.join("frame-lyric.bgra"), &transparent).unwrap();
+            let mut payload = manifest();
+            payload["layers"][0]["sha256"] = serde_json::json!(
+                format!("{:x}", Sha256::digest(&background))
+            );
+            payload["layers"][1]["sha256"] = serde_json::json!(
+                format!("{:x}", Sha256::digest(&transparent))
+            );
+            let path = root.join("frame.json");
+            fs::write(&path, payload.to_string()).unwrap();
+            let packet = load_canvas_frame_packet(&path)?;
+            assert_eq!((packet.width, packet.height, packet.layers.len()), (4, 4, 2));
+            assert_eq!(packet.layers[0].bgra, background);
+            assert_eq!(packet.layers[1].bgra, transparent);
+            fs::write(root.join("frame-lyric.bgra"), vec![0_u8; 64]).unwrap();
+            assert!(load_canvas_frame_packet(&path).unwrap_err().contains("SHA-256 mismatch"));
+            Ok(())
+        })();
+        fs::remove_dir_all(&root).unwrap();
+        outcome.unwrap();
+    }
+
+    #[test]
     fn checks_hard_limit_before_allocating() {
         let mut m = manifest();
         m["width"] = serde_json::json!(3840);
