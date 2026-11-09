@@ -555,7 +555,8 @@ def _encode_and_verify(timeline_path: Path, args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", required=True, type=Path)
-    parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--output-dir", type=Path,
+                        help="Required for capture; omitted when --inspect-sources is set")
     parser.add_argument("--start-seconds", default=0.0, type=float)
     parser.add_argument("--frames", default=6, type=int)
     parser.add_argument("--fps", default=60, type=int)
@@ -591,6 +592,8 @@ def main(argv: list[str] | None = None) -> int:
                 "production_export_changed": False,
             }, indent=2, ensure_ascii=False))
             return 0
+        if args.output_dir is None:
+            raise TimelineValidationError("--output-dir is required for GPU capture")
         path = capture_project(
             args.project, args.output_dir,
             start_seconds=args.start_seconds,
