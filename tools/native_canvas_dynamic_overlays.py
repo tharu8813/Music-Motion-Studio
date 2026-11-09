@@ -179,7 +179,12 @@ def real_audio_dynamic_frames(
                 overlay, source_levels if source_levels is not None else levels,
                 fps, Event(), None, stereo, windows,
             )
-            for _ in range(round(start_seconds * fps)):
-                next(stream)
+            try:
+                for _ in range(round(start_seconds * fps)):
+                    next(stream)
+            except StopIteration as exc:
+                raise ValueError(
+                    "The prepared audio ends before dynamic frame warm-up completes"
+                ) from exc
             streams.append(stream)
         yield overlays, streams, origin
