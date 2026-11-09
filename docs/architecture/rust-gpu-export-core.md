@@ -1103,3 +1103,51 @@ D3D11/NVENC on a supported worker, otherwise reports hardware
 unavailable. Production blockers remain AutoMix/crossfade and other
 media sources, sustained async GPU frame scheduling, audio mixing
 and mux sync, and full-project visual/parity/latency measurement.
+
+
+## Milestone 18a: explicit canvas-only test for projects with dynamic overlays
+
+A real giggles.pvsproj validation failed before GPU encoding because it
+contains AUDIO_VISUALIZER and PARTICLE_OVERLAY sources. In production,
+such sources are rendered as independent FFmpeg/Python audio-reactive
+or particle overlay streams; painting their editor previews would NOT
+validate the final export. The strict project diagnostic therefore
+continues to fail closed by default.
+
+A new EXPLICIT --source-policy canvas-only option captures only
+non-dynamic Qt Canvas sources for a PARTIAL GPU diagnostic. It leaves
+the original .pvsproj file, source properties and visible-source flags
+unmodified. The versioned timeline and final parity JSON record:
+
+- capture_scope: partial_canvas_only
+- excluded_sources: every omitted source's ID, type and reason
+- excluded_source_count: actual omitted count
+- full_project_visual_parity_verified: false
+
+The per-frame RGB parity result only applies to the captured subset.
+Actual spectrum analysis, particle animation and their own alpha
+compositing are **not** verified by this mode. Never use this result
+to enable the production NVENC exporter or claim full project parity.
+Unsupported AutoMix, video decode and other renderer constraints are
+still rejected unless independently implemented.
+
+The --encode-and-verify option is a *single fail-fast* Windows command.
+It runs Rust only after a successful capture and runs H264 parity
+only after a real measured NVENC output with complete PTS. No
+cascading missing-manifest errors after a failed input validation.
+
+From the repository root in PowerShell:
+
+    git switch main
+    git pull
+    python -m tools.native_canvas_project_probe --project "C:/path/to/project.pvsproj" --output-dir qt-giggles-canvas-only --start-seconds 0 --frames 6 --fps 60 --scale 0.5 --source-policy canvas-only --encode-and-verify
+
+Result files are in qt-giggles-canvas-only: timeline.json,
+gpu-report.json, project.h264, parity.json. The output folder must
+not contain existing files.
+
+The next dedicated production-accuracy stage must connect the actual
+PythonVisualizerRenderer audio envelope and particle overlay layer
+streams to the D3D11 frame composition in correct Z order and verify
+against the established FFmpeg exporter. This is NOT done by the
+partial canvas-only diagnostic.
