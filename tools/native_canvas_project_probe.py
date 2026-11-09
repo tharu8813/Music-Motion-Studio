@@ -41,7 +41,7 @@ from app.services.project_service import ProjectService
 from app.timeline.compiler import compile_playlist
 from tools.native_canvas_real_lyrics_probe import _make_reference
 from tools.native_canvas_timeline_probe import (
-    FORMAT, MAX_FRAMES, TimelineValidationError, load_timeline,
+    FORMAT, MAX_FRAMES, MAX_DECODED_BYTES, TimelineValidationError, load_timeline,
 )
 
 # These sources have no independently decoded video, music-reactive signal,
@@ -52,6 +52,14 @@ UNSUPPORTED_SOURCES = frozenset({
     SourceType.AUDIO_WAVEFORM, SourceType.AUDIO_LEVEL_METER,
     SourceType.PARTICLE_OVERLAY,
 })
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def validate_project_for_gpu_capture(project: ProjectDocument, *, scale: float) -> None:
@@ -193,6 +201,13 @@ def capture_project(
         resolve_project_frame(project, start_seconds + index / fps, plan=plan)
         for index in range(frames)
     ]
+    bands = _z_bands(project)
+    width = round(project.canvas.width * scale)
+    height = round(project.canvas.height * scale)
+    if width * height * 3 * frames > MAX_DECODED_BYTES:
+        raise TimelineValidationError("Project RGB frame parity exceeds 256 MiB decode budget")
+    if width * height * 4 * len(bands) * frames > 512 * 1024 * 1024:
+        raise TimelineValidationError("Project native BGRA packets exceed 512 MiB disk budget")
     out = Path(output_dir)
     if out.exists() and any(out.iterdir()):
         raise TimelineValidationError(f"Refusing nonempty project capture folder: {out}")
@@ -208,7 +223,6 @@ def capture_project(
     ):
         scene.addItem(SourceItem(source))
 
-    bands = _z_bands(project)
     original_document = project.to_dict()
     entries = []
     try:
@@ -279,7 +293,7 @@ def capture_project(
             "width": packet_info["width"], "height": packet_info["height"],
             "fps": fps, "start_seconds": start_seconds,
             "frames": entries,
-            "source_project_sha256": hashlib.sha256(project_path.read_bytes()).hexdigest(),
+            "source_project_sha256": _file_sha256(project_path),
             "source_count": len([s for s in project.sources if s.visible]),
             "compiled_plan_duration_seconds": plan.duration_seconds,
             "qt_canvas_cpu_rasterized": True,
