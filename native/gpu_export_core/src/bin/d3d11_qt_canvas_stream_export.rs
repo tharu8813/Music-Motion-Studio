@@ -316,6 +316,16 @@ mod windows_export {
             drop(layers);
             drop(textures);
             drop(current);
+            // Bounded producer/consumer handshake: the caller may safely
+            // delete THIS frame's manifest and BGRA staging bytes only after
+            // native loading, texture upload and GPU submission completed.
+            // A parent waiting for this line will not stage a whole video.
+            {
+                let mut output = io::stdout().lock();
+                writeln!(output, "MMS_FRAME_ACCEPTED {}", pts)
+                    .and_then(|_| output.flush())
+                    .map_err(|e| format!("Native frame acceptance channel closed: {e}"))?;
+            }
             if clock.submitted == clock.expected {
                 if read_manifest_line(&mut input)?.is_some() {
                     return Err("More Canvas packets supplied than compiled playlist frames".into());
