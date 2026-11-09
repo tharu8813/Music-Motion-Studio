@@ -83,7 +83,7 @@ class RealProjectCaptureTests(unittest.TestCase):
         self.assertEqual(first["track_number"], 1)
         self.assertEqual(second["track_number"], 2)
         self.assertAlmostEqual(second["track_elapsed_seconds"], 0)
-        with self.assertRaisesRegex(TimelineValidationError, "duration"):
+        with self.assertRaisesRegex(TimelineValidationError, "playlist presentation gap"):
             resolve_project_frame(project, 1.01)
 
     def test_real_project_source_and_lyric_clock_capture(self):
