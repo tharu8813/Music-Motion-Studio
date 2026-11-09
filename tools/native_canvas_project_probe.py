@@ -43,6 +43,8 @@ from tools.native_canvas_dynamic_overlays import (
     real_audio_dynamic_frames,
 )
 from app.renderer.export_timeline import ExportTimelinePlanner
+from app.renderer.ffmpeg_renderer import FFmpegNotFoundError, RenderError
+from app.renderer.python_visualizer import PythonVisualizerError
 from app.services.project_service import ProjectService
 from app.timeline.compiler import compile_playlist
 from tools.native_canvas_real_lyrics_probe import _make_reference
@@ -556,7 +558,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise TimelineValidationError("Native D3D11/NVENC integration requires Windows")
             return _encode_and_verify(path, args)
         return 0
-    except (OSError, ValueError, TypeError, subprocess.TimeoutExpired) as exc:
+    except (OSError, ValueError, TypeError, subprocess.TimeoutExpired,
+            FFmpegNotFoundError, RenderError, PythonVisualizerError) as exc:
         print(json.dumps({
             "status": "validation_failed", "reason": str(exc),
             "production_export_changed": False,
