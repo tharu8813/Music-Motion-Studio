@@ -211,7 +211,7 @@ def load_timeline(path: Path) -> tuple[dict, list[Path]]:
             or timeline.get("production_export_changed") is not False):
         raise TimelineValidationError("Invalid Qt timeline schema, size, FPS or frame count")
     kind = timeline.get("kind", "source_motion")
-    if kind not in {"source_motion", "track_lyrics"}:
+    if kind not in {"source_motion", "track_lyrics", "project_timeline"}:
         raise TimelineValidationError("Unsupported Qt Canvas timeline mode")
     start = timeline.get("start_seconds", 0.0)
     if kind == "track_lyrics" and (
@@ -220,6 +220,18 @@ def load_timeline(path: Path) -> tuple[dict, list[Path]]:
         or not math.isfinite(start) or start < 0
     ):
         raise TimelineValidationError("Invalid actual track lyric timeline header")
+    if kind == "project_timeline":
+        digest = timeline.get("source_project_sha256")
+        duration = timeline.get("compiled_plan_duration_seconds")
+        if (not isinstance(start, (float, int)) or isinstance(start, bool)
+                or not math.isfinite(start) or start < 0
+                or type(timeline.get("source_count")) is not int
+                or not 1 <= timeline["source_count"] <= 64
+                or not isinstance(duration, (int, float))
+                or not math.isfinite(duration) or duration <= 0
+                or not isinstance(digest, str) or len(digest) != 64
+                or not all(c in "0123456789abcdef" for c in digest)):
+            raise TimelineValidationError("Invalid project-backed GPU timeline header")
     directory = path.parent
     references = []
     seen = set()
@@ -230,18 +242,18 @@ def load_timeline(path: Path) -> tuple[dict, list[Path]]:
                 or not isinstance(item.get("time_seconds"), (int, float))
                 or not math.isclose(item["time_seconds"], i / fps, abs_tol=1e-8)):
             raise TimelineValidationError(f"Qt timeline PTS or cue discontinuity at {i}")
+        valid_indices = lambda values: (
+            isinstance(values, list)
+            and all(type(n) is int and 0 <= n <= 100000 for n in values)
+            and values == sorted(set(values))
+        )
         if kind == "source_motion":
             if item.get("cue_index") != i // 2:
                 raise TimelineValidationError(f"Source-motion cue discontinuity at {i}")
-        else:
+        elif kind == "track_lyrics":
             cue = item.get("cue_index")
             active = item.get("active_cue_indices")
             held = item.get("held_cue_indices")
-            valid_indices = lambda values: (
-                isinstance(values, list)
-                and all(type(n) is int and 0 <= n <= 100000 for n in values)
-                and values == sorted(set(values))
-            )
             if (not (cue is None or type(cue) is int and 0 <= cue <= 100000)
                     or not valid_indices(active) or not valid_indices(held)
                     or type(item.get("before_first")) is not bool
@@ -251,6 +263,36 @@ def load_timeline(path: Path) -> tuple[dict, list[Path]]:
                         abs_tol=1e-8,
                     )):
                 raise TimelineValidationError(f"Actual lyric cue state or clock invalid at {i}")
+        else:
+            absolute = item.get("timeline_seconds")
+            local = item.get("track_elapsed_seconds")
+            window_start = item.get("window_start_seconds")
+            source_start = item.get("source_time_at_start")
+            track_id = item.get("track_id")
+            lyric_states = item.get("lyric_states")
+            if (any(type(v) not in {float, int} or not math.isfinite(v)
+                    for v in (absolute, local, window_start, source_start))
+                    or not math.isclose(absolute, start + i / fps, abs_tol=1e-8)
+                    or not math.isclose(local, absolute - window_start + source_start, abs_tol=1e-8)
+                    or local < 0 or absolute < window_start
+                    or not isinstance(track_id, str) or not track_id.strip()
+                    or type(item.get("track_number")) is not int
+                    or not 1 <= item["track_number"] <= 20000
+                    or item.get("animation_phase") not in (None, "in", "out")
+                    or not isinstance(lyric_states, list)
+                    or len(lyric_states) > timeline["source_count"]):
+                raise TimelineValidationError(f"Compiled project timeline/PTS invalid at {i}")
+            for lyric in lyric_states:
+                if (not isinstance(lyric, dict)
+                        or not isinstance(lyric.get("source_id"), str)
+                        or not lyric["source_id"].strip()
+                        or not (lyric.get("cue_index") is None
+                                or type(lyric.get("cue_index")) is int
+                                and 0 <= lyric["cue_index"] <= 100000)
+                        or not valid_indices(lyric.get("active_cue_indices"))
+                        or not valid_indices(lyric.get("held_cue_indices"))
+                        or type(lyric.get("before_first")) is not bool):
+                    raise TimelineValidationError(f"Invalid project lyric state at PTS {i}")
         name = item.get("manifest")
         if name != expected_manifest or name in seen:
             raise TimelineValidationError("Qt timeline frame manifest path or order invalid")
