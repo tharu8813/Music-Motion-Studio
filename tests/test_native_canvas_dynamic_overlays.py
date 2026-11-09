@@ -130,6 +130,10 @@ class NativeDynamicOverlayTests(unittest.TestCase):
             ) as (overlays, streams, origin):
                 self.assertEqual(origin, "provided_prepared_audio")
                 self.assertEqual([o.kind for o in overlays], ["visualizer", "particles"])
+                # The production export helper clamps its scale to >=1.0,
+                # whereas native diagnostics deliberately capture at 0.25x.
+                self.assertEqual((overlays[0].x, overlays[0].y), (8, 6))
+                self.assertEqual((overlays[0].width, overlays[0].height), (95, 42))
                 self.assertTrue(all(not next(stream).isNull() for stream in streams))
             source = root / "project.json"
             source.write_text(json.dumps(project.to_dict()), encoding="utf8")
