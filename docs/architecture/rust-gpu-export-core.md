@@ -388,3 +388,64 @@ Remaining major milestones:
   scheduling, test real H.264 frames and exact timestamp/visual parity.
 - Integrate gradually with the existing Qt Canvas+lyrics exports only
   after a same-project performance and fidelity A/B comparison.
+
+
+## Milestone 7: same-device GPU BGRA to NV12 video conversion
+
+The RTX 5060 D3D11 frame-pool report confirmed **30/30** completed
+1920x1080 frames, all NV12 bytes preserved, 28 correct full-pool
+backpressure rejections, and matching PCI IDs from Vulkan wgpu and
+D3D11 (NVIDIA `0x10DE:0x2D05`). Median CPU staging upload plus
+GPU-copy *enqueue* was **0.2641ms**, not a GPU-completion measurement.
+
+We have now implemented an additional Windows-only
+`NativeBgraNv12VideoProcessor` using the native D3D11 VideoProcessor:
+
+- Constructs the processor using the **exact D3D11 device/context
+  already owned by the NV12 frame pool**, not a second GPU device.
+- Checks BGRA8 input and NV12 output capabilities.
+- Accepts an opaque `DXGI_FORMAT_B8G8R8A8_UNORM` GPU texture,
+  which a future D3D11 Canvas renderer can provide directly.
+- Runs `VideoProcessorBlt` entirely on GPU, producing persistent
+  `DXGI_FORMAT_NV12` GPU video texture without intermediate CPU bytes.
+- Uses same-device `CopyResource` into an available persistent NV12
+  frame slot, preserving PTS order and backpressure safeguards.
+- Rejects mismatched input GPU devices, dimensions, formats and
+  unsupported video processors. Failures never advance the queue's PTS
+  or publish an incomplete frame as ready.
+
+The new diagnostic creates simple *CPU-generated* opaque BGRA test frames
+and uploads them to a same-device GPU input texture, runs GPU processing,
+then downloads the final NV12 frame **only for test validation**. It checks
+that white is substantially brighter than black and verifies grayscale
+chroma is approximately neutral. These are elementary sanity checks,
+**not** proof of precise FFmpeg BT.709 color parity.
+
+```powershell
+git pull
+cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_bgra_nv12_video_probe -- --width 1920 --height 1080 --frames 20 --output d3d11-bgra-nv12-local.json
+```
+
+An independent Windows CI build compiles the processor and its CLI, but
+a hosted Windows runner typically has only Microsoft Basic Render Driver:
+it reports `d3d11_hardware_unavailable`, not a performance measurement.
+This RTX 5060 diagnostic is required to prove the NVIDIA driver supports
+this conversion path and that output video planes have sane values.
+
+### Remaining production blockers
+
+1. **True native D3D11 Canvas rendering**: the existing wgpu Vulkan
+   compositor produces storage buffers, not BGRA D3D11 textures. A
+   D3D11-based scene renderer (or verified cross-API external-memory
+   transfer and synchronization) is required to provide the above GPU
+   input without CPU upload.
+2. **In-process NVENC consumer**: native D3D11 video frames must be
+   passed to an actual FFmpeg `AVHWFramesContext` or NVIDIA SDK encoder.
+   The existing FFmpeg CLI rawvideo pipe cannot consume these COM
+   textures directly. No zero-copy video encoder has been implemented.
+3. **GPU fences and color fidelity**: queue 'ready' currently means the
+   D3D11 command has been enqueued on an immediate context, not that
+   NVENC has completed reading it. GPU synchronization and full project
+   image/lyrics/audio tests are mandatory before default switching.
+
+The existing Python, Qt and NVENC export pipeline remains unchanged.
