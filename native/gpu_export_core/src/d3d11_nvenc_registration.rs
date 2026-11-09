@@ -21,6 +21,8 @@ use mini_nvcodec::nvenc_sys::{
     NV_ENC_PRESET_CONFIG, NV_ENC_REGISTER_RESOURCE, NV_ENC_TUNING_INFO,
     NV_ENC_CREATE_BITSTREAM_BUFFER, NV_ENC_PIC_PARAMS, NV_ENC_PIC_STRUCT,
     NV_ENC_LOCK_BITSTREAM, NV_ENC_PIC_FLAG_OUTPUT_SPSPPS,
+    NV_ENC_VUI_COLOR_PRIMARIES, NV_ENC_VUI_TRANSFER_CHARACTERISTIC,
+    NV_ENC_VUI_MATRIX_COEFFS,
 };
 use windows::core::Interface;
 use windows::Win32::Graphics::Direct3D11::{
@@ -182,6 +184,21 @@ impl NativeNvencRegistrationSession {
             // Preserve all other driver-provided preset settings.
             preset.presetCfg.frameIntervalP = 1;
             preset.presetCfg.rcParams.lookaheadDepth = 0;
+            preset.presetCfg.rcParams.set_enableLookahead(0);
+            preset.presetCfg.rcParams.set_enableExtLookahead(0);
+
+            // Hardware patch-center parity measured on RTX 5060:
+            // D3D11 VideoProcessor -> NV12 matches BT.709 full range.
+            // The H.264 decoder must receive matching SPS VUI metadata.
+            let vui = unsafe {
+                &mut preset.presetCfg.encodeCodecConfig.h264Config.h264VUIParameters
+            };
+            vui.videoSignalTypePresentFlag = 1;
+            vui.videoFullRangeFlag = 1;
+            vui.colourDescriptionPresentFlag = 1;
+            vui.colourPrimaries = NV_ENC_VUI_COLOR_PRIMARIES::BT709;
+            vui.transferCharacteristics = NV_ENC_VUI_TRANSFER_CHARACTERISTIC::BT709;
+            vui.colourMatrix = NV_ENC_VUI_MATRIX_COEFFS::BT709;
             let mut init: NV_ENC_INITIALIZE_PARAMS =
                 unsafe { std::mem::zeroed() };
             init.version = version.initialize_params_ver();
@@ -356,6 +373,7 @@ impl NativeNvencRegistrationSession {
         pic.pictureStruct = NV_ENC_PIC_STRUCT::FRAME;
         pic.inputTimeStamp = frame.pts as u64;
         pic.inputDuration = 1;
+        pic.frameIdx = frame.pts as u32;
         // First frame gets SPS/PPS, required by a standalone Annex-B file.
         if self.last_encoded_pts.is_none() {
             pic.encodePicFlags |= NV_ENC_PIC_FLAG_OUTPUT_SPSPPS;
