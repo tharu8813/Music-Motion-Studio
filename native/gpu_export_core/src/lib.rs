@@ -23,6 +23,8 @@ pub mod d3d11_bgra_video;
 #[cfg(windows)]
 pub mod d3d11_nvenc_registration;
 
+pub mod canvas_layer_manifest;
+
 mod session;
 pub use session::{rgba_to_nv12_reference, GpuFrameSession, PixelRect};
 
