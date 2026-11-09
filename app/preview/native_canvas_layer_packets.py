@@ -214,6 +214,13 @@ def capture_native_canvas_track_frame(
     track_total: int = 1,
     track_start_seconds: float = 0.0,
     playlist_duration_seconds: float | None = None,
+    playlist_tracks: Sequence["PlaylistTrack"] | None = None,
+    timeline_seconds: float | None = None,
+    animation_phase: str | None = None,
+    animation_progress: float = 1.0,
+    animation_phase_duration: float | None = None,
+    compiled_plan: object | None = None,
+    keyframe_active: bool = True,
 ) -> NativeCanvasFrame:
     """Capture a REAL track/lyrics state through the established export painter.
 
@@ -251,9 +258,15 @@ def capture_native_canvas_track_frame(
         image = CanvasSnapshot.capture_track(
             scene, track, track_number, track_total, track_start_seconds,
             elapsed_seconds=elapsed_seconds,
-            timeline_seconds=track_start_seconds + elapsed_seconds,
+            timeline_seconds=(track_start_seconds + elapsed_seconds
+                              if timeline_seconds is None else timeline_seconds),
             playlist_duration_seconds=duration,
-            playlist_tracks=[track],
+            playlist_tracks=([track] if playlist_tracks is None else list(playlist_tracks)),
+            animation_phase=animation_phase,
+            animation_progress=animation_progress,
+            animation_phase_duration=animation_phase_duration,
+            compiled_plan=compiled_plan,
+            keyframe_active=keyframe_active,
             output_scale=output_scale,
             z_min=z_min, z_max=z_max,
             transparent=index != 0,
