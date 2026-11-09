@@ -1045,3 +1045,61 @@ collected before production feature activation. Planned next steps:
 project-source serialization/compiled render-plan input, audio-clock
 A/V synchronization at duration, sustained async NVENC scheduling,
 full-project fidelity and GPU-native glyph rendering.
+
+
+## Milestone 18: real saved project timeline -> validated GPU Canvas frames
+
+RTX 5060 milestone 17 verified 6/6 *actual TTML overlap lyric*
+frames at 640x360, NVENC API V13_1, full-range BT.709,
+contiguous PTS 0..5, zero NV12 GPU-to-CPU readbacks, mean decoded
+RGB MAE 0.7405 (0..255 code values), worst-frame MAE 0.8397,
+95th-percentile error <=1 code, per-frame PSNR 38.729..41.891 dB.
+The six compressed frames are distinct, and the reporter verified
+all against Qt reference PNGs. This is genuine short-clip hardware
+validation, not sustained long-form or A/V sync verification.
+
+This milestone adds an opt-in saved-project capture at
+tools/native_canvas_project_probe.py. It accepts existing .pvsproj
+packages and legacy JSON documents through ProjectService.load(),
+so the actual serialized SourceItems, PlaylistTracks, lyric offsets,
+text templates and keyframe definitions are used. It compiles the
+sequential playlist with compile_playlist(enabled_only=True), then
+resolves each exact CFR presentation timestamp to its owning
+track, source time and track number. CanvasSnapshot.capture_track()
+rasterizes real project sources, including evaluate_keyframes,
+lyrics, metadata, text/progress bars and track animation-phase
+timing. Raw straight-alpha BGRA packets and Qt reference PNGs
+are saved per PTS with a SHA-256-backed project_timeline manifest.
+The existing Rust D3D11 compositor/NV12 converter/NVENC encoder
+consume these packets without a second encoder implementation.
+
+Deliberate diagnostic limits and rejection rules:
+- 3..30 frames only, never a whole production export.
+- Even dimensions 64..3840 wide and 64..2160 high.
+- Fail rather than skip unsupported separately decoded videos,
+  visualizers, particles, bass-reactive sources, AutoMix/crossfade
+  handovers, missing image assets or playlist presentation gaps.
+- Preserve original project source state after each capture.
+- Verify PTS, track identity/clock, lyric state, layer hash and
+  reference PNG checksum before accepting decoded H264 output.
+- Existing production UI/export settings are not changed.
+
+Example (Windows, RTX 5060):
+
+    git switch main
+    git pull
+    python -m tools.native_canvas_project_probe --project "C:\path\to\My Playlist.pvsproj" --output-dir qt-my-project --start-seconds 15 --frames 6 --fps 60 --scale 0.5
+
+    $packets = @()
+    foreach ($i in (0..5)) { $packets += '--manifest'; $packets += ('qt-my-project/frame-{0:D4}.json' -f $i) }
+    cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_packet_probe -- @packets --repeat 1 --slots 2 --video-output qt-my-project/project.h264 --output qt-my-project/gpu-report.json
+
+    python -m tools.native_canvas_timeline_probe verify --timeline qt-my-project/timeline.json --video qt-my-project/project.h264 --report qt-my-project/parity.json
+
+Windows CI checks multiple project track owners, lyric timing,
+Qt source pixel changes, source immutability, corrupt metadata and
+software H264 full-frame fidelity. It optionally runs native
+D3D11/NVENC on a supported worker, otherwise reports hardware
+unavailable. Production blockers remain AutoMix/crossfade and other
+media sources, sustained async GPU frame scheduling, audio mixing
+and mux sync, and full-project visual/parity/latency measurement.
