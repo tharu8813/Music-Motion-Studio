@@ -72,7 +72,7 @@ def fake_ffprobe(fps: int = 30, frames: int = 30):
     return SimpleNamespace(returncode=0, stdout=json.dumps({
         "streams": [{
             "codec_name": "h264", "width": 64, "height": 64,
-            "r_frame_rate": f"{fps}/1", "nb_read_frames": str(frames),
+            "has_b_frames": 0, "nb_read_frames": str(frames),
         }],
     }).encode(), stderr=b"")
 
@@ -144,6 +144,16 @@ class NativeGpuProductionFinalizerTests(unittest.TestCase):
                     settings=data[6],
                 )
 
+    def test_b_frame_reordering_is_rejected_before_native_mp4_mux(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            contaminated = fake_ffprobe()
+            stream = json.loads(contaminated.stdout)
+            stream["streams"][0]["has_b_frames"] = 2
+            contaminated.stdout = json.dumps(stream).encode()
+            with self.assertRaisesRegex(RenderError, "complete playlist"):
+                self._call(root, probe=contaminated)
+
     def test_cancelled_export_never_launches_mux(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)
@@ -176,7 +186,8 @@ class NativeGpuProductionFinalizerTests(unittest.TestCase):
             subprocess.run([
                 str(ffmpeg), "-v", "error", "-f", "lavfi", "-i",
                 "color=c=blue:s=64x64:r=30", "-frames:v", "30",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-f", "h264",
+                "-c:v", "libx264", "-bf", "0", "-tune", "zerolatency",
+                "-pix_fmt", "yuv420p", "-f", "h264",
                 str(video),
             ], check=True, timeout=40)
             subprocess.run([
