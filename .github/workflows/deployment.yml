@@ -195,6 +195,68 @@ jobs:
           python -m unittest -v tests.test_nvenc_probe_mux
           if ($LASTEXITCODE -ne 0) { throw 'NVENC probe MP4 remux verification failed' }
 
+      - name: Verify time-varying Qt Canvas frame packets and full-frame H264 parity
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m unittest -v tests.test_native_canvas_timeline_probe
+          if ($LASTEXITCODE -ne 0) { throw 'Qt Canvas timeline CPU/H264 pixel parity tests failed' }
+
+      - name: Probe actual changing Qt Canvas frames via native D3D11 and NVENC
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m tools.native_canvas_timeline_probe capture --output-dir qt-dynamic-ci --frames 6 --scale 0.25 --fps 60
+          if ($LASTEXITCODE -ne 0) { throw 'Qt dynamic frame capture failed' }
+          $packetArgs = @()
+          foreach ($index in (0..5)) {
+            $packetArgs += '--manifest'
+            $packetArgs += ('qt-dynamic-ci/frame-{0:D4}.json' -f $index)
+          }
+          cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_packet_probe -- @packetArgs --repeat 1 --slots 2 --video-output qt-dynamic-ci/encoded.h264 --output qt-dynamic-ci/gpu-report.json
+          if ($LASTEXITCODE -ne 0) { throw 'Native dynamic Qt GPU Canvas probe failed' }
+          @'
+          import json
+          from pathlib import Path
+          from tools.native_canvas_timeline_probe import load_timeline
+          timeline, _ = load_timeline(Path('qt-dynamic-ci/timeline.json'))
+          gpu = json.loads(Path('qt-dynamic-ci/gpu-report.json').read_text(encoding='utf-8'))
+          accepted = {
+              'measured', 'd3d11_hardware_unavailable',
+              'nvenc_library_unavailable', 'canvas_gpu_compositor_unsupported',
+          }
+          status = gpu.get('status')
+          if status not in accepted:
+              raise SystemExit(f'Unexpected dynamic Qt GPU probe status: {status}: {gpu.get("reason")}')
+          if status == 'measured':
+              if (gpu.get('pts') != list(range(6))
+                  or gpu.get('frames_encoded') != 6
+                  or gpu.get('gpu_nv12_to_cpu_readbacks') != 0
+                  or not Path('qt-dynamic-ci/encoded.h264').is_file()):
+                  raise SystemExit('Native dynamic Qt GPU frame count or PTS mismatch')
+          elif Path('qt-dynamic-ci/encoded.h264').exists():
+              raise SystemExit('Unavailable GPU emitted unexpected H264 data')
+          print('Dynamic Qt GPU replay status:', status)
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Dynamic Qt GPU status validation failed' }
+          if (Test-Path qt-dynamic-ci/encoded.h264) {
+            python -m tools.native_canvas_timeline_probe verify --timeline qt-dynamic-ci/timeline.json --video qt-dynamic-ci/encoded.h264 --report qt-dynamic-ci/parity.json
+            if ($LASTEXITCODE -ne 0) { throw 'Dynamic Qt GPU full-frame image parity failed' }
+          }
+
+      - name: Upload time-varying Qt GPU pixel parity reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-dynamic-nvenc-parity
+          path: |
+            qt-dynamic-ci/timeline.json
+            qt-dynamic-ci/gpu-report.json
+            qt-dynamic-ci/parity.json
+          if-no-files-found: ignore
+
       - name: Verify real FFmpeg 60-to-12 FPS overlay pixel parity
         env:
           QT_QPA_PLATFORM: offscreen
