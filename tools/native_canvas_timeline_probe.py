@@ -229,7 +229,7 @@ def load_timeline(path: Path) -> tuple[dict, list[Path]]:
         if (not isinstance(item, dict) or item.get("pts") != i
                 or not isinstance(item.get("time_seconds"), (int, float))
                 or not math.isclose(item["time_seconds"], i / fps, abs_tol=1e-8)):
-            raise TimelineValidationError(f"Qt timeline PTS discontinuity at {i}")
+            raise TimelineValidationError(f"Qt timeline PTS or cue discontinuity at {i}")
         if kind == "source_motion":
             if item.get("cue_index") != i // 2:
                 raise TimelineValidationError(f"Source-motion cue discontinuity at {i}")
