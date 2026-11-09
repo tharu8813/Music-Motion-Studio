@@ -149,6 +149,38 @@ jobs:
           print('D3D11 GPU completion:', result['status'])
           '@ | python -
           if ($LASTEXITCODE -ne 0) { throw 'Invalid D3D11 completion report' }
+      - name: Probe in-process NVENC DirectX session and GPU NV12 registration
+        shell: pwsh
+        run: |
+          cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_nvenc_registration_probe -- --width 320 --height 180 --frames 6 --slots 2 --output d3d11-nvenc-register-ci.json
+          if ($LASTEXITCODE -ne 0) { throw 'Native D3D11 -> NVENC register/map diagnostic failed' }
+          @'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('d3d11-nvenc-register-ci.json').read_text(encoding='utf-8'))
+          accepted = {
+              'measured', 'd3d11_hardware_unavailable',
+              'd3d11_video_processor_unavailable',
+              'nvenc_library_unavailable',
+          }
+          if report.get('status') not in accepted:
+              raise SystemExit(f"Unexpected NVENC registration status: {report.get('status')}")
+          if report['status'] == 'measured':
+              if (report.get('native_nv12_slots_registered_with_nvenc') != 2
+                      or report.get('nvenc_nv12_resources_mapped_and_unmapped') != 6
+                      or report.get('nv12_gpu_to_cpu_readbacks') != 0
+                      or report.get('nvenc_h264_bitstream_encoded')):
+                  raise SystemExit('NVENC registration did not preserve GPU-only contract')
+          print('NVENC D3D11 registration:', report['status'])
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'NVENC registration JSON validation failed' }
+      - name: Upload D3D11 -> NVENC registration diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d3d11-nvenc-registration
+          path: d3d11-nvenc-register-ci.json
+          if-no-files-found: ignore
       - name: Upload D3D11 completion and bounded pool diagnostics
         if: always()
         uses: actions/upload-artifact@v4
