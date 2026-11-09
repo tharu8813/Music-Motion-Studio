@@ -1,0 +1,40 @@
+name: Native reactive Canvas GPU packet smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/native_canvas_*.py'
+      - 'app/preview/native_canvas_layer_packets.py'
+      - 'tests/test_native_canvas_*.py'
+      - '.github/workflows/native-reactive-canvas.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-audio-canvas-packets:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: '.python-version'
+          cache: pip
+          cache-dependency-path: requirements-lock.txt
+      - name: Install locked Python dependencies
+        run: python -m pip install -r requirements-lock.txt
+      - name: Resolve FFmpeg for real audio tests
+        shell: pwsh
+        run: |
+          $ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
+          if (-not $ffmpeg) { throw 'Windows runner must provide FFmpeg for actual-audio smoke verification.' }
+          "PLAYLIST_CANVAS_TEST_FFMPEG=$($ffmpeg.Source)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Compile project diagnostic sources
+        run: python -m compileall -q tools/native_canvas_project_probe.py tools/native_canvas_dynamic_overlays.py tools/native_canvas_timeline_probe.py app/preview/native_canvas_layer_packets.py tests/test_native_canvas_dynamic_overlays.py
+      - name: Test original audio FFT, lyric/background reaction, Z packets and source inventory
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest -v tests.test_native_canvas_dynamic_overlays tests.test_native_canvas_layer_packets tests.test_native_canvas_project_probe
