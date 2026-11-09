@@ -12,6 +12,7 @@ import shutil
 import subprocess
 from tempfile import TemporaryDirectory
 import unittest
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -23,6 +24,7 @@ from app.models.project import CanvasSettings, ProjectDocument, ProjectSettings
 from app.models.source import Source, SourceType
 from tools.native_canvas_project_probe import (
     capture_project, resolve_project_frame, validate_project_for_gpu_capture,
+    main as project_probe_main, unsupported_visible_sources,
 )
 from tools.native_canvas_timeline_probe import (
     TimelineValidationError, load_timeline, verify_video_parity,
@@ -150,6 +152,86 @@ class RealProjectCaptureTests(unittest.TestCase):
         project.settings.transition_mode = "automix"
         with self.assertRaisesRegex(TimelineValidationError, "transition_mode=none"):
             validate_project_for_gpu_capture(project, scale=0.25)
+
+    def test_canvas_only_explicitly_omits_audio_visualizer_and_particles(self):
+        with TemporaryDirectory() as tmp:
+            project = project_fixture()
+            visualizer = Source(
+                SourceType.AUDIO_VISUALIZER, "Giggles spectrum",
+                z_index=12, width=800, height=130,
+            )
+            particles = Source(
+                SourceType.PARTICLE_OVERLAY, "Giggles particles",
+                z_index=22, width=1280, height=720,
+            )
+            project.sources.extend([visualizer, particles])
+            source = Path(tmp) / "real-project.json"
+            source.write_text(json.dumps(project.to_dict()), encoding="utf8")
+            snapshot = source.read_bytes()
+            with self.assertRaisesRegex(
+                TimelineValidationError, "audio_visualizer, particle_overlay"
+            ):
+                capture_project(
+                    source, Path(tmp) / "strict", frames=6, scale=0.25,
+                )
+            self.assertFalse((Path(tmp) / "strict").exists())
+            timeline = capture_project(
+                source, Path(tmp) / "partial",
+                frames=6, scale=0.25, source_policy="canvas-only",
+            )
+            meta, references = load_timeline(timeline)
+            self.assertEqual(meta["capture_scope"], "partial_canvas_only")
+            self.assertEqual(meta["excluded_source_count"], 2)
+            self.assertEqual(
+                {x["source_type"] for x in meta["excluded_sources"]},
+                {"audio_visualizer", "particle_overlay"},
+            )
+            self.assertEqual(meta["source_count"], 4)
+            self.assertFalse(meta["full_project_visual_parity_verified"])
+            self.assertEqual(len(references), 6)
+            self.assertEqual(source.read_bytes(), snapshot)
+            frame = json.loads((timeline.parent / "frame-0000.json").read_text("utf8"))
+            self.assertEqual(len(frame["layers"]), 2)
+
+    def test_capture_failure_never_launches_native_rust(self):
+        with TemporaryDirectory() as tmp:
+            project = project_fixture()
+            project.sources.append(
+                Source(SourceType.AUDIO_VISUALIZER, "Spectrum")
+            )
+            source = Path(tmp) / "project.json"
+            source.write_text(json.dumps(project.to_dict()), encoding="utf8")
+            with mock.patch(
+                "tools.native_canvas_project_probe.subprocess.run"
+            ) as runner:
+                rc = project_probe_main([
+                    "--project", str(source),
+                    "--output-dir", str(Path(tmp) / "out"),
+                    "--encode-and-verify",
+                ])
+                self.assertEqual(rc, 1)
+                runner.assert_not_called()
+            self.assertFalse((Path(tmp) / "out").exists())
+
+    def test_invalid_exclusion_disclosure_is_rejected(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "project.json"
+            project = project_fixture()
+            project.sources.append(
+                Source(SourceType.PARTICLE_OVERLAY, "Particles")
+            )
+            path.write_text(json.dumps(project.to_dict()), encoding="utf8")
+            timeline = capture_project(
+                path, Path(tmp) / "frames",
+                frames=6, scale=0.25, source_policy="canvas-only",
+            )
+            meta = json.loads(timeline.read_text("utf8"))
+            meta["excluded_sources"][0]["reason"] = "silently_skipped"
+            timeline.write_text(json.dumps(meta), encoding="utf8")
+            with self.assertRaisesRegex(
+                TimelineValidationError, "Invalid excluded source metadata"
+            ):
+                load_timeline(timeline)
 
     def test_tampered_project_clock_rejected(self):
         with TemporaryDirectory() as tmp:
