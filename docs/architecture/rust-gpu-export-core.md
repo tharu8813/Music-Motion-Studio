@@ -522,3 +522,57 @@ metadata, GPU completion or actual H.264 color fidelity. Those must
 be checked before a native encoder's D3D11/NVENC integration can
 replace the current export pipeline. The command without --ffmpeg
 still validates native D3D11 RGB patch conversion on Windows CI.
+
+
+## Milestone 9: D3D11 per-frame GPU copy-completion query
+
+After the RTX 5060 color-profile diagnostic, 12 patch centers matched
+FFmpeg BT.709 full (pc) range within 1 code value; the mean absolute
+Y/U/V channel delta was approximately 0.167. BT.709 limited range
+and both BT.601 profiles differed substantially. This establishes
+a native GPU patch-center color matching gate, not full-frame color
+parity or encoded H.264 stream metadata.
+
+The D3D11 frame ring now allocates an ID3D11Query with
+D3D11_QUERY_EVENT for each bounded NV12 slot. Its immediate
+device context issues End(query) strictly after the conversion or
+upload CopyResource for that slot. gpu_copy_complete(slot) polls
+GetData with a correctly initialized Win32 BOOL, ensuring pending
+S_FALSE never masquerades as completed; errors are propagated, and
+the poll allows the runtime to flush queued GPU commands.
+wait_for_gpu_copy(slot, timeout) provides a bounded poll for diagnostics
+instead of an unbounded busy-loop. acquire_gpu_complete_ready() reserves
+the lowest presentation timestamp only if its copy has completed.
+
+Most importantly, complete_encode() now refuses recycling a slot
+until that native D3D11 GPU copy query has completed, even when a caller
+signals the simulated encoder too early. The fixed ring never overwrites
+frames still queued or in flight, and it resets the issued-query marker
+only after a safe free transition. Existing acquire_ready() remains
+for backward compatibility but is intentionally only a queued-work
+handoff: new hardware clients must use acquire_gpu_complete_ready().
+
+On RTX 5060 run:
+
+    git pull
+    cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_gpu_completion_probe -- --width 1920 --height 1080 --frames 30 --slots 3 --output d3d11-gpu-completion-local.json
+
+This runs changing full-frame gray BGRA GPU inputs, records GPU copy
+completion per frame, checks FIFO PTS and ring backpressure, and
+performs diagnostic-only NV12 readbacks after the GPU copy is
+confirmed. It reports both enqueue and query wait CPU wall times:
+neither is an actual GPU kernel timestamp.
+
+### Important remaining safety boundary
+
+A D3D11 EVENT query confirms that the texture producer copy has
+finished. It does NOT confirm that NVENC, FFmpeg, or another consumer
+has finished using the texture. The diagnostic calls complete_encode()
+only as an explicit simulated consumer acknowledgement after reading
+the frame. Real production integration must issue complete_encode()
+only after a genuine in-process encoder completion event and must
+retain texture ownership until then. NVIDIA Video Codec SDK or native
+FFmpeg AVHWFramesContext integration, D3D11 scene rendering,
+full-frame color validation, encoded media and audio correctness, and
+a real benchmark are still required. No production export setting
+or default pipeline has been changed.
