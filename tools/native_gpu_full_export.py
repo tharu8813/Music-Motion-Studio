@@ -22,7 +22,7 @@ from typing import Iterator
 
 from PySide6.QtWidgets import QApplication
 
-from app.canvas.scene import CanvasScene
+from app.canvas.live_canvas import CanvasScene
 from app.canvas.source_item import SourceItem
 from app.models.project import ProjectDocument
 from app.preview.native_canvas_layer_packets import (
@@ -65,7 +65,7 @@ def produce_complete_project_frames(
         if s.visible and s.source_type not in DYNAMIC_TYPES
     ]
     reactive = [s for s in included if s.uses_bass_reaction]
-    QApplication.instance() or QApplication([])
+    app = QApplication.instance() or QApplication([])
     scene = CanvasScene()
     scene.set_artboard_size(project.canvas.width, project.canvas.height)
     scene.show_grid = False
