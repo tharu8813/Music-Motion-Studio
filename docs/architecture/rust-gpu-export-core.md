@@ -1158,7 +1158,7 @@ partial canvas-only diagnostic.
 
 The isolated project probe now supports an additional, **opt-in**
 `--source-policy dynamic-audio` policy. It constructs the same production
-`VisualizerOverlay` settings through `ExportController.visualizers`, uses
+`VisualizerOverlay` settings through `ExportOrchestrator.visualizers`, uses
 `FFmpegRenderer.prepare_playlist_audio` to normalize and concatenate the
 actual playlist soundtrack (or accepts the caller's already prepared mix with
 `--prepared-audio`), and runs `PythonVisualizerRenderer`'s FFT, attack/
@@ -1196,8 +1196,11 @@ Safety limits: this diagnostic supports `audio_visualizer`,
 dynamic source family, with other Canvas sources between or below them.
 Video sources, dynamic custom keyframes or rotations, ambiguous
 same-Z static/dynamic sources, AutoMix/crossfade and more than eight layers
-are rejected. Start timestamps must be exact CFR boundaries and <=30 s
-to bound frame warm-up. An optional `--prepared-audio` must contain the
+are rejected. Start timestamps must be exact CFR boundaries. The
+production renderer computes audio smoothing from the start of the track,
+but diagnostic seeking now skips painting the intervening Qt frames,
+so samples can be captured in later songs without the old 30 s limit.
+An optional `--prepared-audio` must contain the
 corresponding mixed playlist audio, or the application generates it
 using its existing sequential export path.
 
@@ -1234,6 +1237,43 @@ visibility and eligibility. It does not need `--output-dir`, create video
 files or disable source-policy validation. New validation errors name each
 unsupported source instead of vaguely listing possible unsupported kinds.
 Unknown reactive source types and video sources still fail closed.
+
+The inspector also lists every playlist presentation window, its
+track number, start/end timestamps, and a suggested **exact CFR-aligned**
+`recommended_probe_start_seconds` for the selected `--fps` (default 60).
+Use this value as `--start-seconds` when testing a second or later song.
+
+### RTX 5060 validation received (2026-11-10)
+
+On the real giggles.pvsproj experiment, the user-provided native GPU report
+shows 6/6 frames encoded at 640x360, 60 FPS with five alpha-composited
+layers each, NVIDIA RTX 5060, D3D11 and NVENC API 13.1.
+No GPU NV12-to-CPU readbacks occurred. The independently decoded
+**diagnostic Qt-frame reference** comparison reports 6/6 matching
+frames (mean RGB MAE 1.5275 codes, worst p95 RGB error 4 codes).
+This is a successful *bounded diagnostic packet/encode test*, **not**
+an independent production-export comparison or proof of total pipeline
+FPS. Encoder elapsed 0.0187315 seconds applies to the isolated native
+encoding phase only; it must not be interpreted as sustained complete
+application rendering performance. The result remains
+`full_project_visual_parity_verified=false`.
+
+### Seek later into a real playlist
+
+Run the read-only inspector to find the second song's
+`recommended_probe_start_seconds` for the desired FPS. Example:
+
+```powershell
+python -m tools.native_canvas_project_probe --project "C:\Users\wlqor\Desktop\giggles.pvsproj" --inspect-sources --fps 60
+python -m tools.native_canvas_project_probe --project "C:\Users\wlqor\Desktop\giggles.pvsproj" --output-dir qt-giggles-second-track --start-seconds <CFR_SEEK_SECONDS> --frames 6 --fps 60 --scale 0.5 --source-policy dynamic-audio --encode-and-verify
+```
+
+Replace `<CFR_SEEK_SECONDS>` with the exact numeric value from inspection;
+do not type angle brackets in PowerShell. The seek performs full-history
+FFT and animation smoothing before producing any overlay pixels; only
+the unneeded **rasterization** is skipped. Audio decoding and FFT analysis
+still cover the prepared playlist. Windows RTX hardware validation of
+late-song captures is the next experimental gate.
 
 Before enabling any production GPU exporter, compare *actual* output from
 both renderers on sustained multi-track projects, crossfades, masks,
