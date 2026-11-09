@@ -221,6 +221,8 @@ def capture_native_canvas_track_frame(
     animation_phase_duration: float | None = None,
     compiled_plan: object | None = None,
     keyframe_active: bool = True,
+    bass_level: float = 0.0,
+    music_levels: dict[str, float] | None = None,
 ) -> NativeCanvasFrame:
     """Capture a REAL track/lyrics state through the established export painter.
 
@@ -267,6 +269,8 @@ def capture_native_canvas_track_frame(
             animation_phase_duration=animation_phase_duration,
             compiled_plan=compiled_plan,
             keyframe_active=keyframe_active,
+            bass_level=bass_level,
+            music_levels=music_levels,
             output_scale=output_scale,
             z_min=z_min, z_max=z_max,
             transparent=index != 0,
