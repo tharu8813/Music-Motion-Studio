@@ -59,7 +59,7 @@ fn main() {
     }
 
     fn try_encode(
-        frames: &[CanvasPacketFrame], slots: usize, video: &PathBuf,
+        frames: &[&CanvasPacketFrame], slots: usize, video: &PathBuf,
         adapter: &mut String,
     ) -> Result<Value, String> {
         let (width, height) = (frames[0].width, frames[0].height);
@@ -208,18 +208,10 @@ fn main() {
                 return Err("All Qt Canvas frames must have equal dimensions".into());
             }
         }
-        let frames: Vec<_> = (0..repeat)
-            .flat_map(|_| originals.iter())
-            .map(|frame| CanvasPacketFrame {
-                width: frame.width, height: frame.height,
-                layers: frame.layers.iter().map(|layer| {
-                    music_motion_gpu_core::qt_canvas_packet::CanvasPacketLayer {
-                        stream_key: layer.stream_key.clone(),
-                        opacity: layer.opacity, pixels: layer.pixels.clone(),
-                    }
-                }).collect(),
-            })
-            .collect();
+        // Repetitions borrow the immutable Qt source packets. Never
+        // duplicate multi-megabyte BGRA byte planes just to emit a PTS.
+        let frames: Vec<&CanvasPacketFrame> = (0..repeat)
+            .flat_map(|_| originals.iter()).collect();
         let mut adapter = String::new();
         match try_encode(&frames, slots, &video, &mut adapter) {
             Ok(result) => Ok(result),
