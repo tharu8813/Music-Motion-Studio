@@ -223,10 +223,34 @@ def load_timeline(path: Path) -> tuple[dict, list[Path]]:
     if kind == "project_timeline":
         digest = timeline.get("source_project_sha256")
         duration = timeline.get("compiled_plan_duration_seconds")
+        excluded = timeline.get("excluded_sources")
+        excluded_count = timeline.get("excluded_source_count")
+        capture_scope = timeline.get("capture_scope")
+        if (not isinstance(excluded, list)
+                or type(excluded_count) is not int
+                or excluded_count != len(excluded)
+                or not 0 <= excluded_count <= 64
+                or capture_scope not in ("partial_canvas_only", "all_eligible_canvas_sources")
+                or (capture_scope == "partial_canvas_only") != bool(excluded)
+                or timeline.get("full_project_visual_parity_verified") is not False):
+            raise TimelineValidationError("Invalid project excluded dynamic source disclosure")
+        for omitted in excluded:
+            if (not isinstance(omitted, dict)
+                    or not isinstance(omitted.get("source_id"), str)
+                    or not omitted["source_id"].strip()
+                    or not isinstance(omitted.get("source_type"), str)
+                    or not omitted["source_type"].strip()
+                    or omitted.get("reason") not in (
+                        "requires_separate_export_overlay", "requires_audio_analysis",
+                    )):
+                raise TimelineValidationError("Invalid excluded source metadata")
+        if len({x["source_id"] for x in excluded}) != excluded_count:
+            raise TimelineValidationError("Duplicate excluded dynamic source ID")
         if (not isinstance(start, (float, int)) or isinstance(start, bool)
                 or not math.isfinite(start) or start < 0
                 or type(timeline.get("source_count")) is not int
                 or not 1 <= timeline["source_count"] <= 64
+                or timeline["source_count"] + excluded_count > 64
                 or not isinstance(duration, (int, float))
                 or not math.isfinite(duration) or duration <= 0
                 or not isinstance(digest, str) or len(digest) != 64
@@ -424,6 +448,12 @@ def verify_video_parity(
         "qt_cpu_rasterized": True,
         "native_gpu_text_painting_implemented": False,
         "production_export_changed": False,
+        **({
+            "capture_scope": timeline["capture_scope"],
+            "excluded_source_count": timeline["excluded_source_count"],
+            "excluded_sources": timeline["excluded_sources"],
+            "full_project_visual_parity_verified": False,
+        } if timeline.get("kind") == "project_timeline" else {}),
     }
 
 
