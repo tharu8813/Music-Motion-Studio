@@ -223,7 +223,7 @@ fn main() {
                             return Err("H.264 PTS, output count or GPU slot release mismatch".into());
                         }
                         let elapsed = start.elapsed().as_secs_f64();
-                        if let Some(parent) = video.parent() {
+                        if let Some(parent) = video.parent().filter(|p| !p.as_os_str().is_empty()) {
                             fs::create_dir_all(parent)
                                 .map_err(|e| format!("Cannot create video directory: {e}"))?;
                         }
@@ -285,7 +285,7 @@ fn main() {
         .expect("Serialize NVENC H.264 diagnostic");
     println!("{rendered}");
     if let Some(path) = output {
-        if let Some(parent) = path.parent() {
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
             fs::create_dir_all(parent).expect("Create diagnostic report folder");
         }
         fs::write(path, rendered + "\n").expect("Save H.264 diagnostic JSON");
