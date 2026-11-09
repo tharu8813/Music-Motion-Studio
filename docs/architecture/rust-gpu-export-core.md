@@ -672,3 +672,13 @@ remains unchanged.
 Windows CI compiles and smoke tests the command, but a hosted Windows
 runner generally cannot exercise NVIDIA hardware. Only the user's
 RTX 5060 report plus a decoded H.264 file can confirm live encoding.
+
+
+### Failure-forensics note
+
+When ffprobe detects an H.264 decode, frame-count, dimension or VUI
+metadata mismatch after a complete bitstream has been written, the
+diagnostic now preserves the generated .h264 file and includes its
+location under diagnostic_h264_file in the failed JSON report.
+Partial file writes still remove incomplete output. Re-running a test
+never silently overwrites an existing diagnostic video.
