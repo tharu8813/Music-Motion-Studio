@@ -210,6 +210,16 @@ def load_timeline(path: Path) -> tuple[dict, list[Path]]:
             or not 3 <= len(frames) <= MAX_FRAMES
             or timeline.get("production_export_changed") is not False):
         raise TimelineValidationError("Invalid Qt timeline schema, size, FPS or frame count")
+    kind = timeline.get("kind", "source_motion")
+    if kind not in {"source_motion", "track_lyrics"}:
+        raise TimelineValidationError("Unsupported Qt Canvas timeline mode")
+    start = timeline.get("start_seconds", 0.0)
+    if kind == "track_lyrics" and (
+        timeline.get("uses_actual_lyrics_cue_resolver") is not True
+        or not isinstance(start, (int, float)) or isinstance(start, bool)
+        or not math.isfinite(start) or start < 0
+    ):
+        raise TimelineValidationError("Invalid actual track lyric timeline header")
     directory = path.parent
     references = []
     seen = set()
@@ -218,9 +228,29 @@ def load_timeline(path: Path) -> tuple[dict, list[Path]]:
         expected_reference = f"reference-{i:04d}.png"
         if (not isinstance(item, dict) or item.get("pts") != i
                 or not isinstance(item.get("time_seconds"), (int, float))
-                or not math.isclose(item["time_seconds"], i / fps, abs_tol=1e-8)
-                or item.get("cue_index") != i // 2):
-            raise TimelineValidationError(f"Qt timeline PTS or cue discontinuity at {i}")
+                or not math.isclose(item["time_seconds"], i / fps, abs_tol=1e-8)):
+            raise TimelineValidationError(f"Qt timeline PTS discontinuity at {i}")
+        if kind == "source_motion":
+            if item.get("cue_index") != i // 2:
+                raise TimelineValidationError(f"Source-motion cue discontinuity at {i}")
+        else:
+            cue = item.get("cue_index")
+            active = item.get("active_cue_indices")
+            held = item.get("held_cue_indices")
+            valid_indices = lambda values: (
+                isinstance(values, list)
+                and all(type(n) is int and 0 <= n <= 100000 for n in values)
+                and values == sorted(set(values))
+            )
+            if (not (cue is None or type(cue) is int and 0 <= cue <= 100000)
+                    or not valid_indices(active) or not valid_indices(held)
+                    or type(item.get("before_first")) is not bool
+                    or not isinstance(item.get("track_elapsed_seconds"), (int, float))
+                    or not math.isclose(
+                        item["track_elapsed_seconds"], start + i / fps,
+                        abs_tol=1e-8,
+                    )):
+                raise TimelineValidationError(f"Actual lyric cue state or clock invalid at {i}")
         name = item.get("manifest")
         if name != expected_manifest or name in seen:
             raise TimelineValidationError("Qt timeline frame manifest path or order invalid")
