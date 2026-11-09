@@ -135,6 +135,18 @@ fn supported_nv12(api: &NvencApi, encoder: *mut c_void) -> Result<bool, String> 
 
 impl NativeNvencRegistrationSession {
     pub fn new_for_pool(pool: &NativeNv12FramePool) -> Result<Self, String> {
+        // Retain the exact 60 FPS legacy probe behavior.
+        Self::new_for_pool_with_fps(pool, 60)
+    }
+
+    /// A full-length production encoder must use the selected export FPS.
+    /// The old six-frame probe still calls new_for_pool (60 FPS).
+    pub fn new_for_pool_with_fps(
+        pool: &NativeNv12FramePool, fps: u32,
+    ) -> Result<Self, String> {
+        if !(1..=240).contains(&fps) {
+            return Err("NVENC video FPS must be between 1 and 240".into());
+        }
         let api = try_init_nvenc()
             .ok_or_else(|| "NVENC driver library or supported API unavailable".to_owned())?;
         let (width, height) = pool.dimensions();
@@ -231,7 +243,7 @@ impl NativeNvencRegistrationSession {
             init.encodeHeight = height;
             init.darWidth = width;
             init.darHeight = height;
-            init.frameRateNum = 60;
+            init.frameRateNum = fps;
             init.frameRateDen = 1;
             init.enableEncodeAsync = 0;
             init.enablePTD = 1;
