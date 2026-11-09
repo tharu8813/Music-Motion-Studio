@@ -484,3 +484,41 @@ A Windows CI pass checks compilation and bind flags but does not
 prove `CreateVideoProcessorInputView` succeeds on RTX hardware:
 hosted Windows runs on the Microsoft Basic Render Driver. Actual
 NVIDIA BGRA→NV12 conversion and color sanity remain the local gate.
+
+
+## Milestone 8: RTX native BGRA/NV12 color-profile diagnosis
+
+The real RTX 5060 run after PR #63 confirmed that the native D3D11
+BGRA -> NV12 video processor executes on 20 consecutive 1920x1080
+frames and keeps output in the same-device GPU frame pool. The median
+0.0199ms is **CPU command enqueue time** only. The initial report's
+grayscale probe gave black Y=0, white Y=255 and neutral chroma=128,
+indicating a full-range-looking result; this is **not a guarantee**
+that saturated colors, BT.709 matrix or limited-range video encoding
+match FFmpeg. NVENC, Vulkan/D3D11 interop and production export are
+still not connected.
+
+This diagnostic adds a separate one-frame **12-patch opaque BGRA chart**
+(black, white, primary/secondary colors, grays and mixed colors). It
+converts that native D3D11 texture to NV12 through the existing GPU-only
+same-device video processor. Only the diagnostic downloads NV12 for
+pixel samples from the **interior** of each patch, avoiding 4:2:0
+boundary-mixing in the comparison. Optionally, the exact original BGRA
+bytes are also sent to FFmpeg's software swscale to compare four
+matrix/range profiles: BT.601 and BT.709, full (pc) and limited (tv).
+Each profile records per-channel Y/U/V deviations and identifies
+the closest match, **without auto-enabling a profile**.
+
+On the RTX workstation with FFmpeg installed:
+
+    git pull
+    cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_bgra_nv12_color_probe -- --width 1920 --height 1080 --ffmpeg ffmpeg --output d3d11-bgra-color-local.json
+
+Read the closest_ffmpeg_profile, per-patch YUV values and
+patch_centers_within_3_codes_of_closest_ffmpeg_profile.
+A successful FFmpeg patch-center comparison **does not prove
+full-frame FFmpeg parity**, correct color primaries/transfer
+metadata, GPU completion or actual H.264 color fidelity. Those must
+be checked before a native encoder's D3D11/NVENC integration can
+replace the current export pipeline. The command without --ffmpeg
+still validates native D3D11 RGB patch conversion on Windows CI.
