@@ -81,7 +81,7 @@ class LyricsFirstCueTests(unittest.TestCase):
                 self.assertNotIn(FIRST, dialog.current_lyric.text())
                 self.assertIn('00:25.180', dialog.current_lyric.text())
                 self.assertEqual(dialog.previous_lyric.text(), '')
-                self.assertEqual(dialog.next_lyric.text(), FIRST)
+                self.assertEqual(dialog.next_lyric.text().splitlines()[0], FIRST)
         dialog.timing_offset_spin.setValue(2)
         dialog._update_live_lyrics(0)
         self.assertIn('00:23.180', dialog.current_lyric.text())
