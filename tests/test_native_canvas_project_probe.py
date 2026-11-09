@@ -17,6 +17,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 
+from app.animation.keyframes import Keyframe, evaluate as evaluate_keyframes
 from app.models.playlist import PlaylistTrack
 from app.models.project import CanvasSettings, ProjectDocument, ProjectSettings
 from app.models.source import Source, SourceType
@@ -35,7 +36,7 @@ def project_fixture() -> ProjectDocument:
             "words": [{"start": start, "end": end, "offset": 0, "text": label}],
         }
 
-    return ProjectDocument(
+    document = ProjectDocument(
         canvas=CanvasSettings(width=1280, height=720),
         settings=ProjectSettings(title="Actual project video path"),
         sources=[
@@ -66,6 +67,13 @@ def project_fixture() -> ProjectDocument:
             ]),
         ],
     )
+    # An actual persisted global transform curve must survive loading and
+    # be evaluated from the absolute compiled timeline clock.
+    document.sources[1].keyframes.global_curves["x"] = [
+        Keyframe(0.0, 140.0, "linear"),
+        Keyframe(1.0, 340.0, "linear"),
+    ]
+    return document
 
 
 class RealProjectCaptureTests(unittest.TestCase):
@@ -85,6 +93,24 @@ class RealProjectCaptureTests(unittest.TestCase):
         self.assertAlmostEqual(second["track_elapsed_seconds"], 0)
         with self.assertRaisesRegex(TimelineValidationError, "playlist presentation gap"):
             resolve_project_frame(project, 1.01)
+
+    def test_project_keyframe_is_evaluated_on_absolute_audio_clock(self):
+        project = project_fixture()
+        source = project.sources[1]
+        self.assertTrue(source.keyframes.animated)
+        earlier = resolve_project_frame(project, 29 / 60)
+        later = resolve_project_frame(project, 30 / 60)
+        x1 = evaluate_keyframes(
+            source, earlier["timeline_seconds"], earlier["track"].id,
+            earlier["track_elapsed_seconds"],
+        )["x"]
+        x2 = evaluate_keyframes(
+            source, later["timeline_seconds"], later["track"].id,
+            later["track_elapsed_seconds"],
+        )["x"]
+        self.assertAlmostEqual(x1, 140 + 200 * 29 / 60, places=4)
+        self.assertAlmostEqual(x2, 240.0, places=4)
+        self.assertGreater(x2, x1)
 
     def test_real_project_source_and_lyric_clock_capture(self):
         with TemporaryDirectory() as tmp:
