@@ -229,6 +229,66 @@ jobs:
           print('D3D11 Canvas GPU alpha status:', status)
           '@ | python -
           if ($LASTEXITCODE -ne 0) { throw 'Canvas GPU alpha JSON verification failed' }
+      - name: Validate Qt BGRA packet manifest input through the native D3D11 compositor
+        shell: pwsh
+        run: |
+          @'
+          import hashlib
+          import json
+          from pathlib import Path
+          root = Path('ci-native-canvas-packet')
+          root.mkdir(exist_ok=True)
+          width, height = 320, 180
+          layers = [
+              ('base', bytes([32,32,32,255]) * (width * height)),
+              ('layer:0', bytes([0,0,255,128]) * (width * height)),
+          ]
+          entries = []
+          for i, (key, payload) in enumerate(layers):
+              name = f'layer-{i}.bgra'
+              (root / name).write_bytes(payload)
+              entries.append({
+                  'stream_key': key, 'file': name, 'opacity': 1.0,
+                  'bytes': len(payload), 'z_order': i,
+                  'sha256': hashlib.sha256(payload).hexdigest(),
+              })
+          (root / 'frame.json').write_text(json.dumps({
+              'schema': 1, 'format': 'mms_canvas_bgra_layers_v1',
+              'pixel_format': 'BGRA8_STRAIGHT', 'coordinate_origin': 'top_left',
+              'width': width, 'height': height, 'layers': entries,
+          }), encoding='utf-8')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to generate native Canvas packet contract' }
+          cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_canvas_layers_probe -- --width 320 --height 180 --frames 6 --slots 2 --layer-manifest ci-native-canvas-packet/frame.json --output d3d11-qt-canvas-packet-ci.json
+          if ($LASTEXITCODE -ne 0) { throw 'Native Qt Canvas GPU manifest -> NVENC diagnostic failed' }
+          @'
+          import json
+          from pathlib import Path
+          value = json.loads(Path('d3d11-qt-canvas-packet-ci.json').read_text(encoding='utf-8'))
+          allowed = {
+              'measured', 'd3d11_hardware_unavailable',
+              'd3d11_video_processor_unavailable',
+              'nvenc_library_unavailable', 'canvas_alpha_unsupported',
+          }
+          if value.get('status') not in allowed:
+              raise SystemExit(f"Qt Canvas packet native probe error: {value}")
+          if value['status'] == 'measured':
+              if (value.get('input_mode') != 'qt_canvas_manifest'
+                      or not value.get('qt_canvas_packet_sha256_checked')
+                      or value.get('frames_encoded') != 6
+                      or value.get('gpu_composited_layers') != 2
+                      or value.get('gpu_to_cpu_nv12_readbacks_on_encode_path') != 0):
+                  raise SystemExit('Qt Canvas packet -> NVENC contract regression')
+          print('Native Qt Canvas packet ingestion:', value['status'])
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Invalid Qt Canvas GPU packet report' }
+      - name: Upload native Qt Canvas packet ingestion report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d3d11-qt-canvas-input
+          path: d3d11-qt-canvas-packet-ci.json
+          if-no-files-found: ignore
       - name: Upload native D3D11 Canvas layer and NVENC diagnostics
         if: always()
         uses: actions/upload-artifact@v4
