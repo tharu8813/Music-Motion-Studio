@@ -239,7 +239,9 @@ fn main() {
                             Some(cmd) => match verify_ffprobe(cmd, &video, width, height, frames) {
                                 Ok(report) => Some(report),
                                 Err(error) => {
-                                    let _ = fs::remove_file(&video);
+                                    // Preserve a complete encoded stream for
+                                    // debugging a decoder or metadata failure.
+                                    // Incomplete file writes are still deleted.
                                     return Err(format!("Bitstream decoding or metadata verification failed: {error}"));
                                 }
                             },
@@ -274,6 +276,11 @@ fn main() {
                             "reason": reason, "adapter_name": pool.adapter_name(),
                             "nvenc_api_version": session.negotiated_api_version(),
                             "frames_mapped": session.successful_map_count(),
+                            "diagnostic_h264_file": if video.is_file() {
+                                Some(video.display().to_string())
+                            } else {
+                                None
+                            },
                             "production_export_changed": false,
                         }),
                     }
