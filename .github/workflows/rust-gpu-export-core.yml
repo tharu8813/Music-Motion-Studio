@@ -107,6 +107,33 @@ jobs:
           print('D3D11 GPU BGRA/NV12:', payload['status'])
           '@ | python -
           if ($LASTEXITCODE -ne 0) { throw 'Invalid D3D11 video processor report' }
+      - name: Validate D3D11 GPU color chart diagnostic (no FFmpeg required)
+        shell: pwsh
+        run: |
+          cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_bgra_nv12_color_probe -- --width 320 --height 180 --output d3d11-bgra-color-ci.json
+          if ($LASTEXITCODE -ne 0) { throw 'D3D11 GPU color chart diagnostic failed' }
+          @'
+          import json
+          from pathlib import Path
+          p = json.loads(Path('d3d11-bgra-color-ci.json').read_text(encoding='utf-8'))
+          accepted = {'measured', 'd3d11_hardware_unavailable', 'd3d11_video_processor_unavailable'}
+          if p.get('status') not in accepted:
+              raise SystemExit(f"Unexpected color probe status: {p.get('status')}")
+          if p['status'] == 'measured' and (
+              not p.get('gpu_conversion_and_diagnostic_readback_succeeded')
+              or len(p.get('patches', [])) != 12
+          ):
+              raise SystemExit('Native D3D11 RGB patch verification failed')
+          print('Native D3D11 color chart status:', p['status'])
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Invalid D3D11 GPU color diagnostic report' }
+      - name: Upload D3D11 GPU color reference diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d3d11-bgra-nv12-color-chart
+          path: d3d11-bgra-color-ci.json
+          if-no-files-found: ignore
       - name: Upload BGRA-to-NV12 GPU video processor diagnostics
         if: always()
         uses: actions/upload-artifact@v4
