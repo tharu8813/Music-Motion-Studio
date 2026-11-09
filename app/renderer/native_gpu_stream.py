@@ -130,7 +130,10 @@ def stream_native_canvas_h264(
             finally:
                 events.put(None)
 
-        Thread(target=collect_stdout, daemon=True, name="mms-native-gpu-output").start()
+        output_reader = Thread(target=collect_stdout, daemon=True,
+                               name="mms-native-gpu-output")
+        output_reader.start()
+        source = None
         try:
             source = iter(frames)
             assert worker.stdin is not None
@@ -156,15 +159,13 @@ def stream_native_canvas_h264(
                     _frame_acknowledgement(
                         events, worker, index, cancel, acknowledgement_timeout,
                     )
-                except (OSError, BrokenPipeError) as exc:
+                except OSError as exc:
                     raise RenderError(
                         f"Native D3D11/NVENC channel failed while submitting frame {index}."
                     ) from exc
-                finally:
-                    # Only remove after an ACK on success; if the process
-                    # failed, terminating it below makes file deletion safe.
-                    if worker.poll() is None and not cancel.is_set():
-                        pass
+                # Only remove after a confirmed upload acknowledgement.
+                # Failed uploads are cleaned by TemporaryDirectory after
+                # termination of the native process in the outer finally.
                 for path in directory.glob(prefix + "*"):
                     path.unlink(missing_ok=True)
                 if progress_callback is not None:
@@ -201,6 +202,19 @@ def stream_native_canvas_h264(
             return result
         finally:
             _abort_worker(worker)
+            if worker.stdin is not None and not worker.stdin.closed:
+                worker.stdin.close()
+            # The worker is no longer running; the output pump must see EOF
+            # before its pipe closes, avoiding Windows handle leaks.
+            output_reader.join(timeout=2)
+            if worker.stdout is not None and not worker.stdout.closed:
+                worker.stdout.close()
+            if source is not None:
+                close = getattr(source, "close", None)
+                if callable(close):
+                    close()
+            if worker.returncode and not report.is_file():
+                video.with_extension("h264.part").unlink(missing_ok=True)
             log.close()
 
 
