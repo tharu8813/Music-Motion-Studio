@@ -214,7 +214,7 @@ def stream_native_canvas_h264(
                 if callable(close):
                     close()
             if worker.returncode and not report.is_file():
-                video.with_extension("h264.part").unlink(missing_ok=True)
+                video.with_suffix(".h264.part").unlink(missing_ok=True)
             log.close()
 
 
