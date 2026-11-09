@@ -138,6 +138,12 @@ jobs:
           '@ | python -
           if ($LASTEXITCODE -ne 0) { throw 'Verified FFmpeg installation failed.' }
 
+      - name: Verify native NVENC H264-to-MP4 remux and optional AAC soundtrack
+        shell: pwsh
+        run: |
+          python -m unittest -v tests.test_nvenc_probe_mux
+          if ($LASTEXITCODE -ne 0) { throw 'NVENC probe MP4 remux verification failed' }
+
       - name: Verify real FFmpeg 60-to-12 FPS overlay pixel parity
         env:
           QT_QPA_PLATFORM: offscreen
