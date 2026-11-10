@@ -43,6 +43,23 @@ class RuntimeContracts(unittest.TestCase):
         self.app.processEvents()
         self.assertFalse(worker.is_alive(), "worker did not finish with GUI loop running")
 
+    def test_production_gpu_export_allows_upscale_within_4k_bounds(self):
+        # This is the *production* validator, not the legacy diagnostic
+        # project-probe scale range. 1280x720 -> 1920x1080 and 4K are legal.
+        project = project_fixture()
+        for scale in (0.25, 1.0, 1.5, 2.0, 3.0):
+            with self.subTest(scale=scale):
+                self.assertEqual(
+                    validate_project_for_gpu_capture(
+                        project, scale=scale, source_policy="dynamic-audio",
+                    ), [],
+                )
+        # Up to 4K is supported; larger output is still refused.
+        with self.assertRaisesRegex(TimelineValidationError, "3840x2160"):
+            validate_project_for_gpu_capture(
+                project, scale=4.0, source_policy="dynamic-audio",
+            )
+
     def test_entire_timeline_and_song_boundary_lazy_and_detached(self):
         project = project_fixture()
         before = project.to_dict()
