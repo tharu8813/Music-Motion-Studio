@@ -1,7 +1,6 @@
 //! Bounded export-local resident resources. Opacity/order are frame state,
 //! never part of pixel identity; changed pixels invalidate only their stream.
 use std::collections::{HashMap, HashSet};
-use sha2::{Digest, Sha256};
 use crate::qt_canvas_packet::CanvasPacketFrame;
 
 #[derive(Default, Debug)]
@@ -9,6 +8,9 @@ pub struct CacheCounters {
     pub allocations: u64,
     pub uploads: u64,
     pub upload_bytes: u64,
+    // Byte count of redundant SHA-256 CPU input scans avoided by using the
+    // parser-validated digest (not bytes removed from the pipe).
+    pub digest_reuse_bytes: u64,
     pub reuse_hits: u64,
     pub releases: u64,
     pub peak_resident_bytes: usize,
@@ -77,6 +79,7 @@ impl<T> ResidentLayerCache<T> {
             // immutable BGRA buffer against its manifest. Rehashing the
             // 1080p/4K planes here was a second full CPU scan per frame.
             let digest = layer.validated_sha256;
+            self.counters.digest_reuse_bytes += plane as u64;
             if let Some(entry) = self.entries.get_mut(&layer.stream_key) {
                 if entry.digest == digest {
                     self.counters.reuse_hits += 1;
@@ -111,6 +114,7 @@ impl<T> ResidentLayerCache<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::{Digest, Sha256};
     use crate::qt_canvas_packet::{CanvasPacketLayer, LayerGeometry};
     fn frame(keys: &[&str], pixel: u8) -> CanvasPacketFrame {
         CanvasPacketFrame { width: 2, height: 2, layers: keys.iter().map(|key| {
@@ -131,6 +135,7 @@ mod tests {
         first.layers.swap(0, 1);
         cache.update(&first, || Ok(()), |_, _| panic!("unchanged pixels uploaded")).unwrap();
         assert_eq!(cache.counters.uploads, 2); // uncached: 122
+        assert_eq!(cache.counters.digest_reuse_bytes, 2 * 16 * 61);
         assert_eq!(cache.counters.reuse_hits, 120);
         assert_eq!(cache.counters.peak_resident_bytes, 32);
     }
