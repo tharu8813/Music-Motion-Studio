@@ -208,6 +208,25 @@ class GpuUiTests(unittest.TestCase):
         question.assert_not_called()
         self.assertEqual(Path(self.output).read_bytes(), b"existing")
 
+    def test_native_worker_throttles_gui_progress_but_reports_first_and_last(self):
+        renderer = MagicMock()
+        worker = RenderWorker(renderer, QImage(), [], self.output, RenderSettings())
+        seen = []
+        worker.progress.connect(lambda stage, fraction, message: seen.append(
+            (stage, fraction, message),
+        ))
+        with patch("app.renderer.render_worker.monotonic",
+                   side_effect=(100.0, 100.05, 100.12, 100.30, 100.32)):
+            for index in (1, 2, 3, 10, 100):
+                worker._report_native_frame(index, 100)
+        self.assertEqual([row[2] for row in seen], [
+            "Rust GPU: 1/100 frames",
+            "Rust GPU: 10/100 frames",
+            "Rust GPU: 100/100 frames",
+        ])
+        self.assertAlmostEqual(seen[-1][1], .85)
+        self.assertEqual({row[0] for row in seen}, {"Encoding video"})
+
     def test_worker_routes_gpu_and_preserves_ffmpeg(self):
         renderer = MagicMock()
         worker = RenderWorker(renderer, QImage(), [], self.output, RenderSettings())
