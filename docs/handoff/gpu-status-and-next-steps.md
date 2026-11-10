@@ -1,5 +1,7 @@
 # GPU 작업 현황과 다음 실행 순서
 
+> 후속 구현(2026-11-10): 별도 `codex/gpu-export-completion` 브랜치에서 t28 원본 보존·t27/t29 결합과 [v2 affine 계약](../architecture/native-affine-v2.md)을 구현했습니다. main은 기존 상태로 유지합니다. 아래 t35 상태와 실행 수치는 당시 기록이며 새 검증과 합산하지 않습니다.
+
 2026-11-10, Wren t35. 기준은 `main b330419`이며 이 작업의 branch는
 `agentcraft/wren/t35-main-gpu`이다. 다음 에이전트가 완료 범위를 오해하지 않고
 작업을 재개하도록 작성한 기술 인수인계 자료다. 릴리즈 노트가 아니다.

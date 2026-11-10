@@ -29,6 +29,10 @@ def _require_developer_runtime():
     if not getattr(sys, "frozen", False):
         from scripts.rust_prerequisites import require_developer_environment
         require_developer_environment()
+    from PySide6.QtGui import QFontDatabase
+    if not QFontDatabase.families():
+        raise RenderError("Qt has no fonts available. On Windows use QT_QPA_PLATFORM=windows, "
+                          "or remove the offscreen override before exporting; missing glyphs cannot be exported safely.")
 
 
 def resolve_native_executable(explicit=None):

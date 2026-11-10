@@ -34,7 +34,7 @@ _SAFE_STEM = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,80}$")
 
 @dataclass(frozen=True, slots=True)
 class NativeCanvasBgraLayer:
-    """An ordered, full-frame BGRA layer with straight per-pixel alpha."""
+    """An ordered BGRA source plane with straight alpha and optional v2 geometry."""
 
     stream_key: str
     width: int

@@ -140,6 +140,12 @@ def main(argv: list[str] | None = None) -> int:
             smoke_seconds=args.smoke_seconds, report_path=args.report,
         )
     except Exception as exc:
+        if args.report is not None and not args.report.exists():
+            try:
+                with args.report.open("x", encoding="utf-8") as writer:
+                    json.dump(dict(status="failed", reason=str(exc)), writer, ensure_ascii=False, indent=2)
+            except OSError:
+                pass  # stderr remains the fallback if diagnostics cannot be created.
         print(json.dumps({
             "status": "native_full_export_failed",
             "reason": str(exc),

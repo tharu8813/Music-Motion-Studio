@@ -1,5 +1,7 @@
 # t28 cache 보존 및 t33 재개 근거
 
+> 후속 보존 확인(2026-11-10): 원래 t28 branch에서 `b4f052c61d8bfe07f33da90e0cc19f86fcec7456`로 구현·테스트·문서 9개를 보존했습니다. `.gitignore`의 `.venv314/` 추가는 제외하여 원본에 남겼습니다. 기존 work/t28-resident-production-01·02는 삭제하지 않고 별도 GPU worktree의 work/gpu-completion-01/prior-t28에 복사했습니다. 아래 blocker는 t34 당시 기록입니다. 현재 통합·v2 구현은 별도 codex 브랜치이며 main에는 아직 없습니다.
+
 작성 기준: 2026-11-10, t34. 이 문서는 다음 에이전트의 인수인계 자료이며 구현 완료 보고가 아니다. **t28 미커밋 cache 구현의 보존 commit은 아직 없다. 원래 kit-t28 작업으로 재배정하여 보존해야 한다.** 사용자 산출물과 untracked 파일을 삭제하지 않는다.
 
 ## 현재 확인한 위치와 Git 상태

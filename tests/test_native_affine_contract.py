@@ -91,7 +91,20 @@ class AffineContractTests(unittest.TestCase):
                         a=np.argwhere(actual[:,:,0]>actual[:,:,0].max()*.2)[:,axis]
                         b=np.argwhere(expected[:,:,0]>expected[:,:,0].max()*.2)[:,axis]
                         self.assertAlmostEqual(float(a.mean()),float(b.mean()),delta=1.5,msg=case)
-                    metrics.append({"case":case,"mean_premultiplied_bgr_error":error})
+                    # Compare the actual alpha compositor + NV12 surface too,
+                    # independent of lossy H.264 encoding and decoder colour policy.
+                    cpu_layer=NativeCanvasBgraLayer("layer:0",256,192,reference.pixels)
+                    cpu_manifest=save_native_canvas_frame(NativeCanvasFrame(256,192,(self.base(),cpu_layer)),root,
+                        stem=(case+"-cpu").replace('.','_'))
+                    nv12=[]
+                    for label,path in (("gpu",manifest),("cpu",cpu_manifest)):
+                        raw=root/(case+label+".nv12")
+                        run=subprocess.run([PROBE,str(path),"1",str(raw),"--nv12"],capture_output=True,text=True,timeout=30)
+                        self.assertEqual(run.returncode,0,run.stderr)
+                        nv12.append(np.frombuffer(raw.read_bytes(),np.uint8).astype(float))
+                    nv12_error=float(np.abs(nv12[0]-nv12[1]).mean())
+                    self.assertLess(nv12_error,1.5,case)
+                    metrics.append({"case":case,"mean_premultiplied_bgr_error":error,"mean_nv12_error":nv12_error})
             # Exact pixel-centre translation and a half-open clip oracle.
             image=QImage(9,7,QImage.Format.Format_RGBA8888); image.fill(QColor(255,0,0,128))
             layer=NativeCanvasBgraLayer("layer:0",9,7,bytes([0,0,255,128])*63,1,(1,0,0,1,-20,-30),(21,31,27,35))
@@ -133,3 +146,22 @@ class AffineContractTests(unittest.TestCase):
                 a=gpu[:,:,:3]*gpu[:,:,3:4]/255;b=cpu[:,:,:3]*cpu[:,:,3:4]/255
                 mask=(a.max(axis=2)>1)|(b.max(axis=2)>1)
                 self.assertLess(float(np.abs(a-b)[mask].mean()),6.)
+
+    def test_frozen_cli_route_does_not_start_editor_or_migrate_settings(self):
+        from unittest.mock import patch
+        import main
+        with patch("sys.argv",["studio.exe","--native-gpu-export","--project","clip.pvsproj"]), \
+             patch("tools.native_gpu_full_export.main",return_value=7) as export, \
+             patch("main.configure_logging") as configure:
+            self.assertEqual(main.main(),7)
+            export.assert_called_once_with(["--project","clip.pvsproj"])
+            configure.assert_not_called()
+
+    def test_real_export_rejects_empty_font_database_before_audio_or_encoding(self):
+        from unittest.mock import patch
+        from app.renderer.native_project_export import _require_developer_runtime
+        from app.renderer.ffmpeg_renderer import RenderError
+        with patch("scripts.rust_prerequisites.require_developer_environment"), \
+             patch("PySide6.QtGui.QFontDatabase.families",return_value=[]):
+            with self.assertRaisesRegex(RenderError,"Qt has no fonts"):
+                _require_developer_runtime()
