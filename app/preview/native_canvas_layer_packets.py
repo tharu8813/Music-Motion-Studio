@@ -223,6 +223,7 @@ def capture_native_canvas_track_frame(
     keyframe_active: bool = True,
     bass_level: float = 0.0,
     music_levels: dict[str, float] | None = None,
+    raster_cache: object | None = None,
 ) -> NativeCanvasFrame:
     """Capture a REAL track/lyrics state through the established export painter.
 
@@ -257,6 +258,11 @@ def capture_native_canvas_track_frame(
 
     layers: list[NativeCanvasBgraLayer] = []
     for index, (z_min, z_max) in enumerate(z_bands):
+        key = "base" if index == 0 else f"layer:{index - 1}"
+        cached = raster_cache.get(key) if raster_cache is not None else None
+        if cached is not None:
+            layers.append(cached)
+            continue
         image = CanvasSnapshot.capture_track(
             scene, track, track_number, track_total, track_start_seconds,
             elapsed_seconds=elapsed_seconds,
@@ -280,6 +286,8 @@ def capture_native_canvas_track_frame(
             width=image.width(), height=image.height(),
             pixels=straight_bgra_bytes(image),
         ))
+        if raster_cache is not None:
+            raster_cache.record(layers[-1])
     return NativeCanvasFrame(
         width=layers[0].width, height=layers[0].height,
         layers=tuple(layers),

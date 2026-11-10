@@ -28,6 +28,7 @@ from app.renderer.native_project_support import (
     TimelineValidationError, resolve_project_frame, validate_project_for_gpu_capture,
 )
 from app.timeline.compiler import compile_playlist
+from app.renderer.native_layer_cache import NativeRasterCache, split_resident_bands
 
 def _check_cancel(cancel):
     if cancel.is_set():
@@ -37,6 +38,7 @@ def produce_complete_project_frames(
     project: ProjectDocument, *, fps: int, scale: float,
     prepared_audio: Path, ffmpeg: str, cancel_event: Event | None = None,
     analysis: PreparedProjectFrameAudio | None = None,
+    raster_counters: dict | None = None,
 ) -> Iterator[NativeCanvasFrame]:
     """Yield *every* playlist CFR frame lazily in true source Z order.
 
@@ -66,11 +68,14 @@ def produce_complete_project_frames(
     ]
     reactive = [s for s in included if s.uses_bass_reaction]
     scene = CanvasScene()
+    raster_cache = None
     try:
         scene.set_artboard_size(project.canvas.width, project.canvas.height)
         scene.show_grid = False
         for source in sorted(included, key=lambda item: item.z_index):
             scene.addItem(SourceItem(source))
+        stack = split_resident_bands(scene, stack, plan.duration_seconds)
+        raster_cache = NativeRasterCache(scene, stack.bands, plan.duration_seconds)
         before = project.to_dict()
         with ExitStack() as resources:
             overlays, dynamic_streams, _origin = resources.enter_context(
@@ -108,6 +113,7 @@ def produce_complete_project_frames(
                     compiled_plan=plan,
                     bass_level=bass,
                     music_levels=music,
+                    raster_cache=raster_cache,
                 )
                 try:
                     layers = [
@@ -119,6 +125,13 @@ def produce_complete_project_frames(
                         f"Audio-reactive overlay ended at frame {frame_index}/{total_frames}"
                     ) from exc
                 _check_cancel(cancel)
+                if raster_counters is not None:
+                    raster_counters.update(
+                        rasterizations=raster_cache.rasterizations,
+                        reuse_hits=raster_cache.hits,
+                        retained_bytes=raster_cache.retained_bytes,
+                        peak_retained_bytes=raster_cache.peak_retained_bytes,
+                    )
                 yield interleave_dynamic_layers(
                     static, stack, layers, seconds=state["timeline_seconds"],
                     output_scale=scale,
@@ -129,6 +142,10 @@ def produce_complete_project_frames(
         _check_cancel(cancel)
         raise
     finally:
+        if raster_cache is not None:
+            raster_cache.clear()
+            if raster_counters is not None:
+                raster_counters["retained_bytes"] = 0
         scene.clear()
 
 
@@ -167,6 +184,7 @@ class GuiProjectFrameSource(QObject):
         self._audio = None
         self._ffmpeg = None
         self._analysis = None
+        self.raster_counters = {}
         self._result = None
         self._error = None
         self._closed = False
@@ -235,6 +253,7 @@ class GuiProjectFrameSource(QObject):
                     prepared_audio=self._audio, ffmpeg=self._ffmpeg,
                     cancel_event=self.cancel_event,
                     analysis=self._analysis,
+                    raster_counters=self.raster_counters,
                 )
             self._result = next(self._iterator)
         except StopIteration:

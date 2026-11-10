@@ -115,6 +115,7 @@ mod windows_export {
     use music_motion_gpu_core::d3d11_nvenc_registration::NativeNvencRegistrationSession;
     use music_motion_gpu_core::qt_canvas_packet::load_qt_canvas_packet;
     use music_motion_gpu_core::canvas_stream::read_frame;
+    use music_motion_gpu_core::resident_layer_cache::ResidentLayerCache;
     use serde_json::{json, Value};
     use std::collections::VecDeque;
     use std::env;
@@ -301,6 +302,7 @@ mod windows_export {
         }
         let mut pool = NativeNv12FramePool::new(options.width, options.height, options.slots)?;
         let processor = NativeBgraNv12VideoProcessor::new_for_pool(&pool)?;
+        let mut resident = ResidentLayerCache::new(options.width, options.height);
         let mut encoder = NativeNvencRegistrationSession::new_for_pool_with_fps(
             &pool, options.fps,
         )?;
@@ -315,22 +317,21 @@ mod windows_export {
                 return Err("Canvas packet dimensions changed mid-export".into());
             }
             let pts = clock.next_submission()?;
-            let mut textures = Vec::with_capacity(current.layers.len());
-            for source in &current.layers {
-                let gpu_texture = processor.create_bgra_input_texture()?;
-                processor.upload_canvas_layer_for_validation(&gpu_texture, &source.pixels)?;
-                textures.push(gpu_texture);
-            }
-            let layers: Vec<_> = textures.iter().zip(current.layers.iter())
-                .map(|(texture, source)| NativeCanvasBgraLayer {
-                    texture, opacity: source.opacity,
-                }).collect();
+            resident.update(&current,
+                || processor.create_bgra_input_texture(),
+                |texture, pixels| processor.upload_canvas_layer_for_validation(texture, pixels),
+            )?;
+            let layers = current.layers.iter().map(|source| {
+                Ok(NativeCanvasBgraLayer {
+                    texture: resident.resource(&source.stream_key)?, opacity: source.opacity,
+                })
+            }).collect::<Result<Vec<_>, String>>()?;
             let slot = pool.queue_gpu_canvas_layers(&processor, &layers, pts)?;
             pending.push_back((slot, pts));
             // Keep an actual maximum of ONE decoded CPU packet in memory.
-            // Transient input textures may stay on D3D11 until work completes.
+            // Resident input textures are reused on the same immediate context;
+            // prior composition commands precede the next dirty upload.
             drop(layers);
-            drop(textures);
             drop(current);
             // Bounded producer/consumer handshake: the caller may release
             // THIS frame's bytes (or legacy files) only after
@@ -357,6 +358,7 @@ mod windows_export {
             consume(&mut pool, &mut encoder, &mut pending, &mut writer, &mut clock)?;
         }
         clock.finish()?;
+        resident.clear();
         if pool.completed_count() != options.frames
             || encoder.successful_map_count() != options.frames as usize
         {
@@ -390,6 +392,15 @@ mod windows_export {
             "input": if options.binary { "binary-v1" } else { "newline_separated_manifest_paths_stdin" },
             "frame_receive_seconds": transfer_seconds,
             "bgra_disk_bytes": if options.binary { Some(0u64) } else { None },
+            "resident_layer_cache": {
+                "allocations": resident.counters.allocations,
+                "uploads": resident.counters.uploads,
+                "upload_bytes": resident.counters.upload_bytes,
+                "reuse_hits": resident.counters.reuse_hits,
+                "releases": resident.counters.releases,
+                "peak_resident_bytes": resident.counters.peak_resident_bytes,
+                "pixel_identity": "sha256_cpu",
+            },
         });
         // A failed report means no completed deliverable. If the runner
         // closes/crashes mid-export, no report is emitted at all.

@@ -25,6 +25,7 @@ pub mod d3d11_nvenc_registration;
 
 pub mod qt_canvas_packet;
 pub mod canvas_stream;
+pub mod resident_layer_cache;
 
 mod session;
 pub use session::{rgba_to_nv12_reference, GpuFrameSession, PixelRect};
