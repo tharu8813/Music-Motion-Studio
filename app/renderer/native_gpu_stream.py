@@ -23,7 +23,7 @@ from threading import Event, Thread, Lock
 from time import monotonic
 
 from app.preview.native_canvas_layer_packets import NativeCanvasFrame
-from app.renderer.native_frame_transport import write_frame
+from app.renderer.native_frame_transport import FrameReuseState, write_frame
 from app.renderer.ffmpeg_renderer import (
     ExportMetadata, FFmpegRenderer, RenderCancelledError, RenderError,
     RenderResult, RenderSettings,
@@ -107,12 +107,17 @@ def stream_native_canvas_h264(
         raise RenderError("Native export refuses to replace existing output or report.")
     with tempfile.TemporaryDirectory(prefix="mms-native-stream-"):
         stream_started = monotonic()
+        reuse_enabled = os.environ.get(
+            "PLAYLIST_CANVAS_NATIVE_LAYER_REUSE", "",
+        ).strip().lower() in {"1", "true", "yes"}
+        reuse_state = FrameReuseState() if reuse_enabled else None
         args = [
             str(exe), "--width", str(width), "--height", str(height),
             "--fps", str(fps), "--expected-frames", str(expected_frames),
             "--duration-seconds", format(duration_seconds, ".17g"),
             "--slots", str(slots), "--video-output", str(video),
-            "--output", str(report), "--input-format", "binary-v1",
+            "--output", str(report), "--input-format",
+            "binary-v2" if reuse_enabled else "binary-v1",
         ]
         try:
             worker = subprocess.Popen(
@@ -247,7 +252,9 @@ def stream_native_canvas_h264(
                     ) -> None:
                         try:
                             assert worker.stdin is not None
-                            written_bytes = write_frame(worker.stdin, frame, index)
+                            written_bytes = write_frame(
+                                worker.stdin, frame, index, reuse_state=reuse_state,
+                            )
                             wrote_at = monotonic()
                             _frame_acknowledgement(
                                 events, worker, index, cancel,
@@ -271,7 +278,9 @@ def stream_native_canvas_h264(
                 sent: Queue = Queue(maxsize=1)
                 def send_frame(frame=frame, index=index):
                     try:
-                        sent.put(write_frame(worker.stdin, frame, index))
+                        sent.put(write_frame(
+                            worker.stdin, frame, index, reuse_state=reuse_state,
+                        ))
                     except Exception as exc:
                         sent.put(exc)
                 started = monotonic()
@@ -349,7 +358,11 @@ def stream_native_canvas_h264(
             # run concurrently; their sums can exceed total elapsed time.
             stream_elapsed = monotonic() - stream_started
             result.update(
-                frame_transport="binary-v1", frame_transport_bytes=transport_bytes,
+                frame_transport="binary-v2" if reuse_enabled else "binary-v1",
+                frame_reuse_enabled=reuse_enabled,
+                frame_reused_planes=reuse_state.reused_planes if reuse_state is not None else 0,
+                frame_reused_bytes=reuse_state.saved_bytes if reuse_state is not None else 0,
+                frame_transport_bytes=transport_bytes,
                 frame_transport_seconds=transport_seconds, bgra_disk_bytes=0,
                 frame_production_seconds=frame_production_seconds,
                 frame_production_max_seconds=frame_production_max_seconds,
