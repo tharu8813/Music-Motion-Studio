@@ -211,6 +211,13 @@ class NativeGpuFrameEtaEstimator:
             return 0.0
         if accepted <= self._accepted and self._samples:
             return self.remaining(now)
+        # A paused or GPU-stalled export can resume at a very different rate.
+        # Drop the stale finish prediction and collect a fresh window rather
+        # than momentarily showing an expired 00:00 ETA.
+        if self._samples and now - self._last_progress_at > 20.0:
+            self._samples.clear()
+            self._predicted_finish_at = None
+            self.measured_fps = None
         self._total = total
         self._accepted = accepted
         self._last_progress_at = now
@@ -240,7 +247,10 @@ class NativeGpuFrameEtaEstimator:
             return None
         if self._accepted < self._total and now - self._last_progress_at > 20.0:
             return None
-        return max(0.0, self._predicted_finish_at - now)
+        remaining = self._predicted_finish_at - now
+        if remaining <= 0.0 and self._accepted < self._total:
+            return None
+        return max(0.0, remaining)
 
 
 class ExportDetailsList(QListWidget):
