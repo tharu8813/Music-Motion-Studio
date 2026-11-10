@@ -139,6 +139,22 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.engine_combo.addItem("FFmpeg (CPU / NVENC / QSV / AMF)", "ffmpeg")
         self.engine_combo.addItem("Rust GPU · D3D11 + NVENC (Beta)", "native_gpu")
         render_form.addRow("렌더 엔진 / Render engine", self.engine_combo)
+        self.gpu_speed_label = QLabel()
+        self.gpu_speed_combo = QComboBox()
+        self.gpu_speed_combo.addItem("표준 / Standard (기본)", "standard")
+        self.gpu_speed_combo.addItem("고속 (실험) / Accelerated (Beta)", "accelerated")
+        self.gpu_speed_combo.setToolTip(
+            "고속 모드는 GPU 파이프라인, 부분 Canvas 렌더링, 작은 레이어 전송, "
+            "변경 없는 레이어 재사용을 활성화합니다. / "
+            "Experimental fast mode enables optimized rendering and transfer."
+        )
+        render_form.addRow(self.gpu_speed_label, self.gpu_speed_combo)
+        self.gpu_speed_hint = QLabel(
+            "고속 GPU 모드는 실험 기능입니다. 문제가 생기면 표준으로 다시 내보내세요. / "
+            "Accelerated GPU export is experimental; use Standard to roll back."
+        )
+        self.gpu_speed_hint.setWordWrap(True)
+        render_form.addRow(self.gpu_speed_hint)
         engine_hint = QLabel(
             "Rust GPU: Windows + NVIDIA NVENC, MP4/H.264. GPU 합성은 인코더 선택과 별개입니다.\n"
             "Canvas painting uses Qt; audio/mux requires FFmpeg. Unsupported projects use FFmpeg.\n"
@@ -237,6 +253,7 @@ class ExportSettingsDialog(AdaptiveDialog):
             self._update_workload_hint
         )
         self.fps_combo.currentIndexChanged.connect(self._update_workload_hint)
+        self.engine_combo.currentIndexChanged.connect(self._update_gpu_speed_visibility)
         self.filename_edit.textChanged.connect(self._update_output_filename)
         self.output_path_edit.textChanged.connect(self._update_output_filename)
         self.format_combo.currentIndexChanged.connect(self._format_changed)
@@ -247,6 +264,7 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.setTabOrder(self.output_path_edit, self.output_browse_button)
         self.setTabOrder(self.output_browse_button, self.resolution_combo)
         self.setTabOrder(self.resolution_combo, self.fps_combo)
+        self.setTabOrder(self.engine_combo, self.gpu_speed_combo)
         self.setTabOrder(self.fps_combo, self.quality_mode_combo)
         self.setTabOrder(self.quality_mode_combo, self.optimize_button)
         self.setTabOrder(self.optimize_button, self.advanced_check)
@@ -261,8 +279,16 @@ class ExportSettingsDialog(AdaptiveDialog):
         )
         self.retranslate()
         self._export_type_changed()
+        self._update_gpu_speed_visibility()
         preferred_width = min(960, max(820, self.sizeHint().width()))
         self.resize(preferred_width, self.body_scroll.widget().sizeHint().height() + 90)
+
+    def _update_gpu_speed_visibility(self, _index: int = -1) -> None:
+        gpu = (self.engine_combo.currentData() == "native_gpu"
+               and not self.audio_only and not self.subtitle_only)
+        self.gpu_speed_label.setVisible(gpu)
+        self.gpu_speed_combo.setVisible(gpu)
+        self.gpu_speed_hint.setVisible(gpu)
 
     def _advanced_visibility_changed(self, visible: bool) -> None:
         self.advanced_group.setVisible(visible and not self.subtitle_only)
@@ -546,6 +572,7 @@ class ExportSettingsDialog(AdaptiveDialog):
         advanced_layout.setColumnStretch(3, 0 if self.audio_only else 1)
         self.retranslate()
         self._format_changed()
+        self._update_gpu_speed_visibility()
         if self.isVisible():
             self.layout().activate()
             self.fit_to_screen()
@@ -643,6 +670,13 @@ class ExportSettingsDialog(AdaptiveDialog):
             ("고급 인코딩 설정" if korean else "Advanced encoding settings")
         )
         self.quality_mode_label.setText("용도" if korean else "Purpose")
+        self.gpu_speed_label.setText("GPU 최적화" if korean else "GPU optimizations")
+        self.gpu_speed_combo.setItemText(
+            0, "표준 (안정성 우선)" if korean else "Standard (compatibility)",
+        )
+        self.gpu_speed_combo.setItemText(
+            1, "고속 (실험)" if korean else "Accelerated (experimental)",
+        )
         self.output_browse_button.setText("찾아보기" if korean else "Browse")
         self.resolution_label.setText("해상도" if korean else "Resolution")
         self.fps_label.setText("프레임 레이트" if korean else "Frame rate")
@@ -722,6 +756,7 @@ class ExportSettingsDialog(AdaptiveDialog):
             (self.output_directory_label, self.output_path_edit),
             (self.resolution_label, self.resolution_combo), (self.fps_label, self.fps_combo),
             (self.quality_mode_label, self.quality_mode_combo),
+            (self.gpu_speed_label, self.gpu_speed_combo),
             (self.codec_label, self.codec_combo), (self.crf_label, self.crf_spin),
             (self.preset_label, self.preset_combo), (self.audio_label, self.audio_bitrate_combo),
         ):
