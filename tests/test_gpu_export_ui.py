@@ -100,6 +100,19 @@ class GpuUiTests(unittest.TestCase):
             auto.reuse_layers, auto.parallel_bgra, auto.adaptive_bgra,
         )))
 
+    def test_automatic_gpu_export_summary_uses_only_selected_language(self):
+        self.window.translator.is_korean = True
+        self.start()
+        label = self.window._export_dialog.set_export_details.call_args.args[2]
+        self.assertIn("자동 최적화", label)
+        self.assertNotIn("Auto optimized", label)
+
+        self.window.translator.is_korean = False
+        self.start()
+        label = self.window._export_dialog.set_export_details.call_args.args[2]
+        self.assertIn("Auto optimized", label)
+        self.assertNotIn("자동 최적화", label)
+
     def test_old_speed_choice_and_global_cli_flags_cannot_change_gui_gpu_mode(self):
         # Historical settings or a third-party caller may still have an old
         # speed control. It must be ignored; engine alone chooses the policy.
