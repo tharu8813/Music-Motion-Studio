@@ -45,7 +45,7 @@ pub fn read_frame(reader: &mut impl Read, index: u64) -> Result<Option<CanvasPac
 /// Only the immediately preceding frame is retained by the caller. This
 /// prevents cross-project cache poisoning and unbounded worker memory.
 pub fn read_frame_reuse(
-    reader: &mut impl Read, index: u64, previous: Option<&CanvasPacketFrame>,
+    reader: &mut impl Read, index: u64, previous: Option<&mut CanvasPacketFrame>,
 ) -> Result<Option<CanvasPacketFrame>, String> {
     let mut header = [0u8; 28];
     loop {
@@ -80,12 +80,13 @@ pub fn read_frame_reuse(
         return Err("Binary-v2 reuse flags must contain one bool per layer".into());
     }
     let mut remaining = payload;
+    let mut previous = previous;
     let mut layer_index = 0usize;
     let frame = parse_qt_canvas_packet_value(&root, |_, size| {
         let i = layer_index;
         layer_index += 1;
         if flags[i].as_bool() == Some(true) {
-            let old = previous.and_then(|p| p.layers.get(i))
+            let old = previous.as_deref_mut().and_then(|p| p.layers.get_mut(i))
                 .ok_or("Binary-v2 reused a plane without a previous matching frame")?;
             // Same key/order, dimensions and pixels. Opacity and transform may
             // change independently, and must come from the new manifest.
@@ -97,7 +98,11 @@ pub fn read_frame_reuse(
                 || old.pixels.len() != size {
                 return Err("Binary-v2 previous layer key or geometry mismatch".into());
             }
-            Ok(old.pixels.clone())
+            // The preceding frame has already been fully submitted to the
+            // GPU before the worker reads this frame. Ownership transfer
+            // avoids allocating and copying a second BGRA plane (up to
+            // 31.6 MiB at 4K); the shared parser still checks its SHA-256.
+            Ok(std::mem::take(&mut old.pixels))
         } else {
             if size as u64 > remaining {
                 return Err("Binary-v2 frame payload shorter than declared planes".into());
@@ -161,16 +166,17 @@ mod tests {
         let first_pixels = [14, 22, 30, 255].repeat(4);
         let new_pixels = [18, 22, 30, 255].repeat(4);
         let first_wire = packet_v2(0, false, &first_pixels, &first_pixels);
-        let first = read_frame_reuse(&mut &first_wire[..], 0, None).unwrap().unwrap();
+        let mut first = read_frame_reuse(&mut &first_wire[..], 0, None).unwrap().unwrap();
         assert_eq!(first.layers[0].pixels, first_pixels);
 
         let repeated = packet_v2(1, true, &[], &first_pixels);
-        let second = read_frame_reuse(&mut &repeated[..], 1, Some(&first))
+        let mut second = read_frame_reuse(&mut &repeated[..], 1, Some(&mut first))
             .unwrap().unwrap();
         assert_eq!(second.layers[0].pixels, first_pixels);
+        assert!(first.layers[0].pixels.is_empty(), "reused BGRA must be moved, not cloned");
         assert_eq!(repeated.len(), 28 + u32::from_le_bytes(repeated[16..20].try_into().unwrap()) as usize);
         let dirty = packet_v2(2, false, &new_pixels, &new_pixels);
-        let third = read_frame_reuse(&mut &dirty[..], 2, Some(&second)).unwrap().unwrap();
+        let third = read_frame_reuse(&mut &dirty[..], 2, Some(&mut second)).unwrap().unwrap();
         assert_eq!(third.layers[0].pixels, new_pixels);
 
         // v1 never accepts v2, v2 never accepts v1: fail closed on
@@ -184,18 +190,18 @@ mod tests {
         let pixels = [1, 2, 3, 255].repeat(4);
         let ref_wire = packet_v2(1, true, &[], &pixels);
         assert!(read_frame_reuse(&mut &ref_wire[..], 1, None).is_err());
-        let first = read_frame_reuse(
+        let mut first = read_frame_reuse(
             &mut &packet_v2(0, false, &pixels, &pixels)[..], 0, None,
         ).unwrap().unwrap();
         let different = [2, 2, 3, 255].repeat(4);
         let forged = packet_v2(1, true, &[], &different);
-        assert!(read_frame_reuse(&mut &forged[..], 1, Some(&first)).is_err());
+        assert!(read_frame_reuse(&mut &forged[..], 1, Some(&mut first)).is_err());
         for bad in [
             packet_v2(1, false, &pixels[..8], &pixels),
             { let mut v=packet_v2(1,true,&[],&pixels);v[20..28].copy_from_slice(&1u64.to_le_bytes());v },
             { let mut v=packet_v2(1,true,&[],&pixels);v[4..8].copy_from_slice(&1u32.to_le_bytes());v },
         ] {
-            assert!(read_frame_reuse(&mut &bad[..], 1, Some(&first)).is_err());
+            assert!(read_frame_reuse(&mut &bad[..], 1, Some(&mut first)).is_err());
         }
     }
 
