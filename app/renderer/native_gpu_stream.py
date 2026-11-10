@@ -116,12 +116,17 @@ def stream_native_canvas_h264(
             ).strip().lower() in {"1", "true", "yes"}
         )
         reuse_state = FrameReuseState() if reuse_enabled else None
+        row_delta_enabled = bool(
+            reuse_enabled and optimizations is not None
+            and optimizations.row_delta_transport
+        )
         args = [
             str(exe), "--width", str(width), "--height", str(height),
             "--fps", str(fps), "--expected-frames", str(expected_frames),
             "--duration-seconds", format(duration_seconds, ".17g"),
             "--slots", str(slots), "--video-output", str(video),
             "--output", str(report), "--input-format",
+            "binary-v3" if row_delta_enabled else
             "binary-v2" if reuse_enabled else "binary-v1",
         ]
         try:
@@ -272,6 +277,8 @@ def stream_native_canvas_h264(
                             )
                             written_bytes = write_frame(
                                 worker.stdin, resolved, index, reuse_state=reuse_state,
+                            row_deltas=row_delta_enabled,
+                                row_deltas=row_delta_enabled,
                             )
                             wrote_at = monotonic()
                             _frame_acknowledgement(
@@ -380,7 +387,12 @@ def stream_native_canvas_h264(
             # run concurrently; their sums can exceed total elapsed time.
             stream_elapsed = monotonic() - stream_started
             result.update(
-                frame_transport="binary-v2" if reuse_enabled else "binary-v1",
+                frame_transport=("binary-v3" if row_delta_enabled
+                                 else "binary-v2" if reuse_enabled else "binary-v1"),
+                frame_row_delta_enabled=row_delta_enabled,
+                frame_row_delta_planes=(reuse_state.row_delta_planes if reuse_state else 0),
+                frame_row_delta_bytes_saved=(reuse_state.row_delta_bytes_saved if reuse_state else 0),
+                frame_row_delta_compare_seconds=(reuse_state.row_delta_compare_seconds if reuse_state else 0.0),
                 frame_reuse_enabled=reuse_enabled,
                 native_optimization_profile=(
                     "automatic" if optimizations is not None and optimizations.adaptive_bgra
