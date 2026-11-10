@@ -1724,6 +1724,8 @@ class MainWindowExportTests(MainWindowTestCase):
                 dialog.update_progress("Encoding video", .265, "Rust GPU: 220/1000 frames")
             self.assertIn("영상 처리 약", dialog.time_label.text())
             self.assertIn("마무리 별도", dialog.time_label.text())
+            self.assertIn("프레임 진행 22.0%", dialog.detail_label.text())
+            self.assertIn("10.0 FPS", dialog.detail_label.text())
             with patch("app.dialogs.export_progress_dialog.monotonic", return_value=40.0):
                 dialog.update_progress("Finalizing export", .86, "Muxing audio")
             self.assertIn("남은 시간 계산 중", dialog.time_label.text())
