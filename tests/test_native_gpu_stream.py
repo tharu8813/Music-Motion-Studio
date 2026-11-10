@@ -359,7 +359,8 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
         )
         self.assertEqual(produced, list(range(6)))
         self.assertEqual(result["frames_encoded"], 6)
-        self.assertEqual(result["frame_transport"], "binary-v2")
+        self.assertEqual(result["frame_transport"],
+                         "binary-v3" if supports_lz4_transport() else "binary-v2")
         self.assertEqual(result["native_optimization_profile"], "cpu_parallel")
         self.assertEqual(result["cpu_parallel_bgra_frames"], 6)
         self.assertEqual(result["frame_reused_planes"], 5)
