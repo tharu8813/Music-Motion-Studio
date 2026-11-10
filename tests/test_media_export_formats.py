@@ -71,6 +71,26 @@ class ExportDestinationTests(unittest.TestCase):
         self.assertFalse(self.dialog.render_group.isHidden())
         self.assertTrue(self.dialog.audio_bitrate_combo.isEnabled())
 
+    def test_gpu_optimization_choice_only_appears_for_native_video(self):
+        self.assertEqual(self.dialog.gpu_speed_combo.currentData(), "standard")
+        self.assertTrue(self.dialog.gpu_speed_combo.isHidden())
+        self.dialog.engine_combo.setCurrentIndex(
+            self.dialog.engine_combo.findData("native_gpu"),
+        )
+        self.assertFalse(self.dialog.gpu_speed_combo.isHidden())
+        self.dialog.gpu_speed_combo.setCurrentIndex(
+            self.dialog.gpu_speed_combo.findData("accelerated"),
+        )
+        self.assertEqual(self.dialog.gpu_speed_combo.currentData(), "accelerated")
+        self.dialog.export_type_combo.setCurrentIndex(1)
+        self.assertTrue(self.dialog.gpu_speed_combo.isHidden())
+        self.dialog.export_type_combo.setCurrentIndex(0)
+        self.assertFalse(self.dialog.gpu_speed_combo.isHidden())
+        self.dialog.engine_combo.setCurrentIndex(
+            self.dialog.engine_combo.findData("ffmpeg"),
+        )
+        self.assertTrue(self.dialog.gpu_speed_combo.isHidden())
+
     def test_invalid_names_do_not_start_export(self):
         for name in ("", "../escape", "a/b", "CON", "LPT1.mp3", "a:b", "bad."):
             self.dialog.filename_edit.setText(name)
