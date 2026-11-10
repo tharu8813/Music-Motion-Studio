@@ -24,6 +24,24 @@
 `PLAYLIST_CANVAS_NATIVE_*` 환경변수 설명은 **개발·회귀 테스트 및 과거
 실험 기록**이다. 일반 앱의 GPU 최적화 선택 UI에서는 제공하지 않는다.
 
+### 배포 전 실측 검증 (개발 CLI 전용)
+
+`tools.native_gpu_full_export`는 `--gpu-profile automatic` 또는
+`--gpu-profile accelerated`를 명시할 수 있다. 이 인수는 **앱의
+최적화 UI가 아니라 개발자 A/B 검증 인수**다. 동일 프로젝트의 동일한
+30초 첫 곡, 해상도, FPS를 사용하고 **서로 다른 MP4/JSON 경로**에 저장한다.
+
+```powershell
+python -m tools.native_gpu_full_export --project .\sample.pvsproj --output .\auto.mp4 --report .\auto.json --fps 60 --scale 1.0 --smoke-seconds 30 --gpu-profile automatic
+python -m tools.native_gpu_full_export --project .\sample.pvsproj --output .\legacy.mp4 --report .\legacy.json --fps 60 --scale 1.0 --smoke-seconds 30 --gpu-profile accelerated
+```
+
+`native_stream_wall_fps`, `frame_transport_bytes`, `raster_cache.qt_canvas_capture_seconds`,
+`raster_cache.qt_canvas_inline_bgra_seconds`, `parallel_bgra_inline_small/busy`,
+최종 프레임·오디오·가사 타이밍을 비교한다. 출력 배율은 실제 프로젝트 크기에
+맞추고 동일 해상도 유지가 필수다. `automatic` 모드가 느리거나 영상
+차이가 발견되면 해당 결과를 기준으로 내부 정책을 다시 조정한다.
+
 
 앱의 `native_project_export → render_native_gpu_playlist → stream_native_canvas_h264`
 경로는 현재 `automatic` 모드에서 `--input-format binary-v2`를 사용하며,
