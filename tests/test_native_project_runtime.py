@@ -13,12 +13,14 @@ from unittest.mock import MagicMock, patch
 from PySide6.QtCore import QThread
 from PySide6.QtWidgets import QApplication
 from app.models.source import Source, SourceType
-from app.preview.native_canvas_layer_packets import NativeCanvasFrame
+from app.preview.native_canvas_layer_packets import NativeCanvasFrame, NativeCanvasBgraLayer
 from app.renderer.ffmpeg_renderer import RenderCancelledError, RenderError, RenderResult
 from app.renderer.native_project_frames import GuiProjectFrameSource, produce_complete_project_frames
 from app.renderer.native_project_export import export_project_document, resolve_native_executable, NATIVE_EXECUTABLE
 from app.renderer.native_project_support import validate_project_for_gpu_capture
+from app.renderer.native_project_support import resolve_project_frame
 from app.renderer.native_dynamic_layers import build_dynamic_stack
+from app.timeline.compiler import compile_playlist
 from tests.test_native_canvas_project_probe import project_fixture
 
 
@@ -46,7 +48,9 @@ class RuntimeContracts(unittest.TestCase):
         before = project.to_dict()
         calls = []
         scene = MagicMock()
-        packet = NativeCanvasFrame(320, 180, ())
+        packet = NativeCanvasFrame(320, 180, (
+            NativeCanvasBgraLayer("canvas", 320, 180, b"\0\0\0\xff" * (320 * 180)),
+        ))
 
         @contextmanager
         def overlays(*args, **kwargs):
@@ -69,6 +73,20 @@ class RuntimeContracts(unittest.TestCase):
         self.assertEqual(calls[30], ("Second", 0, .5))
         self.assertEqual(project.to_dict(), before)
         scene.clear.assert_called_once()
+
+    def test_long_playlist_fractional_boundary_and_last_pts_use_compiled_clock(self):
+        project = project_fixture()
+        project.playlist[0].duration_seconds = 3600.125
+        project.playlist[1].duration_seconds = 7199.875
+        plan = compile_playlist(project.playlist, enabled_only=True)
+        # 3-hour timeline, fractional-frame song boundary, then final CFR PTS.
+        for n, index, origin in ((216007, 0, 0), (216008, 1, 3600.125),
+                                 (647999, 1, 3600.125)):
+            with self.subTest(frame=n):
+                state = resolve_project_frame(project, n / 60, plan=plan)
+                self.assertIs(state["track"], project.playlist[index])
+                self.assertAlmostEqual(state["track_elapsed_seconds"], n / 60 - origin)
+                self.assertEqual(state["timeline_seconds"], n / 60)
 
     def test_dynamic_stream_closed_on_cancel_and_early_iterator_close(self):
         for cancel_instead in (False, True):

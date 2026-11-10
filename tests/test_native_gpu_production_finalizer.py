@@ -82,8 +82,8 @@ def fake_ffprobe(fps: int = 30, frames: int = 30):
 def fake_mp4_probe():
     return SimpleNamespace(returncode=0, stdout=json.dumps({"streams": [
         {"codec_type": "video", "codec_name": "h264", "width": 64, "height": 64,
-         "nb_frames": "30", "avg_frame_rate": "30/1", "duration": "1.0"},
-        {"codec_type": "audio", "codec_name": "aac", "duration": "1.0"},
+         "nb_frames": "30", "avg_frame_rate": "30/1", "start_time": "0.0", "duration": "1.0"},
+        {"codec_type": "audio", "codec_name": "aac", "start_time": "0.0", "duration": "1.0"},
     ]}).encode(), stderr=b"")
 
 
@@ -220,6 +220,39 @@ class NativeGpuProductionFinalizerTests(unittest.TestCase):
                 self._call(root, mux_probe=CancelledError())
             self.assertEqual(target.read_bytes(), b"KEEP-EXISTING")
             self.assertFalse(list(root.glob(".mms-native-mux-*")))
+
+    def test_shifted_or_unknown_av_starts_are_rejected_without_publication(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            for index, value in ((0, "0.1"), (1, "0.25"), (1, "-0.25"),
+                                 (0, "nan"), (1, "inf"), (1, "N/A"), (1, None)):
+                probe = fake_mp4_probe()
+                payload = json.loads(probe.stdout)
+                if value is None:
+                    del payload["streams"][index]["start_time"]
+                else:
+                    payload["streams"][index]["start_time"] = value
+                probe.stdout = json.dumps(payload).encode()
+                with self.subTest(index=index, value=value), self.assertRaises(RenderError):
+                    self._call(root, mux_probe=probe)
+                self.assertFalse((root / "final.mp4").exists())
+                self.assertFalse(list(root.glob(".mms-native-mux-*")))
+
+    def test_aac_priming_is_allowed_but_shifted_endpoint_is_rejected(self):
+        for duration, accepted in (("1.0", True), ("1.1", False)):
+            with self.subTest(duration=duration), TemporaryDirectory() as temp:
+                root = Path(temp)
+                probe = fake_mp4_probe()
+                payload = json.loads(probe.stdout)
+                payload["streams"][1].update(start_time="0.04", duration=duration)
+                probe.stdout = json.dumps(payload).encode()
+                if accepted:
+                    self._call(root, mux_probe=probe)
+                    self.assertTrue((root / "final.mp4").exists())
+                else:
+                    with self.assertRaises(RenderError):
+                        self._call(root, mux_probe=probe)
+                    self.assertFalse((root / "final.mp4").exists())
 
     def test_real_ffmpeg_produces_final_mp4_with_audio_without_video_reencode(self):
         configured = os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG")

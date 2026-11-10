@@ -1022,6 +1022,7 @@ class FunctionalRegressionTests(unittest.TestCase):
 
     def test_final_video_copies_prepared_aac_without_reencoding(self) -> None:
         renderer = object.__new__(FFmpegRenderer)
+        renderer.prevent_output_overwrite = False
         renderer.executable = Path("ffmpeg.exe")
         renderer.ensure_encoder_available = lambda _encoder: None  # type: ignore[method-assign]
         commands: list[list[str]] = []
@@ -1064,6 +1065,7 @@ class FunctionalRegressionTests(unittest.TestCase):
 
     def test_one_explicit_frame_can_cover_a_multi_track_playlist(self) -> None:
         renderer = object.__new__(FFmpegRenderer)
+        renderer.prevent_output_overwrite = False
         renderer.executable = Path("ffmpeg.exe")
         renderer.ensure_encoder_available = lambda _encoder: None  # type: ignore[method-assign]
 
@@ -1132,6 +1134,7 @@ class FunctionalRegressionTests(unittest.TestCase):
 
     def test_prepared_canvas_video_bypasses_png_concat_input(self) -> None:
         renderer = object.__new__(FFmpegRenderer)
+        renderer.prevent_output_overwrite = False
         renderer.executable = Path("ffmpeg.exe")
         renderer.ensure_encoder_available = lambda _encoder: None  # type: ignore[method-assign]
         commands: list[list[str]] = []
@@ -1163,6 +1166,7 @@ class FunctionalRegressionTests(unittest.TestCase):
 
     def test_directly_encoded_canvas_is_muxed_without_second_video_encode(self) -> None:
         renderer = object.__new__(FFmpegRenderer)
+        renderer.prevent_output_overwrite = False
         renderer.executable = Path("ffmpeg.exe")
         encoder_checks: list[str] = []
         renderer.ensure_encoder_available = encoder_checks.append  # type: ignore[method-assign]

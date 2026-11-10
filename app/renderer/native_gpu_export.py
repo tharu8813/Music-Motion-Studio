@@ -206,7 +206,7 @@ def finalize_native_gpu_mp4(
             )
             probe = run_probe([
                 str(ffprobe), "-v", "error", "-show_entries",
-                "stream=codec_type,codec_name,width,height,nb_frames,avg_frame_rate,duration",
+                "stream=codec_type,codec_name,width,height,nb_frames,avg_frame_rate,start_time,duration",
                 "-of", "json", str(staged),
             ], cancel_event=cancel_event, timeout=30)
             streams = json.loads(probe.stdout)["streams"]
@@ -216,16 +216,23 @@ def finalize_native_gpu_mp4(
             a, = [s for s in streams if s.get("codec_type") == "audio"]
             video_duration = float(v["duration"])
             audio_duration = float(a["duration"])
+            video_start = float(v["start_time"])
+            audio_start = float(a["start_time"])
             if (probe.returncode or v.get("codec_name") != "h264"
                     or v.get("width") != settings.output_width
                     or v.get("height") != settings.output_height
                     or int(v["nb_frames"]) != expected_frames
                     or Fraction(v["avg_frame_rate"]) != settings.fps
                     or not math.isfinite(video_duration)
+                    or not math.isfinite(video_start) or abs(video_start) > 1e-6
                     or abs(video_duration - expected_frames / settings.fps) > 1 / settings.fps
                     or a.get("codec_name") != "aac"
                     or not math.isfinite(audio_duration)
-                    or abs(audio_duration - duration) > max(0.12, 2 / settings.fps)):
+                    # Permit AAC priming, but never publish equal-duration
+                    # streams whose timestamps shift the soundtrack.
+                    or not math.isfinite(audio_start) or abs(audio_start) > 0.05
+                    or abs(audio_duration - duration) > max(0.12, 2 / settings.fps)
+                    or abs(audio_start + audio_duration - duration) > max(0.12, 2 / settings.fps)):
                 raise RenderError("Native GPU MP4 does not match the CFR video/audio timeline.")
             if cancel_event.is_set():
                 raise RenderCancelledError("Native GPU export was cancelled.")
