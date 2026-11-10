@@ -161,6 +161,85 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
             result["frame_production_seconds"],
         )
 
+    def test_opt_in_one_frame_lookahead_preserves_order_and_caller_thread(self):
+        if os.name != "nt":
+            self.skipTest("The native export transport is Windows-only")
+        from threading import get_ident
+        from app.renderer import native_gpu_stream
+        main_thread = get_ident()
+        acked = Event()
+        painted_threads = []
+        observed_overlap = []
+        original_ack = native_gpu_stream._frame_acknowledgement
+
+        def marked_ack(*args, **kwargs):
+            original_ack(*args, **kwargs)
+            acked.set()
+
+        def on_owner_thread():
+            for frame in generated_frames(6):
+                painted_threads.append(get_ident())
+                if len(painted_threads) == 2:
+                    observed_overlap.append(not acked.is_set())
+                yield frame
+
+        # The controlled worker delays the first ACK so that a speculative
+        # second Qt frame must be produced while the previous GPU IO waits.
+        slow_worker = MOCK_NATIVE_SOURCE.replace(
+            '    print(f"MMS_FRAME_ACCEPTED {index}", flush=True)',
+            '    import time; time.sleep(0.15)\\n'
+            '    print(f"MMS_FRAME_ACCEPTED {index}", flush=True)',
+        )
+        with patch.dict(os.environ, {"PLAYLIST_CANVAS_NATIVE_PIPELINED": "1"}), \\
+             patch.object(native_gpu_stream, "_frame_acknowledgement", side_effect=marked_ack):
+            result = self._run_mock(
+                count=6, provided=on_owner_thread(), worker_source=slow_worker,
+            )
+        self.assertEqual(result["frames_encoded"], 6)
+        self.assertTrue(result["frame_pipeline_enabled"])
+        self.assertEqual(result["max_outstanding_frame_packets"], 2)
+        self.assertEqual(result["timing_scope"],
+                         "one_frame_qt_production_overlaps_native_write_and_ack")
+        self.assertEqual(painted_threads, [main_thread] * 6)
+        self.assertEqual(observed_overlap, [True])
+        self.assertGreater(result["frame_pipe_write_seconds"], 0)
+        self.assertGreater(result["frame_ack_wait_seconds"], 0)
+
+    def test_opt_in_pipeline_short_and_extra_sources_fail_closed(self):
+        with patch.dict(os.environ, {"PLAYLIST_CANVAS_NATIVE_PIPELINED": "1"}):
+            with self.assertRaisesRegex(RenderError, "stopped at"):
+                self._run_mock(count=6, provided=generated_frames(3))
+            with self.assertRaisesRegex(RenderError, "more frames"):
+                self._run_mock(count=6, provided=generated_frames(7))
+
+    def test_opt_in_pipeline_bad_ack_and_cancellation_clean_up(self):
+        with patch.dict(os.environ, {"PLAYLIST_CANVAS_NATIVE_PIPELINED": "1"}):
+            closed = []
+
+            def frames():
+                try:
+                    yield from generated_frames(6)
+                finally:
+                    closed.append(True)
+
+            with self.assertRaises(RenderError):
+                self._run_mock(
+                    count=6, provided=frames(),
+                    worker_source='print("MMS_FRAME_ACCEPTED 999", flush=True)',
+                )
+            self.assertEqual(closed, [True])
+            flag = Event()
+            timer = Timer(0.2, flag.set)
+            timer.start()
+            try:
+                with self.assertRaises(RenderCancelledError):
+                    self._run_mock(
+                        count=6, cancel=flag,
+                        worker_source='import time; time.sleep(30)',
+                    )
+            finally:
+                timer.cancel()
+
     def test_short_canvas_generator_fails_without_success_report(self):
         with self.assertRaisesRegex(RenderError, "stopped at"):
             self._run_mock(count=6, provided=generated_frames(3))
