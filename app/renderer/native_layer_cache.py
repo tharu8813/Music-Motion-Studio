@@ -1,6 +1,7 @@
 """Export-local bounded Qt raster cache; raster misses still paint on CPU."""
 from dataclasses import replace
 
+from app.canvas.source_item import SourceItem
 from app.preview.canvas_snapshot import CanvasSnapshot
 from app.preview.native_canvas_layer_packets import MAX_NATIVE_CANVAS_LAYERS
 
@@ -32,6 +33,23 @@ class NativeRasterCache:
 
     def __init__(self, scene, bands, duration):
         self.keys = CanvasSnapshot.invariant_stream_keys(scene, set(), list(bands), duration)
+        # Each native export owns a frozen, detached scene.  Determine band
+        # membership once instead of enumerating the whole QGraphicsScene
+        # three or more times for every single CFR frame.
+        visible_items = tuple(
+            item for item in scene.items()
+            if isinstance(item, SourceItem)
+            and item.isVisible() and item.source.visible
+        )
+        self.band_source_items = tuple(
+            tuple(item for item in visible_items
+                  if (lower is None or item.source.z_index >= lower)
+                  and (upper is None or item.source.z_index <= upper))
+            for lower, upper in bands
+        )
+        # CanvasSnapshot already has this worker-only cache contract.  The
+        # detached native project is immutable throughout the export.
+        self.frozen_lyric_settings_cache = {}
         self.layers = {}
         self.hits = self.rasterizations = self.retained_bytes = 0
         self.peak_retained_bytes = 0
@@ -51,4 +69,5 @@ class NativeRasterCache:
 
     def clear(self):
         self.layers.clear()
+        self.frozen_lyric_settings_cache.clear()
         self.retained_bytes = 0
