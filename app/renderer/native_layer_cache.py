@@ -1,7 +1,8 @@
 """Export-local bounded Qt raster cache; raster misses still paint on CPU."""
 from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
-from threading import BoundedSemaphore
+from threading import BoundedSemaphore, Lock
+from time import monotonic
 import os
 
 from app.canvas.source_item import SourceItem
@@ -69,7 +70,11 @@ class NativeRasterCache:
             if self.parallel_bgra_enabled else None
         )
         self._bgra_slots = BoundedSemaphore(2)
+        self._bgra_stats_lock = Lock()
+        self._bgra_active_workers = 0
         self.parallel_bgra_submissions = 0
+        self.parallel_bgra_peak_workers = 0
+        self.parallel_bgra_work_seconds = 0.0
         # Explicit opt-in: native ROI paints only a smaller rectangle for
         # transparent bands, then expands to the original full BGRA packet.
         # Never change the GPU wire protocol or baseline output by default.
@@ -114,9 +119,20 @@ class NativeRasterCache:
         self._bgra_slots.acquire()
         try:
             def convert():
+                started = monotonic()
+                with self._bgra_stats_lock:
+                    self._bgra_active_workers += 1
+                    self.parallel_bgra_peak_workers = max(
+                        self.parallel_bgra_peak_workers,
+                        self._bgra_active_workers,
+                    )
                 try:
                     return converter(image)
                 finally:
+                    seconds = monotonic() - started
+                    with self._bgra_stats_lock:
+                        self.parallel_bgra_work_seconds += seconds
+                        self._bgra_active_workers -= 1
                     self._bgra_slots.release()
 
             future = self._bgra_executor.submit(convert)
