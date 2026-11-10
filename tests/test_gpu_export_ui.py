@@ -90,43 +90,31 @@ class GpuUiTests(unittest.TestCase):
     def close_bridge(self):
         self.bridges[-1].closed.emit()
 
-    def test_accelerated_profile_is_explicit_and_scoped_to_one_export(self):
-        self.options.gpu_speed_combo.currentData.return_value = "accelerated"
+    def test_rust_gpu_always_uses_single_automatic_profile_scoped_to_export(self):
         worker = self.start()
-        fast = NativeGpuOptimizations.for_profile("accelerated")
-        self.assertEqual(worker.native_optimizations, fast)
-        self.assertEqual(self.bridge_kwargs[-1]["optimizations"], fast)
-        self.assertTrue(fast.pipelined and fast.partial_bands
-                        and fast.compact_bands and fast.reuse_layers)
+        auto = NativeGpuOptimizations.for_profile("automatic")
+        self.assertEqual(worker.native_optimizations, auto)
+        self.assertEqual(self.bridge_kwargs[-1]["optimizations"], auto)
+        self.assertTrue(all((
+            auto.pipelined, auto.partial_bands, auto.compact_bands,
+            auto.reuse_layers, auto.parallel_bgra, auto.adaptive_bgra,
+        )))
 
-    def test_cpu_parallel_profile_is_scoped_to_one_gpu_export(self):
-        self.options.gpu_speed_combo.currentData.return_value = "cpu_parallel"
-        worker = self.start()
-        profile = NativeGpuOptimizations.for_profile("cpu_parallel")
-        self.assertEqual(worker.native_optimizations, profile)
-        self.assertEqual(self.bridge_kwargs[-1]["optimizations"], profile)
-        self.assertTrue(profile.pipelined)
-        self.assertTrue(profile.partial_bands)
-        self.assertTrue(profile.compact_bands)
-        self.assertTrue(profile.reuse_layers)
-        self.assertTrue(profile.parallel_bgra)
-        self.assertFalse(NativeGpuOptimizations.for_profile("accelerated").parallel_bgra)
-        self.assertFalse(NativeGpuOptimizations.for_profile("standard").parallel_bgra)
-
-    def test_standard_gui_profile_cannot_be_overridden_by_cli_environment(self):
+    def test_old_speed_choice_and_global_cli_flags_cannot_change_gui_gpu_mode(self):
+        # Historical settings or a third-party caller may still have an old
+        # speed control. It must be ignored; engine alone chooses the policy.
         self.options.gpu_speed_combo.currentData.return_value = "standard"
         with patch.dict(os.environ, {
-            "PLAYLIST_CANVAS_NATIVE_LAYER_REUSE": "1",
-            "PLAYLIST_CANVAS_NATIVE_PIPELINED": "1",
-            "PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS": "1",
-            "PLAYLIST_CANVAS_NATIVE_COMPACT_BANDS": "1",
+            "PLAYLIST_CANVAS_NATIVE_LAYER_REUSE": "0",
+            "PLAYLIST_CANVAS_NATIVE_PIPELINED": "0",
+            "PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS": "0",
+            "PLAYLIST_CANVAS_NATIVE_COMPACT_BANDS": "0",
+            "PLAYLIST_CANVAS_NATIVE_PARALLEL_BGRA": "0",
         }):
             worker = self.start()
-        safe = NativeGpuOptimizations.for_profile("standard")
-        self.assertEqual(worker.native_optimizations, safe)
-        self.assertEqual(self.bridge_kwargs[-1]["optimizations"], safe)
-        self.assertFalse(any((safe.pipelined, safe.partial_bands,
-                              safe.compact_bands, safe.reuse_layers)))
+        auto = NativeGpuOptimizations.for_profile("automatic")
+        self.assertEqual(worker.native_optimizations, auto)
+        self.assertEqual(self.bridge_kwargs[-1]["optimizations"], auto)
 
     def test_success_waits_for_worker_and_gui_close(self):
         worker = self.start()
