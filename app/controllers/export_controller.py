@@ -1450,15 +1450,11 @@ class ExportOrchestrator:
             QMessageBox.information(window, title, message)
             return False
 
-        # A profile is immutable and scoped to THIS export. Do not update
-        # process-wide environment variables while the GUI is rendering.
-        speed_control = getattr(options, "gpu_speed_combo", None)
-        speed_mode = speed_control.currentData() if speed_control is not None else "standard"
-        profile_name = (
-            speed_mode if speed_mode in {"accelerated", "cpu_parallel"}
-            else "standard"
-        )
-        optimization_profile = NativeGpuOptimizations.for_profile(profile_name)
+        # Exactly two user-facing render engines: FFmpeg or Rust GPU.
+        # The Rust GPU engine automatically enables its proven pipeline/ROI
+        # optimizations and adaptively offloads large BGRA conversion jobs.
+        # No per-export GUI speed selector or global environment mutation.
+        optimization_profile = NativeGpuOptimizations.for_profile("automatic")
         cancel = threading.Event()
         source = GuiProjectFrameSource(
             project, fps=settings.fps, scale=scale, cancel_event=cancel,
@@ -1479,11 +1475,7 @@ class ExportOrchestrator:
         window._export_dialog = dialog
         dialog.set_korean(window.translator.is_korean)
         dialog.set_native_gpu_export(True)
-        gpu_label = "Rust GPU · D3D11 + NVENC · H.264 (Beta)"
-        if profile_name == "accelerated":
-            gpu_label += " · Accelerated"
-        elif profile_name == "cpu_parallel":
-            gpu_label += " · Accelerated + CPU parallel (experimental)"
+        gpu_label = "Rust GPU · D3D11 + NVENC · H.264 (Beta) · Auto optimized"
         dialog.set_export_details(len(tracks), window._playlist_duration(tracks),
                                   gpu_label, output)
         dialog.set_busy("Preparing audio", "Preparing GPU export")
