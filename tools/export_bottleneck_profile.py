@@ -192,6 +192,7 @@ def load_stage_profiles(path: Path) -> dict[str, object]:
 def summarize(samples: list[dict], profiles: dict) -> dict:
     """Summaries describe observed load, never an automatic bottleneck verdict."""
     core_seconds = {kind: 0.0 for kind in CATEGORIES}
+    core_seconds_by_pid: dict[str, float] = defaultdict(float)
     peak_rss = 0.0
     gpu_encoder: list[float] = []
     gpu_usage: list[float] = []
@@ -203,6 +204,8 @@ def summarize(samples: list[dict], profiles: dict) -> dict:
         for kind, cores in sample.get("cpu_cores", {}).items():
             if kind in core_seconds:
                 core_seconds[kind] += float(cores) * delta
+        for pid, cores in sample.get("cpu_cores_by_pid", {}).items():
+            core_seconds_by_pid[pid] += float(cores) * delta
         peak_rss = max(peak_rss, sum(sample.get("rss_mib", {}).values()))
         for gpu in sample.get("gpu") or []:
             gpu_encoder.append(float(gpu["encoder_percent"]))
@@ -222,6 +225,9 @@ def summarize(samples: list[dict], profiles: dict) -> dict:
                     )
     return {
         "observed_cpu_core_seconds": {key: round(value, 2) for key, value in core_seconds.items()},
+        "observed_cpu_core_seconds_by_pid": {
+            pid: round(value, 2) for pid, value in sorted(core_seconds_by_pid.items())
+        },
         "peak_process_tree_rss_mib": round(peak_rss, 1),
         "device_gpu_mean_percent": round(sum(gpu_usage) / len(gpu_usage), 1) if gpu_usage else None,
         "device_nvenc_mean_percent": round(sum(gpu_encoder) / len(gpu_encoder), 1) if gpu_encoder else None,
@@ -275,6 +281,8 @@ def observe_tree(psutil, root, last_cpu: dict, interval: float) -> dict:
     rss_mib = defaultdict(float)
     counts = defaultdict(int)
     process_categories: dict[str, str] = {}
+    cpu_cores_by_pid: dict[str, float] = {}
+    rss_mib_by_pid: dict[str, float] = {}
     try:
         members = [root, *root.children(recursive=True)]
     except (psutil.NoSuchProcess, psutil.AccessDenied):
@@ -288,10 +296,14 @@ def observe_tree(psutil, root, last_cpu: dict, interval: float) -> dict:
             last_cpu[identity] = elapsed_cpu
             name = process.name()
             category = classify_process(name, process.cmdline(), process.pid == root.pid)
-            cpu_cores[category] += max(0.0, elapsed_cpu - previous) / max(interval, 0.001)
-            rss_mib[category] += process.memory_info().rss / (1024 ** 2)
+            cores = max(0.0, elapsed_cpu - previous) / max(interval, 0.001)
+            rss = process.memory_info().rss / (1024 ** 2)
+            cpu_cores[category] += cores
+            rss_mib[category] += rss
             counts[category] += 1
             process_categories[str(process.pid)] = category
+            cpu_cores_by_pid[str(process.pid)] = round(cores, 3)
+            rss_mib_by_pid[str(process.pid)] = round(rss, 2)
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             continue
     return {
@@ -299,6 +311,8 @@ def observe_tree(psutil, root, last_cpu: dict, interval: float) -> dict:
         "rss_mib": {kind: round(rss_mib[kind], 2) for kind in CATEGORIES},
         "process_counts": {kind: counts[kind] for kind in CATEGORIES},
         "process_categories": process_categories,
+        "cpu_cores_by_pid": cpu_cores_by_pid,
+        "rss_mib_by_pid": rss_mib_by_pid,
     }
 
 
