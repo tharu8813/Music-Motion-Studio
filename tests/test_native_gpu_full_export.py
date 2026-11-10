@@ -14,6 +14,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication
 
 from app.renderer.ffmpeg_renderer import RenderResult
+from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
 from app.timeline.compiler import compile_playlist
 from tests.test_native_canvas_dynamic_overlays import dynamic_project, sample_wav
 from tools.native_gpu_full_export import (
@@ -154,6 +155,10 @@ class NativeGpuFullProjectTests(unittest.TestCase):
                 self.assertEqual(len(kwargs["tracks"]), 1)
                 self.assertEqual(kwargs["tracks"][0].duration_seconds, 1.0)
                 self.assertIn("short GPU smoke clip", kwargs["metadata"].title)
+                self.assertEqual(
+                    kwargs["optimizations"],
+                    NativeGpuOptimizations.for_profile("automatic"),
+                )
                 return RenderResult(target, 1.0)
 
             with patch(
@@ -166,7 +171,7 @@ class NativeGpuFullProjectTests(unittest.TestCase):
                 actual = export_complete_project(
                     path, target, native_exe=root / "native.exe",
                     fps=30, scale=0.25, ffmpeg=str(ffmpeg),
-                    smoke_seconds=1.0,
+                    smoke_seconds=1.0, gpu_profile="automatic",
                 )
             self.assertEqual(actual, target)
             self.assertEqual(len(completed), 30)
