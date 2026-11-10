@@ -47,6 +47,22 @@ pub fn read_frame(reader: &mut impl Read, index: u64) -> Result<Option<CanvasPac
 pub fn read_frame_reuse(
     reader: &mut impl Read, index: u64, previous: Option<&CanvasPacketFrame>,
 ) -> Result<Option<CanvasPacketFrame>, String> {
+    read_frame_with_previous(reader, index, previous, 2)
+}
+
+/// Binary-v3: optionally patch a contiguous interval of whole BGRA rows from
+/// the previous validated frame. Every reconstructed plane is SHA-256 verified
+/// by the same strict v1/v2 manifest parser before reaching the GPU.
+pub fn read_frame_delta(
+    reader: &mut impl Read, index: u64, previous: Option<&CanvasPacketFrame>,
+) -> Result<Option<CanvasPacketFrame>, String> {
+    read_frame_with_previous(reader, index, previous, 3)
+}
+
+fn read_frame_with_previous(
+    reader: &mut impl Read, index: u64, previous: Option<&CanvasPacketFrame>,
+    expected_version: u32,
+) -> Result<Option<CanvasPacketFrame>, String> {
     let mut header = [0u8; 28];
     loop {
         match reader.read(&mut header[..1]) {
@@ -61,7 +77,7 @@ pub fn read_frame_reuse(
     let pts = u64::from_le_bytes(header[8..16].try_into().unwrap());
     let meta = u32::from_le_bytes(header[16..20].try_into().unwrap()) as usize;
     let payload = u64::from_le_bytes(header[20..28].try_into().unwrap());
-    if &header[..4] != b"MMSB" || version != 2 || pts != index
+    if &header[..4] != b"MMSB" || version != expected_version || pts != index
         || meta == 0 || meta > 65536
         || payload > (MAX_FRAME_BYTES * MAX_LAYERS) as u64 {
         return Err("Invalid binary-v2 frame version, PTS or lengths".into());
@@ -77,34 +93,81 @@ pub fn read_frame_reuse(
     let flags = root["reuse_previous_frame"].as_array()
         .ok_or("Missing binary-v2 reuse flags")?;
     if flags.len() != layers.len() || flags.iter().any(|v| !v.is_boolean()) {
-        return Err("Binary-v2 reuse flags must contain one bool per layer".into());
+        return Err("Binary reuse flags must contain one bool per layer".into());
     }
+    let row_deltas = if expected_version == 3 {
+        let rows = root["row_deltas"].as_array()
+            .ok_or("Binary-v3 requires row_deltas for every layer")?;
+        if rows.len() != layers.len() {
+            return Err("Binary-v3 row delta count mismatch".into());
+        }
+        for (delta, reused) in rows.iter().zip(flags.iter()) {
+            if delta.is_null() { continue; }
+            let range = delta.as_array().filter(|r| r.len() == 2)
+                .ok_or("Binary-v3 row delta must be null or [first, end]")?;
+            if reused.as_bool() == Some(true)
+                || range.iter().any(|n| n.as_u64().is_none()) {
+                return Err("Binary-v3 patch cannot reference reused/invalid rows".into());
+            }
+        }
+        Some(rows)
+    } else {
+        // Never allow a binary-v2 reader to reinterpret v3 delta payloads.
+        if !root["row_deltas"].is_null() {
+            return Err("Binary-v2 cannot contain row deltas".into());
+        }
+        None
+    };
     let mut remaining = payload;
     let mut layer_index = 0usize;
     let frame = parse_qt_canvas_packet_value(&root, |_, size| {
         let i = layer_index;
         layer_index += 1;
-        if flags[i].as_bool() == Some(true) {
+        let previous_matching = || -> Result<&crate::qt_canvas_packet::CanvasPacketLayer, String> {
             let old = previous.and_then(|p| p.layers.get(i))
-                .ok_or("Binary-v2 reused a plane without a previous matching frame")?;
-            // Same key/order, dimensions and pixels. Opacity and transform may
-            // change independently, and must come from the new manifest.
+                .ok_or("Binary previous-frame layer is missing")?;
+            // Never borrow pixels from the wrong track/Z band or geometry.
             if old.stream_key != layers[i]["stream_key"].as_str().unwrap_or("")
-                || old.geometry.width as u64 !=
-                    layers[i]["width"].as_u64().unwrap_or(root["width"].as_u64().unwrap_or(0))
-                || old.geometry.height as u64 !=
-                    layers[i]["height"].as_u64().unwrap_or(root["height"].as_u64().unwrap_or(0))
+                || old.geometry.width as u64 != layers[i]["width"].as_u64()
+                    .unwrap_or(root["width"].as_u64().unwrap_or(0))
+                || old.geometry.height as u64 != layers[i]["height"].as_u64()
+                    .unwrap_or(root["height"].as_u64().unwrap_or(0))
                 || old.pixels.len() != size {
-                return Err("Binary-v2 previous layer key or geometry mismatch".into());
+                return Err("Binary previous-frame layer key or geometry mismatch".into());
             }
-            Ok(old.pixels.clone())
+            Ok(old)
+        };
+        if flags[i].as_bool() == Some(true) {
+            Ok(previous_matching()?.pixels.clone())
+        } else if let Some(range) = row_deltas
+            .and_then(|rows| rows[i].as_array())
+        {
+            let old = previous_matching()?;
+            let height = old.geometry.height as usize;
+            let stride = old.geometry.width as usize * 4;
+            let first = range[0].as_u64().ok_or("Invalid first patch row")? as usize;
+            let end = range[1].as_u64().ok_or("Invalid end patch row")? as usize;
+            if first >= end || end > height || stride * height != size {
+                return Err("Binary-v3 patch rows exceed source plane".into());
+            }
+            let patch_size = (end - first) * stride;
+            if patch_size as u64 > remaining {
+                return Err("Binary-v3 patch exceeds remaining payload".into());
+            }
+            // Only the bounded previous frame is cloned. SHA validation after
+            // applying the patch catches wrong pixels, stale cache or tampering.
+            let mut pixels = old.pixels.clone();
+            reader.read_exact(&mut pixels[first * stride..end * stride])
+                .map_err(|e| format!("Truncated binary-v3 BGRA row patch: {e}"))?;
+            remaining -= patch_size as u64;
+            Ok(pixels)
         } else {
             if size as u64 > remaining {
-                return Err("Binary-v2 frame payload shorter than declared planes".into());
+                return Err("Binary frame payload shorter than declared planes".into());
             }
             let mut pixels = vec![0; size];
             reader.read_exact(&mut pixels)
-                .map_err(|e| format!("Truncated binary-v2 BGRA plane: {e}"))?;
+                .map_err(|e| format!("Truncated binary BGRA plane: {e}"))?;
             remaining -= size as u64;
             Ok(pixels)
         }
