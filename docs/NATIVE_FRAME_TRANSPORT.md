@@ -70,3 +70,31 @@ Windows 작업 관리자의 GPU 전체 사용률은 NVENC의 `Video Encode` 엔�
 
 **진행 중인 작업은 이 변경으로 계측되지 않는다.** 보고서 필드를 확인하려면 다음 실행 전
 코드를 갱신해야 한다. 이미 실행 중인 Python/Rust 프로세스를 강제 재시작하지 않는다.
+
+## 실험적 1프레임 선행 생성 (2026-11)
+
+Rust worker의 `MMSB binary-v1` 형식, 순차 PTS, 순차 ACK와 NVENC 출력은 바꾸지 않고,
+Python에서 **프레임 N을 Rust로 보내고 ACK를 기다리는 동안 Qt 소유 스레드가 프레임 N+1을 생성**할 수 있다.
+실행 전 PowerShell에서 다음 환경변수로 명시적으로 활성화한다.
+
+```powershell
+$env:PLAYLIST_CANVAS_NATIVE_PIPELINED = "1"
+# 동일한 명령으로 A/B 테스트한 뒤 기존 동작으로 복귀:
+Remove-Item Env:PLAYLIST_CANVAS_NATIVE_PIPELINED
+```
+
+기본값은 기존 직렬 처리다. 실험 모드에서도 writer는 단 하나이며,
+이전 프레임 ACK를 수신하고 난 뒤에 다음 프레임의 binary write를 시작한다.
+Qt scene, 가사, 소스는 항상 **기존 호출 스레드**에서만 갱신한다. Qt 객체를 writer 스레드로 옮기지 않는다.
+한 번에 최대 2개 native frame packet만 살아 있고, 메모리 사용량은 기존 1개보다 늘어날 수 있다.
+4K 화면에서 각 BGRA packet 크기를 고려하고, 취소·에러가 나면 subprocess를 종료한 다음 writer를 join하고
+원본 frame iterator를 닫는다. 프로토콜 순서와 원본/최종 MP4 검증은 그대로 유지한다.
+
+새 보고서의 `frame_pipeline_enabled=true`, `max_outstanding_frame_packets=2`,
+`timing_scope=one_frame_qt_production_overlaps_native_write_and_ack`로 실험을 식별한다.
+이 모드에서는 producer와 binary pipe/ACK 시간이 동시에 진행되므로 세 단계 누적시간을 더해 전체 경과 시간과
+비교하면 안 된다. 서로 다른 실험을 비교할 때는 동일 프로젝트·구간·해상도·FPS를 고정하고
+`native_stream_wall_fps`와 `native_stream_elapsed_seconds`를 먼저 비교한다.
+
+**주의:** 이 방식은 검증용 opt-in이다. 하드웨어에서 시간·화질·가사 타이밍·취소를 비교하기 전에는
+기본 엔진으로 승격하거나 전체 장시간 내보내기에서 속도 향상을 보장한다고 표현하지 않는다.
