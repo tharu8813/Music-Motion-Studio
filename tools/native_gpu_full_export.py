@@ -92,9 +92,19 @@ def export_complete_project(
             "This is a real short MP4, NOT a full export of the original project.",
             flush=True,
         )
+    first_frame_at = None
+
     def report_progress(done: int, total: int) -> None:
+        nonlocal first_frame_at
+        if first_frame_at is None:
+            first_frame_at = monotonic()
         if done == total or done == 1 or done % max(1, fps * 5) == 0:
-            print(f"Native GPU frames accepted: {done}/{total}", flush=True)
+            elapsed = max(1e-9, monotonic() - first_frame_at)
+            measured_fps = (done - 1) / elapsed if done > 1 else 0.0
+            # Approximate throughput, not an actual GPU utilization metric.
+            suffix = (f" | observed {measured_fps:.2f} FPS "
+                      f"({measured_fps / fps:.2f}x realtime)") if done > 1 else ""
+            print(f"Native GPU frames accepted: {done}/{total}{suffix}", flush=True)
     result = export_project_document(
         project, output, native_exe=native_exe, fps=fps, scale=scale,
         ffmpeg=ffmpeg, progress_callback=report_progress,

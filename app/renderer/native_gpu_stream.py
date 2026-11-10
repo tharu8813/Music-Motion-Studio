@@ -102,6 +102,7 @@ def stream_native_canvas_h264(
                               for path in (video, report, video.with_suffix(".h264.part"))):
         raise RenderError("Native export refuses to replace existing output or report.")
     with tempfile.TemporaryDirectory(prefix="mms-native-stream-"):
+        stream_started = monotonic()
         args = [
             str(exe), "--width", str(width), "--height", str(height),
             "--fps", str(fps), "--expected-frames", str(expected_frames),
@@ -158,6 +159,10 @@ def stream_native_canvas_h264(
         sender = None
         transport_bytes = 0
         transport_seconds = 0.0
+        frame_production_seconds = 0.0
+        frame_production_max_seconds = 0.0
+        frame_pipe_write_seconds = 0.0
+        frame_ack_wait_seconds = 0.0
         completed = False
         try:
             source = iter(frames)
@@ -165,12 +170,16 @@ def stream_native_canvas_h264(
             for index in range(expected_frames):
                 if cancel.is_set():
                     raise RenderCancelledError("Native GPU export was cancelled.")
+                production_started = monotonic()
                 try:
                     frame = next(source)
                 except StopIteration as exc:
                     raise RenderError(
                         f"Canvas frame producer stopped at {index}/{expected_frames}"
                     ) from exc
+                production_elapsed = monotonic() - production_started
+                frame_production_seconds += production_elapsed
+                frame_production_max_seconds = max(frame_production_max_seconds, production_elapsed)
                 if cancel.is_set():
                     raise RenderCancelledError("Native GPU export was cancelled.")
                 if not isinstance(frame, NativeCanvasFrame) or (
@@ -202,12 +211,15 @@ def stream_native_canvas_h264(
                         raise written
                     transport_bytes += written
                     sender.join()
+                    frame_pipe_write_seconds += monotonic() - started
                     del send_frame
                     del frame
+                    ack_started = monotonic()
                     _frame_acknowledgement(
                         events, worker, index, cancel,
                         max(0.001, acknowledgement_timeout - (monotonic() - started)),
                     )
+                    frame_ack_wait_seconds += monotonic() - ack_started
                     transport_seconds += monotonic() - started
                 except (OSError, ValueError) as exc:
                     raise RenderError(
@@ -222,6 +234,7 @@ def stream_native_canvas_h264(
             else:
                 raise RenderError("Canvas producer generated more frames than expected.")
             worker.stdin.close()
+            finalize_started = monotonic()
             until = monotonic() + 180.0
             while worker.poll() is None:
                 if cancel.is_set():
@@ -247,8 +260,23 @@ def stream_native_canvas_h264(
                 raise RenderError("Native GPU producer did not complete the entire timeline.")
             if cancel.is_set():
                 raise RenderCancelledError("Native GPU export was cancelled.")
-            result.update(frame_transport="binary-v1", frame_transport_bytes=transport_bytes,
-                          frame_transport_seconds=transport_seconds, bgra_disk_bytes=0)
+            # Timings expose underfed GPU vs. blocked binary pipe vs. NVENC ACK.
+            # This one-frame-at-a-time protocol intentionally does not overlap
+            # CPU Qt painting and native GPU work; each sum is a wall-clock
+            # phase, not a CPU/GPU utilization percentage.
+            stream_elapsed = monotonic() - stream_started
+            result.update(
+                frame_transport="binary-v1", frame_transport_bytes=transport_bytes,
+                frame_transport_seconds=transport_seconds, bgra_disk_bytes=0,
+                frame_production_seconds=frame_production_seconds,
+                frame_production_max_seconds=frame_production_max_seconds,
+                frame_pipe_write_seconds=frame_pipe_write_seconds,
+                frame_ack_wait_seconds=frame_ack_wait_seconds,
+                native_worker_finalize_seconds=monotonic() - finalize_started,
+                native_stream_elapsed_seconds=stream_elapsed,
+                native_stream_wall_fps=expected_frames / stream_elapsed,
+                timing_scope="serial_qt_frame_production_pipe_write_and_native_ack",
+            )
             report.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             logging.getLogger(__name__).info("Native frame transport: %d bytes in %.3fs (including ACK)",
                                              transport_bytes, transport_seconds)
