@@ -1,0 +1,98 @@
+[
+  {
+    "module": "tests.test_custom_motion",
+    "status": "pass",
+    "seconds": 1.75,
+    "returncode": 0,
+    "tests": 23,
+    "skipped": 1
+  },
+  {
+    "module": "tests.test_custom_motion_dialog",
+    "status": "pass",
+    "seconds": 13.07,
+    "returncode": 0,
+    "tests": 42,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_keyframe_rendering",
+    "status": "pass",
+    "seconds": 0.98,
+    "returncode": 0,
+    "tests": 6,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_mix_visual_transitions",
+    "status": "pass",
+    "seconds": 0.74,
+    "returncode": 0,
+    "tests": 9,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_native_canvas_dynamic_overlays",
+    "status": "pass",
+    "seconds": 2.14,
+    "returncode": 0,
+    "tests": 10,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_native_canvas_project_probe",
+    "status": "pass",
+    "seconds": 1.73,
+    "returncode": 0,
+    "tests": 9,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_native_dynamic_motion",
+    "status": "pass",
+    "seconds": 0.57,
+    "returncode": 0,
+    "tests": 7,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_native_motion_production_parity",
+    "status": "pass",
+    "seconds": 1.21,
+    "returncode": 0,
+    "tests": 2,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_native_project_ownership",
+    "status": "pass",
+    "seconds": 0.58,
+    "returncode": 0,
+    "tests": 2,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_native_project_runtime",
+    "status": "pass",
+    "seconds": 0.78,
+    "returncode": 0,
+    "tests": 12,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_ttml_lyrics",
+    "status": "pass",
+    "seconds": 0.56,
+    "returncode": 0,
+    "tests": 16,
+    "skipped": 0
+  },
+  {
+    "module": "tests.test_video_timeline",
+    "status": "pass",
+    "seconds": 0.2,
+    "returncode": 0,
+    "tests": 4,
+    "skipped": 0
+  }
+]

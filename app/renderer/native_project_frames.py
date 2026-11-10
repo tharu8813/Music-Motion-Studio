@@ -119,7 +119,10 @@ def produce_complete_project_frames(
                         f"Audio-reactive overlay ended at frame {frame_index}/{total_frames}"
                     ) from exc
                 _check_cancel(cancel)
-                yield interleave_dynamic_layers(static, stack, layers)
+                yield interleave_dynamic_layers(
+                    static, stack, layers, seconds=state["timeline_seconds"],
+                    output_scale=scale,
+                )
             if project.to_dict() != before:
                 raise TimelineValidationError("Native export unexpectedly modified project sources")
     except Exception:

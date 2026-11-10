@@ -1,5 +1,4 @@
 """Project GPU capture eligibility and complete timeline resolution."""
-from bisect import bisect_right
 from math import isfinite
 from pathlib import Path
 from app.models.project import ProjectDocument
@@ -7,6 +6,8 @@ from app.models.source import SourceType
 from app.renderer.export_timeline import ExportTimelinePlanner
 from app.timeline.compiler import compile_playlist
 from app.renderer.native_dynamic_layers import DYNAMIC_TYPES
+from app.renderer.native_project_transitions import frame_window, transition_preflight_reason
+from app.renderer.native_project_video import video_preflight_reason
 
 class TimelineValidationError(ValueError):
     """Project cannot be represented faithfully by native GPU capture."""
@@ -56,11 +57,9 @@ def validate_project_for_gpu_capture(
     """
     if source_policy not in {"strict", "canvas-only", "dynamic-audio"}:
         raise TimelineValidationError("Source policy must be strict, canvas-only, or dynamic-audio")
-    if project.settings.transition_mode != "none":
-        raise TimelineValidationError(
-            "Project GPU probe currently requires transition_mode=none "
-            "(crossfade/AutoMix require dedicated junction evaluation)"
-        )
+    transition_reason = transition_preflight_reason(project.settings.transition_mode)
+    if transition_reason:
+        raise TimelineValidationError(transition_reason)
     visible = [source for source in project.sources if source.visible]
     if any(source.source_type not in set(SourceType) for source in visible):
         raise TimelineValidationError("Project has an unknown visible source type")
@@ -68,7 +67,6 @@ def validate_project_for_gpu_capture(
         raise TimelineValidationError("Project GPU probe supports 1..64 visible sources")
     omitted = unsupported_visible_sources(project)
     if source_policy == "dynamic-audio":
-        dynamic = [s for s in visible if s.source_type in DYNAMIC_TYPES]
         unsupported = [s for s in visible if s.source_type in UNSUPPORTED_SOURCES
                        and s.source_type not in DYNAMIC_TYPES]
         reactive = [
@@ -80,7 +78,8 @@ def validate_project_for_gpu_capture(
         ]
         if unsupported or reactive:
             details = [
-                f"{s.name or s.id} [{s.source_type.value}; {s.id}]"
+                video_preflight_reason(s) if s.source_type is SourceType.VIDEO
+                else f"{s.name or s.id} [{s.source_type.value}; {s.id}]"
                 for s in unsupported
             ] + [
                 f"{s.name or s.id} [{s.source_type.value}; {s.id}; audio-reactive Canvas]"
@@ -92,17 +91,6 @@ def validate_project_for_gpu_capture(
                 + ". Video and unknown music-reactive source types require dedicated capture. "
                 "Use --inspect-sources to list all project sources; "
                 "--source-policy canvas-only is explicitly PARTIAL."
-            )
-        unsupported_motion = [
-            s for s in dynamic
-            if s.keyframes.animated or s.animation_in == "custom"
-            or s.animation_out == "custom" or s.rotation
-        ]
-        if unsupported_motion:
-            raise TimelineValidationError(
-                "dynamic-audio cannot yet reproduce custom keyframes or rotation: "
-                + ", ".join(f"{s.name or s.id} [{s.source_type.value}; {s.id}]"
-                            for s in unsupported_motion)
             )
         omitted = []
     if omitted and source_policy == "strict":
@@ -149,15 +137,10 @@ def resolve_project_frame(
     windows = plan.presentation.windows
     if not windows:
         raise TimelineValidationError("Compiled project has no presentation windows")
-    starts = [window.timeline_start for window in windows]
-    idx = bisect_right(starts, global_seconds) - 1
-    if idx < 0:
-        raise TimelineValidationError("Selected frame precedes project presentation")
-    window = windows[idx]
-    if not window.timeline_start <= global_seconds < window.timeline_end:
-        raise TimelineValidationError(
-            "Selected frame is in a playlist presentation gap"
-        )
+    try:
+        window = frame_window(plan, global_seconds)
+    except ValueError as exc:
+        raise TimelineValidationError(str(exc)) from exc
     tracks = [track for track in project.playlist if track.enabled and track.duration_seconds > 0]
     track_by_id = {track.id: track for track in tracks}
     track = track_by_id.get(window.track_id)

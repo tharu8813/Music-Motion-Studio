@@ -185,7 +185,7 @@ class RuntimeContracts(unittest.TestCase):
         self.assertIsInstance(errors[0], RenderCancelledError)
 
     def test_unsupported_features_fail_before_audio(self):
-        for kind in ("video", "transition", "rotation", "equal_z", "missing_image"):
+        for kind in ("video", "transition", "equal_z", "missing_image"):
             project = project_fixture()
             if kind == "video":
                 project.sources.append(Source(SourceType.VIDEO, "Video"))
