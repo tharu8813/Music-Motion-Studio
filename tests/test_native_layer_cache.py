@@ -3,7 +3,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import unittest
 from types import SimpleNamespace
-from threading import Event, current_thread, enumerate as active_threads
+from threading import Event, Lock, current_thread, enumerate as active_threads
 from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
@@ -99,10 +99,18 @@ class RasterCacheTests(unittest.TestCase):
         image = QImage(512, 512, QImage.Format.Format_ARGB32)
         image.fill(QColor(12, 21, 44, 172))
         entered = Event()
+        both_started = Event()
         release = Event()
         expected = straight_bgra_bytes(image)
+        active = 0
+        counter_lock = Lock()
 
         def blocked(image):
+            nonlocal active
+            with counter_lock:
+                active += 1
+                if active == 2:
+                    both_started.set()
             entered.set()
             if not release.wait(4.0):
                 raise RuntimeError("Conversion worker was not released")
@@ -114,6 +122,7 @@ class RasterCacheTests(unittest.TestCase):
             self.assertTrue(entered.wait(2.0))
             second = cache.maybe_submit_bgra(image, blocked)
             self.assertIsNotNone(second)
+            self.assertTrue(both_started.wait(2.0))
             # Both slots are already reserved. Never wait here on GUI thread.
             third = cache.maybe_submit_bgra(image, blocked)
             self.assertIsNone(third)
