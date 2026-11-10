@@ -383,7 +383,8 @@ def stream_native_canvas_h264(
                 frame_transport="binary-v2" if reuse_enabled else "binary-v1",
                 frame_reuse_enabled=reuse_enabled,
                 native_optimization_profile=(
-                    "cpu_parallel" if optimizations is not None and optimizations.parallel_bgra
+                    "automatic" if optimizations is not None and optimizations.adaptive_bgra
+                    else "cpu_parallel" if optimizations is not None and optimizations.parallel_bgra
                     else "accelerated" if optimizations is not None and optimizations == NativeGpuOptimizations.for_profile("accelerated")
                     else "standard" if optimizations is not None else "environment"
                 ),
