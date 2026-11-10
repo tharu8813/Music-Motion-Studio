@@ -44,11 +44,52 @@ python -m tools.native_gpu_full_export --project .\sample.pvsproj --output .\leg
 
 
 앱의 `native_project_export → render_native_gpu_playlist → stream_native_canvas_h264`
-경로는 현재 `automatic` 모드에서 `--input-format binary-v2`를 사용하며,
-같은 레이어의 픽셀이 이전 프레임과 같을 때 재전송을 생략한다.
+경로는 현재 `automatic` 모드에서 `--input-format binary-v3`를 사용하며,
+같은 레이어의 픽셀이 이전 프레임과 같을 때 재전송을 생략하고, 일부 행만
+달라진 경우에는 변경된 행만 전송한다.
 프레임별 BGRA 파일과 manifest 파일은 만들지 않는다. 이전 작업자 바이너리는
 binary-v2를 지원하지 않으므로 실행 파일에 새 Rust 코드가 포함되어야 한다.
 과거 `binary-v1` 및 manifest 진단 방식은 개발 회귀 테스트에서 계속 지원한다.
+
+### 자동 binary-v3 변경 행 전송 (2026-11-11)
+
+Windows RTX 5060에서 동일 1080p 30초(1800프레임) 테스트 기준,
+PR #106 이후 `native_stream_wall_fps=23.94`를 기록했지만
+`frame_transport_bytes=48,945,364,822`와
+`frame_pipe_write_seconds=61.65`는 개선되지 않았다.
+
+`automatic` 모드는 `binary-v3`을 사용하며, 이전 프레임의 같은
+stream key·geometry와 비교해 달라진 **전체 BGRA 행 범위 [first, end)**
+하나만 전송할 수 있다. JPEG 손실 압축이나 프레임 생략이 아니다.
+
+- 완전히 동일한 plane: v2와 같이 `reuse_previous_frame=true`, 페이로드 0
+- 일부 행만 변경: `row_deltas=[first,end]`와 해당 행의 원본 BGRA 바이트만 전송
+- 1MiB 미만 / 출력 geometry 변경 / 첫 프레임 / 25% 미만 전송 절약:
+  `row_deltas=null`로 **기존 전체 BGRA 전송**
+- 기존 JSON schema v1/v2 및 `sha256`, opacity, inverse transform, clip,
+  PTS와 ACK, frame count, NV12/NVENC 동작은 그대로 유지
+- Rust는 이전 plane을 복제해 해당 행을 채운 후 **완성된 전 픽셀을 SHA-256
+  검증**하고 GPU 입력에 사용. 이전 frame이 없거나 행 범위/geometry가
+  잘못됐거나 체크섬이 다르면 실패
+- Python은 이전 프레임 plane의 **불변 bytes 참조만** export-local로 보관한다.
+  8개의 4K plane 기준 최대 약 253MiB 데이터 참조이며, 기존
+  최대 두 프레임의 in-flight 메모리 외에 참조 수명이 늘어날 수 있다.
+  영구/전역 캐시나 디스크 중간파일은 생성하지 않는다.
+- 새 `frame_row_delta_enabled`, `frame_row_delta_planes`,
+  `frame_row_delta_bytes_saved`, `frame_row_delta_compare_seconds`
+  를 report에 기록한다. **saved_bytes는 기존 raw 전체 plane 전송과
+  비교한 절약량이지, 실제 성능 개선 확정값은 아니다.**
+- 다른 앱에서 빌드한 예전 binary-v2 실행 파일은 binary-v3를 받지 못하므로
+  반드시 같은 커밋에서 Rust worker를 새로 빌드해야 한다.
+- 배포용 GUI는 렌더 엔진만 FFmpeg / Rust GPU로 유지한다. binary-v3
+  토글은 일반 사용자에게 노출하지 않는다.
+
+A/B는 동일한 프로젝트, 1920×1080, 60FPS, 30초,
+`--gpu-profile automatic`으로 반복한다. 새 보고서에
+`frame_transport=binary-v3`가 표시되는지, 실제 전송 바이트가 줄었는지,
+`native_stream_wall_fps`가 기존 23.94보다 커졌는지, 가사·오디오·색상·PTS가
+기존 MP4와 일치하는지 확인한다. 비용이 더 크면 해당 행 델타
+최적화를 비활성화하는 쪽으로 재검토한다.
 
 ### 개발 진단용 이전 binary-v1 계약
 
