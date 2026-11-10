@@ -339,7 +339,8 @@ def capture_native_canvas_track_frame(
             full_width, full_height = layers[0].width, layers[0].height
             if (origin_x < 0 or origin_y < 0
                     or origin_x + image.width() > full_width
-                    or origin_y + image.height() > full_height):
+                    or origin_y + image.height() > full_height
+                    or image.width() * image.height() >= full_width * full_height):
                 # Defensive fallback for arbitrary, noninteger artboard
                 # dimensions. Never transmit incorrectly positioned pixels.
                 image = CanvasSnapshot._expand_partial_capture(
