@@ -27,14 +27,15 @@ MAX_PAYLOAD = 3840 * 2160 * 4 * 8
 def _row_delta(previous: bytes, current: bytes, width: int, height: int):
     """Return the changed whole-row interval, or None if not worth patching.
 
-    C-level memoryview equality avoids Python per-pixel work. If first and
-    last rows both differ, fallback is constant-time and sends the full plane.
-    Partial rows are never used, keeping BGRA geometry and pixel parity exact.
+    Slice-and-compare immutable bytes using native bytes equality. Do NOT
+    compare memoryviews row-by-row: its Python buffer equality is over 10x
+    slower for this 1080p workload. If first and last rows both differ,
+    fallback is constant-time. Preserve the exact BGRA row geometry.
     """
     stride = width * 4
     if len(current) < 1024 * 1024 or len(previous) != len(current):
         return None
-    old, new = memoryview(previous), memoryview(current)
+    old, new = previous, current
     first = 0
     while first < height and old[first * stride:(first + 1) * stride] == new[first * stride:(first + 1) * stride]:
         first += 1
