@@ -3,7 +3,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import unittest
 from types import SimpleNamespace
-from threading import current_thread, enumerate as active_threads
+from threading import Event, current_thread, enumerate as active_threads
 from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
@@ -68,6 +68,96 @@ class RasterCacheTests(unittest.TestCase):
         self.assertEqual(cache.retained_bytes, 128 * 128 * 4 * 2)
         cache.clear()
         self.assertEqual(cache.retained_bytes, 0)
+
+    def test_automatic_gpu_small_images_do_not_create_conversion_futures(self):
+        self.add(Source(
+            SourceType.TEXT, "Small lyrics", text="%current_time%",
+            width=128, height=128, z_index=0,
+        ))
+        cache = NativeRasterCache(
+            self.scene, ((None, None),), 2,
+            optimizations=NativeGpuOptimizations.for_profile("automatic"),
+        )
+        reference = self.capture(((None, None),), .5)
+        try:
+            frame = self.capture(((None, None),), .5, cache)
+            self.assertIsInstance(frame, NativeCanvasFrame)
+            self.assertEqual(frame, reference)
+            self.assertEqual(cache.parallel_bgra_submissions, 0)
+            self.assertEqual(cache.parallel_bgra_inline_small, 1)
+            self.assertEqual(cache.parallel_bgra_inline_busy, 0)
+            self.assertGreater(cache.qt_canvas_capture_seconds, 0)
+            self.assertGreater(cache.qt_canvas_inline_bgra_seconds, 0)
+        finally:
+            cache.clear()
+
+    def test_automatic_gpu_big_conversion_uses_nonblocking_bounded_workers(self):
+        cache = NativeRasterCache(
+            self.scene, ((None, None),), 2,
+            optimizations=NativeGpuOptimizations.for_profile("automatic"),
+        )
+        image = QImage(512, 512, QImage.Format.Format_ARGB32)
+        image.fill(QColor(12, 21, 44, 172))
+        entered = Event()
+        release = Event()
+        expected = straight_bgra_bytes(image)
+
+        def blocked(image):
+            entered.set()
+            if not release.wait(4.0):
+                raise RuntimeError("Conversion worker was not released")
+            return straight_bgra_bytes(image)
+
+        try:
+            first = cache.maybe_submit_bgra(image, blocked)
+            self.assertIsNotNone(first)
+            self.assertTrue(entered.wait(2.0))
+            second = cache.maybe_submit_bgra(image, blocked)
+            self.assertIsNotNone(second)
+            # Both slots are already reserved. Never wait here on GUI thread.
+            third = cache.maybe_submit_bgra(image, blocked)
+            self.assertIsNone(third)
+            self.assertEqual(cache.parallel_bgra_inline_busy, 1)
+            self.assertEqual(cache.parallel_bgra_submissions, 2)
+            self.assertLessEqual(cache.parallel_bgra_peak_workers, 2)
+        finally:
+            release.set()
+            cache.clear()
+        self.assertEqual(first.result(), expected)
+        self.assertEqual(second.result(), expected)
+        self.assertEqual(cache.parallel_bgra_peak_workers, 2)
+        self.assertFalse(any(t.name.startswith("mms-bgra_") for t in active_threads()))
+
+    def test_automatic_gpu_skips_tiny_dynamic_texture_conversion_futures(self):
+        base = NativeCanvasFrame(
+            128, 128, (NativeCanvasBgraLayer(
+                "base", 128, 128, bytes((5, 8, 11, 255)) * (128 * 128),
+            ),),
+        )
+        image = QImage(20, 30, QImage.Format.Format_ARGB32)
+        image.fill(QColor(220, 90, 40, 128))
+        stack = DynamicStack(
+            ((None, None),), (("canvas", 0), ("dynamic", 0)), ("reactive",),
+        )
+        rendered = [(SimpleNamespace(x=17.5, y=21.25, rotation=23.0), image)]
+        expected = interleave_dynamic_layers(
+            base, stack, rendered, seconds=.5, gpu_affine=True,
+        )
+        cache = NativeRasterCache(
+            self.scene, stack.bands, 2,
+            optimizations=NativeGpuOptimizations.for_profile("automatic"),
+        )
+        try:
+            result = interleave_dynamic_layers(
+                base, stack, rendered, seconds=.5, gpu_affine=True,
+                raster_cache=cache,
+            )
+            self.assertIsInstance(result, NativeCanvasFrame)
+            self.assertEqual(result, expected)
+            self.assertEqual(cache.parallel_bgra_inline_small, 1)
+            self.assertEqual(cache.parallel_bgra_submissions, 0)
+        finally:
+            cache.clear()
 
     def test_parallel_cpu_converts_only_qimage_off_main_thread_and_preserves_pixels(self):
         # The Canvas scene is NOT thread-safe. The independent, fully drawn
