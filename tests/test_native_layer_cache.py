@@ -61,6 +61,64 @@ class RasterCacheTests(unittest.TestCase):
         cache.clear()
         self.assertEqual(cache.retained_bytes, 0)
 
+    def test_native_frozen_lyric_settings_match_uncached_pixels(self):
+        # Production-native export owns a detached project and may reuse the
+        # resolved advanced-lyrics configuration across frames, not pixels.
+        source = Source(
+            SourceType.LYRICS, "Karaoke", x=15, y=16,
+            width=105, height=85, font_size=21,
+            subtitle_advanced_categories=["layout", "styles"],
+            subtitle_advanced_settings={
+                "subtitle_context_lines": 2,
+                "subtitle_next_lines": 2,
+                "subtitle_line_spacing": 18.0,
+            },
+        )
+        self.add(source)
+        item = next(item for item in self.scene.items() if isinstance(item, SourceItem))
+        bands = ((None, None),)
+        original = [self.capture(bands, i / 60) for i in range(3)]
+        cache = NativeRasterCache(self.scene, bands, 2)
+        original_method = Source.resolved_lyrics
+        resolutions = []
+
+        def counted(obj):
+            if obj is source:
+                resolutions.append(True)
+            return original_method(obj)
+
+        with patch.object(Source, "resolved_lyrics", counted):
+            native = [self.capture(bands, i / 60, cache) for i in range(3)]
+        self.assertEqual(native, original)
+        self.assertEqual(cache.rasterizations, 3)
+        self.assertEqual(len(resolutions), 1)
+        self.assertIs(item.source, source)
+        self.assertEqual(source.subtitle_context_lines, 1)
+        self.assertEqual(len(cache.frozen_lyric_settings_cache), 1)
+        cache.clear()
+        self.assertEqual(cache.frozen_lyric_settings_cache, {})
+
+    def test_band_source_items_precomputed_in_z_order_without_leaking_sources(self):
+        bottom = Source(SourceType.SHAPE, "Bottom", width=128, height=128, z_index=0)
+        top = Source(SourceType.TEXT, "Top", width=80, height=60, z_index=3)
+        self.add(bottom)
+        self.add(top)
+        bands = ((None, 1), (2, None))
+        cache = NativeRasterCache(self.scene, bands, 2)
+        self.assertEqual(
+            tuple(tuple(item.source.name for item in items) for items in cache.band_source_items),
+            (("Bottom",), ("Top",)),
+        )
+        with patch.object(CanvasSnapshot, "capture_track", wraps=CanvasSnapshot.capture_track) as capture:
+            result = self.capture(bands, 0.25, cache)
+        self.assertEqual(len(result.layers), 2)
+        self.assertEqual(capture.call_count, 2)
+        self.assertEqual(
+            tuple(tuple(item.source.name for item in call.kwargs["band_source_items"])
+                  for call in capture.call_args_list),
+            (("Bottom",), ("Top",)),
+        )
+
     def test_mixed_bands_split_and_dynamic_clock_never_freezes(self):
         sources = [Source(SourceType.SHAPE, "Static", width=128, height=128, z_index=0),
                    Source(SourceType.PROGRESS_BAR, "Clock", progress_mode="track", z_index=2,
