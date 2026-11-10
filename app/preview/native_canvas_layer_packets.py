@@ -308,6 +308,12 @@ def capture_native_canvas_track_frame(
             output_scale=output_scale,
             z_min=z_min, z_max=z_max,
             transparent=index != 0,
+            # Immutable export scene: shared worker-only lyric settings and
+            # preselected source items avoid repeated per-frame Qt traversal.
+            **({
+                "band_source_items": raster_cache.band_source_items[index],
+                "_frozen_lyric_settings_cache": raster_cache.frozen_lyric_settings_cache,
+            } if raster_cache is not None else {}),
         )
         layers.append(NativeCanvasBgraLayer(
             stream_key="base" if index == 0 else f"layer:{index - 1}",

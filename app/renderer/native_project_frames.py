@@ -131,6 +131,7 @@ def produce_complete_project_frames(
                         reuse_hits=raster_cache.hits,
                         retained_bytes=raster_cache.retained_bytes,
                         peak_retained_bytes=raster_cache.peak_retained_bytes,
+                        advanced_lyric_cache_entries=len(raster_cache.frozen_lyric_settings_cache),
                     )
                 yield interleave_dynamic_layers(
                     static, stack, layers, seconds=state["timeline_seconds"],
