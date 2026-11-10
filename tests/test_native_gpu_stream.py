@@ -133,6 +133,8 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
         self.assertGreater(result["frame_transport_bytes"], 135*64*64*4)
         self.assertEqual(result["timing_scope"],
                          "serial_qt_frame_production_pipe_write_and_native_ack")
+        self.assertFalse(result["frame_pipeline_enabled"])
+        self.assertEqual(result["max_outstanding_frame_packets"], 1)
         self.assertGreaterEqual(result["frame_production_seconds"], 0)
         self.assertGreaterEqual(result["frame_production_max_seconds"], 0)
         self.assertGreater(result["frame_pipe_write_seconds"], 0)
