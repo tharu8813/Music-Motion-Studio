@@ -10,6 +10,20 @@ use crate::d3d11_frame_pool::NativeNv12FramePool;
 use crate::qt_canvas_packet::{CanvasPacketFrame, LayerGeometry};
 use crate::resident_layer_cache::ResidentLayerCache;
 
+/// For an integer-positioned ROI, a D3D11 GPU copy is pixel-exact (no
+/// bilinear sampling, conversion through float, or rescaling). Do not apply
+/// this optimization to rotating/scaling layers or to partially clipped ROIs.
+fn compact_copy_origin(g: &LayerGeometry, width: u32, height: u32) -> Option<(u32, u32)> {
+    let [x, y, right, bottom] = g.clip;
+    if x.checked_add(g.width)? != right || y.checked_add(g.height)? != bottom
+        || right > width || bottom > height
+        || !(g.width < width || g.height < height)
+        || g.inverse != [1., 0., 0., 1., -(x as f32), -(y as f32)] {
+        return None;
+    }
+    Some((x, y))
+}
+
 const SHADER: &str = r#"
 cbuffer Geometry : register(b0) { float4 row0; float4 row1; float4 clipBounds; float4 sourceSize; };
 Texture2D<float4> source : register(t0);
@@ -58,6 +72,7 @@ pub struct AffineLayerRenderer {
     width: u32,
     height: u32,
     pub draws: u64,
+    pub exact_roi_copies: u64,
     pub allocations: u64,
     pub releases: u64,
     pub peak_output_bytes: usize,
@@ -82,7 +97,7 @@ impl AffineLayerRenderer {
         let (width,height) = pool.dimensions();
         Ok(Self { device,context,vertex:vertex.ok_or("Missing vertex shader")?,pixel:pixel.ok_or("Missing pixel shader")?,
             constants:constants.ok_or("Missing constants")?,rasterizer:rasterizer.ok_or("Missing rasterizer")?,
-            outputs:HashMap::new(),width,height,draws:0,allocations:0,releases:0,peak_output_bytes:0 })
+            outputs:HashMap::new(),width,height,draws:0,exact_roi_copies:0,allocations:0,releases:0,peak_output_bytes:0 })
     }
     pub fn create_input(&self, width:u32, height:u32) -> Result<ID3D11Texture2D,String> {
         if width == 0 || height == 0 || width > 3840 || height > 2160 { return Err("Affine input size out of bounds".into()); }
@@ -119,8 +134,21 @@ impl AffineLayerRenderer {
                 self.peak_output_bytes=self.peak_output_bytes.max(self.outputs.len()*self.width as usize*self.height as usize*4);
             }
             let source=resident.resource(&layer.stream_key)?;
-            self.draw(source,&self.outputs[&layer.stream_key].1,&layer.geometry)?;
-            self.draws+=1;
+            let (output, view) = &self.outputs[&layer.stream_key];
+            if let Some((x, y)) = compact_copy_origin(&layer.geometry, self.width, self.height) {
+                // Clearing the destination, then copying the source at its
+                // exact integer pixel offset, matches a transparent Qt image
+                // with the original cropped bytes pasted without scaling.
+                // All operations stay ordered on the same immediate context.
+                unsafe {
+                    self.context.ClearRenderTargetView(view, &[0., 0., 0., 0.]);
+                    self.context.CopySubresourceRegion(output, 0, x, y, 0, source, 0, None);
+                }
+                self.exact_roi_copies += 1;
+            } else {
+                self.draw(source,view,&layer.geometry)?;
+                self.draws+=1;
+            }
         }
         Ok(())
     }
@@ -148,5 +176,35 @@ impl AffineLayerRenderer {
             self.context.OMSetRenderTargets(None,None);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod compact_roi_tests {
+    use super::compact_copy_origin;
+    use crate::qt_canvas_packet::LayerGeometry;
+
+    #[test]
+    fn only_exact_integer_crop_with_matching_clip_uses_gpu_copy() {
+        let mut g = LayerGeometry::identity(37, 15);
+        g.inverse = [1., 0., 0., 1., -12., -24.];
+        g.clip = [12, 24, 49, 39];
+        assert_eq!(compact_copy_origin(&g, 128, 80), Some((12, 24)));
+        let mut altered = g;
+        altered.inverse[4] = -12.5;
+        assert_eq!(compact_copy_origin(&altered, 128, 80), None);
+        altered = g;
+        altered.clip[2] += 1;
+        assert_eq!(compact_copy_origin(&altered, 128, 80), None);
+        altered = g;
+        altered.inverse[0] = 1.01;
+        assert_eq!(compact_copy_origin(&altered, 128, 80), None);
+        altered = g;
+        altered.clip = [120, 24, 157, 39];
+        assert_eq!(compact_copy_origin(&altered, 128, 80), None);
+        altered = g;
+        altered.clip = [12, 24, 49, 39];
+        altered.inverse[5] = -23.;
+        assert_eq!(compact_copy_origin(&altered, 128, 80), None);
     }
 }
