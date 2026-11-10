@@ -129,6 +129,11 @@ def produce_complete_project_frames(
                         f"Audio-reactive overlay ended at frame {frame_index}/{total_frames}"
                     ) from exc
                 _check_cancel(cancel)
+                frame_packet = interleave_dynamic_layers(
+                    static, stack, layers, seconds=state["timeline_seconds"],
+                    output_scale=scale, gpu_affine=True,
+                    raster_cache=raster_cache,
+                )
                 if raster_counters is not None:
                     raster_counters.update(
                         rasterizations=raster_cache.rasterizations,
@@ -146,10 +151,7 @@ def produce_complete_project_frames(
                         scene_render_source_pixels=raster_cache.scene_render_source_pixels,
                         full_frame_source_pixels=raster_cache.full_frame_source_pixels,
                     )
-                yield interleave_dynamic_layers(
-                    static, stack, layers, seconds=state["timeline_seconds"],
-                    output_scale=scale, gpu_affine=True,
-                )
+                yield frame_packet
             if project.to_dict() != before:
                 raise TimelineValidationError("Native export unexpectedly modified project sources")
     except Exception:
