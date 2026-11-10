@@ -56,11 +56,48 @@ class ExportBottleneckProfileTests(unittest.TestCase):
             r"C:\\Users\\Example\\Music-Motion-Studio\\main.py",
         ], False), "editor")
         self.assertEqual(classify_process("pythonw.exe", ["main.py"], False), "editor")
+        self.assertEqual(classify_process("python.exe", [
+            r"C:\Users\test\.venv\Scripts\python.exe", "-m",
+            "tools.native_gpu_full_export", "--project", "giggles.pvsproj",
+        ], False), "editor")
         # Multiprocessing children must never get counted as the editor.
         self.assertEqual(classify_process("python.exe", [
             "-c", "from multiprocessing.spawn import spawn_main", "main.py",
         ], False), "canvas_workers")
         self.assertEqual(classify_process("python.exe", ["-m", "pip", "install"], False), "other")
+
+    def test_rust_worker_is_counted_as_an_export(self) -> None:
+        self.assertEqual(
+            classify_process("d3d11_qt_canvas_stream_export.exe", [], False),
+            "rust_gpu",
+        )
+        self.assertEqual(
+            assess_capture(None, [{"process_counts": {"rust_gpu": 1}}], {"stages": {}}),
+            ("export_observed", None),
+        )
+
+    def test_process_scoped_gpu_engines_are_separate_from_device_gpu(self) -> None:
+        samples = [{
+            "interval_seconds": 1.0,
+            "cpu_cores": {"editor": 1, "rust_gpu": 0.4},
+            "rss_mib": {"editor": 100, "rust_gpu": 50},
+            "gpu": None,
+            "process_categories": {"123": "editor", "124": "rust_gpu"},
+            "process_gpu_engines": {
+                "123": {"3d": 8.5, "copy": 4},
+                "124": {"videoencode": 30},
+            },
+        }]
+        summary = summarize(samples, {"profile_files": 0, "stages": {}})
+        self.assertIsNone(summary["device_gpu_mean_percent"])
+        self.assertEqual(summary["process_gpu_engine_samples"], 1)
+        self.assertEqual(
+            summary["process_gpu_engine_mean_percent_by_category"]["rust_gpu"]["videoencode"],
+            30.0,
+        )
+        self.assertEqual(
+            summary["process_gpu_engine_peak_percent_by_category"]["editor"]["3d"], 8.5,
+        )
 
     def test_gpu_csv_handles_unsupported_and_multiple_cards(self) -> None:
         rows = parse_gpu_output("0, 28 %, 13 %, 1120 MiB\n1, 50, 0, 2048\n2, N/A, N/A, 20\n")
