@@ -7,6 +7,12 @@ on:
       - 'native/gpu_export_core/**'
       - '.github/workflows/rust-gpu-export-core.yml'
       - 'docs/architecture/rust-gpu-export-core.md'
+  push:
+    branches: [main]
+    paths:
+      - 'native/gpu_export_core/**'
+      - '.github/workflows/rust-gpu-export-core.yml'
+      - 'docs/architecture/rust-gpu-export-core.md'
   workflow_dispatch:
 
 permissions:

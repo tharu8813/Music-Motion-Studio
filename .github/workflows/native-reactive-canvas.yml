@@ -6,14 +6,40 @@ on:
     paths:
       - 'tools/native_canvas_*.py'
       - 'tools/native_gpu_full_export.py'
-      - 'app/renderer/python_visualizer.py'
-      - 'app/renderer/native_gpu_export.py'
-      - 'app/renderer/native_gpu_stream.py'
       - 'app/preview/native_canvas_layer_packets.py'
-      - 'tests/test_native_canvas_*.py'
-      - 'tests/test_native_gpu_production_finalizer.py'
-      - 'tests/test_native_gpu_stream.py'
-      - 'tests/test_native_gpu_full_export.py'
+      - 'app/renderer/native_*.py'
+      - 'app/renderer/python_visualizer.py'
+      - 'app/renderer/ffmpeg_renderer.py'
+      - 'app/renderer/ffmpeg_transform.py'
+      - 'app/controllers/export_controller.py'
+      - 'app/renderer/render_worker.py'
+      - 'app/ui/export_*.py'
+      - 'app/canvas/live_canvas.py'
+      - 'app/canvas/source_item.py'
+      - 'app/timeline/**'
+      - 'app/animation/**'
+      - 'tests/test_native_*.py'
+      - 'tests/test_gpu_export_ui.py'
+      - '.github/workflows/native-reactive-canvas.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/native_canvas_*.py'
+      - 'tools/native_gpu_full_export.py'
+      - 'app/preview/native_canvas_layer_packets.py'
+      - 'app/renderer/native_*.py'
+      - 'app/renderer/python_visualizer.py'
+      - 'app/renderer/ffmpeg_renderer.py'
+      - 'app/renderer/ffmpeg_transform.py'
+      - 'app/controllers/export_controller.py'
+      - 'app/renderer/render_worker.py'
+      - 'app/ui/export_*.py'
+      - 'app/canvas/live_canvas.py'
+      - 'app/canvas/source_item.py'
+      - 'app/timeline/**'
+      - 'app/animation/**'
+      - 'tests/test_native_*.py'
+      - 'tests/test_gpu_export_ui.py'
       - '.github/workflows/native-reactive-canvas.yml'
   workflow_dispatch:
 
@@ -63,8 +89,8 @@ jobs:
       - name: Verify real FFmpeg availability (never allow skipped audio tests)
         run: python -c "import os,pathlib,subprocess; p=pathlib.Path(os.environ['PLAYLIST_CANVAS_TEST_FFMPEG']); assert p.is_file(),str(p); subprocess.run([str(p),'-version'],check=True,stdout=subprocess.DEVNULL)"
       - name: Compile project diagnostic sources
-        run: python -m compileall -q tools/native_canvas_project_probe.py tools/native_canvas_dynamic_overlays.py tools/native_canvas_timeline_probe.py app/preview/native_canvas_layer_packets.py app/renderer/native_gpu_export.py app/renderer/native_gpu_stream.py tests/test_native_canvas_dynamic_overlays.py tests/test_native_gpu_production_finalizer.py tests/test_native_gpu_stream.py tests/test_native_gpu_full_export.py tools/native_gpu_full_export.py
+        run: python -m compileall -q tools/native_canvas_project_probe.py tools/native_canvas_dynamic_overlays.py tools/native_canvas_timeline_probe.py app/preview/native_canvas_layer_packets.py app/renderer/native_gpu_export.py app/renderer/native_gpu_stream.py tests/test_native_canvas_dynamic_overlays.py tests/test_native_gpu_production_finalizer.py tests/test_native_gpu_stream.py tests/test_native_gpu_full_export.py tests/test_native_affine_contract.py tests/test_native_frame_transport.py tests/test_native_layer_cache.py tests/test_native_dynamic_motion.py tests/test_native_project_runtime.py tests/test_native_project_ownership.py tests/test_gpu_export_ui.py app/controllers/export_controller.py app/renderer/render_worker.py app/renderer/native_frame_transport.py app/renderer/native_project_frames.py app/renderer/native_project_export.py app/renderer/native_dynamic_motion.py app/renderer/native_layer_cache.py tools/native_gpu_full_export.py
       - name: Test original audio FFT, lyric/background reaction, Z packets and source inventory
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m unittest -v tests.test_native_canvas_dynamic_overlays tests.test_native_canvas_layer_packets tests.test_native_canvas_project_probe tests.test_native_gpu_production_finalizer tests.test_native_gpu_stream tests.test_native_gpu_full_export
+        run: python -m unittest -v tests.test_native_canvas_dynamic_overlays tests.test_native_canvas_layer_packets tests.test_native_canvas_project_probe tests.test_native_gpu_production_finalizer tests.test_native_gpu_stream tests.test_native_gpu_full_export tests.test_native_affine_contract tests.test_native_frame_transport tests.test_native_layer_cache tests.test_native_dynamic_motion tests.test_native_project_runtime tests.test_native_project_ownership tests.test_gpu_export_ui
