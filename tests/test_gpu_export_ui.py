@@ -124,6 +124,40 @@ class GpuUiTests(unittest.TestCase):
         self.controller.succeeded.assert_called_once_with(result)
         self.controller.finished.assert_called_once()
 
+    def test_1080p_output_from_720p_project_starts_gpu_without_fallback(self):
+        # Export UI resolution may be higher than the Canvas size.
+        self.options.app_settings = AppSettings(render_width=1920, render_height=1080)
+        with patch.object(QMessageBox, "information") as notice:
+            worker = self.start()
+        self.assertIsNotNone(worker)
+        notice.assert_not_called()
+        self.assertEqual(self.bridge_kwargs[-1]["scale"], 1.5)
+
+    def test_gpu_preflight_fallback_is_in_selected_language_and_explains_sizes(self):
+        self.options.app_settings = AppSettings(render_width=4000, render_height=2250)
+        self.window.translator.is_korean = True
+        with patch.object(QMessageBox, "information") as notice:
+            self.assertFalse(
+                self.controller.start_gpu_export(MagicMock(), [], self.output, self.options)
+            )
+        title, message = notice.call_args.args[1:3]
+        self.assertIn("GPU 내보내기", title)
+        self.assertIn("해상도", message)
+        self.assertIn("1280×720", message)
+        self.assertIn("4000×2250", message)
+        self.assertNotIn("GPU export unavailable", message)
+        self.assertNotIn("Continuing with FFmpeg", message)
+
+        self.window.translator.is_korean = False
+        with patch.object(QMessageBox, "information") as notice:
+            self.assertFalse(
+                self.controller.start_gpu_export(MagicMock(), [], self.output, self.options)
+            )
+        title, message = notice.call_args.args[1:3]
+        self.assertEqual(title, "GPU export unavailable")
+        self.assertIn("3840×2160", message)
+        self.assertNotIn("기존 FFmpeg", message)
+
     def test_unsupported_preflight_uses_ffmpeg_before_worker(self):
         self.project.settings.transition_mode = "crossfade"
         with patch.object(QMessageBox, "information"):

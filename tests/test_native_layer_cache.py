@@ -170,7 +170,7 @@ class RasterCacheTests(unittest.TestCase):
             ]
             return frames, cache
 
-        for scale in (0.5, 1.0):
+        for scale in (0.5, 1.0, 1.5):
             with self.subTest(scale=scale):
                 original, baseline = run(False, scale)
                 optimized, roi = run(True, scale)
@@ -203,7 +203,7 @@ class RasterCacheTests(unittest.TestCase):
         self.add(text)
         bands = ((None, 0), (2, None))
 
-        for scale in (0.5, 1.0):
+        for scale in (0.5, 1.0, 1.5):
             for elapsed in (0.0, 0.5, 1.0):
                 with self.subTest(scale=scale, elapsed=elapsed):
                     with patch.dict(os.environ, {

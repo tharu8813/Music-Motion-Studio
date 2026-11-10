@@ -111,8 +111,12 @@ def validate_project_for_gpu_capture(
             raise TimelineValidationError(
                 f"Image asset not found for project source {source.id}"
             )
-    if not isfinite(scale) or not 0.25 <= scale <= 1.0:
-        raise TimelineValidationError("Project diagnostic scale must be 0.25..1.0")
+    # Production Qt Canvas capture supports upscaling as well as downscaling.
+    # The final even output dimensions remain bounded to 3840x2160 below.
+    # The old diagnostic-only 1.0 ceiling incorrectly rejected e.g. a
+    # 1280x720 project exported as 1920x1080 in the actual application.
+    if not isfinite(scale) or not 0.25 <= scale <= 64.0:
+        raise TimelineValidationError("GPU project output scale must be 0.25..64.0")
     width = round(project.canvas.width * scale)
     height = round(project.canvas.height * scale)
     if width < 64 or width > 3840 or height < 64 or height > 2160 or width % 2 or height % 2:
