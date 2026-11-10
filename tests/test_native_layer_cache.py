@@ -2,6 +2,7 @@
 import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import unittest
+from threading import current_thread, enumerate as active_threads
 from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
@@ -10,7 +11,9 @@ from app.canvas.source_item import SourceItem
 from app.models.source import Source, SourceType
 from app.models.playlist import PlaylistTrack
 from app.preview.canvas_snapshot import CanvasSnapshot
-from app.preview.native_canvas_layer_packets import capture_native_canvas_track_frame
+from app.preview.native_canvas_layer_packets import (
+    DeferredNativeCanvasFrame, capture_native_canvas_track_frame, straight_bgra_bytes,
+)
 from app.renderer.native_dynamic_layers import build_dynamic_stack
 from app.renderer.native_frame_transport import frame_chunks
 from app.renderer.native_layer_cache import NativeRasterCache, split_resident_bands
@@ -62,6 +65,131 @@ class RasterCacheTests(unittest.TestCase):
         self.assertEqual(cache.retained_bytes, 128 * 128 * 4 * 2)
         cache.clear()
         self.assertEqual(cache.retained_bytes, 0)
+
+    def test_parallel_cpu_converts_only_qimage_off_main_thread_and_preserves_pixels(self):
+        # The Canvas scene is NOT thread-safe. The independent, fully drawn
+        # QImage is the only object passed to the BGRA conversion executor.
+        self.add(Source(SourceType.SHAPE, "Background", width=128, height=128, z_index=0))
+        moving = Source(
+            SourceType.TEXT, "Moving text", text="%current_time%",
+            x=30, y=26, width=76, height=54, font_size=20, z_index=2,
+        )
+        moving.shadow.enabled = True
+        moving.shadow.offset_x = 3
+        moving.shadow.blur_radius = 6
+        self.add(moving)
+        bands = ((None, 0), (2, None))
+        original_converter = straight_bgra_bytes
+        seen_threads = []
+        gui_thread = current_thread().name
+
+        def traced_converter(image):
+            seen_threads.append(current_thread().name)
+            return original_converter(image)
+
+        for scale in (0.5, 1.0, 1.5):
+            with self.subTest(scale=scale):
+                baseline = NativeRasterCache(
+                    self.scene, bands, 2,
+                    optimizations=NativeGpuOptimizations.for_profile("accelerated"),
+                )
+                parallel = NativeRasterCache(
+                    self.scene, bands, 2,
+                    optimizations=NativeGpuOptimizations.for_profile("cpu_parallel"),
+                )
+                try:
+                    expected = []
+                    generated = []
+                    with patch(
+                        "app.preview.native_canvas_layer_packets.straight_bgra_bytes",
+                        side_effect=traced_converter,
+                    ), patch.object(
+                        CanvasSnapshot, "capture_track",
+                        wraps=CanvasSnapshot.capture_track,
+                    ) as captured:
+                        for seconds in (0.0, 0.3, 0.8):
+                            kw = dict(
+                                elapsed_seconds=seconds,
+                                output_scale=scale,
+                                playlist_duration_seconds=2,
+                            )
+                            expected.append(capture_native_canvas_track_frame(
+                                self.scene, self.track, bands,
+                                raster_cache=baseline, **kw,
+                            ))
+                            generated.append(capture_native_canvas_track_frame(
+                                self.scene, self.track, bands,
+                                raster_cache=parallel, **kw,
+                            ))
+                        self.assertTrue(all(
+                            isinstance(frame, DeferredNativeCanvasFrame)
+                            for frame in generated
+                        ))
+                        actual = [frame.resolve() for frame in generated]
+                    self.assertEqual(actual, expected)
+                    self.assertEqual(parallel.rasterizations, baseline.rasterizations)
+                    self.assertEqual(parallel.hits, baseline.hits)
+                    self.assertEqual(parallel.compact_band_captures,
+                                     baseline.compact_band_captures)
+                    self.assertEqual(parallel.compact_canvas_bytes_saved,
+                                     baseline.compact_canvas_bytes_saved)
+                    self.assertEqual(parallel.parallel_bgra_submissions, 3)
+                    self.assertTrue(all(
+                        call.kwargs.get("band_source_items") is not None
+                        for call in captured.call_args_list
+                    ))
+                finally:
+                    parallel.clear()
+                    baseline.clear()
+        self.assertTrue(any(n.startswith("mms-bgra_") for n in seen_threads))
+        self.assertIn(gui_thread, seen_threads)
+        self.assertFalse(any(
+            t.name.startswith("mms-bgra_") for t in active_threads()
+        ))
+
+    def test_parallel_cpu_conversion_failure_propagates_without_silent_fallback(self):
+        self.add(Source(SourceType.TEXT, "Clock", text="%current_time%",
+                        width=128, height=128, z_index=0))
+        bands = ((None, None),)
+        cache = NativeRasterCache(
+            self.scene, bands, 2,
+            optimizations=NativeGpuOptimizations.for_profile("cpu_parallel"),
+        )
+        try:
+            with patch(
+                "app.preview.native_canvas_layer_packets.straight_bgra_bytes",
+                side_effect=ValueError("broken pixel conversion"),
+            ):
+                deferred = self.capture(bands, 0.3, cache)
+                self.assertIsInstance(deferred, DeferredNativeCanvasFrame)
+                with self.assertRaisesRegex(ValueError, "broken pixel conversion"):
+                    deferred.resolve()
+        finally:
+            cache.clear()
+        self.assertFalse(any(t.name.startswith("mms-bgra_") for t in active_threads()))
+
+    def test_cpu_parallel_opt_in_does_not_override_existing_accelerated_profile(self):
+        self.add(Source(SourceType.TEXT, "Clock", text="%current_time%",
+                        width=128, height=128, z_index=0))
+        bands = ((None, None),)
+        with patch.dict(os.environ, {"PLAYLIST_CANVAS_NATIVE_PARALLEL_BGRA": "1"}):
+            previous = NativeRasterCache(
+                self.scene, bands, 2,
+                optimizations=NativeGpuOptimizations.for_profile("accelerated"),
+            )
+        with patch.dict(os.environ, {"PLAYLIST_CANVAS_NATIVE_PARALLEL_BGRA": "0"}):
+            experiment = NativeRasterCache(
+                self.scene, bands, 2,
+                optimizations=NativeGpuOptimizations.for_profile("cpu_parallel"),
+            )
+        try:
+            self.assertFalse(previous.parallel_bgra_enabled)
+            self.assertTrue(experiment.parallel_bgra_enabled)
+            self.assertEqual(self.capture(bands, .5, previous),
+                             self.capture(bands, .5, experiment).resolve())
+        finally:
+            previous.clear()
+            experiment.clear()
 
     def test_native_frozen_lyric_settings_match_uncached_pixels(self):
         # Production-native export owns a detached project and may reuse the
