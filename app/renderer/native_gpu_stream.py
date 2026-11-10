@@ -178,6 +178,7 @@ def stream_native_canvas_h264(
         frame_pipe_write_seconds = 0.0
         cpu_parallel_bgra_frames = 0
         frame_ack_wait_seconds = 0.0
+        frame_write_timings: dict[str, float | int] = {}
         # Experimental, rollback-friendly optimization. A frame is never
         # painted on the sender thread, and at most two packets coexist.
         overlap_enabled = (
@@ -272,6 +273,8 @@ def stream_native_canvas_h264(
                             )
                             written_bytes = write_frame(
                                 worker.stdin, resolved, index, reuse_state=reuse_state,
+                            timings=frame_write_timings,
+                                timings=frame_write_timings,
                             )
                             wrote_at = monotonic()
                             _frame_acknowledgement(
@@ -396,6 +399,10 @@ def stream_native_canvas_h264(
                 frame_production_seconds=frame_production_seconds,
                 frame_production_max_seconds=frame_production_max_seconds,
                 frame_pipe_write_seconds=frame_pipe_write_seconds,
+                frame_sha256_seconds=frame_write_timings.get("sha256_seconds", 0.0),
+                frame_sha256_bytes=frame_write_timings.get("sha256_bytes", 0),
+                frame_pipe_syswrite_seconds=frame_write_timings.get("pipe_syswrite_seconds", 0.0),
+                frame_pipe_syswrite_calls=frame_write_timings.get("pipe_syswrite_calls", 0),
                 frame_ack_wait_seconds=frame_ack_wait_seconds,
                 native_worker_finalize_seconds=monotonic() - finalize_started,
                 native_stream_elapsed_seconds=stream_elapsed,
