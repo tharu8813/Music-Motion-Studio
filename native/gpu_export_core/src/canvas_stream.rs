@@ -262,6 +262,71 @@ mod tests {
         }
     }
 
+    fn packet_v3(
+        index: u64, reuse: bool, rows: Option<(u64, u64)>,
+        payload: &[u8], claimed: &[u8],
+    ) -> Vec<u8> {
+        let mut packet = packet_v2(index, reuse, payload, claimed);
+        let meta_size = u32::from_le_bytes(packet[16..20].try_into().unwrap()) as usize;
+        let mut root: serde_json::Value =
+            serde_json::from_slice(&packet[28..28+meta_size]).unwrap();
+        root["row_deltas"] = serde_json::json!([rows.map(|(a,b)| vec![a,b])]);
+        let meta = serde_json::to_vec(&root).unwrap();
+        let mut wire = Vec::from(&b"MMSB"[..]);
+        wire.extend(3u32.to_le_bytes());
+        wire.extend(index.to_le_bytes());
+        wire.extend((meta.len() as u32).to_le_bytes());
+        wire.extend((if reuse { 0 } else { payload.len() as u64 }).to_le_bytes());
+        wire.extend(meta);
+        if !reuse { wire.extend(payload); }
+        // Prevent accidental comparisons against the old packet's metadata.
+        packet.clear();
+        wire
+    }
+
+    #[test]
+    fn v3_row_patch_reconstructs_sha_verified_original_bytes() {
+        let first_pixels = [10, 20, 30, 255].repeat(4);
+        let mut second_pixels = first_pixels.clone();
+        second_pixels[..8].copy_from_slice(&[55, 11, 24, 255, 88, 33, 70, 255]);
+        let first_wire = packet_v3(0, false, None, &first_pixels, &first_pixels);
+        let first = read_frame_delta(&mut &first_wire[..], 0, None).unwrap().unwrap();
+        let wire = packet_v3(1, false, Some((0, 1)), &second_pixels[..8], &second_pixels);
+        assert!(wire.len() < packet_v3(1, false, None, &second_pixels, &second_pixels).len());
+        let second = read_frame_delta(&mut &wire[..], 1, Some(&first)).unwrap().unwrap();
+        assert_eq!(second.layers[0].pixels, second_pixels);
+        assert_eq!(
+            second.layers[0].validated_sha256,
+            <[u8; 32]>::from(Sha256::digest(&second_pixels))
+        );
+        let reused = packet_v3(2, true, None, &[], &second_pixels);
+        let third = read_frame_delta(&mut &reused[..], 2, Some(&second)).unwrap().unwrap();
+        assert_eq!(third.layers[0].pixels, second_pixels);
+        assert!(read_frame_reuse(&mut &wire[..], 1, Some(&first)).is_err());
+    }
+
+    #[test]
+    fn v3_rejects_stale_tampered_out_of_bounds_and_truncated_patches() {
+        let first_pixels = [10, 20, 30, 255].repeat(4);
+        let first_wire = packet_v3(0, false, None, &first_pixels, &first_pixels);
+        let first = read_frame_delta(&mut &first_wire[..], 0, None).unwrap().unwrap();
+        let patched = [50, 40, 30, 255, 50, 40, 30, 255];
+        let mut expected = first_pixels.clone();
+        expected[..8].copy_from_slice(&patched);
+        let valid = packet_v3(1, false, Some((0, 1)), &patched, &expected);
+        assert!(read_frame_delta(&mut &valid[..], 1, None).is_err());
+        let bad_checksum = packet_v3(1, false, Some((0, 1)), &patched, &first_pixels);
+        assert!(read_frame_delta(&mut &bad_checksum[..], 1, Some(&first)).is_err());
+        for rows in [Some((0, 3)), Some((1, 1)), Some((2, 1))] {
+            let invalid = packet_v3(1, false, rows, &patched, &expected);
+            assert!(read_frame_delta(&mut &invalid[..], 1, Some(&first)).is_err());
+        }
+        let truncated = packet_v3(1, false, Some((0, 1)), &patched[..4], &expected);
+        assert!(read_frame_delta(&mut &truncated[..], 1, Some(&first)).is_err());
+        let bad_reuse = packet_v3(1, true, Some((0, 1)), &[], &first_pixels);
+        assert!(read_frame_delta(&mut &bad_reuse[..], 1, Some(&first)).is_err());
+    }
+
     #[test]
     fn valid_fragmented_frames_and_all_truncations() {
         struct Fragments<'a>(&'a [u8]);
