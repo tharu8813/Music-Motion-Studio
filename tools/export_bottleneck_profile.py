@@ -305,7 +305,11 @@ def observe_tree(psutil, root, last_cpu: dict, interval: float) -> dict:
 def collect(psutil, pid: int, seconds: float | None, interval: float,
             samples: list[dict] | None = None) -> tuple[list[dict], str]:
     """Measure only the selected editor PID and recursive export children."""
-    from tools.windows_gpu_process_counters import WindowsGpuProcessCounters
+    if __package__:
+        from .windows_gpu_process_counters import WindowsGpuProcessCounters
+    else:
+        # Preserve the documented 'python tools/export_bottleneck_profile.py' CLI.
+        from windows_gpu_process_counters import WindowsGpuProcessCounters
 
     root = psutil.Process(pid)
     start = time.monotonic()
