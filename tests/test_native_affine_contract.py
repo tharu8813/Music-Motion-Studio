@@ -55,6 +55,62 @@ class AffineContractTests(unittest.TestCase):
             NativeCanvasFrame(256,192,(NativeCanvasBgraLayer("base",2,2,bytes([0,0,0,255])*4),),2)
 
     @unittest.skipUnless(PROBE, "Set PLAYLIST_CANVAS_AFFINE_PROBE for real D3D11 readback")
+    def test_compact_integer_roi_gpu_copy_is_byte_exact_in_bgra_and_nv12(self):
+        # The copy path cannot degrade a glyph: a cropped plane is moved
+        # directly to its integer pixel offset without texture sampling.
+        small_image = QImage(37, 15, QImage.Format.Format_ARGB32)
+        small_image.fill(0)
+        painter = QPainter(small_image)
+        painter.fillRect(4, 3, 24, 9, QColor(244, 102, 23, 137))
+        painter.fillRect(9, 6, 18, 7, QColor(18, 178, 245, 204))
+        painter.end()
+        local_bytes = straight_bgra_bytes(small_image)
+        width, height, x, y = 256, 192, 21, 31
+        full_bytes = bytearray(width * height * 4)
+        for row in range(small_image.height()):
+            dst = ((y + row) * width + x) * 4
+            src = row * small_image.width() * 4
+            full_bytes[dst:dst + small_image.width() * 4] = local_bytes[
+                src:src + small_image.width() * 4
+            ]
+        full = NativeCanvasBgraLayer(
+            "layer:0", width, height, bytes(full_bytes),
+        )
+        cropped = NativeCanvasBgraLayer(
+            "layer:0", small_image.width(), small_image.height(), local_bytes,
+            1.0, (1, 0, 0, 1, -x, -y),
+            (x, y, x + small_image.width(), y + small_image.height()),
+        )
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            original = save_native_canvas_frame(
+                NativeCanvasFrame(width, height, (self.base(), full)),
+                root, stem="expanded",
+            )
+            compact = save_native_canvas_frame(
+                NativeCanvasFrame(width, height, (self.base(), cropped), 2),
+                root, stem="compact",
+            )
+            for label, manifest in (("expanded", original), ("compact", compact)):
+                pixels_path = root / (label + ".bgra")
+                proc = subprocess.run(
+                    [PROBE, str(manifest), "1", str(pixels_path)],
+                    capture_output=True, text=True, timeout=30,
+                )
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(pixels_path.read_bytes(), bytes(full_bytes))
+            results = []
+            for label, manifest in (("expanded", original), ("compact", compact)):
+                path = root / (label + ".nv12")
+                proc = subprocess.run(
+                    [PROBE, str(manifest), "1", str(path), "--nv12"],
+                    capture_output=True, text=True, timeout=30,
+                )
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                results.append(path.read_bytes())
+            self.assertEqual(results[0], results[1])
+
+    @unittest.skipUnless(PROBE, "Set PLAYLIST_CANVAS_AFFINE_PROBE for real D3D11 readback")
     def test_real_gpu_transform_matches_qt_rotation_scale_opacity_seek_and_half_open_clip(self):
         project=project_fixture()
         source=Source(SourceType.AUDIO_VISUALIZER,"gpu parity",x=90,y=80,width=48,height=24,scale=1.5,opacity=.65,z_index=9)

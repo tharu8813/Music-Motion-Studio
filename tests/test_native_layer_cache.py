@@ -12,6 +12,7 @@ from app.models.playlist import PlaylistTrack
 from app.preview.canvas_snapshot import CanvasSnapshot
 from app.preview.native_canvas_layer_packets import capture_native_canvas_track_frame
 from app.renderer.native_dynamic_layers import build_dynamic_stack
+from app.renderer.native_frame_transport import frame_chunks
 from app.renderer.native_layer_cache import NativeRasterCache, split_resident_bands
 from app.models.project import ProjectDocument, CanvasSettings
 
@@ -162,6 +163,100 @@ class RasterCacheTests(unittest.TestCase):
                 self.assertLess(roi.scene_render_source_pixels,
                                 roi.full_frame_source_pixels)
                 self.assertEqual(roi.rasterizations, baseline.rasterizations)
+
+    def test_compact_roi_v2_packets_are_exactly_the_same_pixels_as_expanded_roi(self):
+        # Current implementation expands pixel-aligned transparent crop back
+        # to the full-size BGRA plane. Compact mode sends those same pixels,
+        # plus an exact integer translation and half-open output clip.
+        self.add(Source(
+            SourceType.SHAPE, "Opaque background",
+            width=128, height=128, z_index=0,
+        ))
+        text = Source(
+            SourceType.TEXT, "Clock", text="%current_time%",
+            x=32, y=31, width=68, height=35, font_size=20, z_index=2,
+        )
+        text.shadow.enabled = True
+        text.shadow.offset_x = 3.0
+        text.shadow.offset_y = 2.0
+        text.shadow.blur_radius = 8.0
+        self.add(text)
+        bands = ((None, 0), (2, None))
+
+        for scale in (0.5, 1.0):
+            for elapsed in (0.0, 0.5, 1.0):
+                with self.subTest(scale=scale, elapsed=elapsed):
+                    with patch.dict(os.environ, {
+                        "PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS": "1",
+                        "PLAYLIST_CANVAS_NATIVE_COMPACT_BANDS": "0",
+                    }):
+                        expanded_cache = NativeRasterCache(self.scene, bands, 2)
+                    with patch.dict(os.environ, {
+                        "PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS": "1",
+                        "PLAYLIST_CANVAS_NATIVE_COMPACT_BANDS": "1",
+                    }):
+                        compact_cache = NativeRasterCache(self.scene, bands, 2)
+                    kw = dict(
+                        elapsed_seconds=elapsed,
+                        playlist_duration_seconds=2,
+                        output_scale=scale,
+                    )
+                    expanded = capture_native_canvas_track_frame(
+                        self.scene, self.track, bands,
+                        raster_cache=expanded_cache, **kw,
+                    )
+                    compact = capture_native_canvas_track_frame(
+                        self.scene, self.track, bands,
+                        raster_cache=compact_cache, **kw,
+                    )
+                    self.assertEqual(compact.schema, 2)
+                    self.assertEqual(compact.layers[0], expanded.layers[0])
+                    self.assertEqual(len(compact.layers), len(expanded.layers))
+                    full = expanded.layers[1]
+                    small = compact.layers[1]
+                    self.assertLess(len(small.pixels), len(full.pixels))
+                    self.assertEqual(small.inverse_transform[:4], (1, 0, 0, 1))
+                    x, y, right, bottom = small.clip
+                    self.assertEqual(small.inverse_transform[4:], (-x, -y))
+                    self.assertEqual((right - x, bottom - y), (small.width, small.height))
+
+                    restored = bytearray(len(full.pixels))
+                    for row in range(small.height):
+                        dest = ((y + row) * full.width + x) * 4
+                        src = row * small.width * 4
+                        restored[dest:dest + small.width * 4] = small.pixels[
+                            src:src + small.width * 4
+                        ]
+                    # Compare every BGRA byte including transparent pixels.
+                    self.assertEqual(bytes(restored), full.pixels)
+                    self.assertEqual(compact_cache.compact_band_captures, 1)
+                    self.assertEqual(
+                        compact_cache.compact_canvas_bytes_saved,
+                        len(full.pixels) - len(small.pixels),
+                    )
+                    self.assertLess(
+                        sum(len(chunk) for chunk in frame_chunks(compact, 0)),
+                        sum(len(chunk) for chunk in frame_chunks(expanded, 0)),
+                    )
+
+    def test_compact_roi_requires_partial_mode_and_full_overlays_fall_back(self):
+        self.add(Source(SourceType.SHAPE, "Base", width=128, height=128, z_index=0))
+        self.add(Source(SourceType.SHAPE, "Full", width=128, height=128, z_index=2))
+        bands = ((None, 0), (2, None))
+        for partial in ("0", "1"):
+            with patch.dict(os.environ, {
+                "PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS": partial,
+                "PLAYLIST_CANVAS_NATIVE_COMPACT_BANDS": "1",
+            }):
+                cache = NativeRasterCache(self.scene, bands, 2)
+            frame = capture_native_canvas_track_frame(
+                self.scene, self.track, bands, elapsed_seconds=0,
+                raster_cache=cache,
+            )
+            self.assertEqual(frame.schema, 1)
+            self.assertEqual(cache.compact_band_captures, 0)
+            self.assertEqual(cache.compact_canvas_bytes_saved, 0)
+            self.assertFalse(any(layer.inverse_transform for layer in frame.layers))
 
     def test_opt_in_partial_band_does_not_crop_full_screen_or_opaque_base(self):
         self.add(Source(SourceType.SHAPE, "Base", width=128, height=128, z_index=0))

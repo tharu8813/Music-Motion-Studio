@@ -134,6 +134,9 @@ def produce_complete_project_frames(
                         advanced_lyric_cache_entries=len(raster_cache.frozen_lyric_settings_cache),
                         partial_band_enabled=raster_cache.partial_band_enabled,
                         partial_band_captures=raster_cache.partial_band_captures,
+                        compact_band_enabled=raster_cache.compact_band_enabled,
+                        compact_band_captures=raster_cache.compact_band_captures,
+                        compact_canvas_bytes_saved=raster_cache.compact_canvas_bytes_saved,
                         scene_render_source_pixels=raster_cache.scene_render_source_pixels,
                         full_frame_source_pixels=raster_cache.full_frame_source_pixels,
                     )

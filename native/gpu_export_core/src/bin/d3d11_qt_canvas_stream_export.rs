@@ -391,6 +391,7 @@ mod windows_export {
             "h264_file": options.video.display().to_string(),
             "d3d11_alpha_composition_on_gpu": true,
             "d3d11_affine_shader_draws": affine.draws,
+            "d3d11_exact_roi_gpu_copies": affine.exact_roi_copies,
             "affine_output_textures": {"allocations":affine.allocations,"releases":affine.releases,"peak_bytes":affine.peak_output_bytes},
             "canvas_packet_schemas": [1,2],
             "gpu_nv12_to_cpu_readbacks": 0,
