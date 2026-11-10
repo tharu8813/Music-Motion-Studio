@@ -71,29 +71,24 @@ class ExportDestinationTests(unittest.TestCase):
         self.assertFalse(self.dialog.render_group.isHidden())
         self.assertTrue(self.dialog.audio_bitrate_combo.isEnabled())
 
-    def test_gpu_optimization_choice_only_appears_for_native_video(self):
-        self.assertEqual(self.dialog.gpu_speed_combo.currentData(), "standard")
-        self.assertTrue(self.dialog.gpu_speed_combo.isHidden())
+    def test_video_export_keeps_exactly_two_render_engines_and_no_speed_chooser(self):
+        self.assertEqual(self.dialog.engine_combo.count(), 2)
+        self.assertEqual(self.dialog.engine_combo.itemData(0), "ffmpeg")
+        self.assertEqual(self.dialog.engine_combo.itemData(1), "native_gpu")
+        self.assertFalse(hasattr(self.dialog, "gpu_speed_combo"))
+        self.assertFalse(hasattr(self.dialog, "gpu_speed_label"))
+        self.assertFalse(hasattr(self.dialog, "gpu_speed_hint"))
         self.dialog.engine_combo.setCurrentIndex(
             self.dialog.engine_combo.findData("native_gpu"),
         )
-        self.assertFalse(self.dialog.gpu_speed_combo.isHidden())
-        self.dialog.gpu_speed_combo.setCurrentIndex(
-            self.dialog.gpu_speed_combo.findData("accelerated"),
-        )
-        self.assertEqual(self.dialog.gpu_speed_combo.currentData(), "accelerated")
-        self.dialog.gpu_speed_combo.setCurrentIndex(
-            self.dialog.gpu_speed_combo.findData("cpu_parallel"),
-        )
-        self.assertEqual(self.dialog.gpu_speed_combo.currentData(), "cpu_parallel")
+        self.assertEqual(self.dialog.engine_combo.currentData(), "native_gpu")
         self.dialog.export_type_combo.setCurrentIndex(1)
-        self.assertTrue(self.dialog.gpu_speed_combo.isHidden())
+        self.assertTrue(self.dialog.audio_only)
         self.dialog.export_type_combo.setCurrentIndex(0)
-        self.assertFalse(self.dialog.gpu_speed_combo.isHidden())
         self.dialog.engine_combo.setCurrentIndex(
             self.dialog.engine_combo.findData("ffmpeg"),
         )
-        self.assertTrue(self.dialog.gpu_speed_combo.isHidden())
+        self.assertEqual(self.dialog.engine_combo.currentData(), "ffmpeg")
 
     def test_invalid_names_do_not_start_export(self):
         for name in ("", "../escape", "a/b", "CON", "LPT1.mp3", "a:b", "bad."):

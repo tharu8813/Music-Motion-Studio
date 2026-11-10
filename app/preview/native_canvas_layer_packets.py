@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from concurrent.futures import Future
+from time import monotonic
 import hashlib
 import json
 import math
@@ -343,6 +344,7 @@ def capture_native_canvas_track_frame(
                        and raster_cache.partial_band_enabled and index != 0)
         compact = bool(partial and raster_cache.compact_band_enabled)
         capture_metrics: dict[str, object] = {}
+        paint_started = monotonic() if raster_cache is not None else 0.0
         image = CanvasSnapshot.capture_track(
             scene, track, track_number, track_total, track_start_seconds,
             elapsed_seconds=elapsed_seconds,
@@ -371,6 +373,8 @@ def capture_native_canvas_track_frame(
                 "_frozen_lyric_settings_cache": raster_cache.frozen_lyric_settings_cache,
             } if raster_cache is not None else {}),
         )
+        if raster_cache is not None:
+            raster_cache.qt_canvas_capture_seconds += monotonic() - paint_started
         inverse = None
         clip = None
         is_compact = bool(compact and capture_metrics.get("partial_render"))
@@ -406,19 +410,30 @@ def capture_native_canvas_track_frame(
             and raster_cache.parallel_bgra_enabled
             and key not in raster_cache.keys
         )
+        future = None
         if use_parallel:
-            future = raster_cache.submit_bgra(QImage(image), straight_bgra_bytes)
+            future = (
+                raster_cache.maybe_submit_bgra(image, straight_bgra_bytes)
+                if raster_cache.adaptive_bgra_enabled
+                else raster_cache.submit_bgra(QImage(image), straight_bgra_bytes)
+            )
+        if future is not None:
             layers.append(DeferredNativeCanvasLayer(
                 stream_key=key, width=image.width(), height=image.height(),
                 pixels_future=future, inverse_transform=inverse, clip=clip,
             ))
             raster_cache.record_uncached_raster()
         else:
+            inline_started = monotonic() if raster_cache is not None else 0.0
             layer = NativeCanvasBgraLayer(
                 stream_key=key, width=image.width(), height=image.height(),
                 pixels=straight_bgra_bytes(image),
                 inverse_transform=inverse, clip=clip,
             )
+            if raster_cache is not None:
+                raster_cache.qt_canvas_inline_bgra_seconds += (
+                    monotonic() - inline_started
+                )
             layers.append(layer)
             if raster_cache is not None:
                 raster_cache.record(layer)

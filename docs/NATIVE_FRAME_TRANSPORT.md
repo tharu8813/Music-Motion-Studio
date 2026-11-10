@@ -1,10 +1,56 @@
 # GPU 프레임 전송 계약
 
+## 현재 앱 동작 (2026-11-11)
+
+일반 사용자의 내보내기 창에는 **FFmpeg**와 **Rust GPU · D3D11 + NVENC**
+두 렌더 엔진만 제공한다. GPU 최적화 콤보박스는 없다. Rust GPU를 선택하면
+하나의 `automatic` 프로필이 작업별로 적용된다.
+
+- 순차 ACK를 유지하면서 프레임 선행 생성, Qt 투명 영역 크롭, Compact ROI,
+  binary-v2 이전 프레임 픽셀 재사용을 기본적으로 조합한다.
+- QImage를 그리는 Qt GUI 스레드는 유지하고, BGRA 변환만 최대 2개 CPU 작업자에
+  선택적으로 분배한다. **1 MiB 미만**의 작은 픽셀 평면은 바로 변환한다.
+  두 변환 슬롯이 바쁘면 Qt GUI 스레드에서 즉시 변환하므로 **세마포어 대기로
+  프레임 생성이 멈추지 않는다.** 원본 픽셀의 위치·해상도·시간은 바꾸지 않는다.
+- 출력이 unsupported 환경이거나 GPU preflight가 실패하면 기존 FFmpeg 폴백
+  경로는 그대로 사용한다. 사용자는 FFmpeg 엔진을 직접 선택할 수도 있다.
+- `native_report.raster_cache`에는 실제 `qt_canvas_capture_seconds`와
+  `qt_canvas_inline_bgra_seconds`, `parallel_bgra_inline_small`,
+  `parallel_bgra_inline_busy`, `cpu_parallel_bgra_peak_workers`가 표시된다.
+  원본 대조 테스트에서 `native_stream_wall_fps`, 전체 경과 시간 및 영상의
+  픽셀·가사·오디오 품질을 검증한 뒤 배포 안정성을 판단한다.
+
+아래의 예전 `standard`/`accelerated`/`cpu_parallel` 프로필과
+`PLAYLIST_CANVAS_NATIVE_*` 환경변수 설명은 **개발·회귀 테스트 및 과거
+실험 기록**이다. 일반 앱의 GPU 최적화 선택 UI에서는 제공하지 않는다.
+
+### 배포 전 실측 검증 (개발 CLI 전용)
+
+`tools.native_gpu_full_export`는 `--gpu-profile automatic` 또는
+`--gpu-profile accelerated`를 명시할 수 있다. 이 인수는 **앱의
+최적화 UI가 아니라 개발자 A/B 검증 인수**다. 동일 프로젝트의 동일한
+30초 첫 곡, 해상도, FPS를 사용하고 **서로 다른 MP4/JSON 경로**에 저장한다.
+
+```powershell
+python -m tools.native_gpu_full_export --project .\sample.pvsproj --output .\auto.mp4 --report .\auto.json --fps 60 --scale 1.0 --smoke-seconds 30 --gpu-profile automatic
+python -m tools.native_gpu_full_export --project .\sample.pvsproj --output .\legacy.mp4 --report .\legacy.json --fps 60 --scale 1.0 --smoke-seconds 30 --gpu-profile accelerated
+```
+
+`native_stream_wall_fps`, `frame_transport_bytes`, `raster_cache.qt_canvas_capture_seconds`,
+`raster_cache.qt_canvas_inline_bgra_seconds`, `parallel_bgra_inline_small/busy`,
+최종 프레임·오디오·가사 타이밍을 비교한다. 출력 배율은 실제 프로젝트 크기에
+맞추고 동일 해상도 유지가 필수다. `automatic` 모드가 느리거나 영상
+차이가 발견되면 해당 결과를 기준으로 내부 정책을 다시 조정한다.
+
+
 앱의 `native_project_export → render_native_gpu_playlist → stream_native_canvas_h264`
-경로는 작업자에 `--input-format binary-v1`을 전달한다. 프레임별 BGRA 파일과
-manifest 파일을 만들지 않는다. 기존 진단 CLI는 옵션 생략 또는
-`--input-format manifest`로 줄 단위 manifest 경로 입력을 계속 지원한다.
-이전 작업자 바이너리는 새 옵션을 거부하므로 Python 코드와 함께 다시 빌드해야 한다.
+경로는 현재 `automatic` 모드에서 `--input-format binary-v2`를 사용하며,
+같은 레이어의 픽셀이 이전 프레임과 같을 때 재전송을 생략한다.
+프레임별 BGRA 파일과 manifest 파일은 만들지 않는다. 이전 작업자 바이너리는
+binary-v2를 지원하지 않으므로 실행 파일에 새 Rust 코드가 포함되어야 한다.
+과거 `binary-v1` 및 manifest 진단 방식은 개발 회귀 테스트에서 계속 지원한다.
+
+### 개발 진단용 이전 binary-v1 계약
 
 바이너리 프레임은 little-endian `<4sIQIQ>` 28바이트 헤더, UTF-8 JSON,
 Z 순서의 BGRA plane으로 구성한다. 헤더는 `MMSB`, 버전 `1`, 0부터 순차 증가하는

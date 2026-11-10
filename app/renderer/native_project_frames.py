@@ -142,6 +142,11 @@ def produce_complete_project_frames(
                         cpu_parallel_bgra_submissions=raster_cache.parallel_bgra_submissions,
                         cpu_parallel_bgra_peak_workers=raster_cache.parallel_bgra_peak_workers,
                         cpu_parallel_bgra_work_seconds=raster_cache.parallel_bgra_work_seconds,
+                        adaptive_bgra_enabled=raster_cache.adaptive_bgra_enabled,
+                        parallel_bgra_inline_small=raster_cache.parallel_bgra_inline_small,
+                        parallel_bgra_inline_busy=raster_cache.parallel_bgra_inline_busy,
+                        qt_canvas_capture_seconds=raster_cache.qt_canvas_capture_seconds,
+                        qt_canvas_inline_bgra_seconds=raster_cache.qt_canvas_inline_bgra_seconds,
                         retained_bytes=raster_cache.retained_bytes,
                         peak_retained_bytes=raster_cache.peak_retained_bytes,
                         advanced_lyric_cache_entries=len(raster_cache.frozen_lyric_settings_cache),
@@ -171,6 +176,11 @@ def produce_complete_project_frames(
                     cpu_parallel_bgra_submissions=raster_cache.parallel_bgra_submissions,
                     cpu_parallel_bgra_peak_workers=raster_cache.parallel_bgra_peak_workers,
                     cpu_parallel_bgra_work_seconds=raster_cache.parallel_bgra_work_seconds,
+                    adaptive_bgra_enabled=raster_cache.adaptive_bgra_enabled,
+                    parallel_bgra_inline_small=raster_cache.parallel_bgra_inline_small,
+                    parallel_bgra_inline_busy=raster_cache.parallel_bgra_inline_busy,
+                    qt_canvas_capture_seconds=raster_cache.qt_canvas_capture_seconds,
+                    qt_canvas_inline_bgra_seconds=raster_cache.qt_canvas_inline_bgra_seconds,
                 )
         scene.clear()
 

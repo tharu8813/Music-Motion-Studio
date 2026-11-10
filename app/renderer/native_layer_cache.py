@@ -2,6 +2,7 @@
 from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
 from threading import BoundedSemaphore, Lock
+from PySide6.QtGui import QImage
 from time import monotonic
 import os
 
@@ -65,6 +66,16 @@ class NativeRasterCache:
                 "PLAYLIST_CANVAS_NATIVE_PARALLEL_BGRA", "",
             ).strip().lower() in {"1", "true", "yes"}
         )
+        self.adaptive_bgra_enabled = bool(
+            optimizations is not None and optimizations.adaptive_bgra
+        )
+        # Converting a small Qt image is usually cheaper than submitting a
+        # Future and waiting on its result. Tune on real RTX benchmarks only.
+        self._min_async_bgra_bytes = 1024 * 1024
+        self.parallel_bgra_inline_small = 0
+        self.parallel_bgra_inline_busy = 0
+        self.qt_canvas_capture_seconds = 0.0
+        self.qt_canvas_inline_bgra_seconds = 0.0
         self._bgra_executor = (
             ThreadPoolExecutor(max_workers=2, thread_name_prefix="mms-bgra")
             if self.parallel_bgra_enabled else None
@@ -111,36 +122,58 @@ class NativeRasterCache:
         self.peak_retained_bytes = 0
 
     def submit_bgra(self, image, converter):
-        """Convert a detached QImage; never access the GUI's Canvas scene."""
+        """Legacy explicit CPU-parallel mode: bounded, possibly blocking."""
         if self._bgra_executor is None:
             raise RuntimeError("Native CPU conversion pool is disabled")
-        # Bounded across overlapping frames and protects against huge BGRA
-        # buffers piling up when FFmpeg/Rust backpressure slows the sender.
         self._bgra_slots.acquire()
         try:
-            def convert():
-                started = monotonic()
-                with self._bgra_stats_lock:
-                    self._bgra_active_workers += 1
-                    self.parallel_bgra_peak_workers = max(
-                        self.parallel_bgra_peak_workers,
-                        self._bgra_active_workers,
-                    )
-                try:
-                    return converter(image)
-                finally:
-                    seconds = monotonic() - started
-                    with self._bgra_stats_lock:
-                        self.parallel_bgra_work_seconds += seconds
-                        self._bgra_active_workers -= 1
-                    self._bgra_slots.release()
-
-            future = self._bgra_executor.submit(convert)
-            self.parallel_bgra_submissions += 1
-            return future
+            return self._submit_bgra_acquired(image, converter)
         except BaseException:
             self._bgra_slots.release()
             raise
+
+    def maybe_submit_bgra(self, image, converter):
+        """Automatic mode: never block the Qt paint thread on worker capacity.
+
+        Only large images qualify. When both workers are busy, convert this
+        independent snapshot inline instead of stalling the GUI and delaying
+        frame N+1. Worker tasks retain only their own copied QImage wrapper.
+        """
+        if not self.parallel_bgra_enabled:
+            return None
+        if image.width() * image.height() * 4 < self._min_async_bgra_bytes:
+            self.parallel_bgra_inline_small += 1
+            return None
+        if not self._bgra_slots.acquire(blocking=False):
+            self.parallel_bgra_inline_busy += 1
+            return None
+        try:
+            return self._submit_bgra_acquired(QImage(image), converter)
+        except BaseException:
+            self._bgra_slots.release()
+            raise
+
+    def _submit_bgra_acquired(self, image, converter):
+        """The caller owns exactly one semaphore slot on entry."""
+        def convert():
+            started = monotonic()
+            with self._bgra_stats_lock:
+                self._bgra_active_workers += 1
+                self.parallel_bgra_peak_workers = max(
+                    self.parallel_bgra_peak_workers, self._bgra_active_workers,
+                )
+            try:
+                return converter(image)
+            finally:
+                seconds = monotonic() - started
+                with self._bgra_stats_lock:
+                    self.parallel_bgra_work_seconds += seconds
+                    self._bgra_active_workers -= 1
+                self._bgra_slots.release()
+
+        future = self._bgra_executor.submit(convert)
+        self.parallel_bgra_submissions += 1
+        return future
 
     def record_uncached_raster(self):
         self.rasterizations += 1

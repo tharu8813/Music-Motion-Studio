@@ -212,6 +212,24 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
         self.assertEqual(accelerated["frame_reused_planes"], 5)
         self.assertEqual(accelerated["native_optimization_profile"], "accelerated")
 
+    def test_automatic_profile_keeps_bounded_pipeline_and_binary_v2_wire(self):
+        automatic = NativeGpuOptimizations.for_profile("automatic")
+        self.assertTrue(automatic.adaptive_bgra)
+        self.assertTrue(automatic.parallel_bgra)
+        self.assertEqual(automatic, NativeGpuOptimizations.for_profile("automatic"))
+        self.assertFalse(NativeGpuOptimizations.for_profile("accelerated").adaptive_bgra)
+        with patch.dict(os.environ, {
+            "PLAYLIST_CANVAS_NATIVE_LAYER_REUSE": "0",
+            "PLAYLIST_CANVAS_NATIVE_PIPELINED": "0",
+        }):
+            report = self._run_mock(count=6, optimizations=automatic)
+        self.assertEqual(report["native_optimization_profile"], "automatic")
+        self.assertEqual(report["frame_transport"], "binary-v2")
+        self.assertTrue(report["frame_pipeline_enabled"])
+        self.assertEqual(report["max_outstanding_frame_packets"], 2)
+        self.assertEqual(report["frame_reused_planes"], 5)
+        self.assertEqual(report["frames_encoded"], 6)
+
     def test_opt_in_reuses_identical_layers_with_real_native_write_and_ack(self):
         # The mock validates every recovered byte and SHA at each PTS;
         # no frame is omitted, including the zero-payload ones.

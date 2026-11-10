@@ -67,13 +67,14 @@ def dynamic_gpu_layer(image, overlay, width, height, *, seconds, output_scale=1.
     geometry = (inverse.m11(), inverse.m12(), inverse.m21(),
                 inverse.m22(), inverse.dx(), inverse.dy())
     if submit_bgra is not None:
-        # The image is detached from painter/model state; only this immutable
-        # QImage snapshot is allowed to cross to a CPU conversion thread.
-        return DeferredNativeCanvasLayer(
-            "pending", image.width(), image.height(),
-            submit_bgra(QImage(image), straight_bgra_bytes),
-            opacity, geometry, (0, 0, width, height),
-        )
+        # Automatic scheduling can refuse tiny images or busy worker pools:
+        # inline conversion is always safe and never delays the Qt scene.
+        future = submit_bgra(QImage(image), straight_bgra_bytes)
+        if future is not None:
+            return DeferredNativeCanvasLayer(
+                "pending", image.width(), image.height(), future,
+                opacity, geometry, (0, 0, width, height),
+            )
     return NativeCanvasBgraLayer(
         "pending", image.width(), image.height(),
         straight_bgra_bytes(image),
