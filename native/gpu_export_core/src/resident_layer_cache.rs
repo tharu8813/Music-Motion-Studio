@@ -210,17 +210,27 @@ mod tests {
         };
         let processor = NativeBgraNv12VideoProcessor::new_for_pool(&pool).unwrap();
         let mut cache = ResidentLayerCache::new(128, 128);
+        // These synthetic GPU parity frames bypass the real validated
+        // packet parser. Maintain their trusted digest when test pixels change.
+        let test_layer = |key: &str, opacity: f32, rgba: [u8; 4]| {
+            let pixels = rgba.repeat(128 * 128);
+            let validated_sha256 = Sha256::digest(&pixels).into();
+            CanvasPacketLayer {
+                stream_key: key.into(), opacity, pixels,
+                geometry: LayerGeometry::identity(128, 128), validated_sha256,
+            }
+        };
         let mut packet = CanvasPacketFrame { width: 128, height: 128, layers: vec![
-            CanvasPacketLayer { stream_key: "base".into(), opacity: 1.0,
-                pixels: [32, 64, 96, 255].repeat(128 * 128), geometry: LayerGeometry::identity(128, 128) },
-            CanvasPacketLayer { stream_key: "layer:0".into(), opacity: 0.5,
-                pixels: [160, 32, 64, 96].repeat(128 * 128), geometry: LayerGeometry::identity(128, 128) },
-            CanvasPacketLayer { stream_key: "layer:1".into(), opacity: 0.8,
-                pixels: [16, 192, 80, 128].repeat(128 * 128), geometry: LayerGeometry::identity(128, 128) },
+            test_layer("base", 1.0, [32, 64, 96, 255]),
+            test_layer("layer:0", 0.5, [160, 32, 64, 96]),
+            test_layer("layer:1", 0.8, [16, 192, 80, 128]),
         ] };
         let start = Instant::now();
         for index in 0..60 {
-            if index == 20 { packet.layers[1].pixels[0..4].copy_from_slice(&[255, 0, 0, 255]); }
+            if index == 20 {
+                packet.layers[1].pixels[0..4].copy_from_slice(&[255, 0, 0, 255]);
+                packet.layers[1].validated_sha256 = Sha256::digest(&packet.layers[1].pixels).into();
+            }
             if index == 30 { packet.layers[2].opacity = 0.2; }
             if index == 40 { packet.layers.swap(1, 2); }
             cache.update(&packet, || processor.create_bgra_input_texture(),
