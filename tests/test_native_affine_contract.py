@@ -165,3 +165,14 @@ class AffineContractTests(unittest.TestCase):
              patch("PySide6.QtGui.QFontDatabase.families",return_value=[]):
             with self.assertRaisesRegex(RenderError,"Qt has no fonts"):
                 _require_developer_runtime()
+
+    def test_missing_application_is_an_error_before_querying_qt_fonts(self):
+        from unittest.mock import patch
+        from app.renderer.native_project_export import _require_developer_runtime
+        from app.renderer.ffmpeg_renderer import RenderError
+        with patch("scripts.rust_prerequisites.require_developer_environment"), \
+             patch("PySide6.QtWidgets.QApplication.instance",return_value=None), \
+             patch("PySide6.QtGui.QFontDatabase.families") as fonts:
+            with self.assertRaisesRegex(RenderError,"QApplication"):
+                _require_developer_runtime()
+            fonts.assert_not_called()

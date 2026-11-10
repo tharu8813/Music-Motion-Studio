@@ -30,6 +30,9 @@ def _require_developer_runtime():
         from scripts.rust_prerequisites import require_developer_environment
         require_developer_environment()
     from PySide6.QtGui import QFontDatabase
+    from PySide6.QtWidgets import QApplication
+    if not isinstance(QApplication.instance(), QApplication):
+        raise RenderError("Create a QApplication before native Canvas export.")
     if not QFontDatabase.families():
         raise RenderError("Qt has no fonts available. On Windows use QT_QPA_PLATFORM=windows, "
                           "or remove the offscreen override before exporting; missing glyphs cannot be exported safely.")

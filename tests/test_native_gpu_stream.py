@@ -112,6 +112,19 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                                  ["frame_transport_bytes"], result["frame_transport_bytes"])
                 return result
 
+    def test_fractional_duration_roundtrips_across_native_process_boundary(self):
+        # Rounding this duration to 12 significant digits loses one CFR frame.
+        duration = 10.000000000009
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("app.renderer.native_gpu_stream.subprocess.Popen", side_effect=OSError("startup probe")) as launch:
+                with self.assertRaises(RenderError):
+                    stream_native_canvas_h264([], executable=Path(sys.executable),
+                        video_path=root / "video.h264", report_path=root / "report.json",
+                        width=64, height=64, fps=120, duration_seconds=duration, expected_frames=1201)
+            args = launch.call_args.args[0]
+            self.assertEqual(float(args[args.index("--duration-seconds") + 1]), duration)
+
     def test_streams_over_120_frames_with_one_staged_frame_per_ack(self):
         result = self._run_mock(count=135)
         self.assertEqual(result["frames_encoded"], 135)

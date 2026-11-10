@@ -105,7 +105,7 @@ def stream_native_canvas_h264(
         args = [
             str(exe), "--width", str(width), "--height", str(height),
             "--fps", str(fps), "--expected-frames", str(expected_frames),
-            "--duration-seconds", format(duration_seconds, ".12g"),
+            "--duration-seconds", format(duration_seconds, ".17g"),
             "--slots", str(slots), "--video-output", str(video),
             "--output", str(report), "--input-format", "binary-v1",
         ]
