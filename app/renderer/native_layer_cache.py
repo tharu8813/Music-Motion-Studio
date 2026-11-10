@@ -57,9 +57,15 @@ class NativeRasterCache:
         self.partial_band_enabled = os.environ.get(
             "PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS", "",
         ).strip().lower() in {"1", "true", "yes"}
-        artboard = scene.artboard_rect
-        self.artboard_width = max(1.0, artboard.width())
-        self.artboard_height = max(1.0, artboard.height())
+        # Baseline and mocked runtime contracts must not require extra
+        # QGraphicsScene geometry. The scene is real and GUI-owned only when
+        # the explicitly opt-in ROI mode will need its artboard coordinates.
+        if self.partial_band_enabled:
+            artboard = scene.artboard_rect
+            self.artboard_width = max(1.0, float(artboard.width()))
+            self.artboard_height = max(1.0, float(artboard.height()))
+        else:
+            self.artboard_width = self.artboard_height = 1.0
         self.partial_band_captures = 0
         self.scene_render_source_pixels = 0
         self.full_frame_source_pixels = 0
