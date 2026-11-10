@@ -273,7 +273,6 @@ def stream_native_canvas_h264(
                             )
                             written_bytes = write_frame(
                                 worker.stdin, resolved, index, reuse_state=reuse_state,
-                            timings=frame_write_timings,
                                 timings=frame_write_timings,
                             )
                             wrote_at = monotonic()
@@ -305,6 +304,7 @@ def stream_native_canvas_h264(
                         )
                         sent.put(write_frame(
                             worker.stdin, resolved, index, reuse_state=reuse_state,
+                            timings=frame_write_timings,
                         ))
                     except Exception as exc:
                         sent.put(exc)
