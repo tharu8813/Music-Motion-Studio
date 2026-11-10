@@ -1,6 +1,7 @@
 //! Persistent, bounded-memory Qt Canvas -> D3D11 -> NVENC H.264 export.
 //!
-//! Read one UTF-8 MANIFEST PATH per line on stdin. Caller produces the
+//! Production uses --input-format binary-v1 (bounded MMSB frames on stdin).
+//! Legacy CLI defaults to one UTF-8 MANIFEST PATH per line. Caller produces the
 //! *complete* playlist's native BGRA manifests in sequential CFR order.
 //! The process owns ONE D3D11/NVENC session and streams packets to disk.
 //! It does not hold an entire video, all source packets or PTS arrays in RAM.
@@ -113,6 +114,7 @@ mod windows_export {
     use music_motion_gpu_core::d3d11_frame_pool::NativeNv12FramePool;
     use music_motion_gpu_core::d3d11_nvenc_registration::NativeNvencRegistrationSession;
     use music_motion_gpu_core::qt_canvas_packet::load_qt_canvas_packet;
+    use music_motion_gpu_core::canvas_stream::read_frame;
     use serde_json::{json, Value};
     use std::collections::VecDeque;
     use std::env;
@@ -130,6 +132,7 @@ mod windows_export {
         slots: usize,
         video: PathBuf,
         report: PathBuf,
+        binary: bool,
     }
 
     fn parse_options() -> Result<Options, String> {
@@ -141,6 +144,7 @@ mod windows_export {
         let mut slots = 2usize;
         let mut video = None;
         let mut report = None;
+        let mut binary = false;
         let mut arguments = env::args().skip(1);
         while let Some(option) = arguments.next() {
             let value = arguments.next()
@@ -160,6 +164,11 @@ mod windows_export {
                     .map_err(|_| "Invalid NV12 frame pool slot count")?,
                 "--video-output" => video = Some(PathBuf::from(value)),
                 "--output" => report = Some(PathBuf::from(value)),
+                "--input-format" => match value.as_str() {
+                    "binary-v1" => binary = true,
+                    "manifest" => binary = false,
+                    _ => return Err("Unsupported frame input format".into()),
+                },
                 _ => return Err(format!("Unknown native export option: {option}")),
             }
         }
@@ -172,6 +181,7 @@ mod windows_export {
             slots,
             video: video.ok_or("Missing --video-output")?,
             report: report.ok_or("Missing --output")?,
+            binary,
         };
         if options.width < 64 || options.width > 3840
             || options.height < 64 || options.height > 2160
@@ -277,9 +287,15 @@ mod windows_export {
 
         // Read exactly one frame first. The JSON + BGRA planes are dropped
         // every iteration. Dimensions are fixed by the export plan.
-        let first = read_manifest_line(&mut input)?
+        let next_frame = |input: &mut std::io::StdinLock<'_>, index| {
+            if options.binary { read_frame(input, index) }
+            else { read_manifest_line(input)?.map(|name| load_qt_canvas_packet(Path::new(&name))).transpose() }
+        };
+        let mut transfer_seconds = 0.0;
+        let transfer_started = Instant::now();
+        let frame = next_frame(&mut input, 0)?
             .ok_or("Native producer closed without any Canvas frames")?;
-        let frame = load_qt_canvas_packet(Path::new(&first))?;
+        transfer_seconds += transfer_started.elapsed().as_secs_f64();
         if (frame.width, frame.height) != (options.width, options.height) {
             return Err("First Canvas packet dimensions differ from export settings".into());
         }
@@ -316,8 +332,8 @@ mod windows_export {
             drop(layers);
             drop(textures);
             drop(current);
-            // Bounded producer/consumer handshake: the caller may safely
-            // delete THIS frame's manifest and BGRA staging bytes only after
+            // Bounded producer/consumer handshake: the caller may release
+            // THIS frame's bytes (or legacy files) only after
             // native loading, texture upload and GPU submission completed.
             // A parent waiting for this line will not stage a whole video.
             {
@@ -327,14 +343,15 @@ mod windows_export {
                     .map_err(|e| format!("Native frame acceptance channel closed: {e}"))?;
             }
             if clock.submitted == clock.expected {
-                if read_manifest_line(&mut input)?.is_some() {
+                if next_frame(&mut input, clock.submitted)?.is_some() {
                     return Err("More Canvas packets supplied than compiled playlist frames".into());
                 }
                 break;
             }
-            let name = read_manifest_line(&mut input)?
+            let transfer_started = Instant::now();
+            current = next_frame(&mut input, clock.submitted)?
                 .ok_or("Native Canvas source ended before the full playlist")?;
-            current = load_qt_canvas_packet(Path::new(&name))?;
+            transfer_seconds += transfer_started.elapsed().as_secs_f64();
         }
         while !pending.is_empty() {
             consume(&mut pool, &mut encoder, &mut pending, &mut writer, &mut clock)?;
@@ -370,7 +387,9 @@ mod windows_export {
             "qt_canvas_rasterized_on_cpu": true,
             "native_gpu_text_painting_implemented": false,
             "max_pending_gpu_slots": options.slots,
-            "input": "newline_separated_manifest_paths_stdin",
+            "input": if options.binary { "binary-v1" } else { "newline_separated_manifest_paths_stdin" },
+            "frame_receive_seconds": transfer_seconds,
+            "bgra_disk_bytes": if options.binary { Some(0u64) } else { None },
         });
         // A failed report means no completed deliverable. If the runner
         // closes/crashes mid-export, no report is emitted at all.

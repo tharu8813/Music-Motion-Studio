@@ -34,6 +34,21 @@ fn positive_dimension(value: &Value, key: &str, max: u32) -> Result<u32, String>
 
 pub fn load_qt_canvas_packet(path: &Path) -> Result<CanvasPacketFrame, String> {
     let manifest = fs::read(path).map_err(|e| format!("Cannot read Canvas manifest: {e}"))?;
+    let directory = path.parent().ok_or("Canvas manifest directory missing")?;
+    parse_qt_canvas_packet(&manifest, |name, size| {
+        let filepath = directory.join(name);
+        let metadata = fs::symlink_metadata(&filepath).map_err(|e| e.to_string())?;
+        if !metadata.file_type().is_file() || metadata.len() != size as u64 {
+            return Err("Canvas layer is not a regular file of expected size".into());
+        }
+        fs::read(filepath).map_err(|e| e.to_string())
+    })
+}
+
+/// Shared validation for diagnostic files and production binary planes.
+pub fn parse_qt_canvas_packet(
+    manifest: &[u8], mut plane: impl FnMut(&str, usize) -> Result<Vec<u8>, String>,
+) -> Result<CanvasPacketFrame, String> {
     if manifest.len() > 64 * 1024 {
         return Err("Canvas manifest exceeds 64 KiB".into());
     }
@@ -63,7 +78,6 @@ pub fn load_qt_canvas_packet(path: &Path) -> Result<CanvasPacketFrame, String> {
     if root["native_gpu_alpha_composition_required"] != (items.len() > 1) {
         return Err("Canvas alpha-composition manifest flag contradicts layer count".into());
     }
-    let directory = path.parent().ok_or("Canvas manifest directory missing")?;
     let mut layers = Vec::with_capacity(items.len());
     for (i, entry) in items.iter().enumerate() {
         if entry["z_order"].as_u64() != Some(i as u64) {
@@ -99,14 +113,7 @@ pub fn load_qt_canvas_packet(path: &Path) -> Result<CanvasPacketFrame, String> {
         if digest.len() != 64 || !digest.bytes().all(|ch| ch.is_ascii_hexdigit()) {
             return Err("Canvas layer SHA-256 has invalid syntax".into());
         }
-        let filepath = directory.join(name);
-        let metadata = fs::symlink_metadata(&filepath)
-            .map_err(|e| format!("Cannot stat Canvas layer {i}: {e}"))?;
-        if !metadata.file_type().is_file() || metadata.len() != plane_bytes as u64 {
-            return Err(format!("Canvas layer {i} is not a regular file of expected size"));
-        }
-        let pixels = fs::read(&filepath)
-            .map_err(|e| format!("Cannot read Canvas layer {i}: {e}"))?;
+        let pixels = plane(name, plane_bytes)?;
         if pixels.len() != plane_bytes {
             return Err(format!("Canvas layer {i} has unexpected byte count"));
         }
