@@ -852,6 +852,7 @@ class CanvasSnapshot:
                       animation_phase_duration: float | None = None,
                       partial_render: bool = False,
                       partial_render_pixel_aligned: bool = False,
+                      partial_render_keep_cropped: bool = False,
                       render_metrics: dict[str, object] | None = None,
                       band_source_items: Sequence[SourceItem] | None = None,
                       junction: MixJunction | None = None,
@@ -1624,7 +1625,8 @@ class CanvasSnapshot:
                 image_buffer=(None if used_partial_render else image_buffer),
                 capture_rect=effective_capture_rect,
             )
-            if used_partial_render and effective_capture_rect is not None:
+            if (used_partial_render and effective_capture_rect is not None
+                    and not partial_render_keep_cropped):
                 captured = CanvasSnapshot._expand_partial_capture(
                     captured,
                     effective_capture_rect,
