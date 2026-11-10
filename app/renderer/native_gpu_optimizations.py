@@ -22,6 +22,9 @@ class NativeGpuOptimizations:
     # Automatic mode offloads only sufficiently large, already-painted
     # QImages and never blocks the GUI waiting for converter slots.
     adaptive_bgra: bool = False
+    # Automatic, lossless binary-v3 previous-frame row patch transport.
+    # Wide/full-scene updates fall back to the original full BGRA plane.
+    row_delta_transport: bool = False
 
     @classmethod
     def for_profile(cls, profile: str) -> "NativeGpuOptimizations":
@@ -37,5 +40,6 @@ class NativeGpuOptimizations:
                 # previously tested accelerated mode on existing installs.
                 parallel_bgra=profile in {"cpu_parallel", "automatic"},
                 adaptive_bgra=profile == "automatic",
+                row_delta_transport=profile == "automatic",
             )
         raise ValueError(f"Unknown native GPU optimization profile: {profile!r}")
