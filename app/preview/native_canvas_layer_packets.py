@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 import sys
@@ -40,14 +41,23 @@ class NativeCanvasBgraLayer:
     height: int
     pixels: bytes
     opacity: float = 1.0
+    inverse_transform: tuple[float, ...] | None = None
+    clip: tuple[int, ...] | None = None
 
     def __post_init__(self) -> None:
-        if self.width <= 0 or self.height <= 0:
+        if not 0 < self.width <= 3840 or not 0 < self.height <= 2160:
             raise ValueError("Native Canvas layer dimensions must be positive")
         if len(self.pixels) != self.width * self.height * 4:
             raise ValueError("Native Canvas layer BGRA bytes do not match dimensions")
         if not 0.0 <= self.opacity <= 1.0:
             raise ValueError("Native Canvas layer opacity must be in [0, 1]")
+        if self.inverse_transform is not None:
+            m = self.inverse_transform
+            if (len(m) != 6 or any(isinstance(x, bool) or not math.isfinite(x) or abs(x) > 1e6 for x in m)
+                    or abs(m[0] * m[3] - m[1] * m[2]) < 1e-12):
+                raise ValueError("Native inverse transform must be finite, bounded and invertible")
+        if self.clip is not None and (len(self.clip) != 4 or any(type(x) is not int for x in self.clip)):
+            raise ValueError("Native clip must contain four integer bounds")
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +67,7 @@ class NativeCanvasFrame:
     width: int
     height: int
     layers: tuple[NativeCanvasBgraLayer, ...]
+    schema: int = 1
 
     def __post_init__(self) -> None:
         if not 1 <= len(self.layers) <= MAX_NATIVE_CANVAS_LAYERS:
@@ -65,9 +76,19 @@ class NativeCanvasFrame:
             raise ValueError("Native Canvas export requires even dimensions >=2")
         if self.width > _MAX_DIMENSION[0] or self.height > _MAX_DIMENSION[1]:
             raise ValueError("Native Canvas export resolution exceeds 3840x2160")
-        for layer in self.layers:
-            if layer.width != self.width or layer.height != self.height:
-                raise ValueError("All native GPU Canvas layers must be full-frame")
+        if type(self.schema) is not int or self.schema not in (1, 2):
+            raise ValueError("Native Canvas schema must be 1 or 2")
+        full_clip = (0, 0, self.width, self.height)
+        for index, layer in enumerate(self.layers):
+            identity = layer.inverse_transform is None or layer.inverse_transform == (1, 0, 0, 1, 0, 0)
+            if (self.schema == 1 or index == 0) and (
+                    (layer.width, layer.height) != (self.width, self.height) or not identity
+                    or layer.clip not in (None, full_clip)):
+                raise ValueError("v1 layers and the v2 base require full-frame identity geometry")
+            if layer.clip is not None:
+                l, t, r, b = layer.clip
+                if not 0 <= l <= r <= self.width or not 0 <= t <= b <= self.height:
+                    raise ValueError("Native clip must be an output half-open rectangle")
         if self.layers[0].opacity != 1.0:
             raise ValueError("First native Canvas layer must be opaque at global alpha 1")
 
@@ -181,9 +202,16 @@ def save_native_canvas_frame(
                 "sha256": hashlib.sha256(layer.pixels).hexdigest(),
                 "z_order": index,
             })
+        if frame.schema == 2:
+            for info, layer in zip(layer_info, frame.layers):
+                info.update(width=layer.width, height=layer.height)
+                if layer.inverse_transform is not None:
+                    info["inverse_transform"] = layer.inverse_transform
+                if layer.clip is not None:
+                    info["clip"] = layer.clip
         manifest = {
-            "schema": 1,
-            "format": "mms_canvas_bgra_layers_v1",
+            "schema": frame.schema,
+            "format": f"mms_canvas_bgra_layers_v{frame.schema}",
             "pixel_format": "BGRA8_STRAIGHT",
             "width": frame.width, "height": frame.height,
             "coordinate_origin": "top_left",

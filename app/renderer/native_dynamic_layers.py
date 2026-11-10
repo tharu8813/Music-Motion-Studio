@@ -20,7 +20,7 @@ from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderSettings
 from app.renderer.python_visualizer import PythonVisualizerRenderer
 from app.timeline.render_plan import reactive_layer_windows
 from app.utils.visualizer_geometry import visualizer_export_rect
-from app.renderer.native_dynamic_motion import dynamic_layer_frame
+from app.renderer.native_dynamic_motion import dynamic_layer_frame, dynamic_gpu_layer
 
 
 DYNAMIC_TYPES = frozenset({
@@ -73,6 +73,10 @@ def build_dynamic_stack(project, scale: float) -> DynamicStack:
     dynamic = [s for s in project.sources if s.visible and s.source_type in DYNAMIC_TYPES]
     if not dynamic:
         return DynamicStack(((None, None),), (("canvas", 0),), ())
+    for source in dynamic:
+        _x, _y, width, height = visualizer_export_rect(source, 1.0)
+        if max(8, round(width * scale)) > 3840 or max(8, round(height * scale)) > 2160:
+            raise ValueError(f"{source.name or source.id}: GPU dynamic source texture exceeds 3840x2160; use existing FFmpeg export")
     dynamic.sort(key=lambda s: (
         s.z_index, visualizer_export_rect(s, scale)[1],
         visualizer_export_rect(s, scale)[0],
@@ -110,7 +114,7 @@ def place_dynamic_overlay(image: QImage, x: int, y: int, width: int, height: int
 def interleave_dynamic_layers(
     static_frame: NativeCanvasFrame, stack: DynamicStack,
     rendered: list[tuple[object, QImage]],
-    *, seconds: float = 0.0, output_scale: float = 1.0,
+    *, seconds: float = 0.0, output_scale: float = 1.0, gpu_affine: bool = False,
 ) -> NativeCanvasFrame:
     """Keep native packet key convention while interleaving QPainter layers."""
     if len(rendered) != len(stack.source_ids):
@@ -121,16 +125,17 @@ def interleave_dynamic_layers(
             entry = static_frame.layers[index]
         else:
             overlay, image = rendered[index]
-            entry = dynamic_layer_frame(
+            entry = (dynamic_gpu_layer if gpu_affine else dynamic_layer_frame)(
                 image, overlay,
                 static_frame.width, static_frame.height,
                 seconds=seconds, output_scale=output_scale,
             )
         key = "base" if not layers else f"layer:{len(layers) - 1}"
         layers.append(NativeCanvasBgraLayer(
-            key, static_frame.width, static_frame.height, entry.pixels, entry.opacity,
+            key, entry.width, entry.height, entry.pixels, entry.opacity,
+            entry.inverse_transform, entry.clip,
         ))
-    return NativeCanvasFrame(static_frame.width, static_frame.height, tuple(layers))
+    return NativeCanvasFrame(static_frame.width, static_frame.height, tuple(layers), 2 if gpu_affine else 1)
 
 
 def analyze_reactive_canvas_tracks(

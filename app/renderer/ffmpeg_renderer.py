@@ -95,6 +95,7 @@ class RenderResult:
     output_path: Path
     track_count: int
     validation: ExportValidationResult | None = None
+    native_report: dict | None = None
 
 
 @dataclass(frozen=True, slots=True)

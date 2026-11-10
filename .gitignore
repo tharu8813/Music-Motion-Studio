@@ -14,9 +14,7 @@ venv/
 # Rust Cargo build artifacts (existing and future native crates)
 **/target/
 
-# Unpinned lockfile for this experimental library-only GPU core.
-# If packaged as a shipping executable, track its Cargo.lock instead.
-/native/gpu_export_core/Cargo.lock
+# The packaged GPU worker tracks Cargo.lock for reproducible builds.
 
 # Local GPU experiments and benchmark output (keep source fixtures tracked)
 /rust-gpu-compositor-*.json

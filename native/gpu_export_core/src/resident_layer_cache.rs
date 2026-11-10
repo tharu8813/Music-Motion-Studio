@@ -14,7 +14,7 @@ pub struct CacheCounters {
     pub peak_resident_bytes: usize,
 }
 
-struct Entry<T> { digest: [u8; 32], resource: T }
+struct Entry<T> { digest: [u8; 32], dimensions: (u32, u32), resource: T }
 
 pub struct ResidentLayerCache<T> {
     entries: HashMap<String, Entry<T>>,
@@ -41,10 +41,25 @@ impl<T> ResidentLayerCache<T> {
             || frame.layers.len() > 8 {
             return Err("Resident layer dimensions/count changed or invalid".into());
         }
-        let plane = frame.width as usize * frame.height as usize * 4;
+        if frame.layers.iter().any(|l| (l.geometry.width, l.geometry.height) != self.dimensions) {
+            return Err("Full-frame cache API received a sized source".into());
+        }
+        self.update_sized(frame, |_, _| allocate(), |r, p, _| upload(r, p))
+    }
+
+    pub fn update_sized(
+        &mut self, frame: &CanvasPacketFrame,
+        mut allocate: impl FnMut(u32, u32) -> Result<T, String>,
+        mut upload: impl FnMut(&T, &[u8], u32) -> Result<(), String>,
+    ) -> Result<(), String> {
+        if (frame.width, frame.height) != self.dimensions || frame.layers.is_empty() || frame.layers.len() > 8 {
+            return Err("Resident frame shape changed".into());
+        }
         let mut keys = HashSet::new();
         for layer in &frame.layers {
-            if !keys.insert(layer.stream_key.as_str()) || layer.pixels.len() != plane {
+            if !keys.insert(layer.stream_key.as_str()) || layer.geometry.width == 0 || layer.geometry.height == 0
+                || layer.geometry.width > 3840 || layer.geometry.height > 2160
+                || layer.pixels.len() != layer.geometry.width as usize * layer.geometry.height as usize * 4 {
                 return Err("Resident layer duplicate key or invalid pixel length".into());
             }
         }
@@ -52,24 +67,30 @@ impl<T> ResidentLayerCache<T> {
         self.entries.retain(|key, _| keys.contains(key.as_str()));
         self.counters.releases += (before - self.entries.len()) as u64;
         for layer in &frame.layers {
+            let plane = layer.pixels.len();
+            let dimensions = (layer.geometry.width, layer.geometry.height);
+            if self.entries.get(&layer.stream_key).is_some_and(|e| e.dimensions != dimensions) {
+                self.entries.remove(&layer.stream_key);
+                self.counters.releases += 1;
+            }
             let digest: [u8; 32] = Sha256::digest(&layer.pixels).into();
             if let Some(entry) = self.entries.get_mut(&layer.stream_key) {
                 if entry.digest == digest {
                     self.counters.reuse_hits += 1;
                     continue;
                 }
-                upload(&entry.resource, &layer.pixels)?;
+                upload(&entry.resource, &layer.pixels, layer.geometry.width)?;
                 entry.digest = digest;
             } else {
-                let resource = allocate()?;
-                upload(&resource, &layer.pixels)?;
-                self.entries.insert(layer.stream_key.clone(), Entry { digest, resource });
+                let resource = allocate(dimensions.0, dimensions.1)?;
+                upload(&resource, &layer.pixels, layer.geometry.width)?;
+                self.entries.insert(layer.stream_key.clone(), Entry { digest, dimensions, resource });
                 self.counters.allocations += 1;
             }
             self.counters.uploads += 1;
             self.counters.upload_bytes += plane as u64;
         }
-        self.counters.peak_resident_bytes = self.counters.peak_resident_bytes.max(self.entries.len() * plane);
+        self.counters.peak_resident_bytes = self.counters.peak_resident_bytes.max(self.entries.values().map(|e| e.dimensions.0 as usize * e.dimensions.1 as usize * 4).sum());
         Ok(())
     }
 
@@ -87,10 +108,10 @@ impl<T> ResidentLayerCache<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::qt_canvas_packet::CanvasPacketLayer;
+    use crate::qt_canvas_packet::{CanvasPacketLayer, LayerGeometry};
     fn frame(keys: &[&str], pixel: u8) -> CanvasPacketFrame {
         CanvasPacketFrame { width: 2, height: 2, layers: keys.iter().map(|key|
-            CanvasPacketLayer { stream_key: key.to_string(), opacity: 1.0, pixels: vec![pixel; 16] }
+            CanvasPacketLayer { stream_key: key.to_string(), opacity: 1.0, pixels: vec![pixel; 16], geometry: LayerGeometry::identity(2, 2) }
         ).collect() }
     }
     #[test]
@@ -178,11 +199,11 @@ mod tests {
         let mut cache = ResidentLayerCache::new(128, 128);
         let mut packet = CanvasPacketFrame { width: 128, height: 128, layers: vec![
             CanvasPacketLayer { stream_key: "base".into(), opacity: 1.0,
-                pixels: [32, 64, 96, 255].repeat(128 * 128) },
+                pixels: [32, 64, 96, 255].repeat(128 * 128), geometry: LayerGeometry::identity(128, 128) },
             CanvasPacketLayer { stream_key: "layer:0".into(), opacity: 0.5,
-                pixels: [160, 32, 64, 96].repeat(128 * 128) },
+                pixels: [160, 32, 64, 96].repeat(128 * 128), geometry: LayerGeometry::identity(128, 128) },
             CanvasPacketLayer { stream_key: "layer:1".into(), opacity: 0.8,
-                pixels: [16, 192, 80, 128].repeat(128 * 128) },
+                pixels: [16, 192, 80, 128].repeat(128 * 128), geometry: LayerGeometry::identity(128, 128) },
         ] };
         let start = Instant::now();
         for index in 0..60 {

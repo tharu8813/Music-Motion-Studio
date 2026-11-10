@@ -116,6 +116,7 @@ mod windows_export {
     use music_motion_gpu_core::qt_canvas_packet::load_qt_canvas_packet;
     use music_motion_gpu_core::canvas_stream::read_frame;
     use music_motion_gpu_core::resident_layer_cache::ResidentLayerCache;
+    use music_motion_gpu_core::d3d11_affine::AffineLayerRenderer;
     use serde_json::{json, Value};
     use std::collections::VecDeque;
     use std::env;
@@ -303,6 +304,7 @@ mod windows_export {
         let mut pool = NativeNv12FramePool::new(options.width, options.height, options.slots)?;
         let processor = NativeBgraNv12VideoProcessor::new_for_pool(&pool)?;
         let mut resident = ResidentLayerCache::new(options.width, options.height);
+        let mut affine = AffineLayerRenderer::new(&pool)?;
         let mut encoder = NativeNvencRegistrationSession::new_for_pool_with_fps(
             &pool, options.fps,
         )?;
@@ -317,13 +319,16 @@ mod windows_export {
                 return Err("Canvas packet dimensions changed mid-export".into());
             }
             let pts = clock.next_submission()?;
-            resident.update(&current,
-                || processor.create_bgra_input_texture(),
-                |texture, pixels| processor.upload_canvas_layer_for_validation(texture, pixels),
+            resident.update_sized(&current,
+                |w,h| affine.create_input(w,h),
+                |texture,pixels,width| affine.upload(texture,pixels,width),
             )?;
+            affine.prepare(&current, &resident)?;
             let layers = current.layers.iter().map(|source| {
                 Ok(NativeCanvasBgraLayer {
-                    texture: resident.resource(&source.stream_key)?, opacity: source.opacity,
+                    texture: if source.geometry.is_identity(options.width, options.height) {
+                        resident.resource(&source.stream_key)?
+                    } else { affine.output(&source.stream_key)? }, opacity: source.opacity,
                 })
             }).collect::<Result<Vec<_>, String>>()?;
             let slot = pool.queue_gpu_canvas_layers(&processor, &layers, pts)?;
@@ -359,6 +364,7 @@ mod windows_export {
         }
         clock.finish()?;
         resident.clear();
+        affine.clear();
         if pool.completed_count() != options.frames
             || encoder.successful_map_count() != options.frames as usize
         {
@@ -384,6 +390,9 @@ mod windows_export {
             "elapsed_seconds": started.elapsed().as_secs_f64(),
             "h264_file": options.video.display().to_string(),
             "d3d11_alpha_composition_on_gpu": true,
+            "d3d11_affine_shader_draws": affine.draws,
+            "affine_output_textures": {"allocations":affine.allocations,"releases":affine.releases,"peak_bytes":affine.peak_output_bytes},
+            "canvas_packet_schemas": [1,2],
             "gpu_nv12_to_cpu_readbacks": 0,
             "nvenc_output_synchronously_completed": true,
             "qt_canvas_rasterized_on_cpu": true,

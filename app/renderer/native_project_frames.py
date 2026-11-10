@@ -134,7 +134,7 @@ def produce_complete_project_frames(
                     )
                 yield interleave_dynamic_layers(
                     static, stack, layers, seconds=state["timeline_seconds"],
-                    output_scale=scale,
+                    output_scale=scale, gpu_affine=True,
                 )
             if project.to_dict() != before:
                 raise TimelineValidationError("Native export unexpectedly modified project sources")

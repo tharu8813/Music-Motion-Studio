@@ -21,6 +21,9 @@ pub mod d3d11_frame_pool;
 pub mod d3d11_bgra_video;
 
 #[cfg(windows)]
+pub mod d3d11_affine;
+
+#[cfg(windows)]
 pub mod d3d11_nvenc_registration;
 
 pub mod qt_canvas_packet;

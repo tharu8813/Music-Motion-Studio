@@ -17,7 +17,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from app.preview.native_canvas_layer_packets import NativeCanvasBgraLayer, NativeCanvasFrame
-from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderCancelledError, RenderError, RenderSettings
+from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderCancelledError, RenderError, RenderSettings, RenderResult
 from app.renderer.native_gpu_stream import (
     render_native_gpu_playlist, stream_native_canvas_h264,
 )
@@ -203,7 +203,7 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
             with patch("app.renderer.native_gpu_stream.stream_native_canvas_h264") as stream, patch(
                 "app.renderer.native_gpu_stream.finalize_native_gpu_mp4"
             ) as finalizer:
-                finalizer.return_value = "FINALIZED"
+                finalizer.return_value = RenderResult(root / "result.mp4", 1)
                 result = render_native_gpu_playlist(
                     renderer, passed, executable=root / "native.exe",
                     tracks=[track], compiled_plan=plan,
@@ -215,7 +215,8 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                         output_width=64, output_height=64,
                     ),
                 )
-            self.assertEqual(result, "FINALIZED")
+            self.assertEqual(result.output_path, root / "result.mp4")
+            self.assertIs(result.native_report, stream.return_value)
             self.assertIs(stream.call_args.args[0], passed)
             self.assertEqual(stream.call_args.kwargs["expected_frames"], 30)
             self.assertEqual(finalizer.call_args.kwargs["tracks"], [track])

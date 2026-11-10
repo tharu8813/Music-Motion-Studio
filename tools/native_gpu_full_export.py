@@ -14,6 +14,8 @@ import argparse
 from copy import deepcopy
 import json
 import math
+from time import monotonic
+import hashlib
 from pathlib import Path
 import sys
 
@@ -65,7 +67,7 @@ def make_short_smoke_project(
 def export_complete_project(
     project_path: Path, output_path: Path, *, native_exe: Path | None = None,
     fps: int = 60, scale: float = 0.5, ffmpeg: str | None = None,
-    smoke_seconds: float | None = None,
+    smoke_seconds: float | None = None, report_path: Path | None = None,
 ) -> Path:
     """Run actual complete GPU encoding + MP4 mux with the existing soundtrack."""
     source = Path(project_path)
@@ -78,6 +80,10 @@ def export_complete_project(
         raise ValueError("Choose a new .mp4 output path; existing videos will not be overwritten")
     if not 1 <= fps <= 120:
         raise ValueError("Full native export FPS must be 1..120")
+    if report_path is not None and (Path(report_path).exists() or Path(report_path).is_symlink()
+                                    or not Path(report_path).parent.is_dir()):
+        raise ValueError("Choose a new diagnostic report in an existing directory")
+    started = monotonic()
     project = ProjectService.load(source)
     if smoke_seconds is not None:
         project = make_short_smoke_project(project, smoke_seconds, fps=fps)
@@ -89,10 +95,22 @@ def export_complete_project(
     def report_progress(done: int, total: int) -> None:
         if done == total or done == 1 or done % max(1, fps * 5) == 0:
             print(f"Native GPU frames accepted: {done}/{total}", flush=True)
-    return export_project_document(
+    result = export_project_document(
         project, output, native_exe=native_exe, fps=fps, scale=scale,
         ffmpeg=ffmpeg, progress_callback=report_progress,
-    ).output_path
+    )
+    from app.utils.performance import ENABLED, PROFILE
+    if ENABLED:
+        elapsed = monotonic() - started
+        PROFILE.observe("export.total_wall_seconds", elapsed)
+        PROFILE.observe("export.completed_wall_seconds", elapsed)
+    if report_path is not None:
+        with Path(report_path).open("x", encoding="utf-8") as writer:
+            json.dump(dict(status="completed", source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+                output=str(result.output_path), native_report=result.native_report,
+                complete_cli_wall_seconds=monotonic()-started,
+                scope="short_clip_gpu_smoke" if smoke_seconds is not None else "full_original_project"), writer, indent=2)
+    return result.output_path
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -105,6 +123,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fps", type=int, default=60)
     parser.add_argument("--scale", type=float, default=0.5)
     parser.add_argument("--ffmpeg", type=str, default=None)
+    parser.add_argument("--report", type=Path, default=None, help="Preserve developer diagnostics outside temporary staging")
     parser.add_argument(
         "--smoke-seconds", type=float, default=None,
         help="Create a real 1..30 second first-song MP4 test instead of the full playlist",
@@ -118,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
         output = export_complete_project(
             args.project, args.output, native_exe=args.native_exe,
             fps=args.fps, scale=args.scale, ffmpeg=args.ffmpeg,
-            smoke_seconds=args.smoke_seconds,
+            smoke_seconds=args.smoke_seconds, report_path=args.report,
         )
     except Exception as exc:
         print(json.dumps({
