@@ -171,3 +171,52 @@ Rust `d3d11_exact_roi_gpu_copies`는 실제 정수 GPU 복사 횟수다.
 
 실험 모드 전후의 BGRA 및 NV12 픽셀 일치, 프레임 순서·오디오·가사·재생 길이를
 검증하고, 결과가 느려지거나 오류/화질 문제가 있다면 이 compact 옵션을 끈다.
+
+## Experimental previous-frame pixel reuse (binary-v2)
+
+\`PLAYLIST_CANVAS_NATIVE_LAYER_REUSE=1\` opts into the native \`--input-format binary-v2\`
+worker. The default **remains binary-v1**. Both protocols share the same
+28-byte \`<4sIQIQ>\` header and same original Canvas manifest schema
+(\`mms_canvas_bgra_layers_v1\` or \`v2\`). Binary-v2 uses header version \`2\`
+and adds one JSON boolean per Z layer: \`reuse_previous_frame\`.
+
+- \`false\`: this layer's entire BGRA plane follows the JSON, validated by
+  declared length, SHA-256, geometry, Z order, and opaque base.
+- \`true\`: **no BGRA bytes** are transmitted for the layer. The worker
+  copies the same plane from its **immediately previous completed packet**
+  only if stream key, byte size and dimensions match, then the common
+  parser independently recalculates and checks SHA-256.
+- Per-frame opacity, affine inverse, clip and Z order are always provided
+  anew. Transparent/compact ROI geometry is not frozen just because its
+  BGRA pixels are unchanged.
+- A fully reused frame is legal with a **zero byte payload** in v2 only.
+  No prior frame, mismatched checksum, wrong declared size, missing flags,
+  truncated input or changed stream order fails closed.
+- Python keeps **only previous digests and dimensions**, never previously
+  sent pixel buffers. Rust retains at most the previous decoded frame
+  while materializing the next one. No global disk cache, no cross-export
+  cache state, no additional frame/presentation timestamp is invented.
+- Python writer and Rust still apply per-frame acknowledgement and the
+  existing bounded 1-frame overlap, cancellation and NVENC drain.
+
+In PowerShell, after building the updated worker:
+
+\`\`\`powershell
+$env:PLAYLIST_CANVAS_NATIVE_PIPELINED = "1"
+$env:PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS = "1"
+$env:PLAYLIST_CANVAS_NATIVE_COMPACT_BANDS = "1"
+$env:PLAYLIST_CANVAS_NATIVE_LAYER_REUSE = "1"
+# Run the exact same 30 second project as previous benchmarks.
+Remove-Item Env:PLAYLIST_CANVAS_NATIVE_LAYER_REUSE
+Remove-Item Env:PLAYLIST_CANVAS_NATIVE_COMPACT_BANDS
+Remove-Item Env:PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS
+Remove-Item Env:PLAYLIST_CANVAS_NATIVE_PIPELINED
+\`\`\`
+
+The native report adds \`frame_reuse_enabled\`, \`frame_reused_planes\`,
+\`frame_reused_bytes\`, and \`frame_transport="binary-v2"\`.
+Check actual \`frame_transport_bytes\` and \`native_stream_wall_fps\`:
+a source with frequently changing lyrics and visualizers can have relatively
+few reuse hits, and additional SHA-256 verification may even slow it down.
+The experiment does **not** automatically become the production default.
+
