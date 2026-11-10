@@ -37,6 +37,84 @@ pub fn read_frame(reader: &mut impl Read, index: u64) -> Result<Option<CanvasPac
     Ok(Some(frame))
 }
 
+
+/// MMSB binary-v2: the packet metadata names previous-frame pixel planes
+/// that are byte-for-byte identical. Do NOT trust the request blindly: the
+/// shared v1/v2 Canvas parser revalidates exact sizes, SHA-256 and opaque base.
+///
+/// Only the immediately preceding frame is retained by the caller. This
+/// prevents cross-project cache poisoning and unbounded worker memory.
+pub fn read_frame_reuse(
+    reader: &mut impl Read, index: u64, previous: Option<&CanvasPacketFrame>,
+) -> Result<Option<CanvasPacketFrame>, String> {
+    let mut header = [0u8; 28];
+    loop {
+        match reader.read(&mut header[..1]) {
+            Ok(0) => return Ok(None),
+            Ok(_) => break,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(format!("Frame header: {e}")),
+        }
+    }
+    reader.read_exact(&mut header[1..]).map_err(|e| format!("Truncated frame header: {e}"))?;
+    let version = u32::from_le_bytes(header[4..8].try_into().unwrap());
+    let pts = u64::from_le_bytes(header[8..16].try_into().unwrap());
+    let meta = u32::from_le_bytes(header[16..20].try_into().unwrap()) as usize;
+    let payload = u64::from_le_bytes(header[20..28].try_into().unwrap());
+    if &header[..4] != b"MMSB" || version != 2 || pts != index
+        || meta == 0 || meta > 65536
+        || payload > (MAX_FRAME_BYTES * MAX_LAYERS) as u64 {
+        return Err("Invalid binary-v2 frame version, PTS or lengths".into());
+    }
+    let mut manifest = vec![0; meta];
+    reader.read_exact(&mut manifest).map_err(|e| format!("Truncated metadata: {e}"))?;
+    let root: serde_json::Value = serde_json::from_slice(&manifest)
+        .map_err(|e| format!("Invalid binary-v2 Canvas JSON: {e}"))?;
+    let layers = root["layers"].as_array().ok_or("Missing binary-v2 layers")?;
+    if layers.is_empty() || layers.len() > MAX_LAYERS {
+        return Err("Invalid binary-v2 layer count".into());
+    }
+    let flags = root["reuse_previous_frame"].as_array()
+        .ok_or("Missing binary-v2 reuse flags")?;
+    if flags.len() != layers.len() || flags.iter().any(|v| !v.is_boolean()) {
+        return Err("Binary-v2 reuse flags must contain one bool per layer".into());
+    }
+    let mut remaining = payload;
+    let mut layer_index = 0usize;
+    let frame = parse_qt_canvas_packet(&manifest, |_, size| {
+        let i = layer_index;
+        layer_index += 1;
+        if flags[i].as_bool() == Some(true) {
+            let old = previous.and_then(|p| p.layers.get(i))
+                .ok_or("Binary-v2 reused a plane without a previous matching frame")?;
+            // Same key/order, dimensions and pixels. Opacity and transform may
+            // change independently, and must come from the new manifest.
+            if old.stream_key != layers[i]["stream_key"].as_str().unwrap_or("")
+                || old.geometry.width as u64 !=
+                    layers[i]["width"].as_u64().unwrap_or(root["width"].as_u64().unwrap_or(0))
+                || old.geometry.height as u64 !=
+                    layers[i]["height"].as_u64().unwrap_or(root["height"].as_u64().unwrap_or(0))
+                || old.pixels.len() != size {
+                return Err("Binary-v2 previous layer key or geometry mismatch".into());
+            }
+            Ok(old.pixels.clone())
+        } else {
+            if size as u64 > remaining {
+                return Err("Binary-v2 frame payload shorter than declared planes".into());
+            }
+            let mut pixels = vec![0; size];
+            reader.read_exact(&mut pixels)
+                .map_err(|e| format!("Truncated binary-v2 BGRA plane: {e}"))?;
+            remaining -= size as u64;
+            Ok(pixels)
+        }
+    })?;
+    if remaining != 0 || layer_index != layers.len() {
+        return Err("Binary-v2 frame payload longer than declared planes".into());
+    }
+    Ok(Some(frame))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -56,6 +134,71 @@ mod tests {
         wire.extend((metadata.len() as u32).to_le_bytes()); wire.extend(16u64.to_le_bytes());
         wire.extend(metadata); wire.extend(pixels); wire
     }
+    fn packet_v2(index: u64, reuse: bool, pixels: &[u8], claimed_pixels: &[u8]) -> Vec<u8> {
+        let metadata = serde_json::to_vec(&serde_json::json!({
+            "schema":1,"format":"mms_canvas_bgra_layers_v1",
+            "pixel_format":"BGRA8_STRAIGHT", "coordinate_origin":"top_left",
+            "width":2, "height":2,
+            "qt_canvas_rasterized_on_cpu":true,
+            "production_export_changed":false,
+            "native_gpu_alpha_composition_required":false,
+            "reuse_previous_frame":[reuse],
+            "layers":[{"file":"layer-0.bgra","stream_key":"base","z_order":0,
+                "opacity":1,"bytes":16,
+                "sha256":format!("{:x}",Sha256::digest(claimed_pixels))}]
+        })).unwrap();
+        let mut wire = Vec::from(&b"MMSB"[..]);
+        wire.extend(2u32.to_le_bytes());
+        wire.extend(index.to_le_bytes());
+        wire.extend((metadata.len() as u32).to_le_bytes());
+        wire.extend((if reuse {0} else {pixels.len() as u64}).to_le_bytes());
+        wire.extend(metadata);
+        if !reuse {wire.extend(pixels);}
+        wire
+    }
+    #[test]
+    fn v2_references_reconstruct_validated_pixels_with_zero_wire_bytes() {
+        let first_pixels = [14, 22, 30, 255].repeat(4);
+        let new_pixels = [18, 22, 30, 255].repeat(4);
+        let first_wire = packet_v2(0, false, &first_pixels, &first_pixels);
+        let first = read_frame_reuse(&mut &first_wire[..], 0, None).unwrap().unwrap();
+        assert_eq!(first.layers[0].pixels, first_pixels);
+
+        let repeated = packet_v2(1, true, &[], &first_pixels);
+        let second = read_frame_reuse(&mut &repeated[..], 1, Some(&first))
+            .unwrap().unwrap();
+        assert_eq!(second.layers[0].pixels, first_pixels);
+        assert_eq!(repeated.len(), 28 + u32::from_le_bytes(repeated[16..20].try_into().unwrap()) as usize);
+        let dirty = packet_v2(2, false, &new_pixels, &new_pixels);
+        let third = read_frame_reuse(&mut &dirty[..], 2, Some(&second)).unwrap().unwrap();
+        assert_eq!(third.layers[0].pixels, new_pixels);
+
+        // v1 never accepts v2, v2 never accepts v1: fail closed on
+        // mismatched binaries and do not send malformed PTS to NVENC.
+        assert!(read_frame(&mut &repeated[..], 1).is_err());
+        assert!(read_frame_reuse(&mut &packet()[..], 0, None).is_err());
+    }
+
+    #[test]
+    fn v2_rejects_missing_previous_tampered_checksum_and_payload_lengths() {
+        let pixels = [1, 2, 3, 255].repeat(4);
+        let ref_wire = packet_v2(1, true, &[], &pixels);
+        assert!(read_frame_reuse(&mut &ref_wire[..], 1, None).is_err());
+        let first = read_frame_reuse(
+            &mut &packet_v2(0, false, &pixels, &pixels)[..], 0, None,
+        ).unwrap().unwrap();
+        let different = [2, 2, 3, 255].repeat(4);
+        let forged = packet_v2(1, true, &[], &different);
+        assert!(read_frame_reuse(&mut &forged[..], 1, Some(&first)).is_err());
+        for bad in [
+            packet_v2(1, false, &pixels[..8], &pixels),
+            { let mut v=packet_v2(1,true,&[],&pixels);v[20..28].copy_from_slice(&1u64.to_le_bytes());v },
+            { let mut v=packet_v2(1,true,&[],&pixels);v[4..8].copy_from_slice(&1u32.to_le_bytes());v },
+        ] {
+            assert!(read_frame_reuse(&mut &bad[..], 1, Some(&first)).is_err());
+        }
+    }
+
     #[test]
     fn valid_fragmented_frames_and_all_truncations() {
         struct Fragments<'a>(&'a [u8]);
