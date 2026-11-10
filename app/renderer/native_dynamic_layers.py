@@ -14,7 +14,7 @@ from PySide6.QtGui import QImage, QPainter
 from app.models.source import SourceType
 from app.preview.native_canvas_layer_packets import (
     MAX_NATIVE_CANVAS_LAYERS, NativeCanvasBgraLayer, NativeCanvasFrame,
-    straight_bgra_bytes,
+    DeferredNativeCanvasLayer, DeferredNativeCanvasFrame, straight_bgra_bytes,
 )
 from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderSettings
 from app.renderer.python_visualizer import PythonVisualizerRenderer
@@ -112,10 +112,11 @@ def place_dynamic_overlay(image: QImage, x: int, y: int, width: int, height: int
 
 
 def interleave_dynamic_layers(
-    static_frame: NativeCanvasFrame, stack: DynamicStack,
+    static_frame: NativeCanvasFrame | DeferredNativeCanvasFrame, stack: DynamicStack,
     rendered: list[tuple[object, QImage]],
     *, seconds: float = 0.0, output_scale: float = 1.0, gpu_affine: bool = False,
-) -> NativeCanvasFrame:
+    raster_cache=None,
+) -> NativeCanvasFrame | DeferredNativeCanvasFrame:
     """Keep native packet key convention while interleaving QPainter layers."""
     if len(rendered) != len(stack.source_ids):
         raise ValueError("Missing dynamic layers at a presentation timestamp")
@@ -129,13 +130,29 @@ def interleave_dynamic_layers(
                 image, overlay,
                 static_frame.width, static_frame.height,
                 seconds=seconds, output_scale=output_scale,
+                **({
+                    "submit_bgra": raster_cache.submit_bgra,
+                } if gpu_affine and raster_cache is not None
+                     and raster_cache.parallel_bgra_enabled else {}),
             )
         key = "base" if not layers else f"layer:{len(layers) - 1}"
-        layers.append(NativeCanvasBgraLayer(
-            key, entry.width, entry.height, entry.pixels, entry.opacity,
-            entry.inverse_transform, entry.clip,
-        ))
-    return NativeCanvasFrame(static_frame.width, static_frame.height, tuple(layers), 2 if gpu_affine else 1)
+        if isinstance(entry, DeferredNativeCanvasLayer):
+            layers.append(DeferredNativeCanvasLayer(
+                key, entry.width, entry.height, entry.pixels_future, entry.opacity,
+                entry.inverse_transform, entry.clip,
+            ))
+        else:
+            layers.append(NativeCanvasBgraLayer(
+                key, entry.width, entry.height, entry.pixels, entry.opacity,
+                entry.inverse_transform, entry.clip,
+            ))
+    output = dict(
+        width=static_frame.width, height=static_frame.height,
+        layers=tuple(layers), schema=2 if gpu_affine else 1,
+    )
+    if any(isinstance(layer, DeferredNativeCanvasLayer) for layer in layers):
+        return DeferredNativeCanvasFrame(**output)
+    return NativeCanvasFrame(**output)
 
 
 def analyze_reactive_canvas_tracks(
