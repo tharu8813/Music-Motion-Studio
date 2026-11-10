@@ -101,16 +101,17 @@ class NativeGpuFullProjectTests(unittest.TestCase):
         with TemporaryDirectory() as temp:
             project = dynamic_project(Path(temp) / "song.wav")
             project.playlist[0].start_time_seconds = 7.0
+            project.playlist[0].duration_seconds = 3.0
             original = project.to_dict()
-            clipped = make_short_smoke_project(project, 0.5, fps=30)
+            clipped = make_short_smoke_project(project, 1.0, fps=30)
             self.assertEqual(project.to_dict(), original)
             self.assertIsNot(clipped, project)
             self.assertEqual(clipped.playlist[0].id, project.playlist[0].id)
-            self.assertEqual(clipped.playlist[0].duration_seconds, 0.5)
+            self.assertEqual(clipped.playlist[0].duration_seconds, 1.0)
             self.assertIsNone(clipped.playlist[0].start_time_seconds)
             self.assertEqual(len(clipped.playlist), 1)
             self.assertEqual(clipped.sources[0].id, project.sources[0].id)
-            self.assertEqual(compile_playlist(clipped.playlist).duration_seconds, 0.5)
+            self.assertEqual(compile_playlist(clipped.playlist).duration_seconds, 1.0)
             self.assertIn("smoke clip", clipped.settings.title)
 
     def test_invalid_smoke_seconds_fail_before_any_gpu_or_audio_work(self):
@@ -122,7 +123,7 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "frame boundary"):
                 make_short_smoke_project(project, 0.52, fps=30)
 
-    def test_smoke_export_generates_15_real_qt_audio_frames_for_a_05s_mp4(self):
+    def test_smoke_export_generates_30_real_qt_audio_frames_for_a_1s_mp4(self):
         ffmpeg = os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG") or shutil.which("ffmpeg")
         if not ffmpeg or not Path(ffmpeg).is_file():
             self.skipTest("Verified FFmpeg required for short real-project frame generation")
@@ -131,6 +132,7 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             audio = root / "song.wav"
             sample_wav(audio)
             original = dynamic_project(audio)
+            original.playlist[0].duration_seconds = 3.0
             path = root / "project.json"
             path.write_text(json.dumps(original.to_dict()), encoding="utf8")
             original_bytes = path.read_bytes()
@@ -142,11 +144,11 @@ class NativeGpuFullProjectTests(unittest.TestCase):
                     (frame.width, frame.height, len(frame.layers))
                     for frame in source_frames
                 )
-                self.assertEqual(kwargs["compiled_plan"].duration_seconds, 0.5)
+                self.assertEqual(kwargs["compiled_plan"].duration_seconds, 1.0)
                 self.assertEqual(len(kwargs["tracks"]), 1)
-                self.assertEqual(kwargs["tracks"][0].duration_seconds, 0.5)
+                self.assertEqual(kwargs["tracks"][0].duration_seconds, 1.0)
                 self.assertIn("short GPU smoke clip", kwargs["metadata"].title)
-                return RenderResult(target, 0.5)
+                return RenderResult(target, 1.0)
 
             with patch(
                 "tools.native_gpu_full_export.FFmpegRenderer.prepare_playlist_audio",
@@ -158,10 +160,10 @@ class NativeGpuFullProjectTests(unittest.TestCase):
                 actual = export_complete_project(
                     path, target, native_exe=root / "native.exe",
                     fps=30, scale=0.25, ffmpeg=str(ffmpeg),
-                    smoke_seconds=0.5,
+                    smoke_seconds=1.0,
                 )
             self.assertEqual(actual, target)
-            self.assertEqual(len(completed), 15)
+            self.assertEqual(len(completed), 30)
             self.assertEqual(completed[0], (320, 180, 4))
             self.assertEqual(path.read_bytes(), original_bytes)
 
