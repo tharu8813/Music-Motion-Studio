@@ -25,6 +25,7 @@ from app.models.project import ProjectDocument
 from app.services.project_service import ProjectService
 from app.renderer.native_project_frames import produce_complete_project_frames
 from app.renderer.native_project_export import export_project_document
+from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
 
 
 def make_short_smoke_project(
@@ -68,6 +69,7 @@ def export_complete_project(
     project_path: Path, output_path: Path, *, native_exe: Path | None = None,
     fps: int = 60, scale: float = 0.5, ffmpeg: str | None = None,
     smoke_seconds: float | None = None, report_path: Path | None = None,
+    gpu_profile: str | None = None,
 ) -> Path:
     """Run actual complete GPU encoding + MP4 mux with the existing soundtrack."""
     source = Path(project_path)
@@ -83,6 +85,12 @@ def export_complete_project(
     if report_path is not None and (Path(report_path).exists() or Path(report_path).is_symlink()
                                     or not Path(report_path).parent.is_dir()):
         raise ValueError("Choose a new diagnostic report in an existing directory")
+    # Developer-only A/B switch. The regular application exposes no
+    # optimization options, and always uses the automatic GPU profile.
+    optimizations = (
+        NativeGpuOptimizations.for_profile(gpu_profile)
+        if gpu_profile is not None else None
+    )
     started = monotonic()
     project = ProjectService.load(source)
     if smoke_seconds is not None:
@@ -108,6 +116,7 @@ def export_complete_project(
     result = export_project_document(
         project, output, native_exe=native_exe, fps=fps, scale=scale,
         ffmpeg=ffmpeg, progress_callback=report_progress,
+        optimizations=optimizations,
     )
     from app.utils.performance import ENABLED, PROFILE
     if ENABLED:
@@ -133,6 +142,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fps", type=int, default=60)
     parser.add_argument("--scale", type=float, default=0.5)
     parser.add_argument("--ffmpeg", type=str, default=None)
+    parser.add_argument(
+        "--gpu-profile", choices=("automatic", "accelerated", "cpu_parallel", "standard"),
+        default=None,
+        help="Developer A/B only: automatic matches the normal application's Rust GPU engine",
+    )
     parser.add_argument("--report", type=Path, default=None, help="Preserve developer diagnostics outside temporary staging")
     parser.add_argument(
         "--smoke-seconds", type=float, default=None,
@@ -148,6 +162,7 @@ def main(argv: list[str] | None = None) -> int:
             args.project, args.output, native_exe=args.native_exe,
             fps=args.fps, scale=args.scale, ffmpeg=args.ffmpeg,
             smoke_seconds=args.smoke_seconds, report_path=args.report,
+            gpu_profile=args.gpu_profile,
         )
     except Exception as exc:
         if args.report is not None and not args.report.exists():
