@@ -131,6 +131,35 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
         self.assertEqual(result["frame_transport"], "binary-v1")
         self.assertEqual(result["bgra_disk_bytes"], 0)
         self.assertGreater(result["frame_transport_bytes"], 135*64*64*4)
+        self.assertEqual(result["timing_scope"],
+                         "serial_qt_frame_production_pipe_write_and_native_ack")
+        self.assertGreaterEqual(result["frame_production_seconds"], 0)
+        self.assertGreaterEqual(result["frame_production_max_seconds"], 0)
+        self.assertGreater(result["frame_pipe_write_seconds"], 0)
+        self.assertGreaterEqual(result["frame_ack_wait_seconds"], 0)
+        self.assertGreater(result["native_stream_elapsed_seconds"], 0)
+        self.assertGreater(result["native_stream_wall_fps"], 0)
+        # The pipe+ACK timings retain the old frame_transport_seconds counter.
+        self.assertLessEqual(
+            result["frame_pipe_write_seconds"] + result["frame_ack_wait_seconds"],
+            result["frame_transport_seconds"] + 0.01,
+        )
+
+    def test_deliberately_slow_frame_producer_is_visible_in_native_timings(self):
+        if os.name != "nt":
+            self.skipTest("The native export transport is Windows-only")
+        from time import sleep
+        def slowly_generated():
+            for frame in generated_frames(6):
+                sleep(0.025)
+                yield frame
+        result = self._run_mock(count=6, provided=slowly_generated())
+        self.assertGreaterEqual(result["frame_production_seconds"], 0.12)
+        self.assertGreater(result["frame_production_max_seconds"], 0.02)
+        self.assertGreater(
+            result["native_stream_elapsed_seconds"],
+            result["frame_production_seconds"],
+        )
 
     def test_short_canvas_generator_fails_without_success_report(self):
         with self.assertRaisesRegex(RenderError, "stopped at"):
