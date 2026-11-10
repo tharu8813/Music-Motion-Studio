@@ -286,7 +286,7 @@ mod windows_export {
 
     fn next_input_frame(
         input: &mut std::io::StdinLock<'_>, index: u64,
-        previous: Option<&CanvasPacketFrame>, options: &Options,
+        previous: Option<&mut CanvasPacketFrame>, options: &Options,
     ) -> Result<Option<CanvasPacketFrame>, String> {
         if options.binary_v2 { read_frame_reuse(input, index, previous) }
         else if options.binary { read_frame(input, index) }
@@ -349,8 +349,9 @@ mod windows_export {
             // Resident input textures are reused on the same immediate context;
             // prior composition commands precede the next dirty upload.
             drop(layers);
-            // The previous packet remains live until the next v2 read has
-            // verified any referenced SHA-256 pixels. v1 still drops early.
+            // The previous packet remains owned until the next v2 read has
+            // validated its reference metadata and moved matching planes.
+            // No old frame pixels are accessed after GPU submission.
             // Bounded producer/consumer handshake: the caller may release
             // THIS frame's bytes (or legacy files) only after
             // native loading, texture upload and GPU submission completed.
@@ -363,7 +364,7 @@ mod windows_export {
             }
             if clock.submitted == clock.expected {
                 let unexpected = if options.binary_v2 {
-                    next_input_frame(&mut input, clock.submitted, Some(&current), &options)?
+                    next_input_frame(&mut input, clock.submitted, Some(&mut current), &options)?
                 } else {
                     drop(current);
                     next_input_frame(&mut input, clock.submitted, None, &options)?
@@ -375,7 +376,7 @@ mod windows_export {
             }
             let transfer_started = Instant::now();
             let next = if options.binary_v2 {
-                next_input_frame(&mut input, clock.submitted, Some(&current), &options)?
+                next_input_frame(&mut input, clock.submitted, Some(&mut current), &options)?
             } else {
                 drop(current);
                 next_input_frame(&mut input, clock.submitted, None, &options)?
