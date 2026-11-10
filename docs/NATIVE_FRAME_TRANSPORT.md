@@ -36,3 +36,37 @@ source iterator를 닫는다. ACK 제한 시간에는 쓰기와 ACK 대기를 �
 Rust `frame_receive_seconds`는 입력 대기·검증·해시를 포함한다.
 `bgra_disk_bytes=0`은 binary 경로만 해당한다. 이 수치는 전체 내보내기 속도 향상의
 증거가 아니며 같은 프로젝트의 준비부터 mux 종료까지 별도 A/B 측정해야 한다.
+
+## CPU/GPU 유휴 상태 진단 (2026-11)
+
+개발 CLI `--report`에 저장되는 `native_report`는 다음 **벽시계 경과 시간**을 포함한다.
+이 타이밍은 CPU 사용률이나 GPU 점유율이 아니라, 병목 단계의 위치를 분리하기 위한 계측이다.
+
+| 필드 | 설명 |
+| --- | --- |
+| `frame_production_seconds` | Qt/Python Canvas producer의 `next(frame)` 소요 시간 누적 |
+| `frame_production_max_seconds` | 가장 느린 단일 프레임 준비 시간 |
+| `frame_pipe_write_seconds` | Python thread 생성부터 pipe 쓰기/완료까지 누적 (Rust 입력·검증에 따른 backpressure 포함) |
+| `frame_ack_wait_seconds` | pipe 쓰기 종료부터 `MMS_FRAME_ACCEPTED` ACK를 받기까지 누적 |
+| `frame_transport_seconds` | 기존 write+ACK 총 소요 시간 (새 2개 카운터와 거의 같음) |
+| `native_worker_finalize_seconds` | 모든 프레임 전송 후 NVENC 완료/작업자 종료/보고서 읽기까지 |
+| `native_stream_elapsed_seconds` | native subprocess 시작부터 complete report 수집까지 벽시계 시간 |
+| `native_stream_wall_fps` | `frames_encoded / native_stream_elapsed_seconds`, 사용자가 관찰하는 end-to-end 전체 FPS와 다름 |
+
+Rust 자체 `frame_receive_seconds`는 입력을 읽고 검증하는 시간이고 `elapsed_seconds`는 native worker의 전체 처리 시간이다.
+`audio_prepare_seconds`, `completed_wall_seconds`는 Python export 서비스의 측정값이다.
+CLI에서 약 5초 분량의 영상 프레임이 완료될 때 출력하는 observed FPS는 **실제 경과 시간 기준**
+수치이므로 프로젝트 FPS와 다를 수 있다.
+
+진단 규칙: producer 시간이 대부분이면 단일 Qt/Python 래스터화 경로를 조사한다.
+pipe write 시간이 대부분이면 BGRA 바이트 수·SHA-256·pipe backpressure·Rust packet validation을 조사한다.
+ACK 대기가 길면 D3D11 upload/submit, NV12 slot availability, NVENC sync를 조사한다.
+마지막 finalize 시간이 길면 encoder drain/flush를 조사한다.
+
+현재 전송은 **프레임마다 Python source → write → ACK의 직렬화**를 유지한다.
+이 보고서만으로 다중 프레임 prefetch나 worker parallelism이 안전하다고 결정하지 않는다.
+Qt는 GUI thread 수명 제약이 있고, 무제한 frame buffering은 4K에서 과도한 메모리/취소 지연을 유발한다.
+Windows 작업 관리자의 GPU 전체 사용률은 NVENC의 `Video Encode` 엔진 사용량과 구분해 확인한다.
+
+**진행 중인 작업은 이 변경으로 계측되지 않는다.** 보고서 필드를 확인하려면 다음 실행 전
+코드를 갱신해야 한다. 이미 실행 중인 Python/Rust 프로세스를 강제 재시작하지 않는다.
