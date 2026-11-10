@@ -127,7 +127,7 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                           if thread.name.startswith("mms-native-gpu-")], [])
 
     def _run_mock(self, *, count=135, provided=None, cancel=None, worker_source=MOCK_NATIVE_SOURCE,
-                  timeout=90, optimizations=None):
+                  timeout=90, optimizations=None, width=64, height=64):
         if os.name != "nt":
             self.skipTest("The native export transport is Windows-only")
         with TemporaryDirectory() as tmp:
@@ -146,11 +146,11 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
 
             with patch("app.renderer.native_gpu_stream.subprocess.Popen", side_effect=launch):
                 result = stream_native_canvas_h264(
-                    generated_frames(count) if provided is None else provided,
+                    generated_frames(count, width, height) if provided is None else provided,
                     executable=Path(sys.executable),
                     video_path=root / "video.h264",
                     report_path=root / "report.json",
-                    width=64, height=64, fps=30,
+                    width=width, height=height, fps=30,
                     duration_seconds=count / 30,
                     expected_frames=count, cancel_event=cancel,
                     acknowledgement_timeout=timeout,
@@ -252,6 +252,22 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
         self.assertEqual(report["max_outstanding_frame_packets"], 2)
         self.assertEqual(report["frame_reused_planes"], 5)
         self.assertEqual(report["frames_encoded"], 6)
+
+    def test_large_automatic_frame_uses_v3_compression_end_to_end(self):
+        if not supports_lz4_transport():
+            self.skipTest("lz4 not available in this Python environment")
+        report = self._run_mock(
+            count=4, width=320, height=180,
+            optimizations=NativeGpuOptimizations.for_profile("automatic"),
+        )
+        self.assertEqual(report["frame_transport"], "binary-v3")
+        self.assertEqual(report["frames_encoded"], 4)
+        self.assertEqual(report["frame_reused_planes"], 3)
+        self.assertGreaterEqual(report["frame_lz4_planes"], 1)
+        self.assertGreater(report["frame_wire_saved_bytes"], 0)
+        self.assertLess(
+            report["frame_wire_payload_bytes"], report["frame_raw_source_bytes"],
+        )
 
     def test_opt_in_reuses_identical_layers_with_real_native_write_and_ack(self):
         # The mock validates every recovered byte and SHA at each PTS;
