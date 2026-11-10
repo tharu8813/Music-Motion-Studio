@@ -299,9 +299,20 @@ class FFmpegRenderer:
     """Normalizes tracks, concatenates them with FFmpeg, then renders an MP4."""
 
     def __init__(self, executable: str | Path | None = None) -> None:
+        self.prevent_output_overwrite = False
         self.executable = self.find_executable(executable)
         self._available_encoders: frozenset[str] | None = None
         self._filter_script_option: str | None = None
+
+    def _publish_output(self, staged: Path, target: Path) -> None:
+        """GPU fallback must never replace an output created during encoding."""
+        if not self.prevent_output_overwrite:
+            staged.replace(target)
+        elif os.name == "nt":
+            staged.rename(target)
+        else:
+            os.link(staged, target)
+            staged.unlink()
 
     def _filter_graph_arguments(self, graph: str, temporary: Path) -> list[str]:
         """Keep long graphs off Windows' command line across FFmpeg versions."""
@@ -1016,7 +1027,7 @@ class FFmpegRenderer:
                     "Moving the completed video to the selected location",
                 )
                 try:
-                    temporary_video.replace(target)
+                    self._publish_output(temporary_video, target)
                 except OSError as error:
                     raise RenderError(
                         "Could not replace the output video. Close any program using "
@@ -1368,7 +1379,7 @@ class FFmpegRenderer:
                 if cancel_event.is_set():
                     raise RenderCancelledError("Rendering was cancelled.")
                 try:
-                    staging.replace(target)
+                    self._publish_output(staging, target)
                 except OSError as error:
                     raise RenderError(f"Could not replace '{target.name}'. Check the destination folder.") from error
             finally:

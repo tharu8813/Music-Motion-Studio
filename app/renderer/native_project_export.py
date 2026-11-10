@@ -51,6 +51,8 @@ def resolve_native_executable(explicit=None):
 def export_project_document(
     project, output_path, *, native_exe=None, fps=60, scale=0.5,
     ffmpeg=None, cancel_event=None, progress_callback=None, frame_source=None,
+    mux_progress_callback=None, audio_bitrate="192k", storage_path_callback=None,
+    preparation_progress_callback=None,
 ):
     """Render a detached project; always release the supplied GUI frame source."""
     try:
@@ -58,6 +60,9 @@ def export_project_document(
             project, output_path, native_exe=native_exe, fps=fps, scale=scale,
             ffmpeg=ffmpeg, cancel_event=cancel_event,
             progress_callback=progress_callback, frame_source=frame_source,
+            mux_progress_callback=mux_progress_callback, audio_bitrate=audio_bitrate,
+            storage_path_callback=storage_path_callback,
+            preparation_progress_callback=preparation_progress_callback,
         )
     finally:
         if frame_source is not None:
@@ -67,6 +72,8 @@ def export_project_document(
 def _export_project_document(
     project, output_path, *, native_exe=None, fps=60, scale=0.5,
     ffmpeg=None, cancel_event=None, progress_callback=None, frame_source=None,
+    mux_progress_callback=None, audio_bitrate="192k", storage_path_callback=None,
+    preparation_progress_callback=None,
 ):
     """Render the entire detached document and return the usual RenderResult.
 
@@ -97,6 +104,7 @@ def _export_project_document(
     plan = compile_playlist(project.playlist, enabled_only=True)
     settings = RenderSettings(
         fps=fps, video_codec="h264_nvenc",
+        audio_bitrate=audio_bitrate,
         output_width=round(project.canvas.width * scale),
         output_height=round(project.canvas.height * scale),
     )
@@ -104,10 +112,15 @@ def _export_project_document(
     frames = frame_source
     try:
         with TemporaryDirectory(prefix="mms-native-audio-") as directory:
+            if storage_path_callback is not None:
+                storage_path_callback("frames", Path(directory))
             audio = renderer.prepare_playlist_audio(
                 tracks, Path(directory), settings, transition_mode="none", cancel_event=cancel,
+                progress_callback=preparation_progress_callback,
             )
             _check_cancel(cancel)
+            if preparation_progress_callback is not None:
+                preparation_progress_callback("Preparing visual frames", 1.0, "Analyzing audio for Canvas effects")
             if frames is None:
                 frames = produce_complete_project_frames(
                     project, fps=fps, scale=scale, prepared_audio=audio,
@@ -120,6 +133,8 @@ def _export_project_document(
                 compiled_plan=plan, prepared_audio_path=audio,
                 output_path=output, settings=settings, cancel_event=cancel,
                 progress_callback=progress_callback,
+                mux_progress_callback=mux_progress_callback,
+                storage_path_callback=storage_path_callback,
                 metadata=ExportMetadata(title=project.settings.title,
                     artist=project.settings.author, comment=project.settings.description),
             )

@@ -144,6 +144,16 @@ class NativeGpuProductionFinalizerTests(unittest.TestCase):
                     self._call(root, report_update=diff)
                 # _call rewrites the report with a clean fixture each time.
 
+    def test_valid_mux_never_overwrites_a_destination_created_during_export(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / "final.mp4"
+            target.write_bytes(b"KEEP")
+            with self.assertRaises(RenderError):
+                self._call(root)
+            self.assertEqual(target.read_bytes(), b"KEEP")
+            self.assertFalse(list(root.glob(".mms-native-mux-*")))
+
     def test_missing_or_short_h264_is_rejected_before_final_mux(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)
