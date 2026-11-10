@@ -24,7 +24,7 @@ from app.dialogs.settings_dialog import SettingsDialog
 from app.dialogs.preset_dialog import DesignPresetDialog
 from app.dialogs.export_settings_dialog import ExportSettingsDialog
 from app.dialogs.track_details_dialog import TrackDetailsDialog
-from app.dialogs.export_progress_dialog import ExportEtaEstimator, ExportProgressDialog
+from app.dialogs.export_progress_dialog import ExportEtaEstimator, NativeGpuFrameEtaEstimator, ExportProgressDialog
 from app.dialogs.export_complete_dialog import ExportCompleteDialog
 from app.services.export_storage_service import ExportStorageSnapshot, estimate_export_storage
 from app.dialogs.ffmpeg_install_progress_dialog import FFmpegInstallProgressDialog
@@ -1680,6 +1680,61 @@ class MainWindowExportTests(MainWindowTestCase):
             dialog.resize(680, 920)
             self.application.processEvents()
             self.assertGreater(dialog.log_output.height(), initial_log_height)
+        finally:
+            dialog.complete(False)
+
+    def test_native_gpu_eta_uses_actual_accepted_frames_not_weighted_12_percent(self) -> None:
+        estimator = NativeGpuFrameEtaEstimator()
+        self.assertIsNone(estimator.update(1, 131417, 0.0))
+        # A 36-minute, 60 FPS export at ~16 accepted FPS cannot plausibly
+        # finish in 30 minutes, even though the weighted UI shows ~12%.
+        remaining = estimator.update(3974, 131417, 252.0)
+        self.assertIsNotNone(remaining)
+        self.assertGreater(remaining, 7000)
+        self.assertLess(remaining, 10000)
+        self.assertAlmostEqual(estimator.measured_fps, 3973 / 252, places=2)
+        self.assertAlmostEqual(estimator.remaining(257.0), remaining - 5.0, delta=0.001)
+        self.assertIsNone(estimator.remaining(280.0))
+
+    def test_native_gpu_eta_adapts_to_slower_scenes_and_resets_per_export(self) -> None:
+        estimator = NativeGpuFrameEtaEstimator()
+        estimator.update(1, 1200, 0.0)
+        first = estimator.update(201, 1200, 20.0)
+        slower = estimator.update(251, 1200, 50.0)
+        self.assertGreater(slower, first)
+        self.assertIsNone(estimator.update(1, 600, 60.0))
+        self.assertIsNone(estimator.measured_fps)
+        self.assertEqual(estimator.update(600, 600, 65.0), 0.0)
+
+    def test_gpu_dialog_estimates_frames_then_drops_eta_during_final_audio_mux(self) -> None:
+        dialog = ExportProgressDialog(self.window)
+        dialog.set_korean(True)
+        dialog.set_native_gpu_export(True)
+        try:
+            dialog._started_at = 0.0
+            with patch("app.dialogs.export_progress_dialog.monotonic", return_value=10.0):
+                dialog.update_progress("Encoding video", .115, "Rust GPU: 20/1000 frames")
+            with patch("app.dialogs.export_progress_dialog.monotonic", return_value=30.0):
+                dialog.update_progress("Encoding video", .265, "Rust GPU: 220/1000 frames")
+            self.assertIn("영상 처리 약", dialog.time_label.text())
+            self.assertIn("마무리 별도", dialog.time_label.text())
+            with patch("app.dialogs.export_progress_dialog.monotonic", return_value=40.0):
+                dialog.update_progress("Finalizing export", .86, "Muxing audio")
+            self.assertIn("남은 시간 계산 중", dialog.time_label.text())
+            self.assertNotIn("영상 처리 약", dialog.time_label.text())
+        finally:
+            dialog.complete(False)
+
+    def test_native_storage_panel_explains_increasing_temporary_h264(self) -> None:
+        dialog = ExportProgressDialog(self.window)
+        dialog.set_korean(True)
+        try:
+            dialog.set_native_gpu_export(True)
+            self.assertIn("H.264", dialog.storage_rows["processing"][0].text())
+            self.assertIn("자동", dialog.storage_estimate_hint.text())
+            dialog.set_korean(False)
+            self.assertIn("temporary H.264", dialog.storage_rows["processing"][0].text())
+            self.assertIn("cleaned up", dialog.storage_estimate_hint.text())
         finally:
             dialog.complete(False)
 
