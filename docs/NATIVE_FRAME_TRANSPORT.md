@@ -220,3 +220,46 @@ a source with frequently changing lyrics and visualizers can have relatively
 few reuse hits, and additional SHA-256 verification may even slow it down.
 The experiment does **not** automatically become the production default.
 
+## 실험: GPU 내보내기의 CPU QImage 변환 병렬화 (2026-11-11)
+
+기존 `accelerated` 프로필은 유지한다. 새 `cpu_parallel` 프로필을 선택하면
+GPU 내보내기의 **Qt Canvas·오디오 반응 이미지가 완전히 그려진 후** BGRA 픽셀
+변환만 독립적인 CPU 작업자(최대 2개)에서 진행한다.
+
+- 내보내기 설정 → Rust GPU → **고속 + CPU 병렬 (실험)**으로 선택
+- Qt `QGraphicsScene`, `QPainter`, 가사·키프레임·Canvas 원본은 반드시 GUI
+  스레드에서 실행하며 작업자에 공유하지 않는다. 작업자에는 완성된 `QImage`
+  읽기 전용 복사본과 변환 함수만 전달한다
+- PNG/JPEG 중간 파일은 생성하지 않으며, 기존 BGRA8 직선 알파,
+  native layer Z 순서, per-frame PTS·ACK, Compact ROI·binary-v2 참조 규칙을 유지한다
+- 프레임 N의 변환을 기다리는 동안 기존 1프레임 선행 생성 기능으로 GUI가 N+1을
+  그릴 수 있다. BGRA 작업자는 최대 2개, 기존 native outstanding frame 최대 2개로 제한
+- 이미 GPU 가속 모드를 쓰던 프로젝트에는 **자동 활성화되지 않는다**.
+  CPU 변환 스레드가 빨라져도 메인 Qt 페인트가 지배적인 프로젝트라면 처리 FPS는
+  개선되지 않거나 오히려 느릴 수 있으므로 실측 A/B가 필요하다
+- 안전한 롤백: UI의 `고속 (실험)`으로 돌아가거나 개발 CLI에서 아래 옵션을 제거
+
+```powershell
+# 개발 CLI 테스트의 경우만: GUI에서는 환경변수 변경 금지
+$env:PLAYLIST_CANVAS_NATIVE_PIPELINED = "1"
+$env:PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS = "1"
+$env:PLAYLIST_CANVAS_NATIVE_COMPACT_BANDS = "1"
+$env:PLAYLIST_CANVAS_NATIVE_LAYER_REUSE = "1"
+$env:PLAYLIST_CANVAS_NATIVE_PARALLEL_BGRA = "1"
+# 동일한 프로젝트·해상도·fps에서 30초 또는 60초 내보내기 테스트 실행
+Remove-Item Env:PLAYLIST_CANVAS_NATIVE_PARALLEL_BGRA
+Remove-Item Env:PLAYLIST_CANVAS_NATIVE_LAYER_REUSE
+Remove-Item Env:PLAYLIST_CANVAS_NATIVE_COMPACT_BANDS
+Remove-Item Env:PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS
+Remove-Item Env:PLAYLIST_CANVAS_NATIVE_PIPELINED
+```
+
+보고서 `native_report.cpu_parallel_bgra_frames`는 비동기 BGRA를 포함한
+프레임 수, `raster_cache.cpu_parallel_bgra_submissions`는 작업자에게
+위임한 Canvas/동적 레이어 수를 의미한다. 실제 성능 비교 기준은
+`native_stream_wall_fps`, `native_stream_elapsed_seconds`,
+전체 메모리 사용량과 동등한 BGRA/NV12 출력이다.
+
+이 작업은 **CPU 기반 전체 Qt 페인트 병렬화가 아니다**. 여러
+`QGraphicsScene`을 하나의 GUI 스레드 밖으로 무작정 이동시키지 않으며,
+GPU 직접 가사·도형 페인팅은 후속 별도 단계로 취급한다.
