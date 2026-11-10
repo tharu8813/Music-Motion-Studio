@@ -1475,6 +1475,7 @@ class ExportOrchestrator:
         dialog = ExportProgressDialog(window)
         window._export_dialog = dialog
         dialog.set_korean(window.translator.is_korean)
+        dialog.set_native_gpu_export(True)
         gpu_label = "Rust GPU · D3D11 + NVENC · H.264 (Beta)"
         if profile_name == "accelerated":
             gpu_label += " · Accelerated"

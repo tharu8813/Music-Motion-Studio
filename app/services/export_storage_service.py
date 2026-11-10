@@ -141,6 +141,7 @@ class ExportStorageMonitor(QThread):
         super().__init__(parent)
         self._output_path = Path(output_path).expanduser().resolve()
         self._frame_root: Path | None = None
+        self._audio_root: Path | None = None
         self._render_root: Path | None = None
         self._output_staging: Path | None = None
         self._paths_lock = threading.Lock()
@@ -152,6 +153,8 @@ class ExportStorageMonitor(QThread):
         with self._paths_lock:
             if kind == "frames":
                 self._frame_root = value
+            elif kind == "audio":
+                self._audio_root = value
             elif kind == "render":
                 self._render_root = value
             elif kind == "output":
@@ -170,11 +173,12 @@ class ExportStorageMonitor(QThread):
     def _snapshot(self) -> ExportStorageSnapshot:
         with self._paths_lock:
             frame_root = self._frame_root
+            audio_root = self._audio_root
             render_root = self._render_root
             output_staging = self._output_staging
         categories = {
             "visuals": self._tree_size(frame_root),
-            "audio": 0,
+            "audio": self._tree_size(audio_root),
             "effects": 0,
             "processing": 0,
         }
@@ -195,7 +199,14 @@ class ExportStorageMonitor(QThread):
                             categories["processing"] += size
             except OSError:
                 LOGGER.debug("Could not scan export render files", exc_info=True)
-        output_size = self._file_size(output_staging)
+        # Final MP4s are muxed into an export-owned staging *directory*.
+        # The prior accounting only handled files, incorrectly showing 0 B
+        # for the result throughout the mux step.
+        output_size = (
+            self._tree_size(output_staging)
+            if output_staging is not None and output_staging.is_dir()
+            else self._file_size(output_staging)
+        )
         try:
             usage = shutil.disk_usage(self._output_path.parent)
             disk_total, disk_free = usage.total, usage.free

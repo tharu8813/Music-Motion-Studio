@@ -172,6 +172,87 @@ class ExportEtaEstimator:
         return max(0.0, remaining)
 
 
+@dataclass(frozen=True, slots=True)
+class _GpuFrameSample:
+    timestamp: float
+    accepted: int
+
+
+class NativeGpuFrameEtaEstimator:
+    """Use actual acknowledged GPU frames, never weighted UI percentages.
+
+    An RTX 30-second smoke can take seconds while a full-size, many-track
+    project can take hours. Frame acceptance is the measurable work unit.
+    Keep only a rolling time window so changing scene complexity is reflected
+    without treating preparation weights as encoded frames.
+    """
+
+    _WINDOW_SECONDS = 90.0
+
+    def __init__(self) -> None:
+        self._samples: deque[_GpuFrameSample] = deque(maxlen=512)
+        self._total = 0
+        self._accepted = 0
+        self._last_progress_at = 0.0
+        self._predicted_finish_at: float | None = None
+        self.measured_fps: float | None = None
+
+    def update(self, accepted: int, total: int, now: float) -> float | None:
+        if total <= 0 or not 0 <= accepted <= total:
+            return None
+        now = float(now)
+        if self._total != total or accepted < self._accepted:
+            self.__init__()
+            self._total = total
+        if accepted == total:
+            self._accepted = accepted
+            self._last_progress_at = now
+            self._predicted_finish_at = now
+            return 0.0
+        if accepted <= self._accepted and self._samples:
+            return self.remaining(now)
+        # A paused or GPU-stalled export can resume at a very different rate.
+        # Drop the stale finish prediction and collect a fresh window rather
+        # than momentarily showing an expired 00:00 ETA.
+        if self._samples and now - self._last_progress_at > 20.0:
+            self._samples.clear()
+            self._predicted_finish_at = None
+            self.measured_fps = None
+        self._total = total
+        self._accepted = accepted
+        self._last_progress_at = now
+        self._samples.append(_GpuFrameSample(now, accepted))
+        while len(self._samples) > 2 and now - self._samples[1].timestamp > self._WINDOW_SECONDS:
+            self._samples.popleft()
+        first = self._samples[0]
+        elapsed = now - first.timestamp
+        delta = accepted - first.accepted
+        # Do not promise a precise ETA from a brief GPU initialization
+        # burst or a single frame. A few seconds of stable throughput matter.
+        if elapsed < 8.0 or delta < 16:
+            return None
+        rate = delta / elapsed
+        if rate <= 0.0:
+            return None
+        self.measured_fps = rate
+        finish = now + (total - accepted) / rate
+        self._predicted_finish_at = (
+            finish if self._predicted_finish_at is None
+            else self._predicted_finish_at * 0.65 + finish * 0.35
+        )
+        return self.remaining(now)
+
+    def remaining(self, now: float) -> float | None:
+        if self._predicted_finish_at is None:
+            return None
+        if self._accepted < self._total and now - self._last_progress_at > 20.0:
+            return None
+        remaining = self._predicted_finish_at - now
+        if remaining <= 0.0 and self._accepted < self._total:
+            return None
+        return max(0.0, remaining)
+
+
 class ExportDetailsList(QListWidget):
     """Readable status history presented as UI rows instead of a console."""
 
@@ -212,6 +293,9 @@ class ExportProgressDialog(QDialog):
         self.resize(700, 620)
         self._started_at = monotonic()
         self._eta_estimator = ExportEtaEstimator(self._started_at)
+        self._gpu_frame_eta: NativeGpuFrameEtaEstimator | None = None
+        self._gpu_finalizing = False
+        self._native_gpu_export = False
         self._time_refresh_timer = QTimer(self)
         self._time_refresh_timer.setInterval(1000)
         self._time_refresh_timer.timeout.connect(self._refresh_remaining_time)
@@ -481,7 +565,10 @@ class ExportProgressDialog(QDialog):
                 "visuals": "화면·프레임 파일",
                 "audio": "오디오 작업 파일",
                 "effects": "음악 반응 효과 파일",
-                "processing": "기타 작업 파일",
+                "processing": (
+                    "GPU 인코딩 임시 영상 (H.264)" if self._native_gpu_export
+                    else "기타 작업 파일"
+                ),
                 "output": "생성 중인 결과 오디오" if self._audio_only else "생성 중인 결과 영상",
             }
             if self._korean else
@@ -489,7 +576,10 @@ class ExportProgressDialog(QDialog):
                 "visuals": "Visual/frame files",
                 "audio": "Audio working files",
                 "effects": "Music-reactive effect files",
-                "processing": "Other working files",
+                "processing": (
+                    "GPU temporary H.264 video" if self._native_gpu_export
+                    else "Other working files"
+                ),
                 "output": "Result audio in progress" if self._audio_only else "Result video in progress",
             }
         )
@@ -531,6 +621,22 @@ class ExportProgressDialog(QDialog):
                     f"–{format_bytes(estimate.result_high)}\n"
                     "Live values change as working files are created and removed."
                 )
+            )
+
+        if self._native_gpu_export:
+            # Storage rises while the compressed H.264 elementary stream is
+            # being produced. It is reused for the final AAC/MP4
+            # mux, then discarded on successful, failed or cancelled exports.
+            note = (
+                "인코딩 중 임시 영상 용량이 증가하는 것은 정상이며, "
+                "작업 종료 후 자동으로 정리됩니다."
+                if self._korean else
+                "Temporary GPU video grows during encoding and is cleaned "
+                "up when the export finishes or is cancelled."
+            )
+            current = self.storage_estimate_hint.text()
+            self.storage_estimate_hint.setText(
+                current + ("\n" if current else "") + note
             )
 
     def set_cancel_confirmation(self, title: str, message: str) -> None:
@@ -591,6 +697,11 @@ class ExportProgressDialog(QDialog):
             self.log_output.add_detail(display_message)
             self._last_log = display_message
 
+    def set_native_gpu_export(self, enabled: bool) -> None:
+        """Explain GPU staging and use a frame-count ETA only for this export."""
+        self._native_gpu_export = bool(enabled)
+        self._refresh_storage_labels()
+
     def update_progress(self, stage: str, fraction: float, message: str) -> None:
         """Apply worker progress and calculate an approximate time remaining."""
         percent = round(max(0.0, min(1.0, fraction)) * 100)
@@ -607,8 +718,34 @@ class ExportProgressDialog(QDialog):
         if display_message and display_message != self._last_log:
             self.log_output.add_detail(display_message)
             self._last_log = display_message
-        remaining = self._eta_estimator.update(stage, fraction, now)
-        self._update_time_label(remaining, elapsed)
+        matched = re.fullmatch(r"Rust GPU: (\d+)/(\d+) frames", message.strip())
+        if stage == "Encoding video" and matched:
+            if self._gpu_frame_eta is None:
+                self._gpu_frame_eta = NativeGpuFrameEtaEstimator()
+            self._gpu_finalizing = False
+            accepted, total = int(matched.group(1)), int(matched.group(2))
+            remaining = self._gpu_frame_eta.update(accepted, total, now)
+            if total > 0:
+                frame_fraction = accepted / total * 100.0
+                measured = self._gpu_frame_eta.measured_fps
+                suffix = f" · {measured:.1f} FPS" if measured is not None else ""
+                self.detail_label.setText(
+                    f"{display_message} · 프레임 진행 {frame_fraction:.1f}%{suffix}"
+                    if self._korean else
+                    f"{display_message} · Video frames {frame_fraction:.1f}%{suffix}"
+                )
+            self._update_time_label(remaining, elapsed, native_frames=True)
+        else:
+            if self._gpu_frame_eta is not None:
+                self._gpu_frame_eta = None
+                self._gpu_finalizing = True
+            # The final audio mux is a separate workload. A 90%-full UI
+            # bar cannot predict its speed from the earlier GPU frame rate.
+            remaining = (
+                None if self._gpu_finalizing
+                else self._eta_estimator.update(stage, fraction, now)
+            )
+            self._update_time_label(remaining, elapsed)
 
     def _set_storage_visible(self, visible: bool) -> None:
         """Let the user collapse the storage-use card when they don't need it."""
@@ -731,10 +868,20 @@ class ExportProgressDialog(QDialog):
     def _refresh_remaining_time(self) -> None:
         """Refresh elapsed time and ETA even when FFmpeg is quiet for a second."""
         now = monotonic()
-        self._update_time_label(self._eta_estimator.remaining(now), now - self._started_at)
+        remaining = (
+            None if self._gpu_finalizing else
+            self._gpu_frame_eta.remaining(now)
+            if self._gpu_frame_eta is not None else
+            self._eta_estimator.remaining(now)
+        )
+        self._update_time_label(
+            remaining, now - self._started_at,
+            native_frames=self._gpu_frame_eta is not None,
+        )
 
     def _update_time_label(
         self, remaining: float | None, elapsed: float | None = None,
+        *, native_frames: bool = False,
     ) -> None:
         """Keep the export ETA in its single dedicated label."""
         elapsed = monotonic() - self._started_at if elapsed is None else elapsed
@@ -745,11 +892,18 @@ class ExportProgressDialog(QDialog):
                 f"Elapsed {self._format_time(elapsed)} · Calculating remaining time"
             )
             return
-        self.time_label.setText(
-            f"경과 {self._format_time(elapsed)} · 남은 시간 약 {self._format_time(remaining)}"
-            if self._korean else
-            f"Elapsed {self._format_time(elapsed)} · Remaining ~{self._format_time(remaining)}"
-        )
+        if native_frames:
+            self.time_label.setText(
+                f"경과 {self._format_time(elapsed)} · 영상 처리 약 {self._format_time(remaining)} 남음 (마무리 별도)"
+                if self._korean else
+                f"Elapsed {self._format_time(elapsed)} · Video frames ~{self._format_time(remaining)} left (mux extra)"
+            )
+        else:
+            self.time_label.setText(
+                f"경과 {self._format_time(elapsed)} · 남은 시간 약 {self._format_time(remaining)}"
+                if self._korean else
+                f"Elapsed {self._format_time(elapsed)} · Remaining ~{self._format_time(remaining)}"
+            )
 
     def request_cancel(self) -> bool:
         """Confirm and emit a cancellation request exactly once."""

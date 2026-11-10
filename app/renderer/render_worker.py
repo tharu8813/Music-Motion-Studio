@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import logging
+from time import monotonic
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
@@ -87,12 +88,30 @@ class RenderWorker(QThread):
         self._cancel_event = cancel_event if cancel_event is not None else threading.Event()
         self.native_project = native_project
         self.native_frame_source = native_frame_source
+        self._native_last_progress_at = 0.0
         self.native_scale = native_scale
         self.native_optimizations = native_optimizations
 
     def cancel(self) -> None:
         """Request a cooperative FFmpeg stop at the next process polling interval."""
         self._cancel_event.set()
+
+    def _report_native_frame(self, done: int, total: int) -> None:
+        """Bound expensive GUI progress signals to 4 Hz, always report last.
+
+        The original code queued one full Qt dialog update for every frame:
+        131,417 signals for a 36-minute 60 FPS export. Progress callbacks
+        are presentational; every native frame is still sent and ACKed.
+        """
+        now = monotonic()
+        if (done != 1 and done != total
+                and now - self._native_last_progress_at < 0.25):
+            return
+        self._native_last_progress_at = now
+        self.progress.emit(
+            "Encoding video", 0.1 + 0.75 * done / max(1, total),
+            f"Rust GPU: {done}/{total} frames",
+        )
 
     def run(self) -> None:
         """Execute the render and forward outcome signals to the GUI thread."""
@@ -110,10 +129,7 @@ class RenderWorker(QThread):
                     preparation_progress_callback=lambda stage, fraction, message: self.progress.emit(
                         stage, 0.07 * fraction, message,
                     ),
-                    progress_callback=lambda done, total: self.progress.emit(
-                        "Encoding video", 0.1 + 0.75 * done / max(1, total),
-                        f"Rust GPU: {done}/{total} frames",
-                    ),
+                    progress_callback=self._report_native_frame,
                     mux_progress_callback=lambda stage, fraction, message: self.progress.emit(
                         stage, 0.85 + 0.15 * fraction, message,
                     ),
