@@ -23,7 +23,7 @@ from threading import Event, Thread, Lock
 from time import monotonic
 
 from app.preview.native_canvas_layer_packets import DeferredNativeCanvasFrame, NativeCanvasFrame
-from app.renderer.native_frame_transport import FrameReuseState, write_frame
+from app.renderer.native_frame_transport import FrameReuseState, write_frame, supports_lz4_transport
 from app.renderer.ffmpeg_renderer import (
     ExportMetadata, FFmpegRenderer, RenderCancelledError, RenderError,
     RenderResult, RenderSettings,
@@ -116,13 +116,18 @@ def stream_native_canvas_h264(
             ).strip().lower() in {"1", "true", "yes"}
         )
         reuse_state = FrameReuseState() if reuse_enabled else None
+        # One automatic path: fast per-layer compression if the bundled LZ4
+        # wheel is present, otherwise preserve tested binary-v2 semantics.
+        compressed_transport = reuse_enabled and supports_lz4_transport()
+        input_format = ("binary-v3" if compressed_transport
+                        else "binary-v2" if reuse_enabled else "binary-v1")
         args = [
             str(exe), "--width", str(width), "--height", str(height),
             "--fps", str(fps), "--expected-frames", str(expected_frames),
             "--duration-seconds", format(duration_seconds, ".17g"),
             "--slots", str(slots), "--video-output", str(video),
             "--output", str(report), "--input-format",
-            "binary-v2" if reuse_enabled else "binary-v1",
+            input_format,
         ]
         try:
             worker = subprocess.Popen(
@@ -274,6 +279,7 @@ def stream_native_canvas_h264(
                             written_bytes = write_frame(
                                 worker.stdin, resolved, index, reuse_state=reuse_state,
                                 timings=frame_write_timings,
+                                compress_planes=compressed_transport,
                             )
                             wrote_at = monotonic()
                             _frame_acknowledgement(
@@ -305,6 +311,7 @@ def stream_native_canvas_h264(
                         sent.put(write_frame(
                             worker.stdin, resolved, index, reuse_state=reuse_state,
                             timings=frame_write_timings,
+                            compress_planes=compressed_transport,
                         ))
                     except Exception as exc:
                         sent.put(exc)
@@ -383,7 +390,7 @@ def stream_native_canvas_h264(
             # run concurrently; their sums can exceed total elapsed time.
             stream_elapsed = monotonic() - stream_started
             result.update(
-                frame_transport="binary-v2" if reuse_enabled else "binary-v1",
+                frame_transport=input_format,
                 frame_reuse_enabled=reuse_enabled,
                 native_optimization_profile=(
                     "automatic" if optimizations is not None and optimizations.adaptive_bgra
@@ -403,6 +410,13 @@ def stream_native_canvas_h264(
                 frame_sha256_bytes=frame_write_timings.get("sha256_bytes", 0),
                 frame_pipe_syswrite_seconds=frame_write_timings.get("pipe_syswrite_seconds", 0.0),
                 frame_pipe_syswrite_calls=frame_write_timings.get("pipe_syswrite_calls", 0),
+                frame_lz4_cpu_seconds=frame_write_timings.get("lz4_cpu_seconds", 0.0),
+                frame_lz4_planes=frame_write_timings.get("lz4_planes", 0),
+                frame_raw_source_bytes=frame_write_timings.get("raw_source_bytes", 0),
+                frame_wire_payload_bytes=frame_write_timings.get("wire_payload_bytes", 0),
+                frame_wire_saved_bytes=max(0,
+                    frame_write_timings.get("raw_source_bytes", 0) -
+                    frame_write_timings.get("wire_payload_bytes", 0)),
                 frame_ack_wait_seconds=frame_ack_wait_seconds,
                 native_worker_finalize_seconds=monotonic() - finalize_started,
                 native_stream_elapsed_seconds=stream_elapsed,
