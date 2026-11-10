@@ -723,9 +723,17 @@ class ExportProgressDialog(QDialog):
             if self._gpu_frame_eta is None:
                 self._gpu_frame_eta = NativeGpuFrameEtaEstimator()
             self._gpu_finalizing = False
-            remaining = self._gpu_frame_eta.update(
-                int(matched.group(1)), int(matched.group(2)), now,
-            )
+            accepted, total = int(matched.group(1)), int(matched.group(2))
+            remaining = self._gpu_frame_eta.update(accepted, total, now)
+            if total > 0:
+                frame_fraction = accepted / total * 100.0
+                measured = self._gpu_frame_eta.measured_fps
+                suffix = f" · {measured:.1f} FPS" if measured is not None else ""
+                self.detail_label.setText(
+                    f"{display_message} · 프레임 진행 {frame_fraction:.1f}%{suffix}"
+                    if self._korean else
+                    f"{display_message} · Video frames {frame_fraction:.1f}%{suffix}"
+                )
             self._update_time_label(remaining, elapsed, native_frames=True)
         else:
             if self._gpu_frame_eta is not None:
