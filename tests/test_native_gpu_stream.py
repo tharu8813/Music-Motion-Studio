@@ -189,8 +189,8 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
         # second Qt frame must be produced while the previous GPU IO waits.
         slow_worker = MOCK_NATIVE_SOURCE.replace(
             '    print(f"MMS_FRAME_ACCEPTED {index}", flush=True)',
-            '    import time; time.sleep(0.15)\\n'
-            '    print(f"MMS_FRAME_ACCEPTED {index}", flush=True)',
+            '    import time; time.sleep(0.15)' + chr(10)
+            + '    print(f"MMS_FRAME_ACCEPTED {index}", flush=True)',
         )
         with (patch.dict(os.environ, {"PLAYLIST_CANVAS_NATIVE_PIPELINED": "1"}),
               patch.object(native_gpu_stream, "_frame_acknowledgement", side_effect=marked_ack)):
