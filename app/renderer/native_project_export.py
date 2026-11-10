@@ -125,7 +125,7 @@ def _export_project_document(
     try:
         with TemporaryDirectory(prefix="mms-native-audio-") as directory:
             if storage_path_callback is not None:
-                storage_path_callback("frames", Path(directory))
+                storage_path_callback("audio", Path(directory))
             audio_started = monotonic()
             audio = renderer.prepare_playlist_audio(
                 tracks, Path(directory), settings, transition_mode="none", cancel_event=cancel,
