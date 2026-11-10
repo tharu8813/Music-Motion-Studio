@@ -92,6 +92,69 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(size, 16)
         self.assertEqual(json.loads(wire[28:28+count])["reuse_previous_frame"], [True, False])
 
+    def test_v3_only_transmits_changed_rows_and_preserves_exact_pixels(self):
+        width = height = 512
+        stride = width * 4
+        first = bytes((10, 30, 80, 255)) * (width * height)
+        modified = bytearray(first)
+        modified[120 * stride:128 * stride] = bytes((80, 30, 10, 255)) * (width * 8)
+        cache = FrameReuseState()
+        def packet(pixels):
+            return NS(width=width, height=height, schema=1, layers=(
+                NS(stream_key="base", width=width, height=height,
+                   opacity=1.0, pixels=pixels),
+            ))
+        first_wire = b"".join(frame_chunks(packet(first), 0,
+                                           reuse_state=cache, row_deltas=True))
+        self.assertEqual(HEADER.unpack(first_wire[:28])[1], 3)
+        second_wire = b"".join(frame_chunks(packet(bytes(modified)), 1,
+                                            reuse_state=cache, row_deltas=True))
+        _, version, pts, metadata_len, payload_len = HEADER.unpack(second_wire[:28])
+        manifest = json.loads(second_wire[28:28+metadata_len])
+        self.assertEqual((version, pts, payload_len), (3, 1, 8 * stride))
+        self.assertEqual(manifest["row_deltas"], [[120, 128]])
+        self.assertEqual(manifest["reuse_previous_frame"], [False])
+        self.assertEqual(second_wire[28+metadata_len:], bytes(modified)[120*stride:128*stride])
+        self.assertEqual(cache.row_delta_planes, 1)
+        self.assertEqual(cache.row_delta_bytes_saved, len(first) - 8 * stride)
+        self.assertEqual(cache.saved_bytes, 0)
+        self.assertGreaterEqual(cache.row_delta_compare_seconds, 0)
+
+        repeated = b"".join(frame_chunks(packet(bytes(modified)), 2,
+                                        reuse_state=cache, row_deltas=True))
+        _, _, _, meta, payload = HEADER.unpack(repeated[:28])
+        data = json.loads(repeated[28:28+meta])
+        self.assertEqual(payload, 0)
+        self.assertEqual(data["reuse_previous_frame"], [True])
+        self.assertEqual(data["row_deltas"], [None])
+
+        # A full-scene change is cheaper to send as an ordinary plane.
+        changed_all = bytes((40, 60, 90, 255)) * (width * height)
+        wide = b"".join(frame_chunks(packet(changed_all), 3,
+                                    reuse_state=cache, row_deltas=True))
+        _, _, _, meta, payload = HEADER.unpack(wide[:28])
+        self.assertEqual(payload, len(changed_all))
+        self.assertEqual(json.loads(wide[28:28+meta])["row_deltas"], [None])
+
+    def test_v3_changed_geometry_refuses_prior_row_patch(self):
+        # Even if the byte sizes happen to match, a different shape must
+        # transmit the complete plane rather than patching a prior frame.
+        pixels = bytes((1, 2, 3, 255)) * (512 * 512)
+        state = FrameReuseState()
+        def pkt(width, height, data):
+            return NS(width=width, height=height, schema=1, layers=(
+                NS(stream_key="base", width=width, height=height,
+                   opacity=1.0, pixels=data),
+            ))
+        _ = b"".join(frame_chunks(pkt(512, 512, pixels), 0,
+                                   reuse_state=state, row_deltas=True))
+        changed = bytes((2, 3, 4, 255)) * (1024 * 256)
+        wire = b"".join(frame_chunks(pkt(1024, 256, changed), 1,
+                                      reuse_state=state, row_deltas=True))
+        _, _, _, meta, payload = HEADER.unpack(wire[:28])
+        self.assertEqual(payload, len(changed))
+        self.assertEqual(json.loads(wire[28:28+meta])["row_deltas"], [None])
+
     def test_no_progress_and_invalid_layers_fail(self):
         class Blocked:
             def write(self, data): return 0
