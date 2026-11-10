@@ -2,6 +2,7 @@
 import hashlib
 import json
 import struct
+from time import monotonic
 
 
 class FrameReuseState:
@@ -17,7 +18,7 @@ HEADER = struct.Struct("<4sIQIQ")
 MAX_PAYLOAD = 3840 * 2160 * 4 * 8
 
 
-def frame_chunks(frame, index, *, reuse_state=None):
+def frame_chunks(frame, index, *, reuse_state=None, timings=None):
     sizes = [layer.width * layer.height * 4 for layer in frame.layers]
     total_size = sum(sizes)
     if (not 2 <= frame.width <= 3840 or not 2 <= frame.height <= 2160
@@ -33,7 +34,11 @@ def frame_chunks(frame, index, *, reuse_state=None):
         if (layer.stream_key != key or len(layer.pixels) != size
                 or not 0 <= layer.opacity <= 1 or (i == 0 and layer.opacity != 1)):
             raise ValueError("Invalid binary frame layer")
+        hash_started = monotonic() if timings is not None else 0.0
         digest = hashlib.sha256(layer.pixels).hexdigest()
+        if timings is not None:
+            timings["sha256_seconds"] = timings.get("sha256_seconds", 0.0) + monotonic() - hash_started
+            timings["sha256_bytes"] = timings.get("sha256_bytes", 0) + size
         # A reference only reuses identical pixel dimensions + digest. This
         # does NOT freeze opacity/clip/affine geometry or track-dependent text.
         previous = reuse_state.previous.get(key) if reuse_state is not None else None
@@ -71,12 +76,16 @@ def frame_chunks(frame, index, *, reuse_state=None):
             yield memoryview(layer.pixels)
 
 
-def write_frame(stream, frame, index, *, reuse_state=None):
+def write_frame(stream, frame, index, *, reuse_state=None, timings=None):
     count = 0
-    for chunk in frame_chunks(frame, index, reuse_state=reuse_state):
+    for chunk in frame_chunks(frame, index, reuse_state=reuse_state, timings=timings):
         view = memoryview(chunk)
         while view:
+            write_started = monotonic() if timings is not None else 0.0
             written = stream.write(view)
+            if timings is not None:
+                timings["pipe_syswrite_seconds"] = timings.get("pipe_syswrite_seconds", 0.0) + monotonic() - write_started
+                timings["pipe_syswrite_calls"] = timings.get("pipe_syswrite_calls", 0) + 1
             if written is None or written <= 0:
                 raise OSError("Native frame channel made no write progress")
             count += written
