@@ -29,6 +29,7 @@ MOCK_NATIVE_SOURCE = '''
 import json
 import struct
 import os
+import hashlib
 from pathlib import Path
 import sys
 
@@ -43,16 +44,36 @@ def exact(n):
         assert part, "truncated"
         result.extend(part)
     return result
-assert flags["--input-format"] == "binary-v1"
+mode = flags["--input-format"]
+assert mode in ("binary-v1", "binary-v2")
+expected_version = 2 if mode == "binary-v2" else 1
+previous = {}
 for index in range(count):
     magic, version, pts, metadata, payload = struct.unpack("<4sIQIQ", exact(28))
-    assert (magic, version, pts) == (b"MMSB", 1, index)
+    assert (magic, version, pts) == (b"MMSB", expected_version, index)
     data = json.loads(exact(metadata))
+    flags = data.get("reuse_previous_frame", [False] * len(data["layers"]))
+    assert len(flags) == len(data["layers"])
+    assert all(type(flag) is bool for flag in flags)
+    if version == 2:
+        assert "reuse_previous_frame" in data
+    new = {}
     total = 0
-    for layer in data["layers"]:
-        pixels = exact(layer["bytes"])
-        total += len(pixels)
+    for layer, reuse in zip(data["layers"], flags):
+        key = layer["stream_key"]
+        dims = (layer.get("width", data["width"]), layer.get("height", data["height"]))
+        if reuse:
+            assert key in previous, ("missing previous", key)
+            assert previous[key][0] == dims
+            pixels = previous[key][1]
+        else:
+            pixels = exact(layer["bytes"])
+            total += len(pixels)
+        assert len(pixels) == layer["bytes"]
+        assert hashlib.sha256(pixels).hexdigest() == layer["sha256"], (key, index)
+        new[key] = (dims, pixels)
     assert total == payload
+    previous = new
     print(f"MMS_FRAME_ACCEPTED {index}", flush=True)
 assert not sys.stdin.buffer.read(1)
 assert index+1 == count, (index, count)
@@ -162,6 +183,68 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
             result["native_stream_elapsed_seconds"],
             result["frame_production_seconds"],
         )
+
+    def test_opt_in_reuses_identical_layers_with_real_native_write_and_ack(self):
+        # The mock validates every recovered byte and SHA at each PTS;
+        # no frame is omitted, including the zero-payload ones.
+        with patch.dict(os.environ, {
+            "PLAYLIST_CANVAS_NATIVE_LAYER_REUSE": "1",
+            "PLAYLIST_CANVAS_NATIVE_PIPELINED": "1",
+        }):
+            result = self._run_mock(count=135)
+        self.assertEqual(result["frame_transport"], "binary-v2")
+        self.assertTrue(result["frame_reuse_enabled"])
+        self.assertEqual(result["frame_reused_planes"], 134)
+        self.assertEqual(result["frame_reused_bytes"], 134 * 64 * 64 * 4)
+        self.assertEqual(result["frames_encoded"], 135)
+        self.assertLess(result["frame_transport_bytes"], 135 * 64 * 64 * 4)
+        self.assertEqual(result["max_outstanding_frame_packets"], 2)
+        self.assertFalse(any(
+            thread.name.startswith("mms-native-gpu-") for thread in active_threads()
+        ))
+
+    def test_v2_dirty_layer_and_reuse_does_not_freeze_animated_opacity(self):
+        from app.renderer.native_frame_transport import FrameReuseState, frame_chunks
+        from app.preview.native_canvas_layer_packets import NativeCanvasFrame, NativeCanvasBgraLayer
+
+        state = FrameReuseState()
+        bgra = bytes((20, 40, 60, 255)) * (64 * 64)
+        overlay = bytes((20, 40, 60, 200)) * (10 * 10)
+        wire = []
+        for index, opacity in enumerate((1.0, 0.7, 0.2)):
+            frame = NativeCanvasFrame(64, 64, (
+                NativeCanvasBgraLayer("base", 64, 64, bgra),
+                NativeCanvasBgraLayer(
+                    "layer:0", 10, 10, overlay, opacity,
+                    (1, 0, 0, 1, -2, -3), (2, 3, 12, 13),
+                ),
+            ), 2)
+            parts = list(frame_chunks(frame, index, reuse_state=state))
+            wire.append(parts)
+        self.assertEqual(state.reused_planes, 4)
+        self.assertEqual(state.saved_bytes, 2 * (64*64*4 + 10*10*4))
+        self.assertNotEqual(wire[0][1], wire[1][1])
+        self.assertIn(b'"opacity":0.7', wire[1][1])
+        self.assertIn(b'"opacity":0.2', wire[2][1])
+        self.assertEqual(len(wire[1]), 2)
+
+    def test_v2_wrong_ack_and_cancel_abort_without_reuse_leaks(self):
+        with patch.dict(os.environ, {
+            "PLAYLIST_CANVAS_NATIVE_LAYER_REUSE": "1",
+            "PLAYLIST_CANVAS_NATIVE_PIPELINED": "1",
+        }):
+            with self.assertRaises(RenderError):
+                self._run_mock(count=6,
+                    worker_source='print("MMS_FRAME_ACCEPTED 999", flush=True)')
+            flag = Event()
+            timer = Timer(0.2, flag.set)
+            timer.start()
+            try:
+                with self.assertRaises(RenderCancelledError):
+                    self._run_mock(count=6, cancel=flag,
+                        worker_source='import time; time.sleep(30)')
+            finally:
+                timer.cancel()
 
     def test_opt_in_one_frame_lookahead_preserves_order_and_caller_thread(self):
         if os.name != "nt":
