@@ -1,5 +1,7 @@
 """Export-local bounded Qt raster cache; raster misses still paint on CPU."""
 from dataclasses import replace
+from concurrent.futures import ThreadPoolExecutor
+from threading import BoundedSemaphore
 import os
 
 from app.canvas.source_item import SourceItem
@@ -52,6 +54,22 @@ class NativeRasterCache:
         # CanvasSnapshot already has this worker-only cache contract.  The
         # detached native project is immutable throughout the export.
         self.frozen_lyric_settings_cache = {}
+        # QGraphicsScene and all QPainter calls remain GUI-thread-only.
+        # Only independent, immutable QImage -> BGRA byte conversions are
+        # allowed on up to two CPU workers. Semaphore prevents unbounded
+        # 4K image tasks (a full BGRA plane is ~31.6 MiB).
+        self.parallel_bgra_enabled = (
+            optimizations.parallel_bgra if optimizations is not None
+            else os.environ.get(
+                "PLAYLIST_CANVAS_NATIVE_PARALLEL_BGRA", "",
+            ).strip().lower() in {"1", "true", "yes"}
+        )
+        self._bgra_executor = (
+            ThreadPoolExecutor(max_workers=2, thread_name_prefix="mms-bgra")
+            if self.parallel_bgra_enabled else None
+        )
+        self._bgra_slots = BoundedSemaphore(2)
+        self.parallel_bgra_submissions = 0
         # Explicit opt-in: native ROI paints only a smaller rectangle for
         # transparent bands, then expands to the original full BGRA packet.
         # Never change the GPU wire protocol or baseline output by default.
@@ -87,6 +105,30 @@ class NativeRasterCache:
         self.hits = self.rasterizations = self.retained_bytes = 0
         self.peak_retained_bytes = 0
 
+    def submit_bgra(self, image, converter):
+        """Convert a detached QImage; never access the GUI's Canvas scene."""
+        if self._bgra_executor is None:
+            raise RuntimeError("Native CPU conversion pool is disabled")
+        # Bounded across overlapping frames and protects against huge BGRA
+        # buffers piling up when FFmpeg/Rust backpressure slows the sender.
+        self._bgra_slots.acquire()
+        try:
+            def convert():
+                try:
+                    return converter(image)
+                finally:
+                    self._bgra_slots.release()
+
+            future = self._bgra_executor.submit(convert)
+            self.parallel_bgra_submissions += 1
+            return future
+        except BaseException:
+            self._bgra_slots.release()
+            raise
+
+    def record_uncached_raster(self):
+        self.rasterizations += 1
+
     def get(self, key):
         layer = self.layers.get(key)
         if layer is not None:
@@ -121,6 +163,11 @@ class NativeRasterCache:
         self.scene_render_source_pixels += area
 
     def clear(self):
+        # Only the owned converter pool is joined. No GUI/Qt event is needed
+        # by any converter, so this cannot deadlock with the render worker.
+        pool, self._bgra_executor = self._bgra_executor, None
+        if pool is not None:
+            pool.shutdown(wait=True, cancel_futures=True)
         self.layers.clear()
         self.frozen_lyric_settings_cache.clear()
         self.retained_bytes = 0
