@@ -56,6 +56,10 @@ class ExportBottleneckProfileTests(unittest.TestCase):
             r"C:\\Users\\Example\\Music-Motion-Studio\\main.py",
         ], False), "editor")
         self.assertEqual(classify_process("pythonw.exe", ["main.py"], False), "editor")
+        self.assertEqual(classify_process("python.exe", [
+            r"C:\Users\test\.venv\Scripts\python.exe", "-m",
+            "tools.native_gpu_full_export", "--project", "giggles.pvsproj",
+        ], False), "editor")
         # Multiprocessing children must never get counted as the editor.
         self.assertEqual(classify_process("python.exe", [
             "-c", "from multiprocessing.spawn import spawn_main", "main.py",
