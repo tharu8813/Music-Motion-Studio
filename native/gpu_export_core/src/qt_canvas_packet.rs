@@ -106,13 +106,22 @@ pub fn load_qt_canvas_packet(path: &Path) -> Result<CanvasPacketFrame, String> {
 
 /// Shared validation for diagnostic files and production binary planes.
 pub fn parse_qt_canvas_packet(
-    manifest: &[u8], mut plane: impl FnMut(&str, usize) -> Result<Vec<u8>, String>,
+    manifest: &[u8], plane: impl FnMut(&str, usize) -> Result<Vec<u8>, String>,
 ) -> Result<CanvasPacketFrame, String> {
     if manifest.len() > 64 * 1024 {
         return Err("Canvas manifest exceeds 64 KiB".into());
     }
-    let root: Value = serde_json::from_slice(&manifest)
+    let root: Value = serde_json::from_slice(manifest)
         .map_err(|e| format!("Invalid Canvas packet JSON: {e}"))?;
+    parse_qt_canvas_packet_value(&root, plane)
+}
+
+/// A validated manifest can be reused by the streaming v2 layer-reference
+/// reader. This avoids parsing identical JSON twice per frame while retaining
+/// the entire shared geometry, SHA-256 and opaque-base validation.
+pub(crate) fn parse_qt_canvas_packet_value(
+    root: &Value, mut plane: impl FnMut(&str, usize) -> Result<Vec<u8>, String>,
+) -> Result<CanvasPacketFrame, String> {
     let schema = root["schema"].as_u64().ok_or("Canvas schema missing")?;
     if !matches!(schema, 1 | 2) || root["format"] != format!("mms_canvas_bgra_layers_v{schema}")
         || root["pixel_format"] != "BGRA8_STRAIGHT"
