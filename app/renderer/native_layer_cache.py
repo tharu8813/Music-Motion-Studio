@@ -67,6 +67,13 @@ class NativeRasterCache:
         else:
             self.artboard_width = self.artboard_height = 1.0
         self.partial_band_captures = 0
+        # Compact ROI only makes sense in conjunction with pixel-aligned Qt
+        # partial painting. Keep both flags opt-in until RTX NVENC parity.
+        self.compact_band_enabled = self.partial_band_enabled and os.environ.get(
+            "PLAYLIST_CANVAS_NATIVE_COMPACT_BANDS", "",
+        ).strip().lower() in {"1", "true", "yes"}
+        self.compact_band_captures = 0
+        self.compact_canvas_bytes_saved = 0
         self.scene_render_source_pixels = 0
         self.full_frame_source_pixels = 0
         self.layers = {}
@@ -86,7 +93,7 @@ class NativeRasterCache:
             self.retained_bytes = sum(len(entry.pixels) for entry in self.layers.values())
             self.peak_retained_bytes = max(self.peak_retained_bytes, self.retained_bytes)
 
-    def record_capture_region(self, full_width, full_height, transparent, metrics):
+    def record_capture_region(self, full_width, full_height, transparent, metrics, *, compact_bytes=None):
         """Report actual Qt scene pixels; staging BGRA planes stay full-size."""
         full = full_width * full_height
         self.full_frame_source_pixels += full
@@ -98,6 +105,12 @@ class NativeRasterCache:
                     self.artboard_width) * round(rect.height() * full_height /
                     self.artboard_height)))
                 self.partial_band_captures += 1
+                if compact_bytes is not None:
+                    full_bytes = full * 4
+                    if not 0 < compact_bytes < full_bytes:
+                        raise ValueError("Native compact ROI must reduce the BGRA plane")
+                    self.compact_band_captures += 1
+                    self.compact_canvas_bytes_saved += full_bytes - compact_bytes
         self.scene_render_source_pixels += area
 
     def clear(self):
