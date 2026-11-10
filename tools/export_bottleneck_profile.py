@@ -2,7 +2,7 @@
 
 Use with an opt-in PLAYLIST_CANVAS_PROFILE session. This standalone tool has
 no runtime dependency on the editor; install psutil only for diagnostics.
-NVIDIA GPU counters represent the whole device, not a single application.
+The default capture uses only GPU Engine counters belonging to the export process tree.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ import sys
 import time
 
 
-CATEGORIES = ("editor", "canvas_workers", "ffmpeg", "other")
+CATEGORIES = ("editor", "canvas_workers", "rust_gpu", "ffmpeg", "other")
 # Record only the settings that control export optimization. Do not include
 # environment secrets, file paths, token values or media metadata.
 OPTIMIZATION_SETTINGS = (
@@ -70,6 +70,8 @@ def classify_process(name: str, command: list[str], root: bool = False) -> str:
     executable = Path(name or "").name.lower()
     if executable in {"ffmpeg.exe", "ffmpeg"}:
         return "ffmpeg"
+    if executable in {"d3d11_qt_canvas_stream_export.exe", "d3d11_qt_canvas_stream_export"}:
+        return "rust_gpu"
     arguments = " ".join(command).lower()
     if "multiprocessing.spawn" in arguments or "spawn_main(" in arguments or "--multiprocessing-fork" in arguments:
         return "canvas_workers"
@@ -193,6 +195,9 @@ def summarize(samples: list[dict], profiles: dict) -> dict:
     peak_rss = 0.0
     gpu_encoder: list[float] = []
     gpu_usage: list[float] = []
+    gpu_engine_samples = 0
+    gpu_engine_sums: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    gpu_engine_peaks: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     for sample in samples:
         delta = float(sample.get("interval_seconds", 0))
         for kind, cores in sample.get("cpu_cores", {}).items():
@@ -202,11 +207,34 @@ def summarize(samples: list[dict], profiles: dict) -> dict:
         for gpu in sample.get("gpu") or []:
             gpu_encoder.append(float(gpu["encoder_percent"]))
             gpu_usage.append(float(gpu["gpu_percent"]))
+        process_gpu = sample.get("process_gpu_engines")
+        if process_gpu is not None:
+            gpu_engine_samples += 1
+            categories = sample.get("process_categories", {})
+            for pid, engines in process_gpu.items():
+                category = categories.get(pid)
+                if category not in CATEGORIES:
+                    continue
+                for engine, value in engines.items():
+                    gpu_engine_sums[category][engine] += float(value)
+                    gpu_engine_peaks[category][engine] = max(
+                        gpu_engine_peaks[category][engine], float(value),
+                    )
     return {
         "observed_cpu_core_seconds": {key: round(value, 2) for key, value in core_seconds.items()},
         "peak_process_tree_rss_mib": round(peak_rss, 1),
         "device_gpu_mean_percent": round(sum(gpu_usage) / len(gpu_usage), 1) if gpu_usage else None,
         "device_nvenc_mean_percent": round(sum(gpu_encoder) / len(gpu_encoder), 1) if gpu_encoder else None,
+        "process_gpu_engine_samples": gpu_engine_samples,
+        "process_gpu_engine_mean_percent_by_category": {
+            category: {engine: round(total / gpu_engine_samples, 2)
+                       for engine, total in engines.items()}
+            for category, engines in gpu_engine_sums.items() if gpu_engine_samples
+        },
+        "process_gpu_engine_peak_percent_by_category": {
+            category: {engine: round(value, 2) for engine, value in engines.items()}
+            for category, engines in gpu_engine_peaks.items()
+        },
         "timing_files": profiles["profile_files"],
         "stage_timings": profiles["stages"],
         "canvas_streams": profiles.get("streams", {}),
@@ -227,6 +255,7 @@ def assess_capture(target_exit_code: int | None, samples: list[dict],
                 "Check the selected Python environment and install project dependencies.")
     observed_ffmpeg = any(
         sample.get("process_counts", {}).get("ffmpeg", 0) > 0
+        or sample.get("process_counts", {}).get("rust_gpu", 0) > 0
         for sample in samples
     )
     stage_names = profiles.get("stages", {})
@@ -236,7 +265,7 @@ def assess_capture(target_exit_code: int | None, samples: list[dict],
     if observed_ffmpeg or observed_export_timing:
         return "export_observed", None
     return ("no_export_observed",
-            "No FFmpeg process or export timing was observed. The samples may "
+            "No FFmpeg or Rust GPU process or export timing was observed. The samples may "
             "only describe app startup or idle GPU activity; export metrics are not validated.")
 
 
@@ -245,6 +274,7 @@ def observe_tree(psutil, root, last_cpu: dict, interval: float) -> dict:
     cpu_cores = defaultdict(float)
     rss_mib = defaultdict(float)
     counts = defaultdict(int)
+    process_categories: dict[str, str] = {}
     try:
         members = [root, *root.children(recursive=True)]
     except (psutil.NoSuchProcess, psutil.AccessDenied):
@@ -261,43 +291,59 @@ def observe_tree(psutil, root, last_cpu: dict, interval: float) -> dict:
             cpu_cores[category] += max(0.0, elapsed_cpu - previous) / max(interval, 0.001)
             rss_mib[category] += process.memory_info().rss / (1024 ** 2)
             counts[category] += 1
+            process_categories[str(process.pid)] = category
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             continue
     return {
         "cpu_cores": {kind: round(cpu_cores[kind], 3) for kind in CATEGORIES},
         "rss_mib": {kind: round(rss_mib[kind], 2) for kind in CATEGORIES},
         "process_counts": {kind: counts[kind] for kind in CATEGORIES},
+        "process_categories": process_categories,
     }
 
 
 def collect(psutil, pid: int, seconds: float | None, interval: float,
             samples: list[dict] | None = None) -> tuple[list[dict], str]:
+    """Measure only the selected editor PID and recursive export children."""
+    from tools.windows_gpu_process_counters import WindowsGpuProcessCounters
+
     root = psutil.Process(pid)
     start = time.monotonic()
     previous_tick = start
     last_cpu: dict = {}
     samples = [] if samples is None else samples
     next_gpu_at = start
-    while True:
-        tick = time.monotonic()
-        expired = seconds is not None and tick - start >= seconds
-        try:
-            alive = root.is_running() and root.status() != psutil.STATUS_ZOMBIE
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            alive = False
-        if expired or not alive:
-            return samples, "duration_limit" if expired else "process_exited"
-        # Account for sampler overhead and the actual interval between observations.
-        delta = max(0.001, tick - previous_tick)
-        sample = observe_tree(psutil, root, last_cpu, delta)
-        sample["elapsed_seconds"] = round(tick - start, 3)
-        sample["interval_seconds"] = round(delta, 3)
-        sample["gpu"] = query_nvidia_gpu() if tick >= next_gpu_at else None
-        if tick >= next_gpu_at:
-            next_gpu_at = time.monotonic() + 2.0
-        samples.append(sample)
-        previous_tick = tick
-        time.sleep(interval)
+    gpu_sampler = WindowsGpuProcessCounters() if os.name == "nt" else None
+    try:
+        while True:
+            tick = time.monotonic()
+            expired = seconds is not None and tick - start >= seconds
+            try:
+                alive = root.is_running() and root.status() != psutil.STATUS_ZOMBIE
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                alive = False
+            if expired or not alive:
+                return samples, "duration_limit" if expired else "process_exited"
+            delta = max(0.001, tick - previous_tick)
+            sample = observe_tree(psutil, root, last_cpu, delta)
+            sample["elapsed_seconds"] = round(tick - start, 3)
+            sample["interval_seconds"] = round(delta, 3)
+            # No machine-wide GPU measurements: only PIDs actually observed
+            # inside the editor's process tree are passed to Windows PDH.
+            sample["gpu"] = None
+            sample["process_gpu_engines"] = None
+            if tick >= next_gpu_at:
+                if gpu_sampler is not None:
+                    sample["process_gpu_engines"] = gpu_sampler.sample({
+                        int(process_id) for process_id in sample["process_categories"]
+                    })
+                next_gpu_at = time.monotonic() + 1.0
+            samples.append(sample)
+            previous_tick = tick
+            time.sleep(interval)
+    finally:
+        if gpu_sampler is not None:
+            gpu_sampler.close()
 
 
 def resolve_app_command(command: list[str], interpreter: str | None = None) -> list[str]:
@@ -368,7 +414,8 @@ def main(argv: list[str] | None = None) -> int:
     profiles = load_stage_profiles(timings)
     capture_status, warning = assess_capture(target_exit_code, samples, profiles)
     report = {
-        "schema": 1,
+        "schema": 2,
+        "gpu_measurement": "windows_pdh_process_gpu_engine" if os.name == "nt" else "unavailable_non_windows",
         "capture_status": capture_status,
         "target_exit_code": target_exit_code,
         "collected_at": datetime.now().astimezone().isoformat(),
@@ -378,7 +425,9 @@ def main(argv: list[str] | None = None) -> int:
         "samples": samples,
         "summary": summarize(samples, profiles),
         "limitations": [
-            "All GPU readings are device-wide, not per application; GPU execution time is not measured.",
+            "GPU measurements are filtered to the observed editor and child-process PIDs only.",
+            "GPU Engine utilization reports separate engines, not total GPU%; sums may exceed 100%.",
+            "Missing Windows GPU Engine counters are reported as unavailable, never as 0%.",
             "Process CPU and memory samples may miss short-lived work; process classification is heuristic.",
             "Stage timers are inclusive wall time, may overlap and must never be summed as elapsed time.",
             "Attach mode cannot enable code timings retroactively; editor/worker timing files appear on flush.",
