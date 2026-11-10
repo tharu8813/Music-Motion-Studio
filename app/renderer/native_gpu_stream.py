@@ -29,6 +29,7 @@ from app.renderer.ffmpeg_renderer import (
     RenderResult, RenderSettings,
 )
 from app.renderer.native_gpu_export import finalize_native_gpu_mp4
+from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
 
 
 def _abort_worker(worker: subprocess.Popen) -> None:
@@ -76,6 +77,7 @@ def stream_native_canvas_h264(
     expected_frames: int, slots: int = 2, cancel_event: Event | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
     acknowledgement_timeout: float = 90.0,
+    optimizations: NativeGpuOptimizations | None = None,
 ) -> dict:
     """Stream CFR frames with bounded memory and an upload/submission ACK.
 
@@ -107,9 +109,12 @@ def stream_native_canvas_h264(
         raise RenderError("Native export refuses to replace existing output or report.")
     with tempfile.TemporaryDirectory(prefix="mms-native-stream-"):
         stream_started = monotonic()
-        reuse_enabled = os.environ.get(
-            "PLAYLIST_CANVAS_NATIVE_LAYER_REUSE", "",
-        ).strip().lower() in {"1", "true", "yes"}
+        reuse_enabled = (
+            optimizations.reuse_layers if optimizations is not None
+            else os.environ.get(
+                "PLAYLIST_CANVAS_NATIVE_LAYER_REUSE", "",
+            ).strip().lower() in {"1", "true", "yes"}
+        )
         reuse_state = FrameReuseState() if reuse_enabled else None
         args = [
             str(exe), "--width", str(width), "--height", str(height),
@@ -174,9 +179,12 @@ def stream_native_canvas_h264(
         frame_ack_wait_seconds = 0.0
         # Experimental, rollback-friendly optimization. A frame is never
         # painted on the sender thread, and at most two packets coexist.
-        overlap_enabled = os.environ.get("PLAYLIST_CANVAS_NATIVE_PIPELINED", "").strip().lower() in {
-            "1", "true", "yes",
-        }
+        overlap_enabled = (
+            optimizations.pipelined if optimizations is not None
+            else os.environ.get(
+                "PLAYLIST_CANVAS_NATIVE_PIPELINED", "",
+            ).strip().lower() in {"1", "true", "yes"}
+        )
         completed = False
         pending: tuple[int, Queue, Thread, float] | None = None
 
@@ -360,6 +368,10 @@ def stream_native_canvas_h264(
             result.update(
                 frame_transport="binary-v2" if reuse_enabled else "binary-v1",
                 frame_reuse_enabled=reuse_enabled,
+                native_optimization_profile=(
+                    "accelerated" if optimizations is not None and optimizations == NativeGpuOptimizations.for_profile("accelerated")
+                    else "standard" if optimizations is not None else "environment"
+                ),
                 frame_reused_planes=reuse_state.reused_planes if reuse_state is not None else 0,
                 frame_reused_bytes=reuse_state.saved_bytes if reuse_state is not None else 0,
                 frame_transport_bytes=transport_bytes,
@@ -431,6 +443,7 @@ def render_native_gpu_playlist(
     progress_callback: Callable[[int, int], None] | None = None,
     mux_progress_callback: Callable[[str, float, str], None] | None = None,
     storage_path_callback=None,
+    optimizations: NativeGpuOptimizations | None = None,
 ) -> RenderResult:
     """Full native production hand-off: lazy frames -> H264 -> final AAC MP4.
 
@@ -450,6 +463,7 @@ def render_native_gpu_playlist(
             fps=settings.fps, duration_seconds=compiled_plan.duration_seconds,
             expected_frames=count, cancel_event=cancel_event,
             progress_callback=progress_callback,
+            optimizations=optimizations,
         )
         ffprobe = Path(renderer.executable).with_name(
             "ffprobe.exe" if os.name == "nt" else "ffprobe",
