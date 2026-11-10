@@ -555,7 +555,10 @@ class ExportProgressDialog(QDialog):
                 "visuals": "화면·프레임 파일",
                 "audio": "오디오 작업 파일",
                 "effects": "음악 반응 효과 파일",
-                "processing": "기타 작업 파일",
+                "processing": (
+                    "GPU 인코딩 임시 영상 (H.264)" if self._native_gpu_export
+                    else "기타 작업 파일"
+                ),
                 "output": "생성 중인 결과 오디오" if self._audio_only else "생성 중인 결과 영상",
             }
             if self._korean else
@@ -563,7 +566,10 @@ class ExportProgressDialog(QDialog):
                 "visuals": "Visual/frame files",
                 "audio": "Audio working files",
                 "effects": "Music-reactive effect files",
-                "processing": "Other working files",
+                "processing": (
+                    "GPU temporary H.264 video" if self._native_gpu_export
+                    else "Other working files"
+                ),
                 "output": "Result audio in progress" if self._audio_only else "Result video in progress",
             }
         )
@@ -605,6 +611,22 @@ class ExportProgressDialog(QDialog):
                     f"–{format_bytes(estimate.result_high)}\n"
                     "Live values change as working files are created and removed."
                 )
+            )
+
+        if self._native_gpu_export:
+            # Storage rises while the lossless framing/encoded elementary
+            # stream is being produced. It is reused for the final AAC/MP4
+            # mux, then discarded on successful, failed or cancelled exports.
+            note = (
+                "인코딩 중 임시 영상 용량이 증가하는 것은 정상이며, "
+                "작업 종료 후 자동으로 정리됩니다."
+                if self._korean else
+                "Temporary GPU video grows during encoding and is cleaned "
+                "up when the export finishes or is cancelled."
+            )
+            current = self.storage_estimate_hint.text()
+            self.storage_estimate_hint.setText(
+                current + ("\n" if current else "") + note
             )
 
     def set_cancel_confirmation(self, title: str, message: str) -> None:
