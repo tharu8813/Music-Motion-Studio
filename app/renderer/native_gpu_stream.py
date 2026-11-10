@@ -268,6 +268,7 @@ def render_native_gpu_playlist(
     cancel_event: Event | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
     mux_progress_callback: Callable[[str, float, str], None] | None = None,
+    storage_path_callback=None,
 ) -> RenderResult:
     """Full native production hand-off: lazy frames -> H264 -> final AAC MP4.
 
@@ -277,6 +278,8 @@ def render_native_gpu_playlist(
     count = math.ceil(compiled_plan.duration_seconds * settings.fps - 1e-9)
     with tempfile.TemporaryDirectory(prefix="mms-native-complete-") as staging:
         root = Path(staging)
+        if storage_path_callback is not None:
+            storage_path_callback("render", root)
         video = root / "complete.h264"
         report = root / "complete.json"
         stream_native_canvas_h264(
@@ -296,4 +299,5 @@ def render_native_gpu_playlist(
             settings=settings, ffprobe=ffprobe,
             metadata=metadata, cancel_event=cancel_event,
             progress_callback=mux_progress_callback,
+            storage_path_callback=storage_path_callback,
         )

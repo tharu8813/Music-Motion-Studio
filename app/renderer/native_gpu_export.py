@@ -16,6 +16,7 @@ from concurrent.futures import CancelledError
 from dataclasses import replace
 from fractions import Fraction
 import math
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -137,6 +138,7 @@ def finalize_native_gpu_mp4(
     metadata: ExportMetadata | None = None,
     cancel_event: Event | None = None,
     progress_callback: "Callable[[str, float, str], None] | None" = None,
+    storage_path_callback=None,
 ) -> RenderResult:
     """Make the app's final MP4 from a complete GPU video and prepared AAC mix.
 
@@ -186,6 +188,8 @@ def finalize_native_gpu_mp4(
 
     # Same filesystem: preserve an existing destination until all checks pass.
     with tempfile.TemporaryDirectory(prefix=".mms-native-mux-", dir=target.parent) as staging:
+        if storage_path_callback is not None:
+            storage_path_callback("output", Path(staging))
         staged = Path(staging) / "complete.mp4"
         try:
             result = renderer.render(
@@ -225,7 +229,11 @@ def finalize_native_gpu_mp4(
                 raise RenderError("Native GPU MP4 does not match the CFR video/audio timeline.")
             if cancel_event.is_set():
                 raise RenderCancelledError("Native GPU export was cancelled.")
-            staged.replace(target)
+            # Windows rename refuses replacement; other hosts use an exclusive link.
+            if os.name == "nt":
+                staged.rename(target)
+            else:
+                os.link(staged, target)
             if progress_callback is not None:
                 progress_callback("Complete", 1.0, "Export completed")
             return replace(result, output_path=target)
