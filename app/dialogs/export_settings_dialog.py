@@ -143,10 +143,14 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.gpu_speed_combo = QComboBox()
         self.gpu_speed_combo.addItem("표준 / Standard (기본)", "standard")
         self.gpu_speed_combo.addItem("고속 (실험) / Accelerated (Beta)", "accelerated")
+        self.gpu_speed_combo.addItem(
+            "고속 + CPU 병렬 (실험) / Accelerated + CPU parallel (Beta)", "cpu_parallel",
+        )
         self.gpu_speed_combo.setToolTip(
-            "고속 모드는 GPU 파이프라인, 부분 Canvas 렌더링, 작은 레이어 전송, "
-            "변경 없는 레이어 재사용을 활성화합니다. / "
-            "Experimental fast mode enables optimized rendering and transfer."
+            "고속 모드는 GPU 파이프라인과 Canvas 영역 최적화를 적용합니다. "
+            "CPU 병렬 실험은 완성된 QImage의 픽셀 변환을 별도 작업자로 넘깁니다. "
+            "Qt 장면과 가사·키프레임은 여전히 원래 스레드에서 처리합니다. / "
+            "CPU parallel beta offloads QImage pixel conversion only."
         )
         render_form.addRow(self.gpu_speed_label, self.gpu_speed_combo)
         self.gpu_speed_hint = QLabel(
@@ -676,6 +680,10 @@ class ExportSettingsDialog(AdaptiveDialog):
         )
         self.gpu_speed_combo.setItemText(
             1, "고속 (실험)" if korean else "Accelerated (experimental)",
+        )
+        self.gpu_speed_combo.setItemText(
+            2, "고속 + CPU 병렬 (실험)" if korean
+            else "Accelerated + CPU parallel (experimental)",
         )
         self.output_browse_button.setText("찾아보기" if korean else "Browse")
         self.resolution_label.setText("해상도" if korean else "Resolution")
