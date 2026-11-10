@@ -59,3 +59,16 @@ output-setup/
 .DS_Store
 Thumbs.db
 desktop.ini
+# Local GPU export validation captures (results are stored in GitHub Actions)
+# Keep original local user files outside the repository; do not commit raw frames.
+/native-stream-check-*.h264
+/native-stream-check-*.json
+/qt-giggles-second-song-*/
+/qt-project-test/
+/native-canvas-fixture/
+/native-qt-canvas-*.h264
+/native-qt-canvas-*.json
+
+# One-off patch files generated when reviewing local worktrees
+/*.patch
+/*.diff
