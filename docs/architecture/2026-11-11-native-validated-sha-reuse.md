@@ -16,6 +16,8 @@ were worth eliminating before changing GPU kernel code.
   `CanvasPacketLayer` after the existing full SHA-256 manifest check.
 - GPU resident layer cache compares this exact digest rather than
   calculating SHA-256 over every large BGRA plane a second time.
+- Reuse the already-parsed `binary-v2` JSON metadata for its second-stage
+  parser/validation; it was previously decoded twice per frame.
 - Keep the original checksum rejection, stream key validation,
   dimensions, layer count/order, opacity and GPU texture update rules.
   The digest field is crate-private and populated only by the parser
