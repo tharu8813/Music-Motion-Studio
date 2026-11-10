@@ -129,3 +129,45 @@ Remove-Item Env:PLAYLIST_CANVAS_NATIVE_PIPELINED
 payload 압축/축소는 후속 별도 변경 대상이다. 정확한 효과는 동일 프로젝트, 60FPS,
 해상도, 시작 구간에서 FPS와 `frame_production_seconds`를 비교한다. 빠르지
 않거나 픽셀 불일치가 관찰되면 옵션을 끄고 원래 경로로 되돌린다.
+
+## 실험: 작게 그린 Canvas 영역만 Rust로 전송 (2026-11-10)
+
+기존 `PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS=1`은 Qt가 작은 ROI를 그려도
+Python에서 전체 크기의 투명 BGRA 이미지로 다시 확장해 매번 전송했다.
+새로운 **별도 opt-in** `PLAYLIST_CANVAS_NATIVE_COMPACT_BANDS=1`은 이 확장을
+생략하고, 투명 Canvas 밴드의 원본 크기 BGRA 픽셀과 정확한 출력 좌표를
+이미 지원 중인 **schema-v2** 형태로 보낸다.
+
+- 맨 아래 불투명 base는 항상 전체 해상도. 다른 band도 크롭이 불가능하면 기본 전체 크기로 전송
+- `inverse_transform=(1,0,0,1,-x,-y)`와 `clip=(x,y,x+w,y+h)`: 위치만 지정하며 이미지 확대·축소/리샘플링 없음
+- Rust D3D11은 이 **정확한 정수 이동**을 식별하면 투명한 전체 GPU 타깃을 초기화하고,
+  `CopySubresourceRegion`으로 픽셀을 그대로 붙임. 임의의 회전·확대·키프레임
+  역변환은 기존 affine shader 경로 유지
+- 오디오, 가사 타임스탬프, 프레임 수, native worker의 순차 ACK, 기존 직렬/병렬
+  선택은 동일. 화면 속 가사 렌더링은 여전히 Qt CPU
+- ROI 모드와 compact 모드는 기존 내보내기에서는 모두 OFF. 시험 결과가 좋더라도
+  장시간 안정성·영상 시각 비교 전까지 기본값으로 활성화하지 않는다
+
+```powershell
+git switch main
+git pull --ff-only
+# Rust의 새 정수 GPU 복사 경로를 포함하도록 반드시 재빌드
+cargo build --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_stream_export
+$env:PLAYLIST_CANVAS_NATIVE_PIPELINED = "1"
+$env:PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS = "1"
+$env:PLAYLIST_CANVAS_NATIVE_COMPACT_BANDS = "1"
+# 원래와 동일한 project, fps, scale, --smoke-seconds 30 CLI로 실측 A/B
+Remove-Item Env:PLAYLIST_CANVAS_NATIVE_COMPACT_BANDS
+Remove-Item Env:PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS
+Remove-Item Env:PLAYLIST_CANVAS_NATIVE_PIPELINED
+```
+
+`native_report.raster_cache`의 `compact_band_captures`는 실제 작은 BGRA 레이어 횟수,
+`compact_canvas_bytes_saved`는 **전체 화면 투명 평면으로 보냈을 때와 비교한 절약 바이트 수**다.
+`frame_transport_bytes`는 실제 모든 레이어(오디오 reactive 이미지 포함)와
+MMSB 메타데이터까지 합산한 전송 바이트 수이므로 수치가 동일하지 않다.
+Rust `d3d11_exact_roi_gpu_copies`는 실제 정수 GPU 복사 횟수다.
+`native_stream_wall_fps` 및 `native_stream_elapsed_seconds`가 핵심 성능 비교 지표다.
+
+실험 모드 전후의 BGRA 및 NV12 픽셀 일치, 프레임 순서·오디오·가사·재생 길이를
+검증하고, 결과가 느려지거나 오류/화질 문제가 있다면 이 compact 옵션을 끈다.
