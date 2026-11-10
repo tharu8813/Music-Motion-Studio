@@ -190,8 +190,8 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
             '    import time; time.sleep(0.15)\\n'
             '    print(f"MMS_FRAME_ACCEPTED {index}", flush=True)',
         )
-        with patch.dict(os.environ, {"PLAYLIST_CANVAS_NATIVE_PIPELINED": "1"}), \\
-             patch.object(native_gpu_stream, "_frame_acknowledgement", side_effect=marked_ack):
+        with (patch.dict(os.environ, {"PLAYLIST_CANVAS_NATIVE_PIPELINED": "1"}),
+              patch.object(native_gpu_stream, "_frame_acknowledgement", side_effect=marked_ack)):
             result = self._run_mock(
                 count=6, provided=on_owner_thread(), worker_source=slow_worker,
             )
