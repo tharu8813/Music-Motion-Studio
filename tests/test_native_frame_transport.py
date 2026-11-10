@@ -26,6 +26,18 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(json.loads(raw[28:28+meta])["layers"][0]["bytes"], 16)
         self.assertEqual(raw[28+meta:], frame().layers[0].pixels)
 
+    def test_timing_measurement_preserves_exact_wire_bytes(self):
+        baseline = io.BytesIO()
+        measured = io.BytesIO()
+        measurements = {}
+        self.assertEqual(write_frame(baseline, frame(), 0),
+                         write_frame(measured, frame(), 0, timings=measurements))
+        self.assertEqual(baseline.getvalue(), measured.getvalue())
+        self.assertEqual(measurements["sha256_bytes"], 16)
+        self.assertGreaterEqual(measurements["sha256_seconds"], 0)
+        self.assertGreater(measurements["pipe_syswrite_calls"], 0)
+        self.assertGreaterEqual(measurements["pipe_syswrite_seconds"], 0)
+
     def test_v2_previous_frame_references_skip_wire_payload_without_freezing_state(self):
         cache = FrameReuseState()
         first = frame()
