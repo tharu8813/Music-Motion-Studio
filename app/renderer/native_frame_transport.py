@@ -1,12 +1,21 @@
-"""Bounded MMSB transport: v1 raw planes; opt-in v2 prior-frame plane references."""
+"""Bounded MMSB native frames: v1 raw, v2 references, v3 adaptive LZ4 blocks.
+
+All formats include an SHA-256 digest of the **uncompressed** BGRA pixels.
+The receiver validates reconstructed bytes before D3D11 submission.
+"""
 import hashlib
 import json
 import struct
 from time import monotonic
 
+try:
+    from lz4 import block as _lz4
+except ImportError:  # Installed releases pin lz4; older source environments use v2.
+    _lz4 = None
+
 
 class FrameReuseState:
-    """Sender-local, bounded previous-frame digests (never retains Qt pixels)."""
+    """Sender-local previous frame identities; never holds QImage pixels."""
 
     def __init__(self):
         self.previous = {}
@@ -18,7 +27,31 @@ HEADER = struct.Struct("<4sIQIQ")
 MAX_PAYLOAD = 3840 * 2160 * 4 * 8
 
 
-def frame_chunks(frame, index, *, reuse_state=None, timings=None):
+def supports_lz4_transport() -> bool:
+    return _lz4 is not None
+
+
+def _metric(stats, key, amount):
+    if stats is not None:
+        stats[key] = stats.get(key, 0) + amount
+
+
+def _compressible(raw: memoryview) -> bool:
+    """Check four small distributed regions before paying to compress MBs."""
+    if len(raw) < 128 * 1024:
+        return False
+    block = 16384
+    last = len(raw) - block
+    samples = (0, last // 3, (2 * last) // 3, last)
+    size = sum(len(_lz4.compress(raw[pos:pos + block],
+                                  mode="fast", store_size=False)) for pos in samples)
+    return size <= int(block * len(samples) * 0.82)
+
+
+def frame_chunks(frame, index, *, reuse_state=None, timings=None, compress_planes=False):
+    if compress_planes and (reuse_state is None or _lz4 is None):
+        raise ValueError("Native LZ4 transport requires v2 reuse and installed lz4")
+    version = 3 if compress_planes else 2 if reuse_state is not None else 1
     sizes = [layer.width * layer.height * 4 for layer in frame.layers]
     total_size = sum(sizes)
     if (not 2 <= frame.width <= 3840 or not 2 <= frame.height <= 2160
@@ -28,6 +61,8 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None):
     layers = []
     reused = []
     next_digests = {}
+    payloads = []
+    wire_size = 0
     for i, layer in enumerate(frame.layers):
         size = sizes[i]
         key = "base" if i == 0 else f"layer:{i-1}"
@@ -37,22 +72,45 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None):
         hash_started = monotonic() if timings is not None else 0.0
         digest = hashlib.sha256(layer.pixels).hexdigest()
         if timings is not None:
-            timings["sha256_seconds"] = timings.get("sha256_seconds", 0.0) + monotonic() - hash_started
-            timings["sha256_bytes"] = timings.get("sha256_bytes", 0) + size
-        # A reference only reuses identical pixel dimensions + digest. This
-        # does NOT freeze opacity/clip/affine geometry or track-dependent text.
+            _metric(timings, "sha256_seconds", monotonic() - hash_started)
+            _metric(timings, "sha256_bytes", size)
         previous = reuse_state.previous.get(key) if reuse_state is not None else None
         reuse = previous == (layer.width, layer.height, digest)
         reused.append(reuse)
         next_digests[key] = (layer.width, layer.height, digest)
-        layers.append(dict(file=f"layer-{i}.bgra", stream_key=key, z_order=i,
-                           opacity=layer.opacity, bytes=size, sha256=digest))
+        info = dict(file=f"layer-{i}.bgra", stream_key=key, z_order=i,
+                    opacity=layer.opacity, bytes=size, sha256=digest)
         if frame.schema == 2:
-            layers[-1].update(width=layer.width, height=layer.height)
+            info.update(width=layer.width, height=layer.height)
             if layer.inverse_transform is not None:
-                layers[-1]["inverse_transform"] = layer.inverse_transform
+                info["inverse_transform"] = layer.inverse_transform
             if layer.clip is not None:
-                layers[-1]["clip"] = layer.clip
+                info["clip"] = layer.clip
+        if not reuse:
+            encoded = memoryview(layer.pixels)
+            encoding = "raw"
+            if compress_planes:
+                began = monotonic() if timings is not None else 0.0
+                if _compressible(encoded):
+                    compressed = _lz4.compress(encoded, mode="fast", store_size=False)
+                    # Keep uncompressible pixel data on the old raw transport.
+                    if len(compressed) < size * 0.90:
+                        encoded = compressed
+                        encoding = "lz4"
+                        _metric(timings, "lz4_planes", 1)
+                if timings is not None:
+                    _metric(timings, "lz4_cpu_seconds", monotonic() - began)
+            if compress_planes:
+                info["compression"] = encoding
+                info["wire_bytes"] = len(encoded)
+            payloads.append(encoded)
+            wire_size += len(encoded)
+            _metric(timings, "raw_source_bytes", size)
+            _metric(timings, "wire_payload_bytes", len(encoded))
+        elif compress_planes:
+            info["compression"] = "previous"
+            info["wire_bytes"] = 0
+        layers.append(info)
     descriptor = dict(schema=frame.schema, format=f"mms_canvas_bgra_layers_v{frame.schema}",
         pixel_format="BGRA8_STRAIGHT", coordinate_origin="top_left",
         width=frame.width, height=frame.height, qt_canvas_rasterized_on_cpu=True,
@@ -63,29 +121,28 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None):
     metadata = json.dumps(descriptor, separators=(",", ":"), allow_nan=False).encode()
     if len(metadata) > 65536:
         raise ValueError("Binary frame metadata exceeds limit")
-    sent_size = sum(size for size, reuse in zip(sizes, reused) if not reuse)
     if reuse_state is not None:
         reuse_state.previous = next_digests
         reuse_state.reused_planes += sum(reused)
-        reuse_state.saved_bytes += total_size - sent_size
-    yield HEADER.pack(b"MMSB", 2 if reuse_state is not None else 1,
-                      index, len(metadata), sent_size)
+        reuse_state.saved_bytes += total_size - sum(
+            size for size, reused_flag in zip(sizes, reused) if not reused_flag
+        )
+    yield HEADER.pack(b"MMSB", version, index, len(metadata), wire_size)
     yield metadata
-    for layer, reuse in zip(frame.layers, reused):
-        if not reuse:
-            yield memoryview(layer.pixels)
+    yield from payloads
 
 
-def write_frame(stream, frame, index, *, reuse_state=None, timings=None):
+def write_frame(stream, frame, index, *, reuse_state=None, timings=None, compress_planes=False):
     count = 0
-    for chunk in frame_chunks(frame, index, reuse_state=reuse_state, timings=timings):
+    for chunk in frame_chunks(frame, index, reuse_state=reuse_state, timings=timings,
+                              compress_planes=compress_planes):
         view = memoryview(chunk)
         while view:
             write_started = monotonic() if timings is not None else 0.0
             written = stream.write(view)
             if timings is not None:
-                timings["pipe_syswrite_seconds"] = timings.get("pipe_syswrite_seconds", 0.0) + monotonic() - write_started
-                timings["pipe_syswrite_calls"] = timings.get("pipe_syswrite_calls", 0) + 1
+                _metric(timings, "pipe_syswrite_seconds", monotonic() - write_started)
+                _metric(timings, "pipe_syswrite_calls", 1)
             if written is None or written <= 0:
                 raise OSError("Native frame channel made no write progress")
             count += written
