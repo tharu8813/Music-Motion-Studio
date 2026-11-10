@@ -99,6 +99,20 @@ class GpuUiTests(unittest.TestCase):
         self.assertTrue(fast.pipelined and fast.partial_bands
                         and fast.compact_bands and fast.reuse_layers)
 
+    def test_cpu_parallel_profile_is_scoped_to_one_gpu_export(self):
+        self.options.gpu_speed_combo.currentData.return_value = "cpu_parallel"
+        worker = self.start()
+        profile = NativeGpuOptimizations.for_profile("cpu_parallel")
+        self.assertEqual(worker.native_optimizations, profile)
+        self.assertEqual(self.bridge_kwargs[-1]["optimizations"], profile)
+        self.assertTrue(profile.pipelined)
+        self.assertTrue(profile.partial_bands)
+        self.assertTrue(profile.compact_bands)
+        self.assertTrue(profile.reuse_layers)
+        self.assertTrue(profile.parallel_bgra)
+        self.assertFalse(NativeGpuOptimizations.for_profile("accelerated").parallel_bgra)
+        self.assertFalse(NativeGpuOptimizations.for_profile("standard").parallel_bgra)
+
     def test_standard_gui_profile_cannot_be_overridden_by_cli_environment(self):
         self.options.gpu_speed_combo.currentData.return_value = "standard"
         with patch.dict(os.environ, {
