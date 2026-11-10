@@ -1,25 +1,27 @@
-"""Production Qt BGRA -> Rust NVENC binary transport, one frame per ACK.
+"""Bounded production Qt BGRA -> Rust NVENC frame-stream transport.
 
-No per-frame manifest or BGRA files are written. The native worker owns
-persistent GPU resources; finalization reuses the existing audio/mux path.
+The actual Canvas/visualizer producer passes a LAZY iterable of complete
+NativeCanvasFrame objects. This adapter stages at most one frame and
+waits for the native "MMS_FRAME_ACCEPTED" acknowledgement before unlinking
+its .bgra planes. The native worker owns persistent D3D11/NVENC resources;
+the finalizer reuses the application's existing audio + MP4 mux path.
+
+It is intentionally not selected automatically by the Export dialog yet.
 """
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from dataclasses import replace
 import json
-import logging
 import math
 import os
 from pathlib import Path
-from queue import Empty, Full, Queue
+from queue import Empty, Queue
 import subprocess
 import tempfile
-from threading import Event, Thread, Lock
+from threading import Event, Thread
 from time import monotonic
 
-from app.preview.native_canvas_layer_packets import NativeCanvasFrame
-from app.renderer.native_frame_transport import write_frame
+from app.preview.native_canvas_layer_packets import NativeCanvasFrame, save_native_canvas_frame
 from app.renderer.ffmpeg_renderer import (
     ExportMetadata, FFmpegRenderer, RenderCancelledError, RenderError,
     RenderResult, RenderSettings,
@@ -30,10 +32,7 @@ from app.renderer.native_gpu_export import finalize_native_gpu_mp4
 def _abort_worker(worker: subprocess.Popen) -> None:
     if worker.poll() is not None:
         return
-    try:
-        worker.terminate()
-    except ProcessLookupError:
-        return
+    worker.terminate()
     try:
         worker.wait(timeout=4)
     except subprocess.TimeoutExpired:
@@ -73,10 +72,12 @@ def stream_native_canvas_h264(
     progress_callback: Callable[[int, int], None] | None = None,
     acknowledgement_timeout: float = 90.0,
 ) -> dict:
-    """Stream CFR frames with bounded memory and an upload/submission ACK.
+    """Stream every production CFR frame with bounded disk and CPU memory.
 
-    A writer pump allows cancellation even when a worker stops reading stdin.
-    The worker is terminated before pipe handles and source frames are released.
+    Frames are never gathered into a list. Each frame's straight-BGRA
+    files are deleted after *actual native texture submission* and before
+    the next frame is requested. A crashed/killed worker can leave a
+    temporary .h264.part file; the caller must not treat it as a result.
     """
     cancel = cancel_event or Event()
     exe = Path(executable)
@@ -92,73 +93,47 @@ def stream_native_canvas_h264(
             and width % 2 == 0 and height % 2 == 0 and 2 <= slots <= 8
             and isinstance(expected_frames, int)
             and isinstance(duration_seconds, (int, float))
-            and math.isfinite(duration_seconds) and 0 < duration_seconds <= 86400
-            and math.isfinite(acknowledgement_timeout) and acknowledgement_timeout > 0
+            and math.isfinite(duration_seconds) and duration_seconds > 0
             and math.ceil(duration_seconds * fps - 1e-9) == expected_frames):
         raise RenderError("Native GPU export settings do not match its complete CFR timeline.")
     if video.suffix.lower() != ".h264" or report.suffix.lower() != ".json":
         raise RenderError("Native export requires .h264 and .json output paths.")
-    if video == report or any(path.exists() or path.is_symlink()
-                              for path in (video, report, video.with_suffix(".h264.part"))):
+    if video.exists() or report.exists() or video == report:
         raise RenderError("Native export refuses to replace existing output or report.")
-    with tempfile.TemporaryDirectory(prefix="mms-native-stream-"):
+    with tempfile.TemporaryDirectory(prefix="mms-native-frame-spool-") as scratch:
+        directory = Path(scratch)
+        stderr_path = directory / "native-stderr.log"
         args = [
             str(exe), "--width", str(width), "--height", str(height),
             "--fps", str(fps), "--expected-frames", str(expected_frames),
-            "--duration-seconds", format(duration_seconds, ".17g"),
+            "--duration-seconds", format(duration_seconds, ".12g"),
             "--slots", str(slots), "--video-output", str(video),
-            "--output", str(report), "--input-format", "binary-v1",
+            "--output", str(report),
         ]
+        log = stderr_path.open("wb")
         try:
             worker = subprocess.Popen(
                 args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE, bufsize=0,
+                stderr=log, text=True, encoding="utf-8", bufsize=1,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except OSError as exc:
+            log.close()
             raise RenderError(f"Could not launch native GPU exporter: {exc}") from exc
-        events: Queue[str | None] = Queue(maxsize=2)
-        reader_stop = Event()
-        error_tail = ""
-        error_lock = Lock()
-
-        def collect_stderr() -> None:
-            nonlocal error_tail
-            assert worker.stderr is not None
-            while chunk := worker.stderr.read(1024):
-                with error_lock:
-                    error_tail = (error_tail + chunk.decode("utf-8", "replace"))[-4096:]
-
-        def enqueue(value: str | None) -> None:
-            while not reader_stop.is_set():
-                try:
-                    events.put(value, timeout=0.1)
-                    return
-                except Full:
-                    pass
+        events: Queue[str | None] = Queue()
 
         def collect_stdout() -> None:
             try:
                 assert worker.stdout is not None
-                while not reader_stop.is_set():
-                    line = worker.stdout.readline(256)
-                    if not line:
-                        break
-                    enqueue(line.decode("utf-8", "replace"))
+                for line in worker.stdout:
+                    events.put(line)
             finally:
-                enqueue(None)
+                events.put(None)
 
         output_reader = Thread(target=collect_stdout, daemon=True,
                                name="mms-native-gpu-output")
         output_reader.start()
-        error_reader = Thread(target=collect_stderr, daemon=True,
-                              name="mms-native-gpu-errors")
-        error_reader.start()
         source = None
-        sender = None
-        transport_bytes = 0
-        transport_seconds = 0.0
-        completed = False
         try:
             source = iter(frames)
             assert worker.stdin is not None
@@ -171,48 +146,28 @@ def stream_native_canvas_h264(
                     raise RenderError(
                         f"Canvas frame producer stopped at {index}/{expected_frames}"
                     ) from exc
-                if cancel.is_set():
-                    raise RenderCancelledError("Native GPU export was cancelled.")
                 if not isinstance(frame, NativeCanvasFrame) or (
                     frame.width, frame.height
                 ) != (width, height):
                     raise RenderError(f"Native Canvas frame {index} has wrong geometry or type.")
-                sent: Queue = Queue(maxsize=1)
-                def send_frame(frame=frame, index=index):
-                    try:
-                        sent.put(write_frame(worker.stdin, frame, index))
-                    except Exception as exc:
-                        sent.put(exc)
-                started = monotonic()
-                sender = Thread(target=send_frame, name="mms-native-gpu-input", daemon=True)
-                sender.start()
+                prefix = f"native-frame-{index:08d}"
+                manifest = save_native_canvas_frame(frame, directory, stem=prefix)
+                del frame
                 try:
-                    while True:
-                        if cancel.is_set():
-                            raise RenderCancelledError("Native GPU export was cancelled.")
-                        if monotonic() - started >= acknowledgement_timeout:
-                            raise RenderError(f"Timed out writing native GPU frame {index}.")
-                        try:
-                            written = sent.get(timeout=0.1)
-                            break
-                        except Empty:
-                            if worker.poll() is not None:
-                                raise RenderError("Native GPU worker stopped during frame transfer.")
-                    if isinstance(written, Exception):
-                        raise written
-                    transport_bytes += written
-                    sender.join()
-                    del send_frame
-                    del frame
+                    worker.stdin.write(str(manifest) + "\n")
+                    worker.stdin.flush()
                     _frame_acknowledgement(
-                        events, worker, index, cancel,
-                        max(0.001, acknowledgement_timeout - (monotonic() - started)),
+                        events, worker, index, cancel, acknowledgement_timeout,
                     )
-                    transport_seconds += monotonic() - started
-                except (OSError, ValueError) as exc:
+                except OSError as exc:
                     raise RenderError(
                         f"Native D3D11/NVENC channel failed while submitting frame {index}."
                     ) from exc
+                # Only remove after a confirmed upload acknowledgement.
+                # Failed uploads are cleaned by TemporaryDirectory after
+                # termination of the native process in the outer finally.
+                for path in directory.glob(prefix + "*"):
+                    path.unlink(missing_ok=True)
                 if progress_callback is not None:
                     progress_callback(index + 1, expected_frames)
             try:
@@ -230,10 +185,9 @@ def stream_native_canvas_h264(
                     raise RenderError("Native GPU worker did not complete after end of frames.")
                 cancel.wait(0.1)
             if worker.returncode:
-                error_reader.join(timeout=2)
                 raise RenderError(
                     "Native GPU export failed: "
-                    + error_tail[-2200:]
+                    + stderr_path.read_text(encoding="utf-8", errors="replace")[-2200:]
                 )
             if not video.is_file() or not report.is_file():
                 raise RenderError("Native GPU encoder exited without both final outputs.")
@@ -241,56 +195,27 @@ def stream_native_canvas_h264(
                 result = json.loads(report.read_text(encoding="utf-8"))
             except (ValueError, OSError) as exc:
                 raise RenderError("Native GPU encoder wrote an unreadable final report.") from exc
-            if (not isinstance(result, dict) or result.get("status") != "measured"
+            if (result.get("status") != "measured"
                     or result.get("production_export_scope") != "production_complete_playlist"
                     or result.get("frames_encoded") != expected_frames):
                 raise RenderError("Native GPU producer did not complete the entire timeline.")
-            if cancel.is_set():
-                raise RenderCancelledError("Native GPU export was cancelled.")
-            result.update(frame_transport="binary-v1", frame_transport_bytes=transport_bytes,
-                          frame_transport_seconds=transport_seconds, bgra_disk_bytes=0)
-            report.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            logging.getLogger(__name__).info("Native frame transport: %d bytes in %.3fs (including ACK)",
-                                             transport_bytes, transport_seconds)
-            completed = True
             return result
-        except RenderCancelledError:
-            raise
-        except RenderError as exc:
-            _abort_worker(worker)
-            error_reader.join(timeout=2)
-            with error_lock:
-                detail = error_tail[-2200:].strip()
-            if detail:
-                raise RenderError(f"{exc}\nNative worker: {detail}") from exc
-            raise
         finally:
-            reader_stop.set()
             _abort_worker(worker)
-            if sender is not None:
-                sender.join(timeout=4)
             if worker.stdin is not None and not worker.stdin.closed:
-                try:
-                    worker.stdin.close()
-                except OSError:
-                    pass
+                worker.stdin.close()
             # The worker is no longer running; the output pump must see EOF
             # before its pipe closes, avoiding Windows handle leaks.
             output_reader.join(timeout=2)
-            error_reader.join(timeout=2)
             if worker.stdout is not None and not worker.stdout.closed:
                 worker.stdout.close()
-            if worker.stderr is not None:
-                worker.stderr.close()
             if source is not None:
                 close = getattr(source, "close", None)
                 if callable(close):
-                    try:
-                        close()
-                    except Exception:
-                        logging.getLogger(__name__).exception("Cannot close native frame producer")
-            if not completed:
+                    close()
+            if worker.returncode and not report.is_file():
                 video.with_suffix(".h264.part").unlink(missing_ok=True)
+            log.close()
 
 
 def render_native_gpu_playlist(
@@ -299,8 +224,6 @@ def render_native_gpu_playlist(
     output_path: Path, settings: RenderSettings, metadata: ExportMetadata | None = None,
     cancel_event: Event | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
-    mux_progress_callback: Callable[[str, float, str], None] | None = None,
-    storage_path_callback=None,
 ) -> RenderResult:
     """Full native production hand-off: lazy frames -> H264 -> final AAC MP4.
 
@@ -310,11 +233,9 @@ def render_native_gpu_playlist(
     count = math.ceil(compiled_plan.duration_seconds * settings.fps - 1e-9)
     with tempfile.TemporaryDirectory(prefix="mms-native-complete-") as staging:
         root = Path(staging)
-        if storage_path_callback is not None:
-            storage_path_callback("render", root)
         video = root / "complete.h264"
         report = root / "complete.json"
-        native_report = stream_native_canvas_h264(
+        stream_native_canvas_h264(
             frames, executable=executable, video_path=video, report_path=report,
             width=settings.output_width, height=settings.output_height,
             fps=settings.fps, duration_seconds=compiled_plan.duration_seconds,
@@ -324,13 +245,10 @@ def render_native_gpu_playlist(
         ffprobe = Path(renderer.executable).with_name(
             "ffprobe.exe" if os.name == "nt" else "ffprobe",
         )
-        result = finalize_native_gpu_mp4(
+        return finalize_native_gpu_mp4(
             renderer, h264_path=video, gpu_report_path=report,
             prepared_audio_path=prepared_audio_path, tracks=tracks,
             compiled_plan=compiled_plan, output_path=output_path,
             settings=settings, ffprobe=ffprobe,
             metadata=metadata, cancel_event=cancel_event,
-            progress_callback=mux_progress_callback,
-            storage_path_callback=storage_path_callback,
         )
-        return replace(result, native_report=native_report)

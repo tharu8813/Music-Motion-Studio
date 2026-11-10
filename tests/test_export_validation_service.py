@@ -1,6 +1,4 @@
 import json
-from concurrent.futures import CancelledError
-from threading import Event
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,13 +12,6 @@ from app.services.export_validation_service import (
 
 
 class ExportValidationServiceTests(unittest.TestCase):
-    def test_cancellation_is_not_reported_as_unavailable_metadata(self):
-        with patch("app.services.export_validation_service._find_ffprobe", return_value=Path("ffprobe")), \
-             patch("app.services.export_validation_service.run_probe", side_effect=CancelledError()):
-            with self.assertRaises(CancelledError):
-                validate_export_output("video.mp4", expected_width=64, expected_height=64,
-                                       expected_fps=30, cancel_event=Event())
-
     def test_fps_options_are_playlist_friendly(self) -> None:
         self.assertEqual(EXPORT_FPS_OPTIONS, (24, 30, 50, 60))
 

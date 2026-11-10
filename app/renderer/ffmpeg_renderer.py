@@ -13,7 +13,7 @@ import threading
 import os
 import logging
 import re
-from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -95,7 +95,6 @@ class RenderResult:
     output_path: Path
     track_count: int
     validation: ExportValidationResult | None = None
-    native_report: dict | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,20 +299,9 @@ class FFmpegRenderer:
     """Normalizes tracks, concatenates them with FFmpeg, then renders an MP4."""
 
     def __init__(self, executable: str | Path | None = None) -> None:
-        self.prevent_output_overwrite = False
         self.executable = self.find_executable(executable)
         self._available_encoders: frozenset[str] | None = None
         self._filter_script_option: str | None = None
-
-    def _publish_output(self, staged: Path, target: Path) -> None:
-        """GPU fallback must never replace an output created during encoding."""
-        if not self.prevent_output_overwrite:
-            staged.replace(target)
-        elif os.name == "nt":
-            staged.rename(target)
-        else:
-            os.link(staged, target)
-            staged.unlink()
 
     def _filter_graph_arguments(self, graph: str, temporary: Path) -> list[str]:
         """Keep long graphs off Windows' command line across FFmpeg versions."""
@@ -1028,7 +1016,7 @@ class FFmpegRenderer:
                     "Moving the completed video to the selected location",
                 )
                 try:
-                    self._publish_output(temporary_video, target)
+                    temporary_video.replace(target)
                 except OSError as error:
                     raise RenderError(
                         "Could not replace the output video. Close any program using "
@@ -1043,18 +1031,14 @@ class FFmpegRenderer:
                         temporary_video,
                     )
         self._report(progress_callback, "Complete", 1.0, "Export completed")
-        try:
-            validation = ExportPolicy.validate_output(
-                target,
-                width=selected_settings.output_width,
-                height=selected_settings.output_height,
-                fps=selected_settings.fps,
-                duration_seconds=total_duration,
-                ffmpeg_executable=self.executable,
-                cancel_event=cancel_event,
-            )
-        except CancelledError as error:
-            raise RenderCancelledError("Rendering was cancelled.") from error
+        validation = ExportPolicy.validate_output(
+            target,
+            width=selected_settings.output_width,
+            height=selected_settings.output_height,
+            fps=selected_settings.fps,
+            duration_seconds=total_duration,
+            ffmpeg_executable=self.executable,
+        )
         return RenderResult(target, len(active_tracks), validation)
 
     @staticmethod
@@ -1380,7 +1364,7 @@ class FFmpegRenderer:
                 if cancel_event.is_set():
                     raise RenderCancelledError("Rendering was cancelled.")
                 try:
-                    self._publish_output(staging, target)
+                    staging.replace(target)
                 except OSError as error:
                     raise RenderError(f"Could not replace '{target.name}'. Check the destination folder.") from error
             finally:

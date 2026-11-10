@@ -135,17 +135,6 @@ class ExportSettingsDialog(AdaptiveDialog):
 
         render_group = QGroupBox()
         render_form = QFormLayout(render_group)
-        self.engine_combo = QComboBox()
-        self.engine_combo.addItem("FFmpeg (CPU / NVENC / QSV / AMF)", "ffmpeg")
-        self.engine_combo.addItem("Rust GPU · D3D11 + NVENC (Beta)", "native_gpu")
-        render_form.addRow("렌더 엔진 / Render engine", self.engine_combo)
-        engine_hint = QLabel(
-            "Rust GPU: Windows + NVIDIA NVENC, MP4/H.264. GPU 합성은 인코더 선택과 별개입니다.\n"
-            "Canvas painting uses Qt; audio/mux requires FFmpeg. Unsupported projects use FFmpeg.\n"
-            "Beta uses native encoder quality; FFmpeg CRF/preset do not apply."
-        )
-        engine_hint.setWordWrap(True)
-        render_form.addRow(engine_hint)
         self.resolution_label = QLabel()
         self.fps_label = QLabel()
         self.codec_label = QLabel()

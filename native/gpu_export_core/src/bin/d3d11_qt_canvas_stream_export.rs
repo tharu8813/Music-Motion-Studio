@@ -1,7 +1,6 @@
 //! Persistent, bounded-memory Qt Canvas -> D3D11 -> NVENC H.264 export.
 //!
-//! Production uses --input-format binary-v1 (bounded MMSB frames on stdin).
-//! Legacy CLI defaults to one UTF-8 MANIFEST PATH per line. Caller produces the
+//! Read one UTF-8 MANIFEST PATH per line on stdin. Caller produces the
 //! *complete* playlist's native BGRA manifests in sequential CFR order.
 //! The process owns ONE D3D11/NVENC session and streams packets to disk.
 //! It does not hold an entire video, all source packets or PTS arrays in RAM.
@@ -114,9 +113,6 @@ mod windows_export {
     use music_motion_gpu_core::d3d11_frame_pool::NativeNv12FramePool;
     use music_motion_gpu_core::d3d11_nvenc_registration::NativeNvencRegistrationSession;
     use music_motion_gpu_core::qt_canvas_packet::load_qt_canvas_packet;
-    use music_motion_gpu_core::canvas_stream::read_frame;
-    use music_motion_gpu_core::resident_layer_cache::ResidentLayerCache;
-    use music_motion_gpu_core::d3d11_affine::AffineLayerRenderer;
     use serde_json::{json, Value};
     use std::collections::VecDeque;
     use std::env;
@@ -134,7 +130,6 @@ mod windows_export {
         slots: usize,
         video: PathBuf,
         report: PathBuf,
-        binary: bool,
     }
 
     fn parse_options() -> Result<Options, String> {
@@ -146,7 +141,6 @@ mod windows_export {
         let mut slots = 2usize;
         let mut video = None;
         let mut report = None;
-        let mut binary = false;
         let mut arguments = env::args().skip(1);
         while let Some(option) = arguments.next() {
             let value = arguments.next()
@@ -166,11 +160,6 @@ mod windows_export {
                     .map_err(|_| "Invalid NV12 frame pool slot count")?,
                 "--video-output" => video = Some(PathBuf::from(value)),
                 "--output" => report = Some(PathBuf::from(value)),
-                "--input-format" => match value.as_str() {
-                    "binary-v1" => binary = true,
-                    "manifest" => binary = false,
-                    _ => return Err("Unsupported frame input format".into()),
-                },
                 _ => return Err(format!("Unknown native export option: {option}")),
             }
         }
@@ -183,7 +172,6 @@ mod windows_export {
             slots,
             video: video.ok_or("Missing --video-output")?,
             report: report.ok_or("Missing --output")?,
-            binary,
         };
         if options.width < 64 || options.width > 3840
             || options.height < 64 || options.height > 2160
@@ -289,22 +277,14 @@ mod windows_export {
 
         // Read exactly one frame first. The JSON + BGRA planes are dropped
         // every iteration. Dimensions are fixed by the export plan.
-        let next_frame = |input: &mut std::io::StdinLock<'_>, index| {
-            if options.binary { read_frame(input, index) }
-            else { read_manifest_line(input)?.map(|name| load_qt_canvas_packet(Path::new(&name))).transpose() }
-        };
-        let mut transfer_seconds = 0.0;
-        let transfer_started = Instant::now();
-        let frame = next_frame(&mut input, 0)?
+        let first = read_manifest_line(&mut input)?
             .ok_or("Native producer closed without any Canvas frames")?;
-        transfer_seconds += transfer_started.elapsed().as_secs_f64();
+        let frame = load_qt_canvas_packet(Path::new(&first))?;
         if (frame.width, frame.height) != (options.width, options.height) {
             return Err("First Canvas packet dimensions differ from export settings".into());
         }
         let mut pool = NativeNv12FramePool::new(options.width, options.height, options.slots)?;
         let processor = NativeBgraNv12VideoProcessor::new_for_pool(&pool)?;
-        let mut resident = ResidentLayerCache::new(options.width, options.height);
-        let mut affine = AffineLayerRenderer::new(&pool)?;
         let mut encoder = NativeNvencRegistrationSession::new_for_pool_with_fps(
             &pool, options.fps,
         )?;
@@ -319,27 +299,25 @@ mod windows_export {
                 return Err("Canvas packet dimensions changed mid-export".into());
             }
             let pts = clock.next_submission()?;
-            resident.update_sized(&current,
-                |w,h| affine.create_input(w,h),
-                |texture,pixels,width| affine.upload(texture,pixels,width),
-            )?;
-            affine.prepare(&current, &resident)?;
-            let layers = current.layers.iter().map(|source| {
-                Ok(NativeCanvasBgraLayer {
-                    texture: if source.geometry.is_identity(options.width, options.height) {
-                        resident.resource(&source.stream_key)?
-                    } else { affine.output(&source.stream_key)? }, opacity: source.opacity,
-                })
-            }).collect::<Result<Vec<_>, String>>()?;
+            let mut textures = Vec::with_capacity(current.layers.len());
+            for source in &current.layers {
+                let gpu_texture = processor.create_bgra_input_texture()?;
+                processor.upload_canvas_layer_for_validation(&gpu_texture, &source.pixels)?;
+                textures.push(gpu_texture);
+            }
+            let layers: Vec<_> = textures.iter().zip(current.layers.iter())
+                .map(|(texture, source)| NativeCanvasBgraLayer {
+                    texture, opacity: source.opacity,
+                }).collect();
             let slot = pool.queue_gpu_canvas_layers(&processor, &layers, pts)?;
             pending.push_back((slot, pts));
             // Keep an actual maximum of ONE decoded CPU packet in memory.
-            // Resident input textures are reused on the same immediate context;
-            // prior composition commands precede the next dirty upload.
+            // Transient input textures may stay on D3D11 until work completes.
             drop(layers);
+            drop(textures);
             drop(current);
-            // Bounded producer/consumer handshake: the caller may release
-            // THIS frame's bytes (or legacy files) only after
+            // Bounded producer/consumer handshake: the caller may safely
+            // delete THIS frame's manifest and BGRA staging bytes only after
             // native loading, texture upload and GPU submission completed.
             // A parent waiting for this line will not stage a whole video.
             {
@@ -349,22 +327,19 @@ mod windows_export {
                     .map_err(|e| format!("Native frame acceptance channel closed: {e}"))?;
             }
             if clock.submitted == clock.expected {
-                if next_frame(&mut input, clock.submitted)?.is_some() {
+                if read_manifest_line(&mut input)?.is_some() {
                     return Err("More Canvas packets supplied than compiled playlist frames".into());
                 }
                 break;
             }
-            let transfer_started = Instant::now();
-            current = next_frame(&mut input, clock.submitted)?
+            let name = read_manifest_line(&mut input)?
                 .ok_or("Native Canvas source ended before the full playlist")?;
-            transfer_seconds += transfer_started.elapsed().as_secs_f64();
+            current = load_qt_canvas_packet(Path::new(&name))?;
         }
         while !pending.is_empty() {
             consume(&mut pool, &mut encoder, &mut pending, &mut writer, &mut clock)?;
         }
         clock.finish()?;
-        resident.clear();
-        affine.clear();
         if pool.completed_count() != options.frames
             || encoder.successful_map_count() != options.frames as usize
         {
@@ -390,32 +365,17 @@ mod windows_export {
             "elapsed_seconds": started.elapsed().as_secs_f64(),
             "h264_file": options.video.display().to_string(),
             "d3d11_alpha_composition_on_gpu": true,
-            "d3d11_affine_shader_draws": affine.draws,
-            "affine_output_textures": {"allocations":affine.allocations,"releases":affine.releases,"peak_bytes":affine.peak_output_bytes},
-            "canvas_packet_schemas": [1,2],
             "gpu_nv12_to_cpu_readbacks": 0,
             "nvenc_output_synchronously_completed": true,
             "qt_canvas_rasterized_on_cpu": true,
             "native_gpu_text_painting_implemented": false,
             "max_pending_gpu_slots": options.slots,
-            "input": if options.binary { "binary-v1" } else { "newline_separated_manifest_paths_stdin" },
-            "frame_receive_seconds": transfer_seconds,
-            "bgra_disk_bytes": if options.binary { Some(0u64) } else { None },
-            "resident_layer_cache": {
-                "allocations": resident.counters.allocations,
-                "uploads": resident.counters.uploads,
-                "upload_bytes": resident.counters.upload_bytes,
-                "reuse_hits": resident.counters.reuse_hits,
-                "releases": resident.counters.releases,
-                "peak_resident_bytes": resident.counters.peak_resident_bytes,
-                "pixel_identity": "sha256_cpu",
-            },
+            "input": "newline_separated_manifest_paths_stdin",
         });
         // A failed report means no completed deliverable. If the runner
         // closes/crashes mid-export, no report is emitted at all.
         let result_text = serde_json::to_string_pretty(&result)
             .map_err(|e| format!("Cannot serialize GPU export report: {e}"))?;
-        let mut report_created = false;
         let report_write = (|| -> Result<(), String> {
             if let Some(parent) = options.report.parent()
                 .filter(|p| !p.as_os_str().is_empty()) {
@@ -425,15 +385,12 @@ mod windows_export {
             let mut file = OpenOptions::new().write(true).create_new(true)
                 .open(&options.report)
                 .map_err(|e| format!("Cannot create GPU export report: {e}"))?;
-            report_created = true;
             file.write_all(result_text.as_bytes()).and_then(|_| file.write_all(b"\n"))
                 .and_then(|_| file.sync_all())
                 .map_err(|e| format!("Cannot write GPU export report: {e}"))
         })();
         if let Err(reason) = report_write {
-            if report_created {
-                let _ = fs::remove_file(&options.report);
-            }
+            let _ = fs::remove_file(&options.report);
             let _ = fs::remove_file(&options.video);
             return Err(reason);
         }

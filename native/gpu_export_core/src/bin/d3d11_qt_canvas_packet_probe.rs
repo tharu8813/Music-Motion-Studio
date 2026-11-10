@@ -82,7 +82,6 @@ fn main() {
             }
             let mut textures = Vec::with_capacity(source.layers.len());
             for layer in &source.layers {
-                if !layer.geometry.is_identity(width,height) { return Err("Legacy packet probe requires full-frame identity layers; use the stream exporter for v2".into()); }
                 let texture = processor.create_bgra_input_texture()?;
                 processor.upload_canvas_layer_for_validation(&texture, &layer.pixels)?;
                 textures.push(texture);

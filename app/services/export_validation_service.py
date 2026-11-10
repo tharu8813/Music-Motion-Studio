@@ -8,8 +8,6 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from threading import Event
-from app.utils.cancellable_subprocess import run_probe
 
 from app.utils.subprocess_utils import hidden_process_kwargs
 
@@ -77,23 +75,19 @@ def validate_export_output(
     expected_fps: int,
     expected_duration_seconds: float = 0.0,
     ffmpeg_executable: str | Path | None = None,
-    cancel_event: Event | None = None,
 ) -> ExportValidationResult:
     """Probe the completed file without failing exports when ffprobe is absent."""
     probe = _find_ffprobe(ffmpeg_executable)
     if probe is None:
         return ExportValidationResult(False, error="FFprobe was not found.")
     try:
-        arguments = [str(probe), "-v", "error", "-select_streams", "v:0",
+        completed = subprocess.run(
+            [str(probe), "-v", "error", "-select_streams", "v:0",
              "-show_entries", "stream=width,height,r_frame_rate,avg_frame_rate,nb_frames,codec_name,pix_fmt",
-             "-show_entries", "format=duration", "-of", "json", str(output_path)]
-        if cancel_event is None:
-            completed = subprocess.run(arguments, capture_output=True, text=True,
-                                       check=False, timeout=15, **hidden_process_kwargs())
-        else:
-            completed = run_probe(arguments, cancel_event=cancel_event, timeout=15)
-            completed.stdout = completed.stdout.decode("utf-8", "replace")
-            completed.stderr = completed.stderr.decode("utf-8", "replace")
+             "-show_entries", "format=duration", "-of", "json", str(output_path)],
+            capture_output=True, text=True, check=False, timeout=15,
+            **hidden_process_kwargs(),
+        )
         payload = json.loads(completed.stdout or "{}")
         stream = (payload.get("streams") or [{}])[0]
         format_data = payload.get("format") or {}

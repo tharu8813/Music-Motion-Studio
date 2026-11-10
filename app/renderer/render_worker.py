@@ -55,8 +55,7 @@ class RenderWorker(QThread):
                  transition_mode: str = "none",
                  crossfade_seconds: float = 3.0,
                  compiled_plan=None, prepared_audio_path: Path | None = None,
-                 automix_settings=None, native_project=None, native_frame_source=None,
-                 native_scale=1.0, cancel_event=None) -> None:
+                 automix_settings=None) -> None:
         super().__init__()
         self.renderer = renderer
         self.transition_mode = transition_mode
@@ -84,10 +83,7 @@ class RenderWorker(QThread):
         self.video_clips = list(video_clips or [])
         self.static_layers = list(static_layers or [])
         self.metadata = metadata
-        self._cancel_event = cancel_event if cancel_event is not None else threading.Event()
-        self.native_project = native_project
-        self.native_frame_source = native_frame_source
-        self.native_scale = native_scale
+        self._cancel_event = threading.Event()
 
     def cancel(self) -> None:
         """Request a cooperative FFmpeg stop at the next process polling interval."""
@@ -96,39 +92,18 @@ class RenderWorker(QThread):
     def run(self) -> None:
         """Execute the render and forward outcome signals to the GUI thread."""
         try:
-            if self.native_project is not None:
-                from app.renderer.native_project_export import export_project_document
-                self.progress.emit("Preparing audio", 0.0, "Preparing GPU export audio and analysis")
-                result = export_project_document(
-                    self.native_project, self.output_path, fps=self.settings.fps,
-                    scale=self.native_scale, ffmpeg=str(self.renderer.executable),
-                    cancel_event=self._cancel_event, frame_source=self.native_frame_source,
-                    audio_bitrate=self.settings.audio_bitrate,
-                    storage_path_callback=self.storage_path_changed.emit,
-                    preparation_progress_callback=lambda stage, fraction, message: self.progress.emit(
-                        stage, 0.07 * fraction, message,
-                    ),
-                    progress_callback=lambda done, total: self.progress.emit(
-                        "Encoding video", 0.1 + 0.75 * done / max(1, total),
-                        f"Rust GPU: {done}/{total} frames",
-                    ),
-                    mux_progress_callback=lambda stage, fraction, message: self.progress.emit(
-                        stage, 0.85 + 0.15 * fraction, message,
-                    ),
-                )
-            else:
-                result = self.renderer.render(
-                    self.image, self.tracks, self.output_path, self.settings,
-                    progress_callback=self.progress.emit, cancel_event=self._cancel_event,
-                    visualizers=self.visualizers, static_layers=self.static_layers,
-                    video_clips=self.video_clips, metadata=self.metadata,
-                    storage_path_callback=self.storage_path_changed.emit,
-                    transition_mode=self.transition_mode,
-                    crossfade_seconds=self.crossfade_seconds,
-                    compiled_plan=self.compiled_plan,
-                    prepared_audio_path=self.prepared_audio_path,
-                    automix_settings=self.automix_settings,
-                )
+            result = self.renderer.render(
+                self.image, self.tracks, self.output_path, self.settings,
+                progress_callback=self.progress.emit, cancel_event=self._cancel_event,
+                visualizers=self.visualizers, static_layers=self.static_layers,
+                video_clips=self.video_clips, metadata=self.metadata,
+                storage_path_callback=self.storage_path_changed.emit,
+                transition_mode=self.transition_mode,
+                crossfade_seconds=self.crossfade_seconds,
+                compiled_plan=self.compiled_plan,
+                prepared_audio_path=self.prepared_audio_path,
+                automix_settings=self.automix_settings,
+            )
         except RenderCancelledError:
             self.cancelled.emit()
         except RenderError as error:

@@ -128,9 +128,8 @@ def ffmpeg_transform(graph, layer_input, binding, width, height, tag):
     side = max(2, ceil(hypot(width, height) * max_scale / (source.scale or 1)) + 4)
     transformed = f"[kfgeometry{tag}]"
     angle = f"({binding.expression('rotation')})*PI/180"
-    # "none" disables background filling and can retain earlier rotated pixels.
     graph.append(f"{layer_input}scale=w='max(1,round({width}*{ratio}))':h='max(1,round({height}*{ratio}))':eval=frame,"
-                 f"rotate='{angle}':ow={side}:oh={side}:fillcolor=black@0{transformed}")
+                 f"rotate='{angle}':ow={side}:oh={side}:fillcolor=none{transformed}")
     color, alpha, masked, output = (f"[kf{part}{tag}]" for part in ("color", "alpha", "mask", "out"))
     graph.append(f"{transformed}format=gbrap,split=2{color}{alpha}")
     opacity = binding.expression('opacity', 'T')

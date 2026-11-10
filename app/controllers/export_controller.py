@@ -901,15 +901,10 @@ class ExportOrchestrator:
 
     # -- core export orchestration -----------------------------------------
 
-    def export_video(self, _options=None) -> None:
+    def export_video(self) -> None:
         """Render the static Canvas and enabled playlist tracks to an MP4 file."""
         window = self.window
         korean = window.translator.is_korean
-        if window._render_worker is not None or window._export_preparation_cancel is not None:
-            return
-        if _options is not None and Path(_options.output_path).exists():
-            QMessageBox.warning(window, "FFmpeg", "Output now exists; choose a new filename before retrying.")
-            return
         # Offer the empty-playlist fix before FFmpeg setup, so a new project
         # on a machine without FFmpeg still gets the "add music" recovery.
         active_tracks = [track for track in window.playlist_service.tracks if track.enabled]
@@ -938,7 +933,7 @@ class ExportOrchestrator:
             Path(output_directory) if output_directory
             else window.settings_service.default_output_directory()
         )
-        export_options = _options or ExportSettingsDialog(
+        export_options = ExportSettingsDialog(
             window.settings_service.current,
             len(active_tracks),
             window._playlist_duration(active_tracks),
@@ -950,7 +945,7 @@ class ExportOrchestrator:
                 round(window.canvas.scene_model.artboard_rect.height()),
             ),
         )
-        if _options is None and export_options.exec() != export_options.DialogCode.Accepted:
+        if export_options.exec() != export_options.DialogCode.Accepted:
             return
         requested_app_settings = export_options.app_settings
         quality_profile_name = export_options.quality_mode_combo.currentText()
@@ -961,7 +956,6 @@ class ExportOrchestrator:
         try:
             configured_path = window.settings_service.current.ffmpeg_path or None
             renderer = FFmpegRenderer(configured_path)
-            renderer.prevent_output_overwrite = _options is not None
         except FFmpegNotFoundError:
             answer = QMessageBox.warning(
                 window, "FFmpeg 필요" if korean else "FFmpeg required",
@@ -996,11 +990,6 @@ class ExportOrchestrator:
                 window.settings_service.save(requested_app_settings)
             self.start_audio_export(renderer, active_tracks, output, render_settings)
             return
-        if (getattr(export_options, "engine_combo", None) is not None
-                and export_options.engine_combo.currentData() == "native_gpu"):
-            renderer.prevent_output_overwrite = True
-            if self.start_gpu_export(renderer, active_tracks, output, export_options):
-                return
         resolved = self.resolve_render_settings(
             renderer, requested_app_settings, output,
             export_options.save_as_default,
@@ -1360,135 +1349,6 @@ class ExportOrchestrator:
         window._export_dialog.cancel_requested.connect(window._render_worker.cancel)
         window.statusBar().showMessage("렌더링 중..." if korean else "Rendering...")
         window._render_worker.start()
-
-    def start_gpu_export(self, renderer, tracks, output, options) -> bool:
-        """Preflight before capture; retain the GUI bridge through queued close."""
-        from copy import deepcopy
-        from app.renderer.native_project_export import resolve_native_executable
-        from app.renderer.native_project_support import validate_project_for_gpu_capture
-        from app.renderer.native_dynamic_layers import build_dynamic_stack
-        from app.renderer.native_project_frames import GuiProjectFrameSource
-
-        window = self.window
-        settings = options.app_settings.render_settings()
-        project = deepcopy(window._project_document())
-        width, height = project.canvas.width, project.canvas.height
-        scale = settings.output_width / width
-        try:
-            if not 1 <= settings.fps <= 120:
-                raise RenderError("Rust GPU supports 1–120 FPS.")
-            if Path(output).suffix.lower() != ".mp4" or Path(output).exists():
-                raise RenderError("Rust GPU requires a new MP4 filename; existing output will not be overwritten.")
-            if round(height * scale) != settings.output_height:
-                raise RenderError("GPU output must preserve the project Canvas aspect ratio.")
-            validate_project_for_gpu_capture(project, scale=scale, source_policy="dynamic-audio")
-            build_dynamic_stack(project, scale)
-            resolve_native_executable()
-        except (RenderError, ValueError) as error:
-            QMessageBox.information(
-                window, "GPU → FFmpeg",
-                f"GPU 내보내기 지원 조건 / GPU export unavailable:\n{error}\n\n"
-                "기존 FFmpeg 내보내기로 계속합니다. / Continuing with FFmpeg.",
-            )
-            return False
-
-        cancel = threading.Event()
-        source = GuiProjectFrameSource(project, fps=settings.fps, scale=scale, cancel_event=cancel)
-        worker = RenderWorker(
-            renderer, QImage(), tracks, output, settings,
-            native_project=project, native_frame_source=source,
-            native_scale=scale, cancel_event=cancel,
-        )
-        window._export_notified_steps.clear()
-        window._active_export_output_path = Path(output).resolve()
-        window._pending_export_result = None
-        window._export_preparation_cancel = cancel
-        window._render_worker = worker
-        dialog = ExportProgressDialog(window)
-        window._export_dialog = dialog
-        dialog.set_korean(window.translator.is_korean)
-        dialog.set_export_details(len(tracks), window._playlist_duration(tracks),
-                                  "Rust GPU · D3D11 + NVENC · H.264 (Beta)", output)
-        dialog.set_busy("Preparing audio", "Preparing GPU export")
-        dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        dialog.cancel_requested.connect(worker.cancel)
-        dialog.minimize_requested.connect(window._minimize_during_export)
-        worker.progress.connect(lambda stage, fraction, message: self.handle_render_progress(
-            dialog, stage, fraction, message, 0.0,
-        ))
-        worker.storage_path_changed.connect(window._handle_export_storage_path)
-        state = {"closed": False, "finished": False, "error": None}
-
-        def finish_when_closed():
-            if not state["closed"] or not state["finished"]:
-                return
-            window._export_preparation_cancel = None
-            retry = False
-            if state["error"] is not None:
-                if cancel.is_set():
-                    self.cancelled()
-                elif not Path(output).exists():
-                    retry = QMessageBox.question(
-                        window, "GPU → FFmpeg",
-                        f"GPU 내보내기 오류 / GPU export failed:\n{state['error']}\n\n"
-                        "기존 FFmpeg로 다시 내보낼까요? / Retry with FFmpeg?",
-                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                        QMessageBox.StandardButton.Yes,
-                    ) == QMessageBox.StandardButton.Yes
-                    if retry:
-                        if window._export_dialog:
-                            window._export_dialog.complete(False)
-                            window._export_dialog = None
-                    else:
-                        self.failed(state["error"])
-                else:
-                    self.failed(state["error"] + "\nOutput exists; automatic retry is disabled.")
-            self.finished()
-            source.deleteLater()
-            if retry:
-                options.engine_combo.setCurrentIndex(0)
-                # Keep the editor snapshot unchanged until FFmpeg preparation starts.
-                window._lock_main_form_for_export()
-
-                def retry_ffmpeg():
-                    try:
-                        self.export_video(options)
-                    finally:
-                        if window._render_worker is None and window._export_preparation_cancel is None:
-                            window._unlock_main_form_after_export()
-
-                QTimer.singleShot(0, retry_ffmpeg)
-
-        def mark_closed():
-            state["closed"] = True
-            finish_when_closed()
-
-        def mark_finished():
-            state["finished"] = True
-            finish_when_closed()
-
-        def record_error(message):
-            state["error"] = message
-
-        source.closed.connect(mark_closed)
-        worker.finished.connect(mark_finished)
-        worker.failed.connect(record_error)
-        worker.succeeded.connect(self.succeeded)
-        worker.cancelled.connect(self.cancelled)
-        window._lock_main_form_for_export()
-        self._video_export_started_at = monotonic()
-        window.activity_progress.begin("export", "GPU export", detail="Preparing audio")
-        try:
-            if options.save_as_default:
-                window.settings_service.save(options.app_settings)
-            self.start_storage_monitor(output)
-            dialog.show()
-            worker.start()
-        except Exception as error:
-            state["error"] = str(error)
-            state["finished"] = True
-            source.close()
-        return True
 
     def export_subtitles(
         self, tracks: list, output: str, renderer: FFmpegRenderer | None = None,

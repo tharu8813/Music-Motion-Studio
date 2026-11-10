@@ -71,9 +71,6 @@ if _missing:
 automix_datas: list = []
 automix_binaries: list = []
 automix_hiddenimports: list = []
-gpu_export_executable = project_root / "native/gpu_export_core/target/release/d3d11_qt_canvas_stream_export.exe"
-if not gpu_export_executable.is_file():
-    raise SystemExit("Build the GPU export executable first: cargo build --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_stream_export")
 for _package in (*AUTOMIX_PACKAGES, *TRANSLATION_PACKAGES):
     _datas, _binaries, _hiddenimports = collect_all(_package, filter_submodules=runtime_submodule)
     automix_datas += _datas
@@ -83,7 +80,7 @@ for _package in (*AUTOMIX_PACKAGES, *TRANSLATION_PACKAGES):
 analysis = Analysis(
     [str(project_root / "main.py")],
     pathex=[str(project_root)],
-    binaries=numpy_binaries + automix_binaries + [(str(gpu_export_executable), "native")],
+    binaries=numpy_binaries + automix_binaries,
     # FFmpeg is deliberately not bundled. The installed application downloads
     # and checksum-verifies its own per-user copy on first use.
     datas=numpy_datas + automix_datas + [

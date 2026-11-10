@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from threading import Event
 
 from app.services.export_validation_service import (
     ExportValidationResult,
@@ -28,7 +27,6 @@ class ExportPolicy:
         fps: int,
         duration_seconds: float,
         ffmpeg_executable: str | Path | None,
-        cancel_event: Event | None = None,
     ) -> ExportValidationResult:
         return validate_export_output(
             output_path,
@@ -37,5 +35,4 @@ class ExportPolicy:
             expected_fps=fps,
             expected_duration_seconds=duration_seconds,
             ffmpeg_executable=ffmpeg_executable,
-            cancel_event=cancel_event,
         )
