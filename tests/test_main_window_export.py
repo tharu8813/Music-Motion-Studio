@@ -1695,6 +1695,12 @@ class MainWindowExportTests(MainWindowTestCase):
         self.assertAlmostEqual(estimator.measured_fps, 3973 / 252, places=2)
         self.assertAlmostEqual(estimator.remaining(257.0), remaining - 5.0, delta=0.001)
         self.assertIsNone(estimator.remaining(280.0))
+        # A resumed native worker must establish a fresh frame rate, not
+        # keep displaying an estimate based on the pre-stall scene.
+        self.assertIsNone(estimator.update(4000, 131417, 281.0))
+        self.assertIsNone(estimator.measured_fps)
+        resumed = estimator.update(4240, 131417, 301.0)
+        self.assertGreater(resumed, 0)
 
     def test_native_gpu_eta_adapts_to_slower_scenes_and_resets_per_export(self) -> None:
         estimator = NativeGpuFrameEtaEstimator()
