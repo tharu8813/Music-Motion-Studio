@@ -259,6 +259,10 @@ mod tests {
         assert_eq!((loaded.width, loaded.height), (4, 4));
         assert_eq!(loaded.layers.len(), 2);
         assert_eq!(loaded.layers[1].pixels, alpha);
+        assert_eq!(loaded.layers[0].validated_sha256,
+                   <[u8; 32]>::from(Sha256::digest(&base)));
+        assert_eq!(loaded.layers[1].validated_sha256,
+                   <[u8; 32]>::from(Sha256::digest(&alpha)));
         let mut altered = base;
         altered[0] ^= 0x01;
         std::fs::write(directory.join(names[0]), altered).unwrap();
