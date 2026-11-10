@@ -22,7 +22,7 @@ import tempfile
 from threading import Event, Thread, Lock
 from time import monotonic
 
-from app.preview.native_canvas_layer_packets import NativeCanvasFrame
+from app.preview.native_canvas_layer_packets import DeferredNativeCanvasFrame, NativeCanvasFrame
 from app.renderer.native_frame_transport import FrameReuseState, write_frame
 from app.renderer.ffmpeg_renderer import (
     ExportMetadata, FFmpegRenderer, RenderCancelledError, RenderError,
@@ -71,7 +71,7 @@ def _frame_acknowledgement(
 
 
 def stream_native_canvas_h264(
-    frames: Iterable[NativeCanvasFrame], *,
+    frames: Iterable[NativeCanvasFrame | DeferredNativeCanvasFrame], *,
     executable: Path, video_path: Path, report_path: Path,
     width: int, height: int, fps: int, duration_seconds: float,
     expected_frames: int, slots: int = 2, cancel_event: Event | None = None,
@@ -176,6 +176,7 @@ def stream_native_canvas_h264(
         frame_production_seconds = 0.0
         frame_production_max_seconds = 0.0
         frame_pipe_write_seconds = 0.0
+        cpu_parallel_bgra_frames = 0
         frame_ack_wait_seconds = 0.0
         # Experimental, rollback-friendly optimization. A frame is never
         # painted on the sender thread, and at most two packets coexist.
@@ -243,10 +244,12 @@ def stream_native_canvas_h264(
                 frame_production_max_seconds = max(frame_production_max_seconds, production_elapsed)
                 if cancel.is_set():
                     raise RenderCancelledError("Native GPU export was cancelled.")
-                if not isinstance(frame, NativeCanvasFrame) or (
+                if not isinstance(frame, (NativeCanvasFrame, DeferredNativeCanvasFrame)) or (
                     frame.width, frame.height
                 ) != (width, height):
                     raise RenderError(f"Native Canvas frame {index} has wrong geometry or type.")
+                if isinstance(frame, DeferredNativeCanvasFrame):
+                    cpu_parallel_bgra_frames += 1
                 if overlap_enabled:
                     # Produce frame N+1 on the Qt owner thread while the sender
                     # writes frame N. Before scheduling another send, wait for
@@ -260,8 +263,15 @@ def stream_native_canvas_h264(
                     ) -> None:
                         try:
                             assert worker.stdin is not None
+                            # Converters only touch their own immutable
+                            # QImages; Rust input must receive complete,
+                            # strictly ordered and validated BGRA packets.
+                            resolved = (
+                                frame.resolve() if isinstance(frame, DeferredNativeCanvasFrame)
+                                else frame
+                            )
                             written_bytes = write_frame(
-                                worker.stdin, frame, index, reuse_state=reuse_state,
+                                worker.stdin, resolved, index, reuse_state=reuse_state,
                             )
                             wrote_at = monotonic()
                             _frame_acknowledgement(
@@ -286,8 +296,12 @@ def stream_native_canvas_h264(
                 sent: Queue = Queue(maxsize=1)
                 def send_frame(frame=frame, index=index):
                     try:
+                        resolved = (
+                            frame.resolve() if isinstance(frame, DeferredNativeCanvasFrame)
+                            else frame
+                        )
                         sent.put(write_frame(
-                            worker.stdin, frame, index, reuse_state=reuse_state,
+                            worker.stdin, resolved, index, reuse_state=reuse_state,
                         ))
                     except Exception as exc:
                         sent.put(exc)
@@ -369,9 +383,11 @@ def stream_native_canvas_h264(
                 frame_transport="binary-v2" if reuse_enabled else "binary-v1",
                 frame_reuse_enabled=reuse_enabled,
                 native_optimization_profile=(
-                    "accelerated" if optimizations is not None and optimizations == NativeGpuOptimizations.for_profile("accelerated")
+                    "cpu_parallel" if optimizations is not None and optimizations.parallel_bgra
+                    else "accelerated" if optimizations is not None and optimizations == NativeGpuOptimizations.for_profile("accelerated")
                     else "standard" if optimizations is not None else "environment"
                 ),
+                cpu_parallel_bgra_frames=cpu_parallel_bgra_frames,
                 frame_reused_planes=reuse_state.reused_planes if reuse_state is not None else 0,
                 frame_reused_bytes=reuse_state.saved_bytes if reuse_state is not None else 0,
                 frame_transport_bytes=transport_bytes,

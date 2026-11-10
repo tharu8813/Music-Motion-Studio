@@ -6,7 +6,7 @@ them here avoids applying opacity twice or clipping rotation to the source box.
 from PySide6.QtCore import QPointF
 from PySide6.QtGui import QImage, QPainter
 
-from app.preview.native_canvas_layer_packets import NativeCanvasBgraLayer, straight_bgra_bytes
+from app.preview.native_canvas_layer_packets import DeferredNativeCanvasLayer, NativeCanvasBgraLayer, straight_bgra_bytes
 
 
 def dynamic_layer_frame(image, overlay, width, height, *, seconds, output_scale=1.0):
@@ -37,7 +37,7 @@ def dynamic_layer_frame(image, overlay, width, height, *, seconds, output_scale=
     return NativeCanvasBgraLayer("pending", width, height, straight_bgra_bytes(canvas))
 
 
-def dynamic_gpu_layer(image, overlay, width, height, *, seconds, output_scale=1.0):
+def dynamic_gpu_layer(image, overlay, width, height, *, seconds, output_scale=1.0, submit_bgra=None):
     """Send untransformed painter pixels and an output-to-source matrix to D3D11."""
     from PySide6.QtGui import QTransform
     if image.isNull():
@@ -64,6 +64,18 @@ def dynamic_gpu_layer(image, overlay, width, height, *, seconds, output_scale=1.
     inverse, valid = transform.inverted()
     if not valid:
         raise ValueError("Dynamic GPU transform is singular")
-    return NativeCanvasBgraLayer("pending", image.width(), image.height(), straight_bgra_bytes(image),
-        opacity, (inverse.m11(), inverse.m12(), inverse.m21(), inverse.m22(), inverse.dx(), inverse.dy()),
-        (0, 0, width, height))
+    geometry = (inverse.m11(), inverse.m12(), inverse.m21(),
+                inverse.m22(), inverse.dx(), inverse.dy())
+    if submit_bgra is not None:
+        # The image is detached from painter/model state; only this immutable
+        # QImage snapshot is allowed to cross to a CPU conversion thread.
+        return DeferredNativeCanvasLayer(
+            "pending", image.width(), image.height(),
+            submit_bgra(QImage(image), straight_bgra_bytes),
+            opacity, geometry, (0, 0, width, height),
+        )
+    return NativeCanvasBgraLayer(
+        "pending", image.width(), image.height(),
+        straight_bgra_bytes(image),
+        opacity, geometry, (0, 0, width, height),
+    )

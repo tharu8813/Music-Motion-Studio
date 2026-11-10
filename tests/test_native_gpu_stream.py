@@ -7,6 +7,7 @@ Windows Rust CI separately compiles the actual D3D11 NVENC worker.
 from __future__ import annotations
 
 from pathlib import Path
+from concurrent.futures import Future
 import os
 import json
 import subprocess
@@ -16,7 +17,10 @@ from threading import Event, Timer, enumerate as active_threads
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.preview.native_canvas_layer_packets import NativeCanvasBgraLayer, NativeCanvasFrame
+from app.preview.native_canvas_layer_packets import (
+    DeferredNativeCanvasFrame, DeferredNativeCanvasLayer,
+    NativeCanvasBgraLayer, NativeCanvasFrame,
+)
 from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderCancelledError, RenderError, RenderSettings, RenderResult
 from app.renderer.native_gpu_stream import (
     render_native_gpu_playlist, stream_native_canvas_h264,
@@ -269,6 +273,56 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                         worker_source='import time; time.sleep(30)')
             finally:
                 timer.cancel()
+
+    def test_cpu_parallel_deferred_packets_overlap_production_and_preserve_ack_order(self):
+        if os.name != "nt":
+            self.skipTest("Native GPU transport requires Windows")
+        # BGRA conversion for frame 0 completes only after producer advances
+        # to frame 1; strict frame ACK order and packet SHA must still hold.
+        first = Future()
+        pixels = bytes((20, 60, 120, 255)) * (64 * 64)
+        produced = []
+
+        def frames():
+            for index in range(6):
+                if index == 1:
+                    first.set_result(pixels)
+                future = first if index == 0 else Future()
+                if index != 0:
+                    future.set_result(pixels)
+                produced.append(index)
+                yield DeferredNativeCanvasFrame(
+                    64, 64, (DeferredNativeCanvasLayer("base", 64, 64, future),),
+                )
+
+        result = self._run_mock(
+            count=6, provided=frames(),
+            optimizations=NativeGpuOptimizations.for_profile("cpu_parallel"),
+        )
+        self.assertEqual(produced, list(range(6)))
+        self.assertEqual(result["frames_encoded"], 6)
+        self.assertEqual(result["frame_transport"], "binary-v2")
+        self.assertEqual(result["native_optimization_profile"], "cpu_parallel")
+        self.assertEqual(result["cpu_parallel_bgra_frames"], 6)
+        self.assertEqual(result["frame_reused_planes"], 5)
+        self.assertTrue(result["frame_pipeline_enabled"])
+        self.assertEqual(result["max_outstanding_frame_packets"], 2)
+
+    def test_cpu_conversion_future_error_aborts_native_without_publishing_output(self):
+        if os.name != "nt":
+            self.skipTest("Native GPU transport requires Windows")
+        def frames():
+            bad = Future()
+            bad.set_exception(ValueError("invalid QImage conversion"))
+            yield DeferredNativeCanvasFrame(
+                64, 64, (DeferredNativeCanvasLayer("base", 64, 64, bad),),
+            )
+            yield from generated_frames(3)
+        with self.assertRaises(RenderError):
+            self._run_mock(
+                count=4, provided=frames(),
+                optimizations=NativeGpuOptimizations.for_profile("cpu_parallel"),
+            )
 
     def test_opt_in_one_frame_lookahead_preserves_order_and_caller_thread(self):
         if os.name != "nt":

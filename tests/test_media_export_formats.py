@@ -82,6 +82,10 @@ class ExportDestinationTests(unittest.TestCase):
             self.dialog.gpu_speed_combo.findData("accelerated"),
         )
         self.assertEqual(self.dialog.gpu_speed_combo.currentData(), "accelerated")
+        self.dialog.gpu_speed_combo.setCurrentIndex(
+            self.dialog.gpu_speed_combo.findData("cpu_parallel"),
+        )
+        self.assertEqual(self.dialog.gpu_speed_combo.currentData(), "cpu_parallel")
         self.dialog.export_type_combo.setCurrentIndex(1)
         self.assertTrue(self.dialog.gpu_speed_combo.isHidden())
         self.dialog.export_type_combo.setCurrentIndex(0)

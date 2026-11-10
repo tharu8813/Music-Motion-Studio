@@ -13,6 +13,7 @@ effects, and texture-backed video layers is NOT implemented by this module.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from concurrent.futures import Future
 import hashlib
 import json
 import math
@@ -91,6 +92,50 @@ class NativeCanvasFrame:
                     raise ValueError("Native clip must be an output half-open rectangle")
         if self.layers[0].opacity != 1.0:
             raise ValueError("First native Canvas layer must be opaque at global alpha 1")
+
+
+@dataclass(frozen=True, slots=True)
+class DeferredNativeCanvasLayer:
+    """One completed Qt snapshot with byte conversion running on a CPU worker."""
+
+    stream_key: str
+    width: int
+    height: int
+    pixels_future: Future[bytes]
+    opacity: float = 1.0
+    inverse_transform: tuple[float, ...] | None = None
+    clip: tuple[int, ...] | None = None
+
+    def resolve(self) -> NativeCanvasBgraLayer:
+        return NativeCanvasBgraLayer(
+            stream_key=self.stream_key, width=self.width, height=self.height,
+            pixels=self.pixels_future.result(), opacity=self.opacity,
+            inverse_transform=self.inverse_transform, clip=self.clip,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class DeferredNativeCanvasFrame:
+    """Painted on GUI, independently converted on CPU, serialized on sender.
+
+    Only QImage data is handed to CPU workers; the Qt scene, source objects,
+    lyrics and animations remain exclusively on the QApplication thread.
+    """
+
+    width: int
+    height: int
+    layers: tuple[NativeCanvasBgraLayer | DeferredNativeCanvasLayer, ...]
+    schema: int = 1
+
+    def resolve(self) -> NativeCanvasFrame:
+        return NativeCanvasFrame(
+            width=self.width, height=self.height,
+            layers=tuple(
+                layer.resolve() if isinstance(layer, DeferredNativeCanvasLayer)
+                else layer for layer in self.layers
+            ),
+            schema=self.schema,
+        )
 
 
 def straight_bgra_bytes(image: QImage) -> bytes:
@@ -252,7 +297,7 @@ def capture_native_canvas_track_frame(
     bass_level: float = 0.0,
     music_levels: dict[str, float] | None = None,
     raster_cache: object | None = None,
-) -> NativeCanvasFrame:
+) -> NativeCanvasFrame | DeferredNativeCanvasFrame:
     """Capture a REAL track/lyrics state through the established export painter.
 
     This is a diagnostics-only counterpart of capture_native_canvas_frame().
@@ -284,7 +329,7 @@ def capture_native_canvas_track_frame(
     if not isfinite(duration) or duration <= 0:
         raise ValueError("Invalid playlist duration")
 
-    layers: list[NativeCanvasBgraLayer] = []
+    layers: list[NativeCanvasBgraLayer | DeferredNativeCanvasLayer] = []
     for index, (z_min, z_max) in enumerate(z_bands):
         key = "base" if index == 0 else f"layer:{index - 1}"
         cached = raster_cache.get(key) if raster_cache is not None else None
@@ -353,21 +398,41 @@ def capture_native_canvas_track_frame(
                     origin_x, origin_y,
                     origin_x + image.width(), origin_y + image.height(),
                 )
-        layers.append(NativeCanvasBgraLayer(
-            stream_key="base" if index == 0 else f"layer:{index - 1}",
-            width=image.width(), height=image.height(),
-            pixels=straight_bgra_bytes(image),
-            inverse_transform=inverse, clip=clip,
-        ))
+        # A finished QImage can be converted on a CPU worker while the GUI
+        # paints the next frame. Invariant layers stay synchronous so their
+        # export-local cache is never modified off the owner thread.
+        use_parallel = bool(
+            raster_cache is not None
+            and raster_cache.parallel_bgra_enabled
+            and key not in raster_cache.keys
+        )
+        if use_parallel:
+            future = raster_cache.submit_bgra(QImage(image), straight_bgra_bytes)
+            layers.append(DeferredNativeCanvasLayer(
+                stream_key=key, width=image.width(), height=image.height(),
+                pixels_future=future, inverse_transform=inverse, clip=clip,
+            ))
+            raster_cache.record_uncached_raster()
+        else:
+            layer = NativeCanvasBgraLayer(
+                stream_key=key, width=image.width(), height=image.height(),
+                pixels=straight_bgra_bytes(image),
+                inverse_transform=inverse, clip=clip,
+            )
+            layers.append(layer)
+            if raster_cache is not None:
+                raster_cache.record(layer)
         if raster_cache is not None:
-            raster_cache.record(layers[-1])
             raster_cache.record_capture_region(
                 layers[0].width, layers[0].height,
                 index != 0, capture_metrics,
-                compact_bytes=(len(layers[-1].pixels) if is_compact else None),
+                compact_bytes=(image.width() * image.height() * 4 if is_compact else None),
             )
-    return NativeCanvasFrame(
+    packet = dict(
         width=layers[0].width, height=layers[0].height,
         layers=tuple(layers),
         schema=2 if any(layer.inverse_transform is not None for layer in layers) else 1,
     )
+    if any(isinstance(layer, DeferredNativeCanvasLayer) for layer in layers):
+        return DeferredNativeCanvasFrame(**packet)
+    return NativeCanvasFrame(**packet)

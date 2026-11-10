@@ -18,16 +18,20 @@ class NativeGpuOptimizations:
     partial_bands: bool = False
     compact_bands: bool = False
     reuse_layers: bool = False
+    parallel_bgra: bool = False
 
     @classmethod
     def for_profile(cls, profile: str) -> "NativeGpuOptimizations":
         if profile == "standard":
             return cls()
-        if profile == "accelerated":
+        if profile in {"accelerated", "cpu_parallel"}:
             return cls(
                 pipelined=True,
                 partial_bands=True,
                 compact_bands=True,
                 reuse_layers=True,
+                # Separate, opt-in A/B profile. Do not silently change the
+                # previously tested accelerated mode on existing installs.
+                parallel_bgra=profile == "cpu_parallel",
             )
         raise ValueError(f"Unknown native GPU optimization profile: {profile!r}")

@@ -129,10 +129,19 @@ def produce_complete_project_frames(
                         f"Audio-reactive overlay ended at frame {frame_index}/{total_frames}"
                     ) from exc
                 _check_cancel(cancel)
+                frame_packet = interleave_dynamic_layers(
+                    static, stack, layers, seconds=state["timeline_seconds"],
+                    output_scale=scale, gpu_affine=True,
+                    raster_cache=raster_cache,
+                )
                 if raster_counters is not None:
                     raster_counters.update(
                         rasterizations=raster_cache.rasterizations,
                         reuse_hits=raster_cache.hits,
+                        cpu_parallel_bgra_enabled=raster_cache.parallel_bgra_enabled,
+                        cpu_parallel_bgra_submissions=raster_cache.parallel_bgra_submissions,
+                        cpu_parallel_bgra_peak_workers=raster_cache.parallel_bgra_peak_workers,
+                        cpu_parallel_bgra_work_seconds=raster_cache.parallel_bgra_work_seconds,
                         retained_bytes=raster_cache.retained_bytes,
                         peak_retained_bytes=raster_cache.peak_retained_bytes,
                         advanced_lyric_cache_entries=len(raster_cache.frozen_lyric_settings_cache),
@@ -144,10 +153,7 @@ def produce_complete_project_frames(
                         scene_render_source_pixels=raster_cache.scene_render_source_pixels,
                         full_frame_source_pixels=raster_cache.full_frame_source_pixels,
                     )
-                yield interleave_dynamic_layers(
-                    static, stack, layers, seconds=state["timeline_seconds"],
-                    output_scale=scale, gpu_affine=True,
-                )
+                yield frame_packet
             if project.to_dict() != before:
                 raise TimelineValidationError("Native export unexpectedly modified project sources")
     except Exception:
@@ -157,7 +163,15 @@ def produce_complete_project_frames(
         if raster_cache is not None:
             raster_cache.clear()
             if raster_counters is not None:
-                raster_counters["retained_bytes"] = 0
+                # After the converter pool joins, report final worker totals
+                # instead of a snapshot with the final BGRA packet pending.
+                raster_counters.update(
+                    retained_bytes=0,
+                    cpu_parallel_bgra_enabled=raster_cache.parallel_bgra_enabled,
+                    cpu_parallel_bgra_submissions=raster_cache.parallel_bgra_submissions,
+                    cpu_parallel_bgra_peak_workers=raster_cache.parallel_bgra_peak_workers,
+                    cpu_parallel_bgra_work_seconds=raster_cache.parallel_bgra_work_seconds,
+                )
         scene.clear()
 
 
