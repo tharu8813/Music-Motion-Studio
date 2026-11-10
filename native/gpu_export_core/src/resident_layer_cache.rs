@@ -73,7 +73,10 @@ impl<T> ResidentLayerCache<T> {
                 self.entries.remove(&layer.stream_key);
                 self.counters.releases += 1;
             }
-            let digest: [u8; 32] = Sha256::digest(&layer.pixels).into();
+            // The packet parser has already hashed and verified this exact
+            // immutable BGRA buffer against its manifest. Rehashing the
+            // 1080p/4K planes here was a second full CPU scan per frame.
+            let digest = layer.validated_sha256;
             if let Some(entry) = self.entries.get_mut(&layer.stream_key) {
                 if entry.digest == digest {
                     self.counters.reuse_hits += 1;
@@ -110,9 +113,14 @@ mod tests {
     use super::*;
     use crate::qt_canvas_packet::{CanvasPacketLayer, LayerGeometry};
     fn frame(keys: &[&str], pixel: u8) -> CanvasPacketFrame {
-        CanvasPacketFrame { width: 2, height: 2, layers: keys.iter().map(|key|
-            CanvasPacketLayer { stream_key: key.to_string(), opacity: 1.0, pixels: vec![pixel; 16], geometry: LayerGeometry::identity(2, 2) }
-        ).collect() }
+        CanvasPacketFrame { width: 2, height: 2, layers: keys.iter().map(|key| {
+            let pixels = vec![pixel; 16];
+            let validated_sha256 = Sha256::digest(&pixels).into();
+            CanvasPacketLayer {
+                stream_key: key.to_string(), opacity: 1.0, pixels,
+                geometry: LayerGeometry::identity(2, 2), validated_sha256,
+            }
+        }).collect() }
     }
     #[test]
     fn repeats_skip_upload_and_opacity_and_z_order_are_not_pixel_identity() {
