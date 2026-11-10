@@ -29,6 +29,7 @@ from app.renderer.native_project_support import (
 )
 from app.timeline.compiler import compile_playlist
 from app.renderer.native_layer_cache import NativeRasterCache, split_resident_bands
+from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
 
 def _check_cancel(cancel):
     if cancel.is_set():
@@ -39,6 +40,7 @@ def produce_complete_project_frames(
     prepared_audio: Path, ffmpeg: str, cancel_event: Event | None = None,
     analysis: PreparedProjectFrameAudio | None = None,
     raster_counters: dict | None = None,
+    optimizations: NativeGpuOptimizations | None = None,
 ) -> Iterator[NativeCanvasFrame]:
     """Yield *every* playlist CFR frame lazily in true source Z order.
 
@@ -75,7 +77,9 @@ def produce_complete_project_frames(
         for source in sorted(included, key=lambda item: item.z_index):
             scene.addItem(SourceItem(source))
         stack = split_resident_bands(scene, stack, plan.duration_seconds)
-        raster_cache = NativeRasterCache(scene, stack.bands, plan.duration_seconds)
+        raster_cache = NativeRasterCache(
+            scene, stack.bands, plan.duration_seconds, optimizations=optimizations,
+        )
         before = project.to_dict()
         with ExitStack() as resources:
             overlays, dynamic_streams, _origin = resources.enter_context(
@@ -170,7 +174,8 @@ class GuiProjectFrameSource(QObject):
     close_requested = Signal()
     closed = Signal()
 
-    def __init__(self, project, *, fps, scale, cancel_event=None, request_timeout=90.0):
+    def __init__(self, project, *, fps, scale, cancel_event=None, request_timeout=90.0,
+                 optimizations: NativeGpuOptimizations | None = None):
         app = QApplication.instance()
         if app is None or QThread.currentThread() != app.thread():
             raise RenderError("Create GuiProjectFrameSource on the GUI thread.")
@@ -185,6 +190,7 @@ class GuiProjectFrameSource(QObject):
         self.fps, self.scale = fps, scale
         self.cancel_event = cancel_event or Event()
         self.request_timeout = request_timeout
+        self.optimizations = optimizations
         self._ready = Event()
         self._closing = Event()
         self._lock = Lock()
@@ -262,6 +268,7 @@ class GuiProjectFrameSource(QObject):
                     cancel_event=self.cancel_event,
                     analysis=self._analysis,
                     raster_counters=self.raster_counters,
+                    optimizations=self.optimizations,
                 )
             self._result = next(self._iterator)
         except StopIteration:
