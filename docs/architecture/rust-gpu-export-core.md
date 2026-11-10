@@ -832,3 +832,585 @@ compression are resident. A real Canvas capture-to-layer bridge, plus
 full-frame visual and timing parity against QPainter, are required
 before any production renderer switch. The default export remains
 unchanged.
+## Milestone 14: Qt Canvas and lyric-ready straight-alpha layer packets
+
+The real CanvasSnapshot.capture() renderer can now be called for each
+prepared Z-band of an export scene using
+app.preview.native_canvas_layer_packets.capture_native_canvas_frame().
+The returned immutable NativeCanvasFrame contains full-size, ordered
+BGRA8 byte planes with a known top-left coordinate origin. The base
+layer is opaque; higher Z bands are transparent. QImage's
+Format_ARGB32_Premultiplied is converted to **straight**
+Format_ARGB32 before bytes are copied, to avoid multiplying already
+premultiplied lyric antialiasing by alpha a second time in D3D11.
+
+The caller supplies the original CanvasScene with source, track and
+lyric state already resolved to the target timestamp by the existing
+export timeline logic. This bridge does **not** recalculate lyric
+timings, keyframes or playlist boundaries. Native video input limits
+are checked early: 1..8 disjoint, ordered Z bands, <=3840x2160 and
+even dimensions. Each band has 4 bytes/pixel and no row padding.
+
+For reproducible diagnostics only, save_native_canvas_frame() writes
+one BGRA file per band and an immutable JSON manifest with SHA-256
+digests and ordered stream metadata. Refuse preexisting file targets.
+There is also a fixture generator that paints real SourceItem Shape
+and Text sources in a Qt offscreen scene:
+
+    python -m tools.native_canvas_fixture_capture --output-dir native-canvas-fixture --scale 0.5
+
+The fixture creates a 640x360 two-layer BGRA packet and a JSON manifest
+for a future native D3D11 ingestion/visual parity diagnostic. Windows
+CI checks real SourceItem rendering, returned source visibility,
+QImage alpha unpremultiplication and manifest hashes without requiring
+an NVIDIA GPU.
+
+**Important boundary:** SourceItem text/lyrics are still drawn by the
+original Qt raster renderer, using CPU QImage. This is a migration
+adapter, not native GPU text/glyph painting. No production Canvas
+capture or default encoding paths have changed. The next integration
+must consume this manifest on the D3D11 device, preserve Z order,
+and compare complex Qt frames against decoded NVENC outputs before
+it can be promoted to a full GPU painter.
+
+
+## Milestone 15: real Qt text/Canvas layer packet -> native D3D11 -> NVENC
+
+Existing milestones 13 and 14 supplied the same-device D3D11
+multi-layer alpha compositor and a real Qt CanvasSnapshot raster
+layer capture, respectively. This milestone joins them experimentally
+without changing application exports.
+
+- Qt CanvasSnapshot remains the source of truth for real SourceItem
+  backgrounds, text/lyric paint, z-order and appearance at a supplied
+  timestamp. Qt still rasterizes pixels **on the CPU**.
+- Python writes one **BGRA8_STRAIGHT** full-frame layer file per Z band
+  with SHA-256 and a versioned JSON manifest. The Rust
+  qt_canvas_packet::load_qt_canvas_packet() parser checks the checksum,
+  file lengths, manifest schema, Z-order, opacity, fixed dimensions,
+  path traversal, and opaque base, before any D3D11 command.
+- d3d11_qt_canvas_packet_probe replays one or more packet manifests,
+  optionally repeating the sequence for a few frames, into native
+  GPU BGRA textures on the same D3D11 device used by the frame pool.
+  GPU VideoProcessorBlt composites ordered alpha bands and converts
+  BGRA to NV12. GPU CopyResource places the result in the bounded
+  pool, which waits for producer completion. NVENC then synchronously
+  encodes to H.264, and only after a finished output packet may a
+  pool slot be returned.
+- Raw Qt BGRA buffers are **uploaded from CPU**, so this is NOT a
+  fully GPU-native Canvas painter or end-to-end zero-copy export.
+  There is no GPU->CPU **NV12** transfer on the encode path; the
+  compressed H.264 packet is copied to host memory.
+- The new parser has GPU-independent unit tests for valid source
+  packets, tampered SHA-256 data, dimensions and path policies.
+  Windows deployment CI captures the actual Qt text/shape fixture,
+  replays it through the native Rust CLI and validates the report,
+  accepting explicit hardware-unavailable statuses on hosted runners
+  that cannot expose RTX encode hardware.
+
+Test real Qt raster sources locally:
+
+    python -m tools.native_canvas_fixture_capture --output-dir qt-native-sample --stem scene --scale 0.5
+    cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_packet_probe -- --manifest qt-native-sample/scene.json --repeat 6 --slots 2 --video-output qt-native-sample/scene-encoded.h264 --output qt-native-sample/scene-result.json
+
+If measured, the video is a six-frame repetition of a **real Qt painted
+static scene**. It does not validate dynamic timed lyric changes or
+arbitrary source animations yet. A later stage must replay real timeline
+snapshots with reproducible PTS/metadata, compare full pixels against
+CPU CanvasSnapshot and check actual MP4 audio timing on the RTX 5060.
+The application exporter remains unchanged. Real-time native GPU
+glyph rendering is a separate much larger renderer project.
+
+
+## Milestone 16: temporal Qt Canvas packet parity and full-frame video comparison
+
+The first RTX 5060 **real Qt SourceItem** packet replay (milestone 15)
+is confirmed on hardware. Two 640x360 BGRA layers passed the SHA-256
+manifest checks. Native D3D11 composed both ordered alpha layers, and
+NVENC API 13.1 emitted six decodable H.264 frames (PTS 0..5), 27,798
+compressed bytes, with zero NV12 readbacks on the encode path.
+The decoded video reports H.264 High, full-range bt709. A complete RGB
+reference generated by alpha compositing both straight-alpha Qt BGRA
+planes differs from the first NVENC-decoded RGB frame by a mean absolute
+error of ~0.91 (0..255 codes), PSNR ~36.63 dB. Six static repeated
+frames each produce ~0.88..0.91 mean code difference. These are lossy
+codec results, **not exact-pixel parity**. The fixture's conspicuous
+outlined/overlapping text appearance is present in the unencoded Qt
+reference too: GPU encoding did not introduce those overlapping glyphs.
+
+A separate opt-in diagnostic at tools/native_canvas_timeline_probe.py
+now paints **changing Qt SourceItem text and translucent geometry**
+for each explicit integer PTS, generating one immutable two-band BGRA
+packet + Qt QPainter alpha-composited PNG reference per frame.
+The timeline manifest records 60 FPS, ordered PTS, cue index, frame
+manifest paths and reference SHA-256 digests. This is a deterministic
+lyric-*style* script, NOT the application's actual karaoke/timeline
+resolver or a claim of GPU-native glyph rendering.
+
+The existing Rust d3d11_qt_canvas_packet_probe already accepts
+repeated --manifest FILE arguments, so this milestone reuses the
+original same-device D3D11/NVENC path instead of adding a second
+encoder. tools/native_canvas_timeline_probe.py verify compares every
+frame of a real H.264 bitstream to the corresponding Qt PNG reference.
+It checks valid manifest names, SHA-256 of every BGRA layer and reference
+PNG, correct 60 FPS PTS ordering, H.264 frame count/dimensions,
+full-range BT.709, and changes in both the CPU reference and decoded
+GPU frames. It reports RGB per-frame mean absolute error, 95th-
+percentile error and PSNR, and fails closed if mean error exceeds
+5 codes or p95 exceeds 20 codes. These are diagnostic thresholds,
+not quality guarantees for all text/graphics.
+
+Windows CI runs a GPU-independent moving Qt -> software x264 H.264
+full-frame test, then replays actual Qt packet sequences through the
+existing D3D11 GPU probe, accepting explicit hardware-unavailable
+statuses only on hosted runners without a supported GPU.
+
+To collect a fresh dynamic RTX measurement after merge (PowerShell):
+
+    git switch main
+    git pull
+    python -m tools.native_canvas_timeline_probe capture --output-dir qt-motion --frames 6 --fps 60 --scale 0.5
+
+    $packets = @()
+    foreach ($i in (0..5)) { $packets += '--manifest'; $packets += ('qt-motion/frame-{0:D4}.json' -f $i) }
+    cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_packet_probe -- @packets --repeat 1 --slots 2 --video-output qt-motion/motion.h264 --output qt-motion/gpu-report.json
+
+    python -m tools.native_canvas_timeline_probe verify --timeline qt-motion/timeline.json --video qt-motion/motion.h264 --report qt-motion/parity.json
+
+All user-facing Music Motion Studio export features and defaults
+remain unchanged. This is still Qt CPU rasterization -> GPU alpha/NV12
+composition -> synchronous GPU NVENC. True GPU glyph rendering,
+project-resolved lyrics/timecode, long-duration async NVENC consumer
+scheduling, exact audio sync, and production A/B benchmarks are future
+gated work.
+
+
+## Milestone 17: actual PlaylistTrack timed-lyric source -> GPU packets
+
+The RTX 5060 milestone-16 **moving Qt Canvas** result is verified:
+6/6 640x360 dynamic frames were encoded using native D3D11 alpha
+composition and NVENC API 13.1, with contiguous PTS 0..5 and no
+uncompressed GPU NV12 readbacks. Its independently generated CPU/RTX
+full-frame comparison reports mean RGB MAE **0.5898** codes, worst
+frame MAE **0.6046**, 95th percentile error at most **1 code**,
+and per-frame PSNR about 39.74..40.14 dB. These are lossy output
+quality measurements, not pixel-perfect equality or a benchmark
+of full Music Motion Studio projects.
+
+Until now the changing test's "lyrics" were merely scripted TEXT
+SourceItems. This milestone adds the opt-in
+capture_native_canvas_track_frame() bridge, which calls the *same*
+CanvasSnapshot.capture_track() used by Music Motion Studio's
+export/preview, once per distinct Z band. The native GPU input
+still consists of full-frame straight-alpha BGRA packets, with
+QPainter rendering performed on the CPU, and no change to the
+existing Python/FFmpeg export pipeline.
+
+tools/native_canvas_real_lyrics_probe.py exercises **real
+SourceType.LYRICS** with three timed TTML-style word cues, including
+overlapping active intervals and the existing
+resolve_lyrics_cue_state() timing logic. It creates one original
+Canvas packet and QPainter-composited CPU reference per PTS, with
+resolved cue/active/held indices saved to the validated timeline
+manifest. Optional --track-json can load a real serialized
+PlaylistTrack.to_dict() JSON containing user lyrics; --start-seconds
+selects the exact part of a track to inspect. The visual SourceItem
+layout and sample scene remain diagnostic fixtures, not a full
+serialized project or compiled export plan.
+
+tools/native_canvas_timeline_probe.py verify is reused unchanged for
+full-frame H264 RGB parity after supporting a second manifest kind
+("track_lyrics"). Source-motion fixtures retain their original
+cue-order checks, while real track entries additionally validate
+elapsed audio clock, cue state field types and contiguous PTS.
+Windows deployment CI runs real TTML overlap and Qt capture tests,
+software x264 full-frame parity, then optionally the existing native
+D3D11/NVENC probe. Unsupported hosted hardware remains an explicit
+status, never a claim that RTX encoding happened in CI.
+
+On a Windows PC with RTX NVENC:
+
+    git switch main
+    git pull
+    python -m tools.native_canvas_real_lyrics_probe --output-dir qt-lyrics --frames 6 --fps 60 --scale 0.5
+
+    $packets = @()
+    foreach ($i in (0..5)) { $packets += '--manifest'; $packets += ('qt-lyrics/frame-{0:D4}.json' -f $i) }
+    cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_packet_probe -- @packets --repeat 1 --slots 2 --video-output qt-lyrics/lyrics.h264 --output qt-lyrics/gpu-report.json
+
+    python -m tools.native_canvas_timeline_probe verify --timeline qt-lyrics/timeline.json --video qt-lyrics/lyrics.h264 --report qt-lyrics/parity.json
+
+The hardware proof for this *actual timed-lyric* scene must be
+collected before production feature activation. Planned next steps:
+project-source serialization/compiled render-plan input, audio-clock
+A/V synchronization at duration, sustained async NVENC scheduling,
+full-project fidelity and GPU-native glyph rendering.
+
+
+## Milestone 18: real saved project timeline -> validated GPU Canvas frames
+
+RTX 5060 milestone 17 verified 6/6 *actual TTML overlap lyric*
+frames at 640x360, NVENC API V13_1, full-range BT.709,
+contiguous PTS 0..5, zero NV12 GPU-to-CPU readbacks, mean decoded
+RGB MAE 0.7405 (0..255 code values), worst-frame MAE 0.8397,
+95th-percentile error <=1 code, per-frame PSNR 38.729..41.891 dB.
+The six compressed frames are distinct, and the reporter verified
+all against Qt reference PNGs. This is genuine short-clip hardware
+validation, not sustained long-form or A/V sync verification.
+
+This milestone adds an opt-in saved-project capture at
+tools/native_canvas_project_probe.py. It accepts existing .pvsproj
+packages and legacy JSON documents through ProjectService.load(),
+so the actual serialized SourceItems, PlaylistTracks, lyric offsets,
+text templates and keyframe definitions are used. It compiles the
+sequential playlist with compile_playlist(enabled_only=True), then
+resolves each exact CFR presentation timestamp to its owning
+track, source time and track number. CanvasSnapshot.capture_track()
+rasterizes real project sources, including evaluate_keyframes,
+lyrics, metadata, text/progress bars and track animation-phase
+timing. Raw straight-alpha BGRA packets and Qt reference PNGs
+are saved per PTS with a SHA-256-backed project_timeline manifest.
+The existing Rust D3D11 compositor/NV12 converter/NVENC encoder
+consume these packets without a second encoder implementation.
+
+Deliberate diagnostic limits and rejection rules:
+- 3..30 frames only, never a whole production export.
+- Even dimensions 64..3840 wide and 64..2160 high.
+- Fail rather than skip unsupported separately decoded videos,
+  visualizers, particles, bass-reactive sources, AutoMix/crossfade
+  handovers, missing image assets or playlist presentation gaps.
+- Preserve original project source state after each capture.
+- Verify PTS, track identity/clock, lyric state, layer hash and
+  reference PNG checksum before accepting decoded H264 output.
+- Existing production UI/export settings are not changed.
+
+Example (Windows, RTX 5060):
+
+    git switch main
+    git pull
+    python -m tools.native_canvas_project_probe --project "C:\path\to\My Playlist.pvsproj" --output-dir qt-my-project --start-seconds 15 --frames 6 --fps 60 --scale 0.5
+
+    $packets = @()
+    foreach ($i in (0..5)) { $packets += '--manifest'; $packets += ('qt-my-project/frame-{0:D4}.json' -f $i) }
+    cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_packet_probe -- @packets --repeat 1 --slots 2 --video-output qt-my-project/project.h264 --output qt-my-project/gpu-report.json
+
+    python -m tools.native_canvas_timeline_probe verify --timeline qt-my-project/timeline.json --video qt-my-project/project.h264 --report qt-my-project/parity.json
+
+Windows CI checks multiple project track owners, lyric timing,
+Qt source pixel changes, source immutability, corrupt metadata and
+software H264 full-frame fidelity. It optionally runs native
+D3D11/NVENC on a supported worker, otherwise reports hardware
+unavailable. Production blockers remain AutoMix/crossfade and other
+media sources, sustained async GPU frame scheduling, audio mixing
+and mux sync, and full-project visual/parity/latency measurement.
+
+
+## Milestone 18a: explicit canvas-only test for projects with dynamic overlays
+
+A real giggles.pvsproj validation failed before GPU encoding because it
+contains AUDIO_VISUALIZER and PARTICLE_OVERLAY sources. In production,
+such sources are rendered as independent FFmpeg/Python audio-reactive
+or particle overlay streams; painting their editor previews would NOT
+validate the final export. The strict project diagnostic therefore
+continues to fail closed by default.
+
+A new EXPLICIT --source-policy canvas-only option captures only
+non-dynamic Qt Canvas sources for a PARTIAL GPU diagnostic. It leaves
+the original .pvsproj file, source properties and visible-source flags
+unmodified. The versioned timeline and final parity JSON record:
+
+- capture_scope: partial_canvas_only
+- excluded_sources: every omitted source's ID, type and reason
+- excluded_source_count: actual omitted count
+- full_project_visual_parity_verified: false
+
+The per-frame RGB parity result only applies to the captured subset.
+Actual spectrum analysis, particle animation and their own alpha
+compositing are **not** verified by this mode. Never use this result
+to enable the production NVENC exporter or claim full project parity.
+Unsupported AutoMix, video decode and other renderer constraints are
+still rejected unless independently implemented.
+
+The --encode-and-verify option is a *single fail-fast* Windows command.
+It runs Rust only after a successful capture and runs H264 parity
+only after a real measured NVENC output with complete PTS. No
+cascading missing-manifest errors after a failed input validation.
+
+From the repository root in PowerShell:
+
+    git switch main
+    git pull
+    python -m tools.native_canvas_project_probe --project "C:/path/to/project.pvsproj" --output-dir qt-giggles-canvas-only --start-seconds 0 --frames 6 --fps 60 --scale 0.5 --source-policy canvas-only --encode-and-verify
+
+Result files are in qt-giggles-canvas-only: timeline.json,
+gpu-report.json, project.h264, parity.json. The output folder must
+not contain existing files.
+
+The next dedicated production-accuracy stage must connect the actual
+PythonVisualizerRenderer audio envelope and particle overlay layer
+streams to the D3D11 frame composition in correct Z order and verify
+against the established FFmpeg exporter. This is NOT done by the
+partial canvas-only diagnostic.
+
+
+
+## Milestone 18b: opt-in real-audio visualizer and particles packet diagnostic
+
+The isolated project probe now supports an additional, **opt-in**
+`--source-policy dynamic-audio` policy. It constructs the same production
+`VisualizerOverlay` settings through `ExportOrchestrator.visualizers`, uses
+`FFmpegRenderer.prepare_playlist_audio` to normalize and concatenate the
+actual playlist soundtrack (or accepts the caller's already prepared mix with
+`--prepared-audio`), and runs `PythonVisualizerRenderer`'s FFT, attack/
+release, drawing and deterministic particle clock.
+
+The dynamic RGBA drawings are placed into full-frame **straight-alpha**
+BGRA packets, interleaved at their actual source Z positions with the Qt
+Canvas's timed and lyric-aware raster bands. Existing Rust D3D11 compositor
+and NVENC integration then consume the same versioned packet format.
+
+This is **not** the final production full-export GPU backend. The Qt Canvas
+and dynamic drawing both still run on the CPU; Rust handles GPU layer
+composition and NV12/H.264 conversion. The generated H264 can be compared
+to the same diagnostic's flattened QPainter reference, **not** to an
+independent full FFmpeg export. The manifest and parity output always
+retain `full_project_visual_parity_verified=false`.
+
+Run on the repository's Windows development environment with FFmpeg,
+PySide6, Rust and a compatible NVIDIA driver:
+
+```powershell
+git switch main
+git pull
+python -m tools.native_canvas_project_probe --project "C:\Users\wlqor\Desktop\giggles.pvsproj" --output-dir qt-giggles-dynamic --start-seconds 0 --frames 6 --fps 60 --scale 0.5 --source-policy dynamic-audio --encode-and-verify
+```
+
+Use a **new or empty** output directory; the probe intentionally refuses to
+overwrite previous results. It creates `timeline.json`,
+`frame-0000.json` + layer BGRA files, reference PNGs, and (on successful
+measured NVENC encode) `project.h264`, `gpu-report.json` and
+`parity.json`.
+
+Safety limits: this diagnostic supports `audio_visualizer`,
+`audio_waveform`, `audio_level_meter`, and `particle_overlay` from the
+dynamic source family, with other Canvas sources between or below them.
+Video sources, dynamic custom keyframes or rotations, ambiguous
+same-Z static/dynamic sources, AutoMix/crossfade and more than eight layers
+are rejected. Start timestamps must be exact CFR boundaries. The
+production renderer computes audio smoothing from the start of the track,
+but diagnostic seeking now skips painting the intervening Qt frames,
+so samples can be captured in later songs without the old 30 s limit.
+An optional `--prepared-audio` must contain the
+corresponding mixed playlist audio, or the application generates it
+using its existing sequential export path.
+
+### Actual music-reactive Canvas background and lyrics
+
+The same `dynamic-audio` diagnostic now handles **background bass scaling**
+and **text/lyrics music reaction** without dropping or disabling those
+sources. It preserves the export's two distinct audio domains:
+
+- Audio visualizer/waveform/meter/particle overlay frames use the prepared
+  playlist mix and existing `PythonVisualizerRenderer._layer_frames`.
+- Background, text and lyric music reaction use the **original per-track
+  audio**, analyzed with the export's exact 24-band FFT, bass normalization,
+  music response profile and source-specific offset. The completed envelope
+  is sampled at each track-local presentation timestamp and supplied through
+  `CanvasSnapshot.capture_track(bass_level=..., music_levels=...)`.
+
+The test-window subset of tracks is analyzed in full, not just the first
+six frames: full-track percentiles are necessary for faithful bass
+normalization. The timeline manifest records the Canvas-reactive source IDs
+and `canvas_audio_reaction_analysis=per_track_export_fft24`. The probe
+still does **not** prove independent FFmpeg full-export parity and still
+rasterizes reactive Canvas content with Qt on the CPU. The usual static
+Canvas, TTML cue state and dynamic Z ordering are retained.
+
+### Source inventory without rendering
+
+```powershell
+python -m tools.native_canvas_project_probe --project "C:\Users\wlqor\Desktop\giggles.pvsproj" --inspect-sources
+```
+
+This read-only command prints the exact source name, type, ID, Z index,
+visibility and eligibility. It does not need `--output-dir`, create video
+files or disable source-policy validation. New validation errors name each
+unsupported source instead of vaguely listing possible unsupported kinds.
+Unknown reactive source types and video sources still fail closed.
+
+The inspector also lists every playlist presentation window, its
+track number, start/end timestamps, and a suggested **exact CFR-aligned**
+`recommended_probe_start_seconds` for the selected `--fps` (default 60).
+Use this value as `--start-seconds` when testing a second or later song.
+
+### RTX 5060 validation received (2026-11-10)
+
+On the real giggles.pvsproj experiment, the user-provided native GPU report
+shows 6/6 frames encoded at 640x360, 60 FPS with five alpha-composited
+layers each, NVIDIA RTX 5060, D3D11 and NVENC API 13.1.
+No GPU NV12-to-CPU readbacks occurred. The independently decoded
+**diagnostic Qt-frame reference** comparison reports 6/6 matching
+frames (mean RGB MAE 1.5275 codes, worst p95 RGB error 4 codes).
+This is a successful *bounded diagnostic packet/encode test*, **not**
+an independent production-export comparison or proof of total pipeline
+FPS. Encoder elapsed 0.0187315 seconds applies to the isolated native
+encoding phase only; it must not be interpreted as sustained complete
+application rendering performance. The result remains
+`full_project_visual_parity_verified=false`.
+
+### Seek later into a real playlist
+
+Run the read-only inspector to find the second song's
+`recommended_probe_start_seconds` for the desired FPS. Example:
+
+```powershell
+python -m tools.native_canvas_project_probe --project "C:\Users\wlqor\Desktop\giggles.pvsproj" --inspect-sources --fps 60
+python -m tools.native_canvas_project_probe --project "C:\Users\wlqor\Desktop\giggles.pvsproj" --output-dir qt-giggles-second-track --start-seconds <CFR_SEEK_SECONDS> --frames 6 --fps 60 --scale 0.5 --source-policy dynamic-audio --encode-and-verify
+```
+
+Replace `<CFR_SEEK_SECONDS>` with the exact numeric value from inspection;
+do not type angle brackets in PowerShell. The seek performs full-history
+FFT and animation smoothing before producing any overlay pixels; only
+the unneeded **rasterization** is skipped. Audio decoding and FFT analysis
+still cover the prepared playlist. Windows RTX hardware validation of
+late-song captures is the next experimental gate.
+
+Before enabling any production GPU exporter, compare *actual* output from
+both renderers on sustained multi-track projects, crossfades, masks,
+off-screen overlays and transparent edges; validate audio mux, PTS and
+throughput. RTX hardware measurements and real `giggles.pvsproj` validation
+are still needed.
+
+
+## Milestone 19: production MP4 finalizer (real application renderer)
+
+`app/renderer/native_gpu_export.py` is **production export code**, not
+another six-frame diagnostic. It accepts a complete GPU-encoded H.264
+Annex-B stream and the existing export's compiled playlist/audio inputs,
+validates all of the following, then delegates to
+`FFmpegRenderer.render(PreparedVideoInput(..., ready_for_mux=True))`:
+
+* Native report has explicit `production_export_scope=production_complete_playlist`
+  and `production_export_changed=true`, measured D3D11/NVENC completion,
+  no NV12 GPU-to-CPU readbacks, correct resolution, FPS, duration, PTS order
+  and **every** expected CFR frame.
+* An independent FFprobe frame count, codec, dimensions and no-B-frame
+  stream constraint agrees with the complete native export. Annex-B H264
+  has no reliable timing; the production FFmpeg reader explicitly stamps
+  `-r <fps>` from the compiled export plan and the completed MP4 is
+  validated. A six-frame diagnostic report is rejected.
+* The prepared AAC audio file and enabled track metadata are present,
+  and settings select `h264_nvenc`.
+
+The existing production FFmpeg renderer **copies the video bitstream** and
+prepared AAC audio into the final MP4, using its already established
+temporary-output staging, cancellation handling, tags, chapters and
+completed-file validation. Nothing re-encodes video during this step.
+A Windows/FFmpeg integration test constructs a *software* H264 fixture
+only for exercising this mux boundary; that fixture is **not evidence**
+of new GPU hardware encoding.
+
+### Still missing before the new backend can be selected in the UI
+
+The current native D3D11 executable accepts at most 120 packet frames and
+holds the encoded result in memory. It is still a **probe**, not a
+full-length producer. To make this finalizer reachable from the app's
+Export dialog, implement a **long-running, bounded-memory native GPU
+video producer** with persistent NVENC session, sequential CFR PTS,
+backpressure, cancellation, incremental output and a complete-project
+report. Feed it the exact project clock's actual Canvas/visualizer layers
+without staging a full playlist of .bgra files. Only after that,
+connect the producer and finalizer through the export worker and expose
+an explicit user-selectable GPU backend with a safe existing-renderer
+fallback.
+
+No diagnostic output may be marked `production_complete_playlist`.
+
+
+## Milestone 20: persistent full-length Rust NVENC stream and product MP4 CLI
+
+The new `d3d11_qt_canvas_stream_export` binary (under
+`native/gpu_export_core/src/bin/`) replaces the **120-frame diagnostic**
+constraint with a full playlist CFR protocol. The app sends each immutable
+`NativeCanvasFrame` as one BGRA packet manifest path on stdin. The binary
+uses one same-device D3D11 converter, a bounded 2..8-slot NV12 ring and one
+persistent native NVENC H.264 encoder, with the requested **1..240 FPS**,
+without accumulating all encoded pictures or PTS values. Every NVENC
+picture is written immediately to a `.h264.part` staging file, finalized
+after the exact expected frame count and GPU completion. The production
+JSON report is written only after the video was published.
+
+The native process sends one `MMS_FRAME_ACCEPTED <PTS>` line on stdout
+after uploading the Qt packet to D3D11. The Python
+`app/renderer/native_gpu_stream.py` producer waits for this acknowledgment
+before deleting the corresponding packet and BGRA files and requesting the
+next image. On ordinary failure it terminates the worker and clears
+temporary files. A forcibly killed process can leave an incomplete
+`.h264.part` which must never be treated as an export.
+
+`tools/native_gpu_full_export.py` is the **first actual complete-project
+video exporter** using this path. It loads the user's real `.pvsproj`,
+validates supported source types, builds the original playlist timeline,
+prepares AAC audio with the production FFmpeg renderer, captures the
+actual Qt Canvas+lyrics+background reaction, and paints actual dynamic
+audio overlays in the original Z order. Frames are generated lazily,
+passed to the native streaming encoder, and the completed H264 is handed
+off to `finalize_native_gpu_mp4` for chapters/metadata/audio stream
+copy into the final MP4. No 6-frame diagnostic shortcuts are involved.
+
+### Local Windows developer operation (RTX hardware required)
+
+```powershell
+cd C:\Users\wlqor\Desktop\playlist_project
+git switch main
+git pull --ff-only
+cargo build --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_stream_export
+python -m tools.native_gpu_full_export --project "C:\Users\wlqor\Desktop\giggles.pvsproj" --output "C:\Users\wlqor\Desktop\giggles-native-full.mp4" --native-exe ".\native\gpu_export_core\target\release\d3d11_qt_canvas_stream_export.exe" --fps 60 --scale 0.5
+```
+
+Use a **new output filename** each time, never an existing MP4.
+These commands process the *entire* `giggles.pvsproj` playlist. Real
+full-length throughput, GPU driver stability, audio sync and completed-file
+quality still need RTX 5060 verification. The reported Rust encoder timing
+does not include Qt image rasterization, audio analysis or final mux.
+
+### Current limitations and next product milestone
+
+The native GPU stream *composes/encodes* the Qt rasterized BGRA layers;
+it does not move source text drawing, lyrics or particles off CPU. This
+first full-project path supports sequential (no-crossfade/AutoMix)
+projects with the validated dynamic-audio source family. Video sources,
+ambiguous same-Z layers, custom source motion and missing audio assets
+fail closed rather than being omitted. The independent production FFmpeg
+full-movie visual parity has not yet been established. **The application's
+Export dialog still selects the existing renderer.** Once the explicit
+developer CLI completes a real full-length hardware run, wire this
+producer/finalizer through `ExportOrchestrator` and UI settings with
+safe fallback and cancellation.
+
+### Safe first full-path hardware test (short but real MP4)
+
+The `--smoke-seconds N` option of `tools.native_gpu_full_export` creates a
+**detached in-memory copy** of the project with only its first enabled song,
+shortened to N seconds (1..30, exact CFR boundary). Its source file and all
+original project tracks remain completely unchanged. The actual Qt
+background/lyrics/visualizer/particle frames are still rendered, native
+D3D11/NVENC encodes *every* CFR frame of the shortened song, and the
+production FFmpeg finalizer combines that H264 stream with properly shortened
+AAC audio into a real MP4. The output is clearly labeled as a
+`short_clip_gpu_smoke` result, **never** a full original-project export.
+
+After building the streaming Rust binary, run (example for three seconds):
+
+```powershell
+python -m tools.native_gpu_full_export --project "C:\Users\wlqor\Desktop\giggles.pvsproj" --output "C:\Users\wlqor\Desktop\giggles-gpu-smoke-03.mp4" --native-exe ".\native\gpu_export_core\target\release\d3d11_qt_canvas_stream_export.exe" --fps 60 --scale 0.5 --smoke-seconds 3
+```
+
+This is the **next RTX integration gate** after the user successfully
+encoded 180 prerecorded input frames in 1.037 seconds at 640x360, 60 FPS
+on an RTX 5060 (D3D11 + NVENC API 13.1, zero NV12 CPU readbacks,
+monotonic PTS). The reported ~1.037s is *not* end-to-end video speed:
+the prerecorded frames contained no newly painted Qt visuals or newly
+prepared/muxed soundtrack. The short real MP4 test isolates those two
+remaining integration risks before asking the user to encode the
+~36-minute playlist.

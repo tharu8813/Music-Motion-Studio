@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "format": "mms_canvas_bgra_layers_v1",
+  "pixel_format": "BGRA8_STRAIGHT",
+  "width": 640,
+  "height": 360,
+  "coordinate_origin": "top_left",
+  "qt_canvas_rasterized_on_cpu": true,
+  "native_gpu_alpha_composition_required": true,
+  "production_export_changed": false,
+  "layers": [
+    {
+      "stream_key": "base",
+      "file": "frame-0003-layer-00.bgra",
+      "opacity": 1.0,
+      "bytes": 921600,
+      "sha256": "cb48cc86af2051046458c6dbeb599153e9e935034b111c8ce7e01ec7319c52f9",
+      "z_order": 0
+    },
+    {
+      "stream_key": "layer:0",
+      "file": "frame-0003-layer-01.bgra",
+      "opacity": 1.0,
+      "bytes": 921600,
+      "sha256": "ca21ef1f9f74924ab8ae3bb1880e5281639f55c60ddb8e01bc87c22731aa7c67",
+      "z_order": 1
+    },
+    {
+      "stream_key": "layer:1",
+      "file": "frame-0003-layer-02.bgra",
+      "opacity": 1.0,
+      "bytes": 921600,
+      "sha256": "fc7aa199643cd7eae61dd36f910ece05264fe8beda234aa021343df8f60694ab",
+      "z_order": 2
+    },
+    {
+      "stream_key": "layer:2",
+      "file": "frame-0003-layer-03.bgra",
+      "opacity": 1.0,
+      "bytes": 921600,
+      "sha256": "188c1de8fba68a647a3c5314078c8e12cd11c3b6b29d460c8f73ea31c83e4242",
+      "z_order": 3
+    },
+    {
+      "stream_key": "layer:3",
+      "file": "frame-0003-layer-04.bgra",
+      "opacity": 1.0,
+      "bytes": 921600,
+      "sha256": "c101addbb917f696ac5ceb2706d7d45c54f3b538300ba1bc39da5a40f159be2d",
+      "z_order": 4
+    }
+  ]
+}

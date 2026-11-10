@@ -122,6 +122,11 @@ def _configure_product_identity(application: QApplication) -> None:
 
 def main() -> int:
     """Create and run the Qt application."""
+    if len(sys.argv) > 1 and sys.argv[1] == "--native-gpu-export":
+        # The same explicit developer CLI verifies the frozen bundle without
+        # changing editor settings or relying on a source-tree executable.
+        from tools.native_gpu_full_export import main as native_export_main
+        return native_export_main(sys.argv[2:])
     configure_logging()
     launch_project = project_path_from_arguments(sys.argv[1:])
     update_recovery = None

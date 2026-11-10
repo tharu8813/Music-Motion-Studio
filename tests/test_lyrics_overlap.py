@@ -76,6 +76,30 @@ class LyricsOverlapTests(unittest.TestCase):
         self.assertFalse(after_short.gap_unblurred)
         self.assertEqual(self.state(track, 12).active_cue_indices, (2,))
 
+    def test_overlapping_ttml_snapshot_restores_text_and_item_state(self):
+        # Regression: overlapping lyric setup once overwrote the list named
+        # original_text with a previous-cue string. The finally block then
+        # iterated individual characters as (SourceItem, text) tuples.
+        scene, item, track = self.scene()
+        original_source_text = item.source.text
+        try:
+            before = resolve_lyrics_cue_state(
+                track, 4.0, 0.0, 0.0, "none", 0.36, whole_lines=True,
+            )
+            self.assertEqual(before.active_cue_indices, (0, 1))
+            image = CanvasSnapshot.capture_track(
+                scene, track, 1, 1, 0, elapsed_seconds=4.0,
+                playlist_duration_seconds=track.duration_seconds,
+                transparent=True,
+            )
+            self.assertFalse(image.isNull())
+            self.assertEqual(item.source.text, original_source_text)
+            self.assertEqual(item._subtitle_overlap_prior_rows, 0)
+            self.assertEqual(item._subtitle_word_reveal, ())
+            self.assertTrue(item.isVisible())
+        finally:
+            scene.clear()
+
     def test_gap_keeps_the_actual_last_finished_line_without_blur(self):
         _, _, track = self.scene()
         state = self.state(track, 11)

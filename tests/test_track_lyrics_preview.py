@@ -143,6 +143,8 @@ class ResponsiveTrackLyricPreviewTests(unittest.TestCase):
         self.app.processEvents()
         try:
             with patch.object(label, "_document", wraps=label._document) as build:
+                # Prime the measured cache inside the patch; show() may have built it.
+                label.setText("Hello world updated")
                 label.grab()
                 self.assertEqual(build.call_count, 2)
                 # Only the sung word ranges change at each playback tick.

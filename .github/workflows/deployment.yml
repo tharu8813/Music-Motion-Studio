@@ -55,6 +55,57 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q main.py app tests scripts tools
 
+      - name: Verify actual Qt Canvas Z-band and straight-alpha GPU layer packets
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest -v tests.test_native_canvas_layer_packets
+
+      - name: Replay actual Qt Canvas source and lyric packets through native D3D11 NVENC
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m tools.native_canvas_fixture_capture --output-dir qt-canvas-ci --stem scene --scale 0.25
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot capture real Qt Canvas GPU layer fixture' }
+          cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_packet_probe -- --manifest qt-canvas-ci/scene.json --repeat 3 --slots 2 --video-output qt-canvas-ci/scene-output.h264 --output qt-canvas-ci/scene-report.json
+          if ($LASTEXITCODE -ne 0) { throw 'Qt Canvas native D3D11 GPU integration failed' }
+          @'
+          import json
+          from pathlib import Path
+          from app.preview.native_canvas_layer_packets import capture_native_canvas_frame
+          manifest = json.loads(Path('qt-canvas-ci/scene.json').read_text(encoding='utf-8'))
+          result = json.loads(Path('qt-canvas-ci/scene-report.json').read_text(encoding='utf-8'))
+          if manifest.get('format') != 'mms_canvas_bgra_layers_v1' or len(manifest.get('layers', [])) != 2:
+              raise SystemExit('Real Qt Canvas packet manifest was not generated')
+          allowed = {
+              'measured', 'd3d11_hardware_unavailable',
+              'nvenc_library_unavailable', 'canvas_gpu_compositor_unsupported',
+          }
+          if result.get('status') not in allowed:
+              raise SystemExit(f"Qt Canvas native GPU integration failed: {result}")
+          if result['status'] == 'measured':
+              if (result.get('frames_encoded') != 3
+                  or result.get('pts') != [0, 1, 2]
+                  or result.get('layers_per_frame') != [2, 2, 2]
+                  or result.get('gpu_nv12_to_cpu_readbacks') != 0
+                  or result.get('qt_canvas_rasterized_on_cpu') is not True
+                  or not Path('qt-canvas-ci/scene-output.h264').is_file()):
+                  raise SystemExit('Real Qt layer GPU composition and NVENC replay violated frame contract')
+          elif Path('qt-canvas-ci/scene-output.h264').exists():
+              raise SystemExit('Unsupported NVENC setup produced a misleading H264 file')
+          print('Real Qt -> native GPU -> NVENC replay:', result['status'])
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Qt Canvas NVENC replay report failed validation' }
+      - name: Upload real Qt Canvas and D3D11 GPU replay diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-canvas-native-gpu-replay
+          path: |
+            qt-canvas-ci/scene.json
+            qt-canvas-ci/scene-report.json
+          if-no-files-found: ignore
+
       - name: Verify track lyrics player, TTML karaoke, and responsive cue layout
         env:
           QT_QPA_PLATFORM: offscreen
@@ -143,6 +194,192 @@ jobs:
         run: |
           python -m unittest -v tests.test_nvenc_probe_mux
           if ($LASTEXITCODE -ne 0) { throw 'NVENC probe MP4 remux verification failed' }
+
+      - name: Verify time-varying Qt Canvas frame packets and full-frame H264 parity
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m unittest -v tests.test_native_canvas_timeline_probe
+          if ($LASTEXITCODE -ne 0) { throw 'Qt Canvas timeline CPU/H264 pixel parity tests failed' }
+
+      - name: Probe actual changing Qt Canvas frames via native D3D11 and NVENC
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m tools.native_canvas_timeline_probe capture --output-dir qt-dynamic-ci --frames 6 --scale 0.25 --fps 60
+          if ($LASTEXITCODE -ne 0) { throw 'Qt dynamic frame capture failed' }
+          $packetArgs = @()
+          foreach ($index in (0..5)) {
+            $packetArgs += '--manifest'
+            $packetArgs += ('qt-dynamic-ci/frame-{0:D4}.json' -f $index)
+          }
+          cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_packet_probe -- @packetArgs --repeat 1 --slots 2 --video-output qt-dynamic-ci/encoded.h264 --output qt-dynamic-ci/gpu-report.json
+          if ($LASTEXITCODE -ne 0) { throw 'Native dynamic Qt GPU Canvas probe failed' }
+          @'
+          import json
+          from pathlib import Path
+          from tools.native_canvas_timeline_probe import load_timeline
+          timeline, _ = load_timeline(Path('qt-dynamic-ci/timeline.json'))
+          gpu = json.loads(Path('qt-dynamic-ci/gpu-report.json').read_text(encoding='utf-8'))
+          accepted = {
+              'measured', 'd3d11_hardware_unavailable',
+              'nvenc_library_unavailable', 'canvas_gpu_compositor_unsupported',
+          }
+          status = gpu.get('status')
+          if status not in accepted:
+              raise SystemExit(f'Unexpected dynamic Qt GPU probe status: {status}: {gpu.get("reason")}')
+          if status == 'measured':
+              if (gpu.get('pts') != list(range(6))
+                  or gpu.get('frames_encoded') != 6
+                  or gpu.get('gpu_nv12_to_cpu_readbacks') != 0
+                  or not Path('qt-dynamic-ci/encoded.h264').is_file()):
+                  raise SystemExit('Native dynamic Qt GPU frame count or PTS mismatch')
+          elif Path('qt-dynamic-ci/encoded.h264').exists():
+              raise SystemExit('Unavailable GPU emitted unexpected H264 data')
+          print('Dynamic Qt GPU replay status:', status)
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Dynamic Qt GPU status validation failed' }
+          if (Test-Path qt-dynamic-ci/encoded.h264) {
+            python -m tools.native_canvas_timeline_probe verify --timeline qt-dynamic-ci/timeline.json --video qt-dynamic-ci/encoded.h264 --report qt-dynamic-ci/parity.json
+            if ($LASTEXITCODE -ne 0) { throw 'Dynamic Qt GPU full-frame image parity failed' }
+          }
+
+      - name: Upload time-varying Qt GPU pixel parity reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-dynamic-nvenc-parity
+          path: |
+            qt-dynamic-ci/timeline.json
+            qt-dynamic-ci/gpu-report.json
+            qt-dynamic-ci/parity.json
+          if-no-files-found: ignore
+
+      - name: Verify real TTML lyric cue timing and Qt-to-H264 full-frame parity
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m unittest -v tests.test_native_canvas_real_lyrics_probe
+          if ($LASTEXITCODE -ne 0) { throw 'Actual PlaylistTrack TTML lyric capture/parity tests failed' }
+          python -m tools.native_canvas_real_lyrics_probe --output-dir qt-real-lyrics-ci --frames 6 --fps 60 --scale 0.25
+          if ($LASTEXITCODE -ne 0) { throw 'Actual LYRICS SourceItem capture failed' }
+          $args = @()
+          foreach ($index in (0..5)) {
+            $args += '--manifest'
+            $args += ('qt-real-lyrics-ci/frame-{0:D4}.json' -f $index)
+          }
+          cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_packet_probe -- @args --repeat 1 --slots 2 --video-output qt-real-lyrics-ci/lyrics.h264 --output qt-real-lyrics-ci/gpu-report.json
+          if ($LASTEXITCODE -ne 0) { throw 'Native true-lyrics D3D11 NVENC replay failed' }
+          @'
+          from pathlib import Path
+          import json
+          from tools.native_canvas_timeline_probe import load_timeline
+          timeline, _ = load_timeline(Path('qt-real-lyrics-ci/timeline.json'))
+          assert timeline['kind'] == 'track_lyrics'
+          assert timeline['frames'][2]['active_cue_indices'] == [0,1]
+          gpu = json.loads(Path('qt-real-lyrics-ci/gpu-report.json').read_text(encoding='utf8'))
+          allowed = {
+              'measured', 'd3d11_hardware_unavailable',
+              'nvenc_library_unavailable', 'canvas_gpu_compositor_unsupported'
+          }
+          if gpu.get('status') not in allowed:
+              raise SystemExit(f'Actual lyric GPU probe failed: {gpu}')
+          video = Path('qt-real-lyrics-ci/lyrics.h264')
+          if gpu['status'] == 'measured':
+              if gpu.get('pts') != list(range(6)) or gpu.get('frames_encoded') != 6 or not video.is_file():
+                  raise SystemExit('Actual lyric GPU frame order/lifetime mismatch')
+          elif video.exists():
+              raise SystemExit('Unavailable GPU produced unexpected H264')
+          print('Actual timed LYRICS native NVENC:', gpu['status'])
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Actual-lyrics GPU report invalid' }
+          if (Test-Path qt-real-lyrics-ci/lyrics.h264) {
+            python -m tools.native_canvas_timeline_probe verify --timeline qt-real-lyrics-ci/timeline.json --video qt-real-lyrics-ci/lyrics.h264 --report qt-real-lyrics-ci/parity.json
+            if ($LASTEXITCODE -ne 0) { throw 'Actual timed lyric GPU parity failed' }
+          }
+
+      - name: Upload actual lyric-cue GPU parity reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-real-track-lyrics-parity
+          path: |
+            qt-real-lyrics-ci/timeline.json
+            qt-real-lyrics-ci/gpu-report.json
+            qt-real-lyrics-ci/parity.json
+          if-no-files-found: ignore
+
+      - name: Verify real project playlist, keyframe state and Qt-to-H264 full-frame parity
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m unittest -v tests.test_native_canvas_project_probe
+          if ($LASTEXITCODE -ne 0) { throw 'Actual serialized project Canvas timeline/parity failed' }
+
+      - name: Replay real multi-track project packets via native D3D11 and NVENC
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          @'
+          from pathlib import Path
+          import json
+          from tests.test_native_canvas_project_probe import project_fixture
+          project = Path('qt-project-ci.json')
+          project.write_text(json.dumps(project_fixture().to_dict()), encoding='utf8')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create validated project test fixture' }
+          python -m tools.native_canvas_project_probe --project qt-project-ci.json --output-dir qt-project-ci --start-seconds 0.4666666666666667 --frames 6 --fps 60 --scale 0.25
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot capture actual project timeline' }
+          $packets = @()
+          foreach ($i in (0..5)) {
+            $packets += '--manifest'
+            $packets += ('qt-project-ci/frame-{0:D4}.json' -f $i)
+          }
+          cargo run --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_packet_probe -- @packets --repeat 1 --slots 2 --video-output qt-project-ci/project.h264 --output qt-project-ci/gpu-report.json
+          if ($LASTEXITCODE -ne 0) { throw 'Actual project native D3D11/NVENC replay failed' }
+          @'
+          import json
+          from pathlib import Path
+          from tools.native_canvas_timeline_probe import load_timeline
+          timeline, _ = load_timeline(Path('qt-project-ci/timeline.json'))
+          if [f['track_number'] for f in timeline['frames']] != [1,1,2,2,2,2]:
+              raise SystemExit('Compiled track ownership mismatch')
+          gpu = json.loads(Path('qt-project-ci/gpu-report.json').read_text('utf8'))
+          allowed = {
+              'measured', 'd3d11_hardware_unavailable',
+              'nvenc_library_unavailable', 'canvas_gpu_compositor_unsupported',
+          }
+          if gpu.get('status') not in allowed:
+              raise SystemExit(f'Unexpected native project NVENC result: {gpu}')
+          video = Path('qt-project-ci/project.h264')
+          if gpu['status'] == 'measured':
+              if gpu.get('pts') != list(range(6)) or gpu.get('frames_encoded') != 6 or not video.is_file():
+                  raise SystemExit('Project H264 frame count/PTS mismatch')
+          elif video.exists():
+              raise SystemExit('Unavailable GPU produced misleading H264 output')
+          print('Project native GPU result:', gpu['status'])
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Real project native GPU report validation failed' }
+          if (Test-Path qt-project-ci/project.h264) {
+            python -m tools.native_canvas_timeline_probe verify --timeline qt-project-ci/timeline.json --video qt-project-ci/project.h264 --report qt-project-ci/parity.json
+            if ($LASTEXITCODE -ne 0) { throw 'Real project native GPU full-frame parity failed' }
+          }
+
+      - name: Upload real project GPU timeline diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-project-gpu-parity
+          path: |
+            qt-project-ci/timeline.json
+            qt-project-ci/gpu-report.json
+            qt-project-ci/parity.json
+          if-no-files-found: ignore
 
       - name: Verify real FFmpeg 60-to-12 FPS overlay pixel parity
         env:

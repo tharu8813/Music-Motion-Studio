@@ -27,6 +27,13 @@ jobs:
         run: |
           cargo test --manifest-path native/gpu_export_core/Cargo.toml --verbose
           if ($LASTEXITCODE -ne 0) { throw 'Rust GPU compositor compilation or tests failed' }
+      - name: Compile and test full-length native stdin/NVENC producer protocol
+        shell: pwsh
+        run: |
+          cargo test --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_stream_export --verbose
+          if ($LASTEXITCODE -ne 0) { throw 'Native streaming CFR/PTS/memory protocol tests failed' }
+          cargo check --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_stream_export
+          if ($LASTEXITCODE -ne 0) { throw 'Native streaming Windows D3D11/NVENC binary did not compile' }
       - name: Probe real hardware GPU and produce transparent diagnostics
         shell: pwsh
         run: |

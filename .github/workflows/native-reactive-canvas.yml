@@ -1,0 +1,70 @@
+name: Native reactive Canvas GPU packet smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/native_canvas_*.py'
+      - 'tools/native_gpu_full_export.py'
+      - 'app/renderer/python_visualizer.py'
+      - 'app/renderer/native_gpu_export.py'
+      - 'app/renderer/native_gpu_stream.py'
+      - 'app/preview/native_canvas_layer_packets.py'
+      - 'tests/test_native_canvas_*.py'
+      - 'tests/test_native_gpu_production_finalizer.py'
+      - 'tests/test_native_gpu_stream.py'
+      - 'tests/test_native_gpu_full_export.py'
+      - '.github/workflows/native-reactive-canvas.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-audio-canvas-packets:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: '.python-version'
+          cache: pip
+          cache-dependency-path: requirements-lock.txt
+      - name: Install locked Python dependencies
+        run: python -m pip install -r requirements-lock.txt
+      - name: Install verified FFmpeg for real audio tests
+        shell: pwsh
+        run: |
+          @'
+          import os
+          import time
+          from pathlib import Path
+          from app.ffmpeg.managed_installer import ManagedFFmpegInstaller, FFmpegInstallError
+
+          installation = None
+          for attempt in range(1, 4):
+              try:
+                  destination = Path(os.environ["RUNNER_TEMP"]) / f"reactive-ffmpeg-{attempt}"
+                  installation = ManagedFFmpegInstaller(destination).install_latest()
+                  break
+              except FFmpegInstallError as exc:
+                  if attempt == 3:
+                      raise
+                  time.sleep((5, 20)[attempt - 1])
+          if installation is None:
+              raise RuntimeError("Cannot prepare verified FFmpeg")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"PLAYLIST_CANVAS_TEST_FFMPEG={installation.executable}\n")
+          with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as paths:
+              paths.write(f"{installation.executable.parent}\n")
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Verified FFmpeg installation failed.' }
+      - name: Verify real FFmpeg availability (never allow skipped audio tests)
+        run: python -c "import os,pathlib,subprocess; p=pathlib.Path(os.environ['PLAYLIST_CANVAS_TEST_FFMPEG']); assert p.is_file(),str(p); subprocess.run([str(p),'-version'],check=True,stdout=subprocess.DEVNULL)"
+      - name: Compile project diagnostic sources
+        run: python -m compileall -q tools/native_canvas_project_probe.py tools/native_canvas_dynamic_overlays.py tools/native_canvas_timeline_probe.py app/preview/native_canvas_layer_packets.py app/renderer/native_gpu_export.py app/renderer/native_gpu_stream.py tests/test_native_canvas_dynamic_overlays.py tests/test_native_gpu_production_finalizer.py tests/test_native_gpu_stream.py tests/test_native_gpu_full_export.py tools/native_gpu_full_export.py
+      - name: Test original audio FFT, lyric/background reaction, Z packets and source inventory
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest -v tests.test_native_canvas_dynamic_overlays tests.test_native_canvas_layer_packets tests.test_native_canvas_project_probe tests.test_native_gpu_production_finalizer tests.test_native_gpu_stream tests.test_native_gpu_full_export

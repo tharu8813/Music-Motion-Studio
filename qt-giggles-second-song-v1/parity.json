@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "status": "verified",
+  "frames_compared": 6,
+  "resolution": [
+    640,
+    360
+  ],
+  "fps_from_timeline": 60,
+  "source_frame_changes_verified": true,
+  "decoded_frame_changes_verified": true,
+  "full_frame_lossy_parity_verified": true,
+  "exact_pixel_equality_claimed": false,
+  "mean_mae_codes": 1.4649,
+  "worst_mae_codes": 1.4714,
+  "worst_p95_codes": 5.0,
+  "frame_metrics": [
+    {
+      "pts": 0,
+      "rgb_mae_codes": 1.4634,
+      "rgb_abs_error_p95_codes": 5.0,
+      "psnr_db": 35.787
+    },
+    {
+      "pts": 1,
+      "rgb_mae_codes": 1.4714,
+      "rgb_abs_error_p95_codes": 5.0,
+      "psnr_db": 35.784
+    },
+    {
+      "pts": 2,
+      "rgb_mae_codes": 1.4684,
+      "rgb_abs_error_p95_codes": 5.0,
+      "psnr_db": 35.786
+    },
+    {
+      "pts": 3,
+      "rgb_mae_codes": 1.4667,
+      "rgb_abs_error_p95_codes": 5.0,
+      "psnr_db": 35.782
+    },
+    {
+      "pts": 4,
+      "rgb_mae_codes": 1.4648,
+      "rgb_abs_error_p95_codes": 5.0,
+      "psnr_db": 35.79
+    },
+    {
+      "pts": 5,
+      "rgb_mae_codes": 1.4548,
+      "rgb_abs_error_p95_codes": 4.0,
+      "psnr_db": 35.808
+    }
+  ],
+  "qt_cpu_rasterized": true,
+  "native_gpu_text_painting_implemented": false,
+  "production_export_changed": false,
+  "capture_scope": "dynamic_overlay_audio_diagnostic",
+  "excluded_source_count": 0,
+  "excluded_sources": [],
+  "dynamic_sources": [
+    {
+      "source_id": "13a5eb3a-d51b-407d-9248-cc6e41e8f1b1",
+      "source_type": "particle_overlay"
+    },
+    {
+      "source_id": "0dd732bd-b3ec-4b21-bc8f-00df678a558b",
+      "source_type": "audio_visualizer"
+    }
+  ],
+  "dynamic_audio_origin": "application_export_mixed_audio",
+  "full_project_visual_parity_verified": false
+}
