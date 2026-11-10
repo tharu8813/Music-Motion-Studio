@@ -296,6 +296,7 @@ def capture_native_canvas_track_frame(
         # exact original BGRA plane before entering the D3D11 protocol.
         partial = bool(raster_cache is not None
                        and raster_cache.partial_band_enabled and index != 0)
+        compact = bool(partial and raster_cache.compact_band_enabled)
         capture_metrics: dict[str, object] = {}
         image = CanvasSnapshot.capture_track(
             scene, track, track_number, track_total, track_start_seconds,
@@ -316,6 +317,7 @@ def capture_native_canvas_track_frame(
             transparent=index != 0,
             partial_render=partial,
             partial_render_pixel_aligned=partial,
+            partial_render_keep_cropped=compact,
             render_metrics=capture_metrics,
             # Immutable export scene: shared worker-only lyric settings and
             # preselected source items avoid repeated per-frame Qt traversal.
@@ -324,17 +326,47 @@ def capture_native_canvas_track_frame(
                 "_frozen_lyric_settings_cache": raster_cache.frozen_lyric_settings_cache,
             } if raster_cache is not None else {}),
         )
+        inverse = None
+        clip = None
+        is_compact = bool(compact and capture_metrics.get("partial_render"))
+        if is_compact:
+            rect = capture_metrics["capture_rect"]
+            artboard = scene.artboard_rect
+            # Match CanvasSnapshot._expand_partial_capture exactly: no scaling
+            # of glyph pixels, only an integer destination translation.
+            origin_x = round((rect.left() - artboard.left()) * output_scale)
+            origin_y = round((rect.top() - artboard.top()) * output_scale)
+            full_width, full_height = layers[0].width, layers[0].height
+            if (origin_x < 0 or origin_y < 0
+                    or origin_x + image.width() > full_width
+                    or origin_y + image.height() > full_height):
+                # Defensive fallback for arbitrary, noninteger artboard
+                # dimensions. Never transmit incorrectly positioned pixels.
+                image = CanvasSnapshot._expand_partial_capture(
+                    image, rect, artboard, output_scale,
+                )
+                is_compact = False
+            else:
+                inverse = (1, 0, 0, 1, -origin_x, -origin_y)
+                clip = (
+                    origin_x, origin_y,
+                    origin_x + image.width(), origin_y + image.height(),
+                )
         layers.append(NativeCanvasBgraLayer(
             stream_key="base" if index == 0 else f"layer:{index - 1}",
             width=image.width(), height=image.height(),
             pixels=straight_bgra_bytes(image),
+            inverse_transform=inverse, clip=clip,
         ))
         if raster_cache is not None:
             raster_cache.record(layers[-1])
             raster_cache.record_capture_region(
-                image.width(), image.height(), index != 0, capture_metrics,
+                layers[0].width, layers[0].height,
+                index != 0, capture_metrics,
+                compact_bytes=(len(layers[-1].pixels) if is_compact else None),
             )
     return NativeCanvasFrame(
         width=layers[0].width, height=layers[0].height,
         layers=tuple(layers),
+        schema=2 if any(layer.inverse_transform is not None for layer in layers) else 1,
     )
