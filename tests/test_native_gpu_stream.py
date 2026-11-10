@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+import json
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
-from threading import Event, Timer
+from threading import Event, Timer, enumerate as active_threads
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -26,6 +27,7 @@ from app.models.playlist import PlaylistTrack
 
 MOCK_NATIVE_SOURCE = '''
 import json
+import struct
 import os
 from pathlib import Path
 import sys
@@ -34,18 +36,25 @@ flags = dict(zip(sys.argv[1::2], sys.argv[2::2]))
 count = int(flags["--expected-frames"])
 output = Path(flags["--video-output"])
 report = Path(flags["--output"])
-for index, line in enumerate(sys.stdin):
-    assert index < count
-    manifest = Path(line.strip())
-    assert manifest.is_file(), manifest
-    data = json.loads(manifest.read_text(encoding="utf8"))
+def exact(n):
+    result = bytearray()
+    while len(result) < n:
+        part = sys.stdin.buffer.read(min(n-len(result), 997))
+        assert part, "truncated"
+        result.extend(part)
+    return result
+assert flags["--input-format"] == "binary-v1"
+for index in range(count):
+    magic, version, pts, metadata, payload = struct.unpack("<4sIQIQ", exact(28))
+    assert (magic, version, pts) == (b"MMSB", 1, index)
+    data = json.loads(exact(metadata))
+    total = 0
     for layer in data["layers"]:
-        assert (manifest.parent / layer["file"]).is_file()
+        pixels = exact(layer["bytes"])
+        total += len(pixels)
+    assert total == payload
     print(f"MMS_FRAME_ACCEPTED {index}", flush=True)
-    # The producer must delete the previous frame before sending the next.
-    if index:
-        old = manifest.parent / f"native-frame-{index-1:08d}.json"
-        assert not old.exists(), old
+assert not sys.stdin.buffer.read(1)
 assert index+1 == count, (index, count)
 output.write_bytes(b"MOCK: NOT NVENC VIDEO")
 payload = {
@@ -66,6 +75,10 @@ def generated_frames(count: int, width=64, height=64):
 
 
 class NativeGpuStreamTransportTests(unittest.TestCase):
+    def tearDown(self):
+        self.assertEqual([thread.name for thread in active_threads()
+                          if thread.name.startswith("mms-native-gpu-")], [])
+
     def _run_mock(self, *, count=135, provided=None, cancel=None, worker_source=MOCK_NATIVE_SOURCE,
                   timeout=90):
         if os.name != "nt":
@@ -85,7 +98,7 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                 )
 
             with patch("app.renderer.native_gpu_stream.subprocess.Popen", side_effect=launch):
-                return stream_native_canvas_h264(
+                result = stream_native_canvas_h264(
                     generated_frames(count) if provided is None else provided,
                     executable=Path(sys.executable),
                     video_path=root / "video.h264",
@@ -95,10 +108,16 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                     expected_frames=count, cancel_event=cancel,
                     acknowledgement_timeout=timeout,
                 )
+                self.assertEqual(json.loads((root / "report.json").read_text())
+                                 ["frame_transport_bytes"], result["frame_transport_bytes"])
+                return result
 
     def test_streams_over_120_frames_with_one_staged_frame_per_ack(self):
         result = self._run_mock(count=135)
         self.assertEqual(result["frames_encoded"], 135)
+        self.assertEqual(result["frame_transport"], "binary-v1")
+        self.assertEqual(result["bgra_disk_bytes"], 0)
+        self.assertGreater(result["frame_transport_bytes"], 135*64*64*4)
 
     def test_short_canvas_generator_fails_without_success_report(self):
         with self.assertRaisesRegex(RenderError, "stopped at"):
@@ -144,6 +163,18 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
             with self.assertRaises(RenderCancelledError):
                 self._run_mock(count=6, cancel=flag,
                                worker_source='import time; time.sleep(30)')
+        finally:
+            timer.cancel()
+
+    def test_cancel_when_worker_never_reads_large_frame(self):
+        flag = Event()
+        timer = Timer(0.2, flag.set)
+        timer.start()
+        try:
+            with self.assertRaises(RenderCancelledError):
+                self._run_mock(count=6, cancel=flag,
+                    provided=generated_frames(6, 64, 64),
+                    worker_source='import time; time.sleep(30)')
         finally:
             timer.cancel()
 
