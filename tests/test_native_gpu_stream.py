@@ -50,8 +50,8 @@ def exact(n):
         result.extend(part)
     return result
 mode = flags["--input-format"]
-assert mode in ("binary-v1", "binary-v2")
-expected_version = 2 if mode == "binary-v2" else 1
+assert mode in ("binary-v1", "binary-v2", "binary-v3")
+expected_version = {"binary-v1": 1, "binary-v2": 2, "binary-v3": 3}[mode]
 previous = {}
 for index in range(count):
     magic, version, pts, metadata, payload = struct.unpack("<4sIQIQ", exact(28))
@@ -60,17 +60,31 @@ for index in range(count):
     flags = data.get("reuse_previous_frame", [False] * len(data["layers"]))
     assert len(flags) == len(data["layers"])
     assert all(type(flag) is bool for flag in flags)
-    if version == 2:
+    if version in (2, 3):
         assert "reuse_previous_frame" in data
+    patches = data.get("row_deltas", [None] * len(data["layers"]))
+    assert len(patches) == len(data["layers"])
+    if version == 3:
+        assert "row_deltas" in data
     new = {}
     total = 0
-    for layer, reuse in zip(data["layers"], flags):
+    for layer, reuse, patch_rows in zip(data["layers"], flags, patches):
         key = layer["stream_key"]
         dims = (layer.get("width", data["width"]), layer.get("height", data["height"]))
         if reuse:
+            assert patch_rows is None
             assert key in previous, ("missing previous", key)
             assert previous[key][0] == dims
             pixels = previous[key][1]
+        elif patch_rows is not None:
+            assert version == 3 and key in previous
+            assert previous[key][0] == dims
+            first, end = patch_rows
+            assert 0 <= first < end <= dims[1]
+            start, stop = first * dims[0] * 4, end * dims[0] * 4
+            pixels = bytearray(previous[key][1])
+            pixels[start:stop] = exact(stop - start)
+            total += stop - start
         else:
             pixels = exact(layer["bytes"])
             total += len(pixels)
@@ -224,7 +238,8 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
         }):
             report = self._run_mock(count=6, optimizations=automatic)
         self.assertEqual(report["native_optimization_profile"], "automatic")
-        self.assertEqual(report["frame_transport"], "binary-v2")
+        self.assertEqual(report["frame_transport"], "binary-v3")
+        self.assertTrue(report["frame_row_delta_enabled"])
         self.assertTrue(report["frame_pipeline_enabled"])
         self.assertEqual(report["max_outstanding_frame_packets"], 2)
         self.assertEqual(report["frame_reused_planes"], 5)
