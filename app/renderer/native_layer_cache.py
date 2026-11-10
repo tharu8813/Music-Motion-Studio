@@ -5,6 +5,7 @@ import os
 from app.canvas.source_item import SourceItem
 from app.preview.canvas_snapshot import CanvasSnapshot
 from app.preview.native_canvas_layer_packets import MAX_NATIVE_CANVAS_LAYERS
+from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
 
 
 def split_resident_bands(scene, stack, duration):
@@ -32,7 +33,7 @@ class NativeRasterCache:
     At most eight full-frame planes (253.2 MiB at 4K) can be retained.
     """
 
-    def __init__(self, scene, bands, duration):
+    def __init__(self, scene, bands, duration, *, optimizations: NativeGpuOptimizations | None = None):
         self.keys = CanvasSnapshot.invariant_stream_keys(scene, set(), list(bands), duration)
         # Each native export owns a frozen, detached scene.  Determine band
         # membership once instead of enumerating the whole QGraphicsScene
@@ -54,9 +55,12 @@ class NativeRasterCache:
         # Explicit opt-in: native ROI paints only a smaller rectangle for
         # transparent bands, then expands to the original full BGRA packet.
         # Never change the GPU wire protocol or baseline output by default.
-        self.partial_band_enabled = os.environ.get(
-            "PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS", "",
-        ).strip().lower() in {"1", "true", "yes"}
+        self.partial_band_enabled = (
+            optimizations.partial_bands if optimizations is not None
+            else os.environ.get(
+                "PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS", "",
+            ).strip().lower() in {"1", "true", "yes"}
+        )
         # Baseline and mocked runtime contracts must not require extra
         # QGraphicsScene geometry. The scene is real and GUI-owned only when
         # the explicitly opt-in ROI mode will need its artboard coordinates.
@@ -69,9 +73,12 @@ class NativeRasterCache:
         self.partial_band_captures = 0
         # Compact ROI only makes sense in conjunction with pixel-aligned Qt
         # partial painting. Keep both flags opt-in until RTX NVENC parity.
-        self.compact_band_enabled = self.partial_band_enabled and os.environ.get(
-            "PLAYLIST_CANVAS_NATIVE_COMPACT_BANDS", "",
-        ).strip().lower() in {"1", "true", "yes"}
+        self.compact_band_enabled = self.partial_band_enabled and (
+            optimizations.compact_bands if optimizations is not None
+            else os.environ.get(
+                "PLAYLIST_CANVAS_NATIVE_COMPACT_BANDS", "",
+            ).strip().lower() in {"1", "true", "yes"}
+        )
         self.compact_band_captures = 0
         self.compact_canvas_bytes_saved = 0
         self.scene_render_source_pixels = 0
