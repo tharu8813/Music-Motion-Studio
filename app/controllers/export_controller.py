@@ -1368,6 +1368,7 @@ class ExportOrchestrator:
         from app.renderer.native_project_support import validate_project_for_gpu_capture
         from app.renderer.native_dynamic_layers import build_dynamic_stack
         from app.renderer.native_project_frames import GuiProjectFrameSource
+        from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
 
         window = self.window
         settings = options.app_settings.render_settings()
@@ -1392,12 +1393,22 @@ class ExportOrchestrator:
             )
             return False
 
+        # A profile is immutable and scoped to THIS export. Do not update
+        # process-wide environment variables while the GUI is rendering.
+        speed_control = getattr(options, "gpu_speed_combo", None)
+        speed_mode = speed_control.currentData() if speed_control is not None else "standard"
+        profile_name = "accelerated" if speed_mode == "accelerated" else "standard"
+        optimization_profile = NativeGpuOptimizations.for_profile(profile_name)
         cancel = threading.Event()
-        source = GuiProjectFrameSource(project, fps=settings.fps, scale=scale, cancel_event=cancel)
+        source = GuiProjectFrameSource(
+            project, fps=settings.fps, scale=scale, cancel_event=cancel,
+            optimizations=optimization_profile,
+        )
         worker = RenderWorker(
             renderer, QImage(), tracks, output, settings,
             native_project=project, native_frame_source=source,
             native_scale=scale, cancel_event=cancel,
+            native_optimizations=optimization_profile,
         )
         window._export_notified_steps.clear()
         window._active_export_output_path = Path(output).resolve()
@@ -1407,8 +1418,11 @@ class ExportOrchestrator:
         dialog = ExportProgressDialog(window)
         window._export_dialog = dialog
         dialog.set_korean(window.translator.is_korean)
+        gpu_label = "Rust GPU · D3D11 + NVENC · H.264 (Beta)"
+        if profile_name == "accelerated":
+            gpu_label += " · Accelerated"
         dialog.set_export_details(len(tracks), window._playlist_duration(tracks),
-                                  "Rust GPU · D3D11 + NVENC · H.264 (Beta)", output)
+                                  gpu_label, output)
         dialog.set_busy("Preparing audio", "Preparing GPU export")
         dialog.setWindowModality(Qt.WindowModality.WindowModal)
         dialog.cancel_requested.connect(worker.cancel)

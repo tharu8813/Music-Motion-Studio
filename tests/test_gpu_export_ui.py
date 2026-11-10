@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.controllers.export_controller import ExportOrchestrator
 from app.renderer.render_worker import RenderWorker
+from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
 from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderSettings
 from app.services.app_settings_service import AppSettings
 from tests.test_native_canvas_project_probe import project_fixture
@@ -30,6 +31,7 @@ class FakeWorker(QObject):
     def __init__(self, *args, **kwargs):
         super().__init__()
         self.cancel = kwargs["cancel_event"].set
+        self.native_optimizations = kwargs.get("native_optimizations")
         self.start = MagicMock()
 
 
@@ -63,10 +65,12 @@ class GpuUiTests(unittest.TestCase):
         self.controller.cancelled = MagicMock()
         self.controller.start_storage_monitor = MagicMock()
         self.bridges = []
+        self.bridge_kwargs = []
 
         def make_bridge(*args, **kwargs):
             source = Bridge()
             self.bridges.append(source)
+            self.bridge_kwargs.append(kwargs)
             return source
 
         for target, value in (
@@ -85,6 +89,30 @@ class GpuUiTests(unittest.TestCase):
 
     def close_bridge(self):
         self.bridges[-1].closed.emit()
+
+    def test_accelerated_profile_is_explicit_and_scoped_to_one_export(self):
+        self.options.gpu_speed_combo.currentData.return_value = "accelerated"
+        worker = self.start()
+        fast = NativeGpuOptimizations.for_profile("accelerated")
+        self.assertEqual(worker.native_optimizations, fast)
+        self.assertEqual(self.bridge_kwargs[-1]["optimizations"], fast)
+        self.assertTrue(fast.pipelined and fast.partial_bands
+                        and fast.compact_bands and fast.reuse_layers)
+
+    def test_standard_gui_profile_cannot_be_overridden_by_cli_environment(self):
+        self.options.gpu_speed_combo.currentData.return_value = "standard"
+        with patch.dict(os.environ, {
+            "PLAYLIST_CANVAS_NATIVE_LAYER_REUSE": "1",
+            "PLAYLIST_CANVAS_NATIVE_PIPELINED": "1",
+            "PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS": "1",
+            "PLAYLIST_CANVAS_NATIVE_COMPACT_BANDS": "1",
+        }):
+            worker = self.start()
+        safe = NativeGpuOptimizations.for_profile("standard")
+        self.assertEqual(worker.native_optimizations, safe)
+        self.assertEqual(self.bridge_kwargs[-1]["optimizations"], safe)
+        self.assertFalse(any((safe.pipelined, safe.partial_bands,
+                              safe.compact_bands, safe.reuse_layers)))
 
     def test_success_waits_for_worker_and_gui_close(self):
         worker = self.start()
@@ -160,6 +188,7 @@ class GpuUiTests(unittest.TestCase):
             worker.run()
         self.assertIs(export.call_args.kwargs["cancel_event"], cancel)
         self.assertIs(export.call_args.kwargs["frame_source"], source)
+        self.assertIsNone(export.call_args.kwargs["optimizations"])
         self.assertEqual(renderer.render.call_count, 1)
 
     def test_export_video_ui_dispatches_gpu_and_keeps_ffmpeg_default(self):

@@ -21,6 +21,7 @@ from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderCancelledError, R
 from app.renderer.native_gpu_stream import (
     render_native_gpu_playlist, stream_native_canvas_h264,
 )
+from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
 from app.timeline.compiler import compile_playlist
 from app.models.playlist import PlaylistTrack
 
@@ -101,7 +102,7 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                           if thread.name.startswith("mms-native-gpu-")], [])
 
     def _run_mock(self, *, count=135, provided=None, cancel=None, worker_source=MOCK_NATIVE_SOURCE,
-                  timeout=90):
+                  timeout=90, optimizations=None):
         if os.name != "nt":
             self.skipTest("The native export transport is Windows-only")
         with TemporaryDirectory() as tmp:
@@ -128,6 +129,7 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                     duration_seconds=count / 30,
                     expected_frames=count, cancel_event=cancel,
                     acknowledgement_timeout=timeout,
+                    optimizations=optimizations,
                 )
                 self.assertEqual(json.loads((root / "report.json").read_text())
                                  ["frame_transport_bytes"], result["frame_transport_bytes"])
@@ -183,6 +185,28 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
             result["native_stream_elapsed_seconds"],
             result["frame_production_seconds"],
         )
+
+    def test_explicit_profile_bypasses_process_global_cli_experiment_flags(self):
+        safe = NativeGpuOptimizations.for_profile("standard")
+        fast = NativeGpuOptimizations.for_profile("accelerated")
+        with patch.dict(os.environ, {
+            "PLAYLIST_CANVAS_NATIVE_LAYER_REUSE": "1",
+            "PLAYLIST_CANVAS_NATIVE_PIPELINED": "1",
+        }):
+            original = self._run_mock(count=6, optimizations=safe)
+        self.assertEqual(original["frame_transport"], "binary-v1")
+        self.assertFalse(original["frame_pipeline_enabled"])
+        self.assertFalse(original["frame_reuse_enabled"])
+        with patch.dict(os.environ, {
+            "PLAYLIST_CANVAS_NATIVE_LAYER_REUSE": "0",
+            "PLAYLIST_CANVAS_NATIVE_PIPELINED": "0",
+        }):
+            accelerated = self._run_mock(count=6, optimizations=fast)
+        self.assertEqual(accelerated["frame_transport"], "binary-v2")
+        self.assertTrue(accelerated["frame_pipeline_enabled"])
+        self.assertTrue(accelerated["frame_reuse_enabled"])
+        self.assertEqual(accelerated["frame_reused_planes"], 5)
+        self.assertEqual(accelerated["native_optimization_profile"], "accelerated")
 
     def test_opt_in_reuses_identical_layers_with_real_native_write_and_ack(self):
         # The mock validates every recovered byte and SHA at each PTS;

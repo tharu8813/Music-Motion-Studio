@@ -56,7 +56,7 @@ class RenderWorker(QThread):
                  crossfade_seconds: float = 3.0,
                  compiled_plan=None, prepared_audio_path: Path | None = None,
                  automix_settings=None, native_project=None, native_frame_source=None,
-                 native_scale=1.0, cancel_event=None) -> None:
+                 native_scale=1.0, cancel_event=None, native_optimizations=None) -> None:
         super().__init__()
         self.renderer = renderer
         self.transition_mode = transition_mode
@@ -88,6 +88,7 @@ class RenderWorker(QThread):
         self.native_project = native_project
         self.native_frame_source = native_frame_source
         self.native_scale = native_scale
+        self.native_optimizations = native_optimizations
 
     def cancel(self) -> None:
         """Request a cooperative FFmpeg stop at the next process polling interval."""
@@ -104,6 +105,7 @@ class RenderWorker(QThread):
                     scale=self.native_scale, ffmpeg=str(self.renderer.executable),
                     cancel_event=self._cancel_event, frame_source=self.native_frame_source,
                     audio_bitrate=self.settings.audio_bitrate,
+                    optimizations=self.native_optimizations,
                     storage_path_callback=self.storage_path_changed.emit,
                     preparation_progress_callback=lambda stage, fraction, message: self.progress.emit(
                         stage, 0.07 * fraction, message,
