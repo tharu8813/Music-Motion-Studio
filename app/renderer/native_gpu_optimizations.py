@@ -19,12 +19,15 @@ class NativeGpuOptimizations:
     compact_bands: bool = False
     reuse_layers: bool = False
     parallel_bgra: bool = False
+    # Automatic mode offloads only sufficiently large, already-painted
+    # QImages and never blocks the GUI waiting for converter slots.
+    adaptive_bgra: bool = False
 
     @classmethod
     def for_profile(cls, profile: str) -> "NativeGpuOptimizations":
         if profile == "standard":
             return cls()
-        if profile in {"accelerated", "cpu_parallel"}:
+        if profile in {"accelerated", "cpu_parallel", "automatic"}:
             return cls(
                 pipelined=True,
                 partial_bands=True,
@@ -32,6 +35,7 @@ class NativeGpuOptimizations:
                 reuse_layers=True,
                 # Separate, opt-in A/B profile. Do not silently change the
                 # previously tested accelerated mode on existing installs.
-                parallel_bgra=profile == "cpu_parallel",
+                parallel_bgra=profile in {"cpu_parallel", "automatic"},
+                adaptive_bgra=profile == "automatic",
             )
         raise ValueError(f"Unknown native GPU optimization profile: {profile!r}")
