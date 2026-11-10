@@ -1387,3 +1387,30 @@ Export dialog still selects the existing renderer.** Once the explicit
 developer CLI completes a real full-length hardware run, wire this
 producer/finalizer through `ExportOrchestrator` and UI settings with
 safe fallback and cancellation.
+
+### Safe first full-path hardware test (short but real MP4)
+
+The `--smoke-seconds N` option of `tools.native_gpu_full_export` creates a
+**detached in-memory copy** of the project with only its first enabled song,
+shortened to N seconds (1..30, exact CFR boundary). Its source file and all
+original project tracks remain completely unchanged. The actual Qt
+background/lyrics/visualizer/particle frames are still rendered, native
+D3D11/NVENC encodes *every* CFR frame of the shortened song, and the
+production FFmpeg finalizer combines that H264 stream with properly shortened
+AAC audio into a real MP4. The output is clearly labeled as a
+`short_clip_gpu_smoke` result, **never** a full original-project export.
+
+After building the streaming Rust binary, run (example for three seconds):
+
+```powershell
+python -m tools.native_gpu_full_export --project "C:\Users\wlqor\Desktop\giggles.pvsproj" --output "C:\Users\wlqor\Desktop\giggles-gpu-smoke-03.mp4" --native-exe ".\native\gpu_export_core\target\release\d3d11_qt_canvas_stream_export.exe" --fps 60 --scale 0.5 --smoke-seconds 3
+```
+
+This is the **next RTX integration gate** after the user successfully
+encoded 180 prerecorded input frames in 1.037 seconds at 640x360, 60 FPS
+on an RTX 5060 (D3D11 + NVENC API 13.1, zero NV12 CPU readbacks,
+monotonic PTS). The reported ~1.037s is *not* end-to-end video speed:
+the prerecorded frames contained no newly painted Qt visuals or newly
+prepared/muxed soundtrack. The short real MP4 test isolates those two
+remaining integration risks before asking the user to encode the
+~36-minute playlist.
