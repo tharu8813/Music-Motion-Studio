@@ -98,3 +98,34 @@ Qt scene, 가사, 소스는 항상 **기존 호출 스레드**에서만 갱신�
 
 **주의:** 이 방식은 검증용 opt-in이다. 하드웨어에서 시간·화질·가사 타이밍·취소를 비교하기 전에는
 기본 엔진으로 승격하거나 전체 장시간 내보내기에서 속도 향상을 보장한다고 표현하지 않는다.
+
+## 실험: 투명 Canvas Z 밴드의 부분 렌더링
+
+`PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS=1`을 설정하면, 네이티브 GPU 내보내기의
+**두 번째 이상 투명 Z 밴드**를 `CanvasSnapshot`의 기존 부분 렌더링 방식으로 칠한다.
+시각 요소가 차지하는 면적이 전체 캔버스의 90% 미만이고 위치/크기 keyframe 등의
+불확실한 요소가 없을 때만 투명 영역 주변을 먼저 그린다. 좌표를 최종 출력 픽셀
+그리드에 정렬한 뒤 동일한 크기의 투명 BGRA 프레임으로 다시 합성하므로
+Rust `MMSB binary-v1` 형식, GPU 레이어 순서 및 알파 혼합은 바뀌지 않는다.
+기본값은 **비활성화**다.
+
+```powershell
+$env:PLAYLIST_CANVAS_NATIVE_PIPELINED = "1"
+$env:PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS = "1"
+# 단일 30초 RTX 프로젝트 smoke를 기존 환경변수 OFF 결과와 비교
+# 작업 완료 뒤 기본값 복귀
+Remove-Item Env:PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS
+Remove-Item Env:PLAYLIST_CANVAS_NATIVE_PIPELINED
+```
+
+진단 보고서 `native_report.raster_cache` 필드:
+- `partial_band_enabled`: 새 부분 렌더링 옵션 사용 여부
+- `partial_band_captures`: 실제로 크롭 후 확대한 투명 레이어 페인트 수
+- `scene_render_source_pixels`: Qt가 실제로 칠하도록 요청받은 출력 픽셀 수의 합계(근사)
+- `full_frame_source_pixels`: 동일 프레임을 모두 전체 영역으로 렌더링할 때의 픽셀 수
+
+`scene_render_source_pixels < full_frame_source_pixels`라도 GPU 전송 바이트 수는
+**그대로 유지**된다. 이 실험은 CPU/Qt 렌더링 부하를 줄이는 것이며 GPU input
+payload 압축/축소는 후속 별도 변경 대상이다. 정확한 효과는 동일 프로젝트, 60FPS,
+해상도, 시작 구간에서 FPS와 `frame_production_seconds`를 비교한다. 빠르지
+않거나 픽셀 불일치가 관찰되면 옵션을 끄고 원래 경로로 되돌린다.

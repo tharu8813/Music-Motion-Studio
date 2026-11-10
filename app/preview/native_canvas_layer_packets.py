@@ -291,6 +291,12 @@ def capture_native_canvas_track_frame(
         if cached is not None:
             layers.append(cached)
             continue
+        # Leave the base opaque artboard untouched. Dynamic transparent Z
+        # bands can paint a smaller rectangle but MUST expand back to the
+        # exact original BGRA plane before entering the D3D11 protocol.
+        partial = bool(raster_cache is not None
+                       and raster_cache.partial_band_enabled and index != 0)
+        capture_metrics: dict[str, object] = {}
         image = CanvasSnapshot.capture_track(
             scene, track, track_number, track_total, track_start_seconds,
             elapsed_seconds=elapsed_seconds,
@@ -308,6 +314,9 @@ def capture_native_canvas_track_frame(
             output_scale=output_scale,
             z_min=z_min, z_max=z_max,
             transparent=index != 0,
+            partial_render=partial,
+            partial_render_pixel_aligned=partial,
+            render_metrics=capture_metrics,
             # Immutable export scene: shared worker-only lyric settings and
             # preselected source items avoid repeated per-frame Qt traversal.
             **({
@@ -322,6 +331,9 @@ def capture_native_canvas_track_frame(
         ))
         if raster_cache is not None:
             raster_cache.record(layers[-1])
+            raster_cache.record_capture_region(
+                image.width(), image.height(), index != 0, capture_metrics,
+            )
     return NativeCanvasFrame(
         width=layers[0].width, height=layers[0].height,
         layers=tuple(layers),
