@@ -119,6 +119,68 @@ class RasterCacheTests(unittest.TestCase):
             (("Bottom",), ("Top",)),
         )
 
+    def test_opt_in_partial_transparent_band_preserves_unchanged_native_packets(self):
+        # 0.5 output scale exercises otherwise misaligned original bounds.
+        self.add(Source(
+            SourceType.SHAPE, "Opaque base", width=128, height=128, z_index=0,
+        ))
+        clock = Source(
+            SourceType.TEXT, "Moving clock", text="%current_time%",
+            x=32, y=31, width=68, height=35, font_size=20, z_index=2,
+        )
+        clock.shadow.enabled = True
+        clock.shadow.offset_x = 3.0
+        clock.shadow.offset_y = 2.0
+        clock.shadow.blur_radius = 8.0
+        self.add(clock)
+        bands = ((None, 0), (2, None))
+
+        def run(active, scale):
+            with patch.dict(os.environ, {
+                "PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS": "1" if active else "0",
+            }):
+                cache = NativeRasterCache(self.scene, bands, 2)
+            frames = [
+                capture_native_canvas_track_frame(
+                    self.scene, self.track, bands, elapsed_seconds=seconds,
+                    playlist_duration_seconds=2, output_scale=scale, raster_cache=cache,
+                )
+                for seconds in (0, 0.5, 1.0)
+            ]
+            return frames, cache
+
+        for scale in (0.5, 1.0):
+            with self.subTest(scale=scale):
+                original, baseline = run(False, scale)
+                optimized, roi = run(True, scale)
+                self.assertEqual(original, optimized)
+                self.assertTrue(all(frame.schema == 1 for frame in optimized))
+                self.assertTrue(all(frame.layers[0].width == round(128 * scale)
+                                    for frame in optimized))
+                self.assertEqual(baseline.partial_band_captures, 0)
+                self.assertGreater(roi.partial_band_captures, 0)
+                self.assertLess(roi.scene_render_source_pixels,
+                                roi.full_frame_source_pixels)
+                self.assertEqual(roi.rasterizations, baseline.rasterizations)
+
+    def test_opt_in_partial_band_does_not_crop_full_screen_or_opaque_base(self):
+        self.add(Source(SourceType.SHAPE, "Base", width=128, height=128, z_index=0))
+        self.add(Source(SourceType.SHAPE, "Full overlay", width=128, height=128, z_index=2))
+        bands = ((None, 0), (2, None))
+        with patch.dict(os.environ, {"PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS": "1"}):
+            cache = NativeRasterCache(self.scene, bands, 2)
+        native = capture_native_canvas_track_frame(
+            self.scene, self.track, bands, elapsed_seconds=0,
+            raster_cache=cache,
+        )
+        original = capture_native_canvas_track_frame(
+            self.scene, self.track, bands, elapsed_seconds=0,
+        )
+        self.assertEqual(native, original)
+        self.assertEqual(cache.partial_band_captures, 0)
+        self.assertEqual(cache.scene_render_source_pixels,
+                         cache.full_frame_source_pixels)
+
     def test_mixed_bands_split_and_dynamic_clock_never_freezes(self):
         sources = [Source(SourceType.SHAPE, "Static", width=128, height=128, z_index=0),
                    Source(SourceType.PROGRESS_BAR, "Clock", progress_mode="track", z_index=2,
