@@ -11,7 +11,7 @@ import os
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
-from threading import Event
+from threading import Event, Timer
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -66,13 +66,14 @@ def generated_frames(count: int, width=64, height=64):
 
 
 class NativeGpuStreamTransportTests(unittest.TestCase):
-    def _run_mock(self, *, count=135, provided=None, cancel=None):
+    def _run_mock(self, *, count=135, provided=None, cancel=None, worker_source=MOCK_NATIVE_SOURCE,
+                  timeout=90):
         if os.name != "nt":
             self.skipTest("The native export transport is Windows-only")
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             mock_worker = root / "worker.py"
-            mock_worker.write_text(MOCK_NATIVE_SOURCE, encoding="utf8")
+            mock_worker.write_text(worker_source, encoding="utf8")
             # Replace ONLY executable startup with a Python test double.
             # The real frame-spooling/ACK/cleanup code executes unmodified.
             original_popen = subprocess.Popen
@@ -92,6 +93,7 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                     width=64, height=64, fps=30,
                     duration_seconds=count / 30,
                     expected_frames=count, cancel_event=cancel,
+                    acknowledgement_timeout=timeout,
                 )
 
     def test_streams_over_120_frames_with_one_staged_frame_per_ack(self):
@@ -105,6 +107,50 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
     def test_extra_canvas_generator_fails_closed(self):
         with self.assertRaisesRegex(RenderError, "more frames"):
             self._run_mock(count=6, provided=generated_frames(7))
+
+    def test_bad_ack_eof_and_encoder_crash_close_iterator(self):
+        for source in (
+            'print("MMS_FRAME_ACCEPTED 9", flush=True)',
+            'import sys; sys.stdout.close()',
+            'raise SystemExit(7)',
+        ):
+            closed = []
+            def frames():
+                try:
+                    yield from generated_frames(6)
+                finally:
+                    closed.append(True)
+            with self.subTest(source=source), self.assertRaises(RenderError):
+                self._run_mock(count=6, provided=frames(), worker_source=source)
+            self.assertEqual(closed, [True])
+
+    def test_ack_timeout_closes_iterator(self):
+        closed = []
+        def frames():
+            try:
+                yield from generated_frames(6)
+            finally:
+                closed.append(True)
+        with self.assertRaisesRegex(RenderError, "Timed out"):
+            self._run_mock(count=6, provided=frames(), timeout=0.2,
+                           worker_source='import time; time.sleep(30)')
+        self.assertEqual(closed, [True])
+
+    def test_cancel_while_waiting_for_ack(self):
+        flag = Event()
+        timer = Timer(0.2, flag.set)
+        timer.start()
+        try:
+            with self.assertRaises(RenderCancelledError):
+                self._run_mock(count=6, cancel=flag,
+                               worker_source='import time; time.sleep(30)')
+        finally:
+            timer.cancel()
+
+    def test_large_stderr_is_drained_without_a_disk_log(self):
+        source = MOCK_NATIVE_SOURCE.replace('flags = dict',
+                    'sys.stderr.write("x" * 200000)\nsys.stderr.flush()\nflags = dict')
+        self.assertEqual(self._run_mock(count=6, worker_source=source)["frames_encoded"], 6)
 
     def test_cancelled_request_fails_without_starting_native_process(self):
         flag = Event()
@@ -122,6 +168,7 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
             renderer = MagicMock(spec=FFmpegRenderer)
             renderer.executable = root / "ffmpeg.exe"
             passed = generated_frames(30)
+            mux_progress = MagicMock()
             with patch("app.renderer.native_gpu_stream.stream_native_canvas_h264") as stream, patch(
                 "app.renderer.native_gpu_stream.finalize_native_gpu_mp4"
             ) as finalizer:
@@ -131,6 +178,7 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                     tracks=[track], compiled_plan=plan,
                     prepared_audio_path=root / "prepared.m4a",
                     output_path=root / "result.mp4",
+                    mux_progress_callback=mux_progress,
                     settings=RenderSettings(
                         fps=30, video_codec="h264_nvenc",
                         output_width=64, output_height=64,
@@ -140,6 +188,7 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
             self.assertIs(stream.call_args.args[0], passed)
             self.assertEqual(stream.call_args.kwargs["expected_frames"], 30)
             self.assertEqual(finalizer.call_args.kwargs["tracks"], [track])
+            self.assertIs(finalizer.call_args.kwargs["progress_callback"], mux_progress)
             self.assertEqual(
                 finalizer.call_args.kwargs["ffprobe"], root / "ffprobe.exe",
             )

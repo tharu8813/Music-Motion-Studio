@@ -7,6 +7,7 @@ milestone. A six-frame diagnostic report MUST NOT pass this production gate.
 from __future__ import annotations
 
 from pathlib import Path
+from concurrent.futures import CancelledError
 import json
 from fractions import Fraction
 import math
@@ -23,6 +24,7 @@ from app.models.playlist import PlaylistTrack
 from app.renderer.ffmpeg_renderer import (
     ExportMetadata, FFmpegRenderer, PreparedVideoInput,
     RenderCancelledError, RenderError, RenderSettings,
+    RenderResult,
 )
 from app.renderer.native_gpu_export import (
     PRODUCTION_NATIVE_SCOPE, finalize_native_gpu_mp4,
@@ -77,18 +79,30 @@ def fake_ffprobe(fps: int = 30, frames: int = 30):
     }).encode(), stderr=b"")
 
 
+def fake_mp4_probe():
+    return SimpleNamespace(returncode=0, stdout=json.dumps({"streams": [
+        {"codec_type": "video", "codec_name": "h264", "width": 64, "height": 64,
+         "nb_frames": "30", "avg_frame_rate": "30/1", "duration": "1.0"},
+        {"codec_type": "audio", "codec_name": "aac", "duration": "1.0"},
+    ]}).encode(), stderr=b"")
+
+
 class NativeGpuProductionFinalizerTests(unittest.TestCase):
-    def _call(self, root, *, report_update=None, probe=None):
+    def _call(self, root, *, report_update=None, probe=None, mux_probe=None):
         params = fixture(root)
         video, prepared, report_file, report, track, plan, settings = params
         if report_update:
             report.update(report_update)
             report_file.write_text(json.dumps(report), encoding="utf8")
         renderer = MagicMock(spec=FFmpegRenderer)
-        renderer.render.return_value = "FULL-MP4-CREATED"
-        with patch("app.renderer.native_gpu_export.subprocess.run", return_value=(
-            probe if probe is not None else fake_ffprobe()
-        )):
+        def mux(video, tracks, output, settings, **kwargs):
+            output.write_bytes(b"TEST-MP4")
+            return RenderResult(output, 1)
+        renderer.render.side_effect = mux
+        with patch("app.renderer.native_gpu_export.run_probe", side_effect=[
+            probe if probe is not None else fake_ffprobe(),
+            fake_mp4_probe() if mux_probe is None else mux_probe,
+        ]):
             result = finalize_native_gpu_mp4(
                 renderer, h264_path=video, gpu_report_path=report_file,
                 prepared_audio_path=prepared, tracks=[track],
@@ -101,13 +115,14 @@ class NativeGpuProductionFinalizerTests(unittest.TestCase):
         with TemporaryDirectory() as temp:
             root = Path(temp)
             result, renderer, params = self._call(root)
-            self.assertEqual(result, "FULL-MP4-CREATED")
+            self.assertEqual(result.output_path, root / "final.mp4")
             args, kwargs = renderer.render.call_args
             self.assertIsInstance(args[0], PreparedVideoInput)
             self.assertTrue(args[0].ready_for_mux)
             self.assertEqual(args[0].encoded_codec, "h264_nvenc")
             self.assertEqual(args[0].duration_seconds, params[5].duration_seconds)
-            self.assertEqual(args[2], root / "final.mp4")
+            self.assertEqual(args[2].name, "complete.mp4")
+            self.assertEqual((root / "final.mp4").read_bytes(), b"TEST-MP4")
             self.assertEqual(kwargs["metadata"].title, "My Playlist")
             self.assertEqual(kwargs["prepared_audio_path"], params[1])
             self.assertEqual(kwargs["visualizers"], [])
@@ -169,6 +184,32 @@ class NativeGpuProductionFinalizerTests(unittest.TestCase):
                     cancel_event=cancelled,
                 )
             renderer.render.assert_not_called()
+
+    def test_bad_mux_or_cancel_keeps_existing_destination_and_removes_staging(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / "final.mp4"
+            target.write_bytes(b"KEEP-EXISTING")
+            for field, value in (("nb_frames", "29"), ("avg_frame_rate", "60/1"),
+                                 ("duration", "2.0")):
+                probe = fake_mp4_probe()
+                payload = json.loads(probe.stdout)
+                payload["streams"][0][field] = value
+                probe.stdout = json.dumps(payload).encode()
+                with self.subTest(field=field), self.assertRaises(RenderError):
+                    self._call(root, mux_probe=probe)
+                self.assertEqual(target.read_bytes(), b"KEEP-EXISTING")
+                self.assertFalse(list(root.glob(".mms-native-mux-*")))
+            probe = fake_mp4_probe()
+            payload = json.loads(probe.stdout)
+            payload["streams"][1]["duration"] = "0.5"
+            probe.stdout = json.dumps(payload).encode()
+            with self.assertRaises(RenderError):
+                self._call(root, mux_probe=probe)
+            with self.assertRaises(RenderCancelledError):
+                self._call(root, mux_probe=CancelledError())
+            self.assertEqual(target.read_bytes(), b"KEEP-EXISTING")
+            self.assertFalse(list(root.glob(".mms-native-mux-*")))
 
     def test_real_ffmpeg_produces_final_mp4_with_audio_without_video_reencode(self):
         configured = os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG")

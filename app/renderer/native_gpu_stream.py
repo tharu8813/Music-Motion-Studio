@@ -12,13 +12,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 import json
+import logging
 import math
 import os
 from pathlib import Path
-from queue import Empty, Queue
+from queue import Empty, Full, Queue
 import subprocess
 import tempfile
-from threading import Event, Thread
+from threading import Event, Thread, Lock
 from time import monotonic
 
 from app.preview.native_canvas_layer_packets import NativeCanvasFrame, save_native_canvas_frame
@@ -32,7 +33,10 @@ from app.renderer.native_gpu_export import finalize_native_gpu_mp4
 def _abort_worker(worker: subprocess.Popen) -> None:
     if worker.poll() is not None:
         return
-    worker.terminate()
+    try:
+        worker.terminate()
+    except ProcessLookupError:
+        return
     try:
         worker.wait(timeout=4)
     except subprocess.TimeoutExpired:
@@ -93,16 +97,17 @@ def stream_native_canvas_h264(
             and width % 2 == 0 and height % 2 == 0 and 2 <= slots <= 8
             and isinstance(expected_frames, int)
             and isinstance(duration_seconds, (int, float))
-            and math.isfinite(duration_seconds) and duration_seconds > 0
+            and math.isfinite(duration_seconds) and 0 < duration_seconds <= 86400
+            and math.isfinite(acknowledgement_timeout) and acknowledgement_timeout > 0
             and math.ceil(duration_seconds * fps - 1e-9) == expected_frames):
         raise RenderError("Native GPU export settings do not match its complete CFR timeline.")
     if video.suffix.lower() != ".h264" or report.suffix.lower() != ".json":
         raise RenderError("Native export requires .h264 and .json output paths.")
-    if video.exists() or report.exists() or video == report:
+    if video == report or any(path.exists() or path.is_symlink()
+                              for path in (video, report, video.with_suffix(".h264.part"))):
         raise RenderError("Native export refuses to replace existing output or report.")
     with tempfile.TemporaryDirectory(prefix="mms-native-frame-spool-") as scratch:
         directory = Path(scratch)
-        stderr_path = directory / "native-stderr.log"
         args = [
             str(exe), "--width", str(width), "--height", str(height),
             "--fps", str(fps), "--expected-frames", str(expected_frames),
@@ -110,30 +115,53 @@ def stream_native_canvas_h264(
             "--slots", str(slots), "--video-output", str(video),
             "--output", str(report),
         ]
-        log = stderr_path.open("wb")
         try:
             worker = subprocess.Popen(
                 args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=log, text=True, encoding="utf-8", bufsize=1,
+                stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", bufsize=1,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except OSError as exc:
-            log.close()
             raise RenderError(f"Could not launch native GPU exporter: {exc}") from exc
-        events: Queue[str | None] = Queue()
+        events: Queue[str | None] = Queue(maxsize=2)
+        reader_stop = Event()
+        error_tail = ""
+        error_lock = Lock()
+
+        def collect_stderr() -> None:
+            nonlocal error_tail
+            assert worker.stderr is not None
+            while chunk := worker.stderr.read(1024):
+                with error_lock:
+                    error_tail = (error_tail + chunk)[-4096:]
+
+        def enqueue(value: str | None) -> None:
+            while not reader_stop.is_set():
+                try:
+                    events.put(value, timeout=0.1)
+                    return
+                except Full:
+                    pass
 
         def collect_stdout() -> None:
             try:
                 assert worker.stdout is not None
-                for line in worker.stdout:
-                    events.put(line)
+                while not reader_stop.is_set():
+                    line = worker.stdout.readline(256)
+                    if not line:
+                        break
+                    enqueue(line)
             finally:
-                events.put(None)
+                enqueue(None)
 
         output_reader = Thread(target=collect_stdout, daemon=True,
                                name="mms-native-gpu-output")
         output_reader.start()
+        error_reader = Thread(target=collect_stderr, daemon=True,
+                              name="mms-native-gpu-errors")
+        error_reader.start()
         source = None
+        completed = False
         try:
             source = iter(frames)
             assert worker.stdin is not None
@@ -146,6 +174,8 @@ def stream_native_canvas_h264(
                     raise RenderError(
                         f"Canvas frame producer stopped at {index}/{expected_frames}"
                     ) from exc
+                if cancel.is_set():
+                    raise RenderCancelledError("Native GPU export was cancelled.")
                 if not isinstance(frame, NativeCanvasFrame) or (
                     frame.width, frame.height
                 ) != (width, height):
@@ -185,9 +215,10 @@ def stream_native_canvas_h264(
                     raise RenderError("Native GPU worker did not complete after end of frames.")
                 cancel.wait(0.1)
             if worker.returncode:
+                error_reader.join(timeout=2)
                 raise RenderError(
                     "Native GPU export failed: "
-                    + stderr_path.read_text(encoding="utf-8", errors="replace")[-2200:]
+                    + error_tail[-2200:]
                 )
             if not video.is_file() or not report.is_file():
                 raise RenderError("Native GPU encoder exited without both final outputs.")
@@ -195,27 +226,39 @@ def stream_native_canvas_h264(
                 result = json.loads(report.read_text(encoding="utf-8"))
             except (ValueError, OSError) as exc:
                 raise RenderError("Native GPU encoder wrote an unreadable final report.") from exc
-            if (result.get("status") != "measured"
+            if (not isinstance(result, dict) or result.get("status") != "measured"
                     or result.get("production_export_scope") != "production_complete_playlist"
                     or result.get("frames_encoded") != expected_frames):
                 raise RenderError("Native GPU producer did not complete the entire timeline.")
+            if cancel.is_set():
+                raise RenderCancelledError("Native GPU export was cancelled.")
+            completed = True
             return result
         finally:
+            reader_stop.set()
             _abort_worker(worker)
             if worker.stdin is not None and not worker.stdin.closed:
-                worker.stdin.close()
+                try:
+                    worker.stdin.close()
+                except OSError:
+                    pass
             # The worker is no longer running; the output pump must see EOF
             # before its pipe closes, avoiding Windows handle leaks.
             output_reader.join(timeout=2)
+            error_reader.join(timeout=2)
             if worker.stdout is not None and not worker.stdout.closed:
                 worker.stdout.close()
+            if worker.stderr is not None:
+                worker.stderr.close()
             if source is not None:
                 close = getattr(source, "close", None)
                 if callable(close):
-                    close()
-            if worker.returncode and not report.is_file():
+                    try:
+                        close()
+                    except Exception:
+                        logging.getLogger(__name__).exception("Cannot close native frame producer")
+            if not completed:
                 video.with_suffix(".h264.part").unlink(missing_ok=True)
-            log.close()
 
 
 def render_native_gpu_playlist(
@@ -224,6 +267,7 @@ def render_native_gpu_playlist(
     output_path: Path, settings: RenderSettings, metadata: ExportMetadata | None = None,
     cancel_event: Event | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
+    mux_progress_callback: Callable[[str, float, str], None] | None = None,
 ) -> RenderResult:
     """Full native production hand-off: lazy frames -> H264 -> final AAC MP4.
 
@@ -251,4 +295,5 @@ def render_native_gpu_playlist(
             compiled_plan=compiled_plan, output_path=output_path,
             settings=settings, ffprobe=ffprobe,
             metadata=metadata, cancel_event=cancel_event,
+            progress_callback=mux_progress_callback,
         )

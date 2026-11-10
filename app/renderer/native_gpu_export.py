@@ -12,11 +12,16 @@ FFmpegRenderer production audio/metadata mux without re-encoding video.
 from __future__ import annotations
 
 import json
+from concurrent.futures import CancelledError
+from dataclasses import replace
+from fractions import Fraction
 import math
 from pathlib import Path
 import subprocess
+import tempfile
 from threading import Event
 from typing import TYPE_CHECKING
+from app.utils.cancellable_subprocess import run_probe
 
 from app.renderer.ffmpeg_renderer import (
     ExportMetadata, FFmpegRenderer, PreparedVideoInput, RenderCancelledError,
@@ -81,11 +86,17 @@ def _probe_complete_h264(
     if cancel_event is not None and cancel_event.is_set():
         raise RenderCancelledError("Native GPU export was cancelled.")
     try:
-        process = subprocess.run([
+        arguments = [
             str(ffprobe), "-v", "error", "-f", "h264", "-count_frames",
             "-show_entries", "stream=codec_name,width,height,nb_read_frames,has_b_frames",
             "-of", "json", str(path),
-        ], check=False, capture_output=True, timeout=180)
+        ]
+        # Full frame counting is retained for correctness. A fixed 180s cap
+        # incorrectly rejects long timelines even when decoding is progressing.
+        process = run_probe(arguments, cancel_event=cancel_event or Event(),
+                            timeout=max(180, 2 * frame_count / fps))
+    except CancelledError as exc:
+        raise RenderCancelledError("Native GPU export was cancelled.") from exc
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise RenderError(f"Cannot probe the native GPU H264 stream: {exc}") from exc
     if process.returncode != 0:
@@ -95,6 +106,8 @@ def _probe_complete_h264(
         )
     try:
         stream, = json.loads(process.stdout)["streams"]
+        if not isinstance(stream, dict):
+            raise ValueError("stream must be an object")
         counted = int(stream["nb_read_frames"])
     except (ValueError, KeyError, TypeError) as exc:
         raise RenderError("Native H264 stream metadata is invalid.") from exc
@@ -161,15 +174,63 @@ def finalize_native_gpu_mp4(
     )
     if cancel_event.is_set():
         raise RenderCancelledError("Native GPU export was cancelled.")
-    return renderer.render(
-        PreparedVideoInput(
-            path=video, duration_seconds=duration,
-            width=settings.output_width, height=settings.output_height,
-            fps=settings.fps, ready_for_mux=True, encoded_codec="h264_nvenc",
-        ),
-        tracks, output_path, settings,
-        progress_callback=progress_callback, cancel_event=cancel_event,
-        visualizers=[], static_layers=[], video_clips=[],
-        metadata=metadata, compiled_plan=compiled_plan,
-        prepared_audio_path=audio,
-    )
+    target = Path(output_path).expanduser().resolve()
+    if target.suffix.lower() != ".mp4":
+        raise RenderError("Native GPU finalization requires an MP4 destination.")
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    def mux_progress(stage: str, fraction: float, message: str) -> None:
+        if progress_callback is not None:
+            progress_callback("Finalizing export" if stage == "Complete" else stage,
+                              min(0.99, fraction), message)
+
+    # Same filesystem: preserve an existing destination until all checks pass.
+    with tempfile.TemporaryDirectory(prefix=".mms-native-mux-", dir=target.parent) as staging:
+        staged = Path(staging) / "complete.mp4"
+        try:
+            result = renderer.render(
+                PreparedVideoInput(
+                    path=video, duration_seconds=duration,
+                    width=settings.output_width, height=settings.output_height,
+                    fps=settings.fps, ready_for_mux=True, encoded_codec="h264_nvenc",
+                ),
+                tracks, staged, settings,
+                progress_callback=mux_progress, cancel_event=cancel_event,
+                visualizers=[], static_layers=[], video_clips=[],
+                metadata=metadata, compiled_plan=compiled_plan,
+                prepared_audio_path=audio,
+            )
+            probe = run_probe([
+                str(ffprobe), "-v", "error", "-show_entries",
+                "stream=codec_type,codec_name,width,height,nb_frames,avg_frame_rate,duration",
+                "-of", "json", str(staged),
+            ], cancel_event=cancel_event, timeout=30)
+            streams = json.loads(probe.stdout)["streams"]
+            if not isinstance(streams, list) or any(not isinstance(s, dict) for s in streams):
+                raise ValueError("MP4 streams must be objects")
+            v, = [s for s in streams if s.get("codec_type") == "video"]
+            a, = [s for s in streams if s.get("codec_type") == "audio"]
+            video_duration = float(v["duration"])
+            audio_duration = float(a["duration"])
+            if (probe.returncode or v.get("codec_name") != "h264"
+                    or v.get("width") != settings.output_width
+                    or v.get("height") != settings.output_height
+                    or int(v["nb_frames"]) != expected_frames
+                    or Fraction(v["avg_frame_rate"]) != settings.fps
+                    or not math.isfinite(video_duration)
+                    or abs(video_duration - expected_frames / settings.fps) > 1 / settings.fps
+                    or a.get("codec_name") != "aac"
+                    or not math.isfinite(audio_duration)
+                    or abs(audio_duration - duration) > max(0.12, 2 / settings.fps)):
+                raise RenderError("Native GPU MP4 does not match the CFR video/audio timeline.")
+            if cancel_event.is_set():
+                raise RenderCancelledError("Native GPU export was cancelled.")
+            staged.replace(target)
+            if progress_callback is not None:
+                progress_callback("Complete", 1.0, "Export completed")
+            return replace(result, output_path=target)
+        except CancelledError as exc:
+            raise RenderCancelledError("Native GPU export was cancelled.") from exc
+        except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError,
+                subprocess.TimeoutExpired) as exc:
+            raise RenderError(f"Cannot finalize native GPU MP4: {exc}") from exc

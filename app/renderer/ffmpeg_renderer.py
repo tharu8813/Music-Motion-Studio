@@ -13,7 +13,7 @@ import threading
 import os
 import logging
 import re
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from contextlib import ExitStack
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -1031,14 +1031,18 @@ class FFmpegRenderer:
                         temporary_video,
                     )
         self._report(progress_callback, "Complete", 1.0, "Export completed")
-        validation = ExportPolicy.validate_output(
-            target,
-            width=selected_settings.output_width,
-            height=selected_settings.output_height,
-            fps=selected_settings.fps,
-            duration_seconds=total_duration,
-            ffmpeg_executable=self.executable,
-        )
+        try:
+            validation = ExportPolicy.validate_output(
+                target,
+                width=selected_settings.output_width,
+                height=selected_settings.output_height,
+                fps=selected_settings.fps,
+                duration_seconds=total_duration,
+                ffmpeg_executable=self.executable,
+                cancel_event=cancel_event,
+            )
+        except CancelledError as error:
+            raise RenderCancelledError("Rendering was cancelled.") from error
         return RenderResult(target, len(active_tracks), validation)
 
     @staticmethod

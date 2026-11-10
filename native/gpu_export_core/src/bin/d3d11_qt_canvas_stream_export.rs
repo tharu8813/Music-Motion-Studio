@@ -376,6 +376,7 @@ mod windows_export {
         // closes/crashes mid-export, no report is emitted at all.
         let result_text = serde_json::to_string_pretty(&result)
             .map_err(|e| format!("Cannot serialize GPU export report: {e}"))?;
+        let mut report_created = false;
         let report_write = (|| -> Result<(), String> {
             if let Some(parent) = options.report.parent()
                 .filter(|p| !p.as_os_str().is_empty()) {
@@ -385,12 +386,15 @@ mod windows_export {
             let mut file = OpenOptions::new().write(true).create_new(true)
                 .open(&options.report)
                 .map_err(|e| format!("Cannot create GPU export report: {e}"))?;
+            report_created = true;
             file.write_all(result_text.as_bytes()).and_then(|_| file.write_all(b"\n"))
                 .and_then(|_| file.sync_all())
                 .map_err(|e| format!("Cannot write GPU export report: {e}"))
         })();
         if let Err(reason) = report_write {
-            let _ = fs::remove_file(&options.report);
+            if report_created {
+                let _ = fs::remove_file(&options.report);
+            }
             let _ = fs::remove_file(&options.video);
             return Err(reason);
         }
