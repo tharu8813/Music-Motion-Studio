@@ -133,6 +133,8 @@ def produce_complete_project_frames(
                     raster_counters.update(
                         rasterizations=raster_cache.rasterizations,
                         reuse_hits=raster_cache.hits,
+                        cpu_parallel_bgra_enabled=raster_cache.parallel_bgra_enabled,
+                        cpu_parallel_bgra_submissions=raster_cache.parallel_bgra_submissions,
                         retained_bytes=raster_cache.retained_bytes,
                         peak_retained_bytes=raster_cache.peak_retained_bytes,
                         advanced_lyric_cache_entries=len(raster_cache.frozen_lyric_settings_cache),
