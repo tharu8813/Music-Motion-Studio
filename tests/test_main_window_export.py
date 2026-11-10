@@ -1688,11 +1688,17 @@ class MainWindowExportTests(MainWindowTestCase):
         self.assertIsNone(estimator.update(1, 131417, 0.0))
         # A 36-minute, 60 FPS export at ~16 accepted FPS cannot plausibly
         # finish in 30 minutes, even though the weighted UI shows ~12%.
+        # The GUI publishes GPU ACK progress up to four times a second.
+        # A single 252-second gap must invalidate ETA as stalled, so model
+        # realistic ongoing progress rather than a silent 4-minute pause.
+        for elapsed in range(12, 253, 12):
+            accepted = 1 + round(3973 * elapsed / 252)
+            estimator.update(accepted, 131417, float(elapsed))
         remaining = estimator.update(3974, 131417, 252.0)
         self.assertIsNotNone(remaining)
         self.assertGreater(remaining, 7000)
         self.assertLess(remaining, 10000)
-        self.assertAlmostEqual(estimator.measured_fps, 3973 / 252, places=2)
+        self.assertAlmostEqual(estimator.measured_fps, 3973 / 252, delta=0.2)
         self.assertAlmostEqual(estimator.remaining(257.0), remaining - 5.0, delta=0.001)
         self.assertIsNone(estimator.remaining(280.0))
         # A resumed native worker must establish a fresh frame rate, not
@@ -1706,7 +1712,13 @@ class MainWindowExportTests(MainWindowTestCase):
         estimator = NativeGpuFrameEtaEstimator()
         estimator.update(1, 1200, 0.0)
         first = estimator.update(201, 1200, 20.0)
+        self.assertIsNotNone(first)
+        # Scene complexity increases, but the GPU still emits fresh ACK
+        # samples. A 30-second silence would be correctly treated as stall.
+        estimator.update(221, 1200, 30.0)
+        estimator.update(241, 1200, 40.0)
         slower = estimator.update(251, 1200, 50.0)
+        self.assertIsNotNone(slower)
         self.assertGreater(slower, first)
         self.assertIsNone(estimator.update(1, 600, 60.0))
         self.assertIsNone(estimator.measured_fps)
