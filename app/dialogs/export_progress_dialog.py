@@ -624,8 +624,8 @@ class ExportProgressDialog(QDialog):
             )
 
         if self._native_gpu_export:
-            # Storage rises while the lossless framing/encoded elementary
-            # stream is being produced. It is reused for the final AAC/MP4
+            # Storage rises while the compressed H.264 elementary stream is
+            # being produced. It is reused for the final AAC/MP4
             # mux, then discarded on successful, failed or cancelled exports.
             note = (
                 "인코딩 중 임시 영상 용량이 증가하는 것은 정상이며, "
