@@ -1386,11 +1386,68 @@ class ExportOrchestrator:
             build_dynamic_stack(project, scale)
             resolve_native_executable()
         except (RenderError, ValueError) as error:
-            QMessageBox.information(
-                window, "GPU → FFmpeg",
-                f"GPU 내보내기 지원 조건 / GPU export unavailable:\n{error}\n\n"
-                "기존 FFmpeg 내보내기로 계속합니다. / Continuing with FFmpeg.",
-            )
+            # Show only the selected language, not a mixed Korean/English
+            # diagnostic copied into a production dialog. Preserve the
+            # original technical exception in application logs.
+            logging.warning("Native GPU export preflight rejected: %s", error)
+            korean = window.translator.is_korean
+            reason = str(error)
+            if "output scale must be" in reason:
+                detail_ko = "선택한 출력 배율은 GPU 렌더러의 지원 범위를 벗어났습니다."
+                detail_en = "The selected output scale is outside the GPU renderer limits."
+            elif "Scaled project Canvas must be even" in reason:
+                detail_ko = (
+                    "GPU 내보내기는 가로·세로가 짝수인 64×64~3840×2160 "
+                    "해상도를 지원합니다."
+                )
+                detail_en = (
+                    "GPU export requires even dimensions between 64×64 and 3840×2160."
+                )
+            elif "preserve the project Canvas aspect ratio" in reason:
+                detail_ko = "출력 해상도는 프로젝트 캔버스와 가로·세로 비율이 같아야 합니다."
+                detail_en = "The output resolution must match the project Canvas aspect ratio."
+            elif "new MP4 filename" in reason:
+                detail_ko = "GPU 내보내기는 기존 파일을 덮어쓰지 않는 새 MP4 파일이 필요합니다."
+                detail_en = "GPU export requires a new MP4 file and cannot overwrite existing files."
+            elif "supports 1–120 FPS" in reason:
+                detail_ko = "GPU 내보내기 프레임률은 1~120FPS여야 합니다."
+                detail_en = "GPU export supports 1–120 FPS."
+            elif "no enabled tracks" in reason.lower():
+                detail_ko = "내보낼 수 있는 활성 재생 목록이 없습니다."
+                detail_en = "There are no enabled playlist tracks to export."
+            elif ("unsupported project sources" in reason
+                  or "requires_separate_export_overlay" in reason
+                  or "contains separately-rendered dynamic sources" in reason):
+                detail_ko = "현재 프로젝트에 GPU 내보내기에서 지원하지 않는 영상 또는 효과가 있습니다."
+                detail_en = "This project contains a video or effect not supported by GPU export."
+            elif "Image asset not found" in reason:
+                detail_ko = "프로젝트에서 사용하는 이미지 파일을 찾을 수 없습니다."
+                detail_en = "An image required by this project could not be found."
+            elif "missing" in reason.lower() and "executable" in reason.lower():
+                detail_ko = "GPU 내보내기에 필요한 Rust 실행 파일이 없습니다."
+                detail_en = "The native Rust GPU exporter executable is missing."
+            else:
+                detail_ko = "현재 프로젝트 또는 설정은 GPU 내보내기에서 지원되지 않습니다."
+                detail_en = reason
+            canvas_size = f"{width}×{height}"
+            output_size = f"{settings.output_width}×{settings.output_height}"
+            if korean:
+                title = "GPU 내보내기를 사용할 수 없음"
+                message = (
+                    f"{detail_ko}\n\n"
+                    f"프로젝트 캔버스: {canvas_size}\n"
+                    f"선택한 출력 해상도: {output_size}\n\n"
+                    "기존 FFmpeg 방식으로 내보내기를 계속합니다."
+                )
+            else:
+                title = "GPU export unavailable"
+                message = (
+                    f"{detail_en}\n\n"
+                    f"Project Canvas: {canvas_size}\n"
+                    f"Selected output: {output_size}\n\n"
+                    "Continuing with FFmpeg export."
+                )
+            QMessageBox.information(window, title, message)
             return False
 
         # A profile is immutable and scoped to THIS export. Do not update
