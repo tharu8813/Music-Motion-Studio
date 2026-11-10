@@ -423,6 +423,17 @@ jobs:
           path: test-results.json
           if-no-files-found: ignore
 
+      # playlist_canvas.spec requires the D3D11/NVENC streaming worker as
+      # a real executable. Earlier GPU replay steps build packet probes only.
+      - name: Build Rust D3D11 NVENC production export worker for packaging
+        shell: pwsh
+        run: |
+          cargo build --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_stream_export
+          if ($LASTEXITCODE -ne 0) { throw 'Rust GPU export worker build failed.' }
+          if (-not (Test-Path 'native/gpu_export_core/target/release/d3d11_qt_canvas_stream_export.exe')) {
+            throw 'Rust GPU export worker executable missing after build.'
+          }
+
       - name: Build PyInstaller distribution
         run: python -m PyInstaller --noconfirm --clean playlist_canvas.spec
 
