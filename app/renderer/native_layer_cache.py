@@ -1,5 +1,6 @@
 """Export-local bounded Qt raster cache; raster misses still paint on CPU."""
 from dataclasses import replace
+import os
 
 from app.canvas.source_item import SourceItem
 from app.preview.canvas_snapshot import CanvasSnapshot
@@ -50,6 +51,18 @@ class NativeRasterCache:
         # CanvasSnapshot already has this worker-only cache contract.  The
         # detached native project is immutable throughout the export.
         self.frozen_lyric_settings_cache = {}
+        # Explicit opt-in: native ROI paints only a smaller rectangle for
+        # transparent bands, then expands to the original full BGRA packet.
+        # Never change the GPU wire protocol or baseline output by default.
+        self.partial_band_enabled = os.environ.get(
+            "PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS", "",
+        ).strip().lower() in {"1", "true", "yes"}
+        artboard = scene.artboard_rect
+        self.artboard_width = max(1.0, artboard.width())
+        self.artboard_height = max(1.0, artboard.height())
+        self.partial_band_captures = 0
+        self.scene_render_source_pixels = 0
+        self.full_frame_source_pixels = 0
         self.layers = {}
         self.hits = self.rasterizations = self.retained_bytes = 0
         self.peak_retained_bytes = 0
@@ -66,6 +79,20 @@ class NativeRasterCache:
             self.layers[layer.stream_key] = layer
             self.retained_bytes = sum(len(entry.pixels) for entry in self.layers.values())
             self.peak_retained_bytes = max(self.peak_retained_bytes, self.retained_bytes)
+
+    def record_capture_region(self, full_width, full_height, transparent, metrics):
+        """Report actual Qt scene pixels; staging BGRA planes stay full-size."""
+        full = full_width * full_height
+        self.full_frame_source_pixels += full
+        area = full
+        if transparent and metrics.get("partial_render"):
+            rect = metrics.get("capture_rect")
+            if rect is not None:
+                area = min(full, max(1, round(rect.width() * full_width /
+                    self.artboard_width) * round(rect.height() * full_height /
+                    self.artboard_height)))
+                self.partial_band_captures += 1
+        self.scene_render_source_pixels += area
 
     def clear(self):
         self.layers.clear()
