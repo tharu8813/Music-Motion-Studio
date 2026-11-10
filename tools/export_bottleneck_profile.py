@@ -77,11 +77,20 @@ def classify_process(name: str, command: list[str], root: bool = False) -> str:
         return "canvas_workers"
     # On Windows the Python shim selected by a virtualenv can spawn a second
     # python.exe that actually runs main.py. Do not count its CPU as "other".
-    if executable in {"python.exe", "pythonw.exe", "python"} and any(
-        argument.strip('"').replace("\\", "/").lower().rsplit("/", 1)[-1] == "main.py"
-        for argument in command
-    ):
-        return "editor"
+    if executable in {"python.exe", "pythonw.exe", "python"}:
+        if any(
+            argument.strip('"').replace("\\", "/").lower().rsplit("/", 1)[-1] == "main.py"
+            for argument in command
+        ):
+            return "editor"
+        # The Windows venv launcher may spawn a second Python process to run
+        # the CLI, which owns all Qt frame generation.
+        if any(
+            command[index].lower() == "-m"
+            and command[index + 1].lower() == "tools.native_gpu_full_export"
+            for index in range(len(command) - 1)
+        ):
+            return "editor"
     return "other"
 
 
