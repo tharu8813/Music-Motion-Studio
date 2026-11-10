@@ -16,6 +16,13 @@ pub struct CanvasPacketLayer {
     pub opacity: f32,
     pub pixels: Vec<u8>,
     pub geometry: LayerGeometry,
+    // SHA-256 computed by the strictly validated packet parser. Never
+    // recompute it in the GPU resident cache: 1080p exports previously
+    // hashed every received BGRA plane twice on the Rust CPU.
+    //
+    // crate-visible only: downstream callers must not manufacture a
+    // "verified" checksum for bytes that have not passed validation.
+    pub(crate) validated_sha256: [u8; 32],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -172,8 +179,10 @@ pub fn parse_qt_canvas_packet(
         if pixels.len() != plane_bytes {
             return Err(format!("Canvas layer {i} has unexpected byte count"));
         }
-        let actual = format!("{:x}", Sha256::digest(&pixels));
-        if !digest.eq_ignore_ascii_case(&actual) {
+        let actual = Sha256::digest(&pixels);
+        // Preserve the existing case-insensitive SHA-256 wire contract.
+        // Comparing the validated hex avoids introducing a second hash.
+        if !digest.eq_ignore_ascii_case(&format!("{actual:x}")) {
             return Err(format!("Canvas layer {i} checksum mismatch"));
         }
         // The video processor expects an opaque base, and transparent
@@ -186,6 +195,7 @@ pub fn parse_qt_canvas_packet(
             opacity: opacity as f32,
             pixels,
             geometry,
+            validated_sha256: actual.into(),
         });
     }
     Ok(CanvasPacketFrame { width, height, layers })
