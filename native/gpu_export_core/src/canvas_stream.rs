@@ -47,6 +47,22 @@ pub fn read_frame(reader: &mut impl Read, index: u64) -> Result<Option<CanvasPac
 pub fn read_frame_reuse(
     reader: &mut impl Read, index: u64, previous: Option<&mut CanvasPacketFrame>,
 ) -> Result<Option<CanvasPacketFrame>, String> {
+    read_frame_with_refs(reader, index, previous, 2)
+}
+
+/// Binary-v3: unchanged SHA-256 and metadata rules, optional LZ4 block
+/// compression on *individual* changed planes. Only the wire is compressed;
+/// the packet validator and GPU receive exactly the original BGRA pixels.
+pub fn read_frame_adaptive(
+    reader: &mut impl Read, index: u64, previous: Option<&mut CanvasPacketFrame>,
+) -> Result<Option<CanvasPacketFrame>, String> {
+    read_frame_with_refs(reader, index, previous, 3)
+}
+
+fn read_frame_with_refs(
+    reader: &mut impl Read, index: u64, previous: Option<&mut CanvasPacketFrame>,
+    expected_version: u32,
+) -> Result<Option<CanvasPacketFrame>, String> {
     let mut header = [0u8; 28];
     loop {
         match reader.read(&mut header[..1]) {
@@ -61,7 +77,7 @@ pub fn read_frame_reuse(
     let pts = u64::from_le_bytes(header[8..16].try_into().unwrap());
     let meta = u32::from_le_bytes(header[16..20].try_into().unwrap()) as usize;
     let payload = u64::from_le_bytes(header[20..28].try_into().unwrap());
-    if &header[..4] != b"MMSB" || version != 2 || pts != index
+    if &header[..4] != b"MMSB" || version != expected_version || pts != index
         || meta == 0 || meta > 65536
         || payload > (MAX_FRAME_BYTES * MAX_LAYERS) as u64 {
         return Err("Invalid binary-v2 frame version, PTS or lengths".into());
@@ -85,7 +101,22 @@ pub fn read_frame_reuse(
     let frame = parse_qt_canvas_packet_value(&root, |_, size| {
         let i = layer_index;
         layer_index += 1;
+        // v3 checks encoded lengths, algorithms and the total payload before
+        // trusting any decompressed data; v2 retains the original wire rules.
+        let (encoded_size, algorithm) = if expected_version == 3 {
+            let encoded_size = layers[i]["wire_bytes"].as_u64()
+                .and_then(|n| usize::try_from(n).ok())
+                .ok_or("Binary-v3 missing/overflowed plane wire length")?;
+            let algorithm = layers[i]["compression"].as_str()
+                .ok_or("Binary-v3 missing compression type")?;
+            (encoded_size, algorithm)
+        } else {
+            (size, "raw")
+        };
         if flags[i].as_bool() == Some(true) {
+            if expected_version == 3 && (encoded_size != 0 || algorithm != "previous") {
+                return Err("Binary-v3 reused plane must not carry any encoded bytes".into());
+            }
             let old = previous.as_deref_mut().and_then(|p| p.layers.get_mut(i))
                 .ok_or("Binary-v2 reused a plane without a previous matching frame")?;
             // Same key/order, dimensions and pixels. Opacity and transform may
@@ -104,13 +135,36 @@ pub fn read_frame_reuse(
             // 31.6 MiB at 4K); the shared parser still checks its SHA-256.
             Ok(std::mem::take(&mut old.pixels))
         } else {
-            if size as u64 > remaining {
-                return Err("Binary-v2 frame payload shorter than declared planes".into());
+            if expected_version == 3 && !matches!(algorithm, "lz4" | "raw") {
+                return Err("Binary-v3 unknown compression algorithm".into());
             }
-            let mut pixels = vec![0; size];
-            reader.read_exact(&mut pixels)
-                .map_err(|e| format!("Truncated binary-v2 BGRA plane: {e}"))?;
-            remaining -= size as u64;
+            if expected_version == 3 && (
+                (algorithm == "raw" && encoded_size != size)
+                || (algorithm == "lz4" && (encoded_size == 0 || encoded_size >= size))
+            ) {
+                return Err("Binary-v3 plane compressed/raw sizes are inconsistent".into());
+            }
+            if encoded_size as u64 > remaining {
+                return Err("Binary frame payload shorter than declared planes".into());
+            }
+            let pixels = if algorithm == "lz4" {
+                let mut encoded = vec![0; encoded_size];
+                reader.read_exact(&mut encoded)
+                    .map_err(|e| format!("Truncated binary-v3 compressed plane: {e}"))?;
+                let mut decoded = vec![0; size];
+                let decoded_len = lz4_flex::block::decompress_into(&encoded, &mut decoded)
+                    .map_err(|e| format!("Invalid binary-v3 LZ4 payload: {e}"))?;
+                if decoded_len != size {
+                    return Err("Binary-v3 LZ4 decoded length mismatch".into());
+                }
+                decoded
+            } else {
+                let mut pixels = vec![0; size];
+                reader.read_exact(&mut pixels)
+                    .map_err(|e| format!("Truncated binary plane: {e}"))?;
+                pixels
+            };
+            remaining -= encoded_size as u64;
             Ok(pixels)
         }
     })?;
@@ -203,6 +257,79 @@ mod tests {
         ] {
             assert!(read_frame_reuse(&mut &bad[..], 1, Some(&mut first)).is_err());
         }
+    }
+
+    fn packet_v3(index: u64, compressed: bool, reuse: bool, raw: &[u8],
+                 claim: &[u8]) -> Vec<u8> {
+        let encoded = if reuse { vec![] } else if compressed {
+            lz4_flex::block::compress(raw)
+        } else {
+            raw.to_vec()
+        };
+        let meta = serde_json::to_vec(&serde_json::json!({
+            "schema":1,"format":"mms_canvas_bgra_layers_v1",
+            "pixel_format":"BGRA8_STRAIGHT", "coordinate_origin":"top_left",
+            "width":2, "height":2,"qt_canvas_rasterized_on_cpu":true,
+            "production_export_changed":false,"native_gpu_alpha_composition_required":false,
+            "reuse_previous_frame":[reuse],
+            "layers":[{"file":"layer-0.bgra","stream_key":"base","z_order":0,
+                "opacity":1,"bytes":16,
+                "wire_bytes":encoded.len(),
+                "compression":if reuse {"previous"} else if compressed {"lz4"} else {"raw"},
+                "sha256":format!("{:x}",Sha256::digest(claim))}]
+        })).unwrap();
+        let mut v = Vec::from(&b"MMSB"[..]);
+        v.extend(3u32.to_le_bytes());
+        v.extend(index.to_le_bytes());
+        v.extend((meta.len() as u32).to_le_bytes());
+        v.extend((encoded.len() as u64).to_le_bytes());
+        v.extend(meta);
+        v.extend(encoded);
+        v
+    }
+
+    #[test]
+    fn v3_roundtrip_raw_lz4_and_previous_frame_same_pixels() {
+        let pixels = [9, 8, 7, 255].repeat(4);
+        let compressed = packet_v3(0, true, false, &pixels, &pixels);
+        assert!(compressed.len() < packet_v3(0, false, false, &pixels, &pixels).len());
+        let mut first = read_frame_adaptive(&mut &compressed[..], 0, None)
+            .unwrap().unwrap();
+        assert_eq!(first.layers[0].pixels, pixels);
+        let reuse = packet_v3(1, false, true, &[], &pixels);
+        let mut second = read_frame_adaptive(&mut &reuse[..], 1, Some(&mut first))
+            .unwrap().unwrap();
+        assert!(first.layers[0].pixels.is_empty());
+        assert_eq!(second.layers[0].pixels, pixels);
+        let raw = packet_v3(2, false, false, &pixels, &pixels);
+        let final_frame = read_frame_adaptive(&mut &raw[..], 2, Some(&mut second))
+            .unwrap().unwrap();
+        assert_eq!(final_frame.layers[0].pixels, pixels);
+        // Format version is explicitly negotiated, never interpreted as v2.
+        assert!(read_frame_reuse(&mut &compressed[..], 0, None).is_err());
+    }
+
+    #[test]
+    fn v3_fails_closed_on_truncated_corrupt_and_forged_blocks() {
+        let original = [9, 8, 7, 255].repeat(4);
+        let different = [9, 8, 6, 255].repeat(4);
+        let good = packet_v3(0, true, false, &original, &original);
+        let mut bad = packet_v3(0, true, false, &original, &different);
+        assert!(read_frame_adaptive(&mut &bad[..], 0, None).is_err());
+        // Invalid compressed bytes must not reach the GPU renderer.
+        let metadata_len = u32::from_le_bytes(bad[16..20].try_into().unwrap()) as usize;
+        bad = good.clone();
+        bad[28 + metadata_len] ^= 0xff;
+        assert!(read_frame_adaptive(&mut &bad[..], 0, None).is_err());
+        for cut in 1..good.len() {
+            assert!(read_frame_adaptive(&mut &good[..cut], 0, None).is_err(), "{cut}");
+        }
+        let mut bad_len = good.clone();
+        bad_len[20..28].copy_from_slice(&(MAX_FRAME_BYTES as u64 * MAX_LAYERS as u64 + 1).to_le_bytes());
+        assert!(read_frame_adaptive(&mut &bad_len[..], 0, None).is_err());
+        let mut wrong_version = good.clone();
+        wrong_version[4..8].copy_from_slice(&2u32.to_le_bytes());
+        assert!(read_frame_adaptive(&mut &wrong_version[..], 0, None).is_err());
     }
 
     #[test]
