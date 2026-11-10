@@ -137,6 +137,9 @@ class RasterCacheTests(unittest.TestCase):
                     self.assertEqual(parallel.compact_canvas_bytes_saved,
                                      baseline.compact_canvas_bytes_saved)
                     self.assertEqual(parallel.parallel_bgra_submissions, 3)
+                    self.assertGreaterEqual(parallel.parallel_bgra_peak_workers, 1)
+                    self.assertLessEqual(parallel.parallel_bgra_peak_workers, 2)
+                    self.assertGreater(parallel.parallel_bgra_work_seconds, 0)
                     self.assertTrue(all(
                         call.kwargs.get("band_source_items") is not None
                         for call in captured.call_args_list
