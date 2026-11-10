@@ -1475,7 +1475,11 @@ class ExportOrchestrator:
         window._export_dialog = dialog
         dialog.set_korean(window.translator.is_korean)
         dialog.set_native_gpu_export(True)
-        gpu_label = "Rust GPU · D3D11 + NVENC · H.264 (Beta) · Auto optimized"
+        gpu_label = (
+            "Rust GPU · D3D11 + NVENC · H.264 (베타) · 자동 최적화"
+            if window.translator.is_korean else
+            "Rust GPU · D3D11 + NVENC · H.264 (Beta) · Auto optimized"
+        )
         dialog.set_export_details(len(tracks), window._playlist_duration(tracks),
                                   gpu_label, output)
         dialog.set_busy("Preparing audio", "Preparing GPU export")
