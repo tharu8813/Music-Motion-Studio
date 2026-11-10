@@ -430,6 +430,7 @@ mod windows_export {
                 "allocations": resident.counters.allocations,
                 "uploads": resident.counters.uploads,
                 "upload_bytes": resident.counters.upload_bytes,
+                "digest_reuse_bytes": resident.counters.digest_reuse_bytes,
                 "reuse_hits": resident.counters.reuse_hits,
                 "releases": resident.counters.releases,
                 "peak_resident_bytes": resident.counters.peak_resident_bytes,
