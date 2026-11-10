@@ -2,19 +2,22 @@
 import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import unittest
+from types import SimpleNamespace
 from threading import current_thread, enumerate as active_threads
 from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QImage, QColor
 from app.canvas.live_canvas import CanvasScene
 from app.canvas.source_item import SourceItem
 from app.models.source import Source, SourceType
 from app.models.playlist import PlaylistTrack
 from app.preview.canvas_snapshot import CanvasSnapshot
 from app.preview.native_canvas_layer_packets import (
-    DeferredNativeCanvasFrame, capture_native_canvas_track_frame, straight_bgra_bytes,
+    DeferredNativeCanvasFrame, NativeCanvasBgraLayer, NativeCanvasFrame,
+    capture_native_canvas_track_frame, straight_bgra_bytes,
 )
-from app.renderer.native_dynamic_layers import build_dynamic_stack
+from app.renderer.native_dynamic_layers import DynamicStack, build_dynamic_stack, interleave_dynamic_layers
 from app.renderer.native_frame_transport import frame_chunks
 from app.renderer.native_layer_cache import NativeRasterCache, split_resident_bands
 from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
@@ -146,6 +149,38 @@ class RasterCacheTests(unittest.TestCase):
         self.assertFalse(any(
             t.name.startswith("mms-bgra_") for t in active_threads()
         ))
+
+    def test_cpu_parallel_converts_audio_reactive_overlay_without_moving_gpu_transforms(self):
+        # Audio-reactive GPU images should use the same CPU conversion pool;
+        # pixel data and subpixel transform remain unchanged.
+        base = NativeCanvasFrame(
+            128, 128, (NativeCanvasBgraLayer(
+                "base", 128, 128, bytes((5, 8, 11, 255)) * (128 * 128),
+            ),),
+        )
+        image = QImage(20, 30, QImage.Format.Format_ARGB32)
+        image.fill(QColor(220, 90, 40, 128))
+        stack = DynamicStack(
+            ((None, None),), (("canvas", 0), ("dynamic", 0)), ("reactive",),
+        )
+        rendered = [(SimpleNamespace(x=17.5, y=21.25, rotation=23.0), image)]
+        expected = interleave_dynamic_layers(
+            base, stack, rendered, seconds=0.5, gpu_affine=True,
+        )
+        cache = NativeRasterCache(
+            self.scene, stack.bands, 2,
+            optimizations=NativeGpuOptimizations.for_profile("cpu_parallel"),
+        )
+        try:
+            generated = interleave_dynamic_layers(
+                base, stack, rendered, seconds=0.5, gpu_affine=True,
+                raster_cache=cache,
+            )
+            self.assertIsInstance(generated, DeferredNativeCanvasFrame)
+            self.assertEqual(generated.resolve(), expected)
+            self.assertEqual(cache.parallel_bgra_submissions, 1)
+        finally:
+            cache.clear()
 
     def test_parallel_cpu_conversion_failure_propagates_without_silent_fallback(self):
         self.add(Source(SourceType.TEXT, "Clock", text="%current_time%",
