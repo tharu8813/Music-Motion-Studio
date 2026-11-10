@@ -851,6 +851,7 @@ class CanvasSnapshot:
                       keyframe_active: bool = True,
                       animation_phase_duration: float | None = None,
                       partial_render: bool = False,
+                      partial_render_pixel_aligned: bool = False,
                       render_metrics: dict[str, object] | None = None,
                       band_source_items: Sequence[SourceItem] | None = None,
                       junction: MixJunction | None = None,
@@ -1609,7 +1610,14 @@ class CanvasSnapshot:
                     # A near-full crop adds a blit without materially reducing
                     # scene painting. Keep the established full render there.
                     if candidate_area < artboard_area * 0.9:
-                        effective_capture_rect = candidate
+                        # Native D3D11 exports require the cropped QImage
+                        # to expand to the same full-frame output pixel grid.
+                        # Existing FFmpeg capture semantics remain unchanged.
+                        effective_capture_rect = (
+                            CanvasSnapshot.align_preview_crop(
+                                candidate, artboard, output_scale, tile=1,
+                            ) if partial_render_pixel_aligned else candidate
+                        )
                         used_partial_render = True
             captured = CanvasSnapshot.capture(
                 scene, output_scale, z_min=z_min, z_max=z_max, transparent=transparent,
