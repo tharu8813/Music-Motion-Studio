@@ -26,6 +26,12 @@ class NativeGpuFullProjectTests(unittest.TestCase):
     def setUpClass(cls):
         cls.qt = QApplication.instance() or QApplication([])
 
+    def setUp(self):
+        # These tests mock the native encoder, not a real development export.
+        gate = patch("app.renderer.native_project_export._require_developer_runtime")
+        gate.start()
+        self.addCleanup(gate.stop)
+
     def test_complete_project_yields_all_real_qt_and_audio_layers_lazily(self):
         ffmpeg = os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG") or shutil.which("ffmpeg")
         if not ffmpeg or not Path(ffmpeg).is_file():
@@ -80,12 +86,12 @@ class NativeGpuFullProjectTests(unittest.TestCase):
                 return RenderResult(target, 1)
 
             with patch(
-                "tools.native_gpu_full_export.FFmpegRenderer.prepare_playlist_audio",
+                "app.renderer.native_project_export.FFmpegRenderer.prepare_playlist_audio",
                 return_value=audio,
             ) as prepare, patch(
-                "tools.native_gpu_full_export.render_native_gpu_playlist",
+                "app.renderer.native_project_export.render_native_gpu_playlist",
                 side_effect=mock_stream,
-            ) as render:
+            ) as render, patch("app.renderer.native_project_export.resolve_native_executable", return_value=root / "native.exe"):
                 result = export_complete_project(
                     source, target, native_exe=root / "native.exe",
                     fps=30, scale=0.25, ffmpeg=str(ffmpeg),
@@ -151,12 +157,12 @@ class NativeGpuFullProjectTests(unittest.TestCase):
                 return RenderResult(target, 1.0)
 
             with patch(
-                "tools.native_gpu_full_export.FFmpegRenderer.prepare_playlist_audio",
+                "app.renderer.native_project_export.FFmpegRenderer.prepare_playlist_audio",
                 return_value=audio,
             ), patch(
-                "tools.native_gpu_full_export.render_native_gpu_playlist",
+                "app.renderer.native_project_export.render_native_gpu_playlist",
                 side_effect=fake_native,
-            ):
+            ), patch("app.renderer.native_project_export.resolve_native_executable", return_value=root / "native.exe"):
                 actual = export_complete_project(
                     path, target, native_exe=root / "native.exe",
                     fps=30, scale=0.25, ffmpeg=str(ffmpeg),
