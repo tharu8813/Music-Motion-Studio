@@ -14,6 +14,7 @@ from app.preview.native_canvas_layer_packets import capture_native_canvas_track_
 from app.renderer.native_dynamic_layers import build_dynamic_stack
 from app.renderer.native_frame_transport import frame_chunks
 from app.renderer.native_layer_cache import NativeRasterCache, split_resident_bands
+from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
 from app.models.project import ProjectDocument, CanvasSettings
 
 
@@ -119,6 +120,25 @@ class RasterCacheTests(unittest.TestCase):
                   for call in capture.call_args_list),
             (("Bottom",), ("Top",)),
         )
+
+    def test_explicit_gui_profile_overrides_legacy_experiment_environment(self):
+        self.add(Source(SourceType.SHAPE, "Base", width=128, height=128))
+        with patch.dict(os.environ, {
+            "PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS": "1",
+            "PLAYLIST_CANVAS_NATIVE_COMPACT_BANDS": "1",
+        }):
+            safe = NativeRasterCache(
+                self.scene, ((None, None),), 2,
+                optimizations=NativeGpuOptimizations.for_profile("standard"),
+            )
+            fast = NativeRasterCache(
+                self.scene, ((None, None),), 2,
+                optimizations=NativeGpuOptimizations.for_profile("accelerated"),
+            )
+        self.assertFalse(safe.partial_band_enabled)
+        self.assertFalse(safe.compact_band_enabled)
+        self.assertTrue(fast.partial_band_enabled)
+        self.assertTrue(fast.compact_band_enabled)
 
     def test_opt_in_partial_transparent_band_preserves_unchanged_native_packets(self):
         # 0.5 output scale exercises otherwise misaligned original bounds.
