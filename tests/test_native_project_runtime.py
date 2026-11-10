@@ -17,7 +17,7 @@ from app.preview.native_canvas_layer_packets import NativeCanvasFrame, NativeCan
 from app.renderer.ffmpeg_renderer import RenderCancelledError, RenderError, RenderResult
 from app.renderer.native_project_frames import GuiProjectFrameSource, produce_complete_project_frames
 from app.renderer.native_project_export import export_project_document, resolve_native_executable, NATIVE_EXECUTABLE
-from app.renderer.native_project_support import validate_project_for_gpu_capture
+from app.renderer.native_project_support import TimelineValidationError, validate_project_for_gpu_capture
 from app.renderer.native_project_support import resolve_project_frame
 from app.renderer.native_dynamic_layers import build_dynamic_stack
 from app.timeline.compiler import compile_playlist
