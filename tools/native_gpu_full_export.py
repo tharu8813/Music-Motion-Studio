@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import ExitStack
+from copy import deepcopy
 import json
 import math
 import os
@@ -125,9 +126,47 @@ def produce_complete_project_frames(
         scene.clear()
 
 
+def make_short_smoke_project(
+    original: ProjectDocument, seconds: float, *, fps: int,
+) -> ProjectDocument:
+    """Detach a true single-song clip for FAST real MP4 integration testing.
+
+    A real full export of a long playlist may take hours of Qt rasterization.
+    This opt-in mode exercises the *entire* GPU -> native H264 -> AAC/MP4 path
+    using a shortened first song. It is deliberately not represented as a
+    complete export of the original project. Neither the source file nor the
+    original ProjectDocument is mutated.
+    """
+    if (not isinstance(seconds, (int, float)) or isinstance(seconds, bool)
+            or not math.isfinite(seconds) or not 1 <= seconds <= 30
+            or not isinstance(fps, int) or not 1 <= fps <= 120
+            or abs(seconds * fps - round(seconds * fps)) > 1e-7):
+        raise ValueError(
+            "A smoke clip must be 1..30 seconds on an exact export FPS frame boundary."
+        )
+    original_first = next(
+        (track for track in original.playlist
+         if track.enabled and track.duration_seconds > 0), None,
+    )
+    if original_first is None:
+        raise ValueError("The project has no enabled audio track for the smoke clip.")
+    if seconds > original_first.duration_seconds:
+        raise ValueError(
+            "Smoke clip duration cannot exceed the first enabled audio track."
+        )
+    clip = deepcopy(original)
+    first = next(track for track in clip.playlist if track.id == original_first.id)
+    first.duration_seconds = seconds
+    first.start_time_seconds = None
+    clip.playlist = [first]
+    clip.settings.title = original.settings.title + " [short GPU smoke clip]"
+    return clip
+
+
 def export_complete_project(
     project_path: Path, output_path: Path, *, native_exe: Path,
     fps: int = 60, scale: float = 0.5, ffmpeg: str | None = None,
+    smoke_seconds: float | None = None,
 ) -> Path:
     """Run actual complete GPU encoding + MP4 mux with the existing soundtrack."""
     source = Path(project_path)
@@ -141,6 +180,13 @@ def export_complete_project(
     if not 1 <= fps <= 120:
         raise ValueError("Full native export FPS must be 1..120")
     project = ProjectService.load(source)
+    if smoke_seconds is not None:
+        project = make_short_smoke_project(project, smoke_seconds, fps=fps)
+        print(
+            f"[NATIVE GPU SMOKE] The first track was shortened to {smoke_seconds:g}s. "
+            "This is a real short MP4, NOT a full export of the original project.",
+            flush=True,
+        )
     validate_project_for_gpu_capture(
         project, scale=scale, source_policy="dynamic-audio",
     )
@@ -189,11 +235,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fps", type=int, default=60)
     parser.add_argument("--scale", type=float, default=0.5)
     parser.add_argument("--ffmpeg", type=str, default=None)
+    parser.add_argument(
+        "--smoke-seconds", type=float, default=None,
+        help="Create a real 1..30 second first-song MP4 test instead of the full playlist",
+    )
     args = parser.parse_args(argv)
     try:
         output = export_complete_project(
             args.project, args.output, native_exe=args.native_exe,
             fps=args.fps, scale=args.scale, ffmpeg=args.ffmpeg,
+            smoke_seconds=args.smoke_seconds,
         )
     except Exception as exc:
         print(json.dumps({
@@ -206,6 +257,8 @@ def main(argv: list[str] | None = None) -> int:
         "status": "completed",
         "output": str(output),
         "production_export_changed": True,
+        "scope": "short_clip_gpu_smoke" if args.smoke_seconds is not None else "full_original_project",
+        "smoke_seconds": args.smoke_seconds,
     }, ensure_ascii=False))
     return 0
 
