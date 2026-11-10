@@ -2,6 +2,10 @@
 
 No per-frame manifest or BGRA files are written. The native worker owns
 persistent GPU resources; finalization reuses the existing audio/mux path.
+
+The optional one-frame lookahead allows the *caller-owned Qt thread* to paint
+frame N+1 while a dedicated I/O thread writes/ACKs frame N. Native frames
+remain ordered, and Qt methods never run on that sender thread.
 """
 from __future__ import annotations
 
@@ -163,7 +167,51 @@ def stream_native_canvas_h264(
         frame_production_max_seconds = 0.0
         frame_pipe_write_seconds = 0.0
         frame_ack_wait_seconds = 0.0
+        # Experimental, rollback-friendly optimization. A frame is never
+        # painted on the sender thread, and at most two packets coexist.
+        overlap_enabled = os.environ.get("PLAYLIST_CANVAS_NATIVE_PIPELINED", "").strip().lower() in {
+            "1", "true", "yes",
+        }
         completed = False
+        pending: tuple[int, Queue, Thread, float] | None = None
+
+        def finish_pending() -> None:
+            """Wait for previous native ACK without calling any Qt paint code."""
+            nonlocal pending, transport_bytes, transport_seconds
+            nonlocal frame_pipe_write_seconds, frame_ack_wait_seconds
+            if pending is None:
+                return
+            accepted_index, completion, running_sender, send_started = pending
+            while True:
+                if cancel.is_set():
+                    raise RenderCancelledError("Native GPU export was cancelled.")
+                if monotonic() - send_started >= acknowledgement_timeout:
+                    raise RenderError(
+                        f"Timed out writing/acknowledging native GPU frame {accepted_index}."
+                    )
+                try:
+                    written = completion.get(timeout=0.1)
+                    break
+                except Empty:
+                    if worker.poll() is not None:
+                        raise RenderError("Native GPU worker stopped during frame transfer.")
+            if isinstance(written, Exception):
+                if isinstance(written, (OSError, ValueError)):
+                    raise RenderError(
+                        f"Native D3D11/NVENC channel failed while submitting frame {accepted_index}."
+                    ) from written
+                raise written
+            written_bytes, write_elapsed, ack_elapsed, frame_elapsed = written
+            running_sender.join()
+            transport_bytes += written_bytes
+            frame_pipe_write_seconds += write_elapsed
+            frame_ack_wait_seconds += ack_elapsed
+            transport_seconds += frame_elapsed
+            pending = None
+            if progress_callback is not None:
+                # Maintain the original callback's caller-thread affinity.
+                progress_callback(accepted_index + 1, expected_frames)
+
         try:
             source = iter(frames)
             assert worker.stdin is not None
@@ -186,6 +234,40 @@ def stream_native_canvas_h264(
                     frame.width, frame.height
                 ) != (width, height):
                     raise RenderError(f"Native Canvas frame {index} has wrong geometry or type.")
+                if overlap_enabled:
+                    # Produce frame N+1 on the Qt owner thread while the sender
+                    # writes frame N. Before scheduling another send, wait for
+                    # its ACK, which caps live packet memory at two frames.
+                    finish_pending()
+                    completion: Queue = Queue(maxsize=1)
+                    started = monotonic()
+
+                    def send_and_ack(
+                        frame=frame, index=index, started=started, completion=completion,
+                    ) -> None:
+                        try:
+                            assert worker.stdin is not None
+                            written_bytes = write_frame(worker.stdin, frame, index)
+                            wrote_at = monotonic()
+                            _frame_acknowledgement(
+                                events, worker, index, cancel,
+                                max(0.001, acknowledgement_timeout - (wrote_at - started)),
+                            )
+                            accepted_at = monotonic()
+                            completion.put((
+                                written_bytes, wrote_at - started,
+                                accepted_at - wrote_at, accepted_at - started,
+                            ))
+                        except Exception as exc:
+                            completion.put(exc)
+
+                    sender = Thread(
+                        target=send_and_ack, name="mms-native-gpu-input", daemon=True,
+                    )
+                    pending = (index, completion, sender, started)
+                    sender.start()
+                    continue
+
                 sent: Queue = Queue(maxsize=1)
                 def send_frame(frame=frame, index=index):
                     try:
@@ -227,6 +309,8 @@ def stream_native_canvas_h264(
                     ) from exc
                 if progress_callback is not None:
                     progress_callback(index + 1, expected_frames)
+            if overlap_enabled:
+                finish_pending()
             try:
                 next(source)
             except StopIteration:
@@ -260,10 +344,9 @@ def stream_native_canvas_h264(
                 raise RenderError("Native GPU producer did not complete the entire timeline.")
             if cancel.is_set():
                 raise RenderCancelledError("Native GPU export was cancelled.")
-            # Timings expose underfed GPU vs. blocked binary pipe vs. NVENC ACK.
-            # This one-frame-at-a-time protocol intentionally does not overlap
-            # CPU Qt painting and native GPU work; each sum is a wall-clock
-            # phase, not a CPU/GPU utilization percentage.
+            # Phase counters measure wall-clock time, not hardware load.
+            # When overlap is enabled, production and transport intentionally
+            # run concurrently; their sums can exceed total elapsed time.
             stream_elapsed = monotonic() - stream_started
             result.update(
                 frame_transport="binary-v1", frame_transport_bytes=transport_bytes,
@@ -275,7 +358,13 @@ def stream_native_canvas_h264(
                 native_worker_finalize_seconds=monotonic() - finalize_started,
                 native_stream_elapsed_seconds=stream_elapsed,
                 native_stream_wall_fps=expected_frames / stream_elapsed,
-                timing_scope="serial_qt_frame_production_pipe_write_and_native_ack",
+                timing_scope=(
+                    "one_frame_qt_production_overlaps_native_write_and_ack"
+                    if overlap_enabled else
+                    "serial_qt_frame_production_pipe_write_and_native_ack"
+                ),
+                frame_pipeline_enabled=overlap_enabled,
+                max_outstanding_frame_packets=2 if overlap_enabled else 1,
             )
             report.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             logging.getLogger(__name__).info("Native frame transport: %d bytes in %.3fs (including ACK)",
