@@ -131,7 +131,11 @@ def interleave_dynamic_layers(
                 static_frame.width, static_frame.height,
                 seconds=seconds, output_scale=output_scale,
                 **({
-                    "submit_bgra": raster_cache.submit_bgra,
+                    "submit_bgra": (
+                        raster_cache.maybe_submit_bgra
+                        if raster_cache.adaptive_bgra_enabled
+                        else raster_cache.submit_bgra
+                    ),
                 } if gpu_affine and raster_cache is not None
                      and raster_cache.parallel_bgra_enabled else {}),
             )
