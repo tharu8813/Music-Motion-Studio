@@ -114,7 +114,7 @@ mod windows_export {
     use music_motion_gpu_core::d3d11_frame_pool::NativeNv12FramePool;
     use music_motion_gpu_core::d3d11_nvenc_registration::NativeNvencRegistrationSession;
     use music_motion_gpu_core::qt_canvas_packet::load_qt_canvas_packet;
-    use music_motion_gpu_core::canvas_stream::read_frame;
+    use music_motion_gpu_core::canvas_stream::{read_frame, read_frame_reuse};
     use music_motion_gpu_core::resident_layer_cache::ResidentLayerCache;
     use music_motion_gpu_core::d3d11_affine::AffineLayerRenderer;
     use serde_json::{json, Value};
@@ -135,6 +135,7 @@ mod windows_export {
         video: PathBuf,
         report: PathBuf,
         binary: bool,
+        binary_v2: bool,
     }
 
     fn parse_options() -> Result<Options, String> {
@@ -147,6 +148,7 @@ mod windows_export {
         let mut video = None;
         let mut report = None;
         let mut binary = false;
+        let mut binary_v2 = false;
         let mut arguments = env::args().skip(1);
         while let Some(option) = arguments.next() {
             let value = arguments.next()
@@ -168,6 +170,7 @@ mod windows_export {
                 "--output" => report = Some(PathBuf::from(value)),
                 "--input-format" => match value.as_str() {
                     "binary-v1" => binary = true,
+                    "binary-v2" => { binary = true; binary_v2 = true; },
                     "manifest" => binary = false,
                     _ => return Err("Unsupported frame input format".into()),
                 },
@@ -184,6 +187,7 @@ mod windows_export {
             video: video.ok_or("Missing --video-output")?,
             report: report.ok_or("Missing --output")?,
             binary,
+            binary_v2,
         };
         if options.width < 64 || options.width > 3840
             || options.height < 64 || options.height > 2160
@@ -287,15 +291,17 @@ mod windows_export {
         let mut input = stdin.lock();
         let mut writer = StagedVideo::open(&options.video)?;
 
-        // Read exactly one frame first. The JSON + BGRA planes are dropped
-        // every iteration. Dimensions are fixed by the export plan.
-        let next_frame = |input: &mut std::io::StdinLock<'_>, index| {
-            if options.binary { read_frame(input, index) }
+        // The v2 opt-in retains only the last decoded packet, allowing
+        // identical planes to be referenced without re-transmitting BGRA.
+        // v1 and manifest modes keep their original one-packet semantics.
+        let next_frame = |input: &mut std::io::StdinLock<'_>, index, previous| {
+            if options.binary_v2 { read_frame_reuse(input, index, previous) }
+            else if options.binary { read_frame(input, index) }
             else { read_manifest_line(input)?.map(|name| load_qt_canvas_packet(Path::new(&name))).transpose() }
         };
         let mut transfer_seconds = 0.0;
         let transfer_started = Instant::now();
-        let frame = next_frame(&mut input, 0)?
+        let frame = next_frame(&mut input, 0, None)?
             .ok_or("Native producer closed without any Canvas frames")?;
         transfer_seconds += transfer_started.elapsed().as_secs_f64();
         if (frame.width, frame.height) != (options.width, options.height) {
@@ -337,7 +343,8 @@ mod windows_export {
             // Resident input textures are reused on the same immediate context;
             // prior composition commands precede the next dirty upload.
             drop(layers);
-            drop(current);
+            // The previous packet remains live until the next v2 read has
+            // verified any referenced SHA-256 pixels. v1 still drops early.
             // Bounded producer/consumer handshake: the caller may release
             // THIS frame's bytes (or legacy files) only after
             // native loading, texture upload and GPU submission completed.
@@ -349,14 +356,25 @@ mod windows_export {
                     .map_err(|e| format!("Native frame acceptance channel closed: {e}"))?;
             }
             if clock.submitted == clock.expected {
-                if next_frame(&mut input, clock.submitted)?.is_some() {
+                let unexpected = if options.binary_v2 {
+                    next_frame(&mut input, clock.submitted, Some(&current))?
+                } else {
+                    drop(current);
+                    next_frame(&mut input, clock.submitted, None)?
+                };
+                if unexpected.is_some() {
                     return Err("More Canvas packets supplied than compiled playlist frames".into());
                 }
                 break;
             }
             let transfer_started = Instant::now();
-            current = next_frame(&mut input, clock.submitted)?
-                .ok_or("Native Canvas source ended before the full playlist")?;
+            let next = if options.binary_v2 {
+                next_frame(&mut input, clock.submitted, Some(&current))?
+            } else {
+                drop(current);
+                next_frame(&mut input, clock.submitted, None)?
+            };
+            current = next.ok_or("Native Canvas source ended before the full playlist")?;
             transfer_seconds += transfer_started.elapsed().as_secs_f64();
         }
         while !pending.is_empty() {
@@ -399,7 +417,7 @@ mod windows_export {
             "qt_canvas_rasterized_on_cpu": true,
             "native_gpu_text_painting_implemented": false,
             "max_pending_gpu_slots": options.slots,
-            "input": if options.binary { "binary-v1" } else { "newline_separated_manifest_paths_stdin" },
+            "input": if options.binary_v2 { "binary-v2" } else if options.binary { "binary-v1" } else { "newline_separated_manifest_paths_stdin" },
             "frame_receive_seconds": transfer_seconds,
             "bgra_disk_bytes": if options.binary { Some(0u64) } else { None },
             "resident_layer_cache": {
