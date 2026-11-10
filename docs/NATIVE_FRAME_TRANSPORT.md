@@ -26,10 +26,13 @@
 
 
 앱의 `native_project_export → render_native_gpu_playlist → stream_native_canvas_h264`
-경로는 작업자에 `--input-format binary-v1`을 전달한다. 프레임별 BGRA 파일과
-manifest 파일을 만들지 않는다. 기존 진단 CLI는 옵션 생략 또는
-`--input-format manifest`로 줄 단위 manifest 경로 입력을 계속 지원한다.
-이전 작업자 바이너리는 새 옵션을 거부하므로 Python 코드와 함께 다시 빌드해야 한다.
+경로는 현재 `automatic` 모드에서 `--input-format binary-v2`를 사용하며,
+같은 레이어의 픽셀이 이전 프레임과 같을 때 재전송을 생략한다.
+프레임별 BGRA 파일과 manifest 파일은 만들지 않는다. 이전 작업자 바이너리는
+binary-v2를 지원하지 않으므로 실행 파일에 새 Rust 코드가 포함되어야 한다.
+과거 `binary-v1` 및 manifest 진단 방식은 개발 회귀 테스트에서 계속 지원한다.
+
+### 개발 진단용 이전 binary-v1 계약
 
 바이너리 프레임은 little-endian `<4sIQIQ>` 28바이트 헤더, UTF-8 JSON,
 Z 순서의 BGRA plane으로 구성한다. 헤더는 `MMSB`, 버전 `1`, 0부터 순차 증가하는
