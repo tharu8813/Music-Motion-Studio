@@ -61,7 +61,7 @@ def export_project_document(
     project, output_path, *, native_exe=None, fps=60, scale=0.5,
     ffmpeg=None, cancel_event=None, progress_callback=None, frame_source=None,
     mux_progress_callback=None, audio_bitrate="192k", storage_path_callback=None,
-    preparation_progress_callback=None,
+    preparation_progress_callback=None, optimizations=None,
 ):
     """Render a detached project; always release the supplied GUI frame source."""
     try:
@@ -72,6 +72,7 @@ def export_project_document(
             mux_progress_callback=mux_progress_callback, audio_bitrate=audio_bitrate,
             storage_path_callback=storage_path_callback,
             preparation_progress_callback=preparation_progress_callback,
+            optimizations=optimizations,
         )
     finally:
         if frame_source is not None:
@@ -82,7 +83,7 @@ def _export_project_document(
     project, output_path, *, native_exe=None, fps=60, scale=0.5,
     ffmpeg=None, cancel_event=None, progress_callback=None, frame_source=None,
     mux_progress_callback=None, audio_bitrate="192k", storage_path_callback=None,
-    preparation_progress_callback=None,
+    preparation_progress_callback=None, optimizations=None,
 ):
     """Render the entire detached document and return the usual RenderResult.
 
@@ -139,6 +140,7 @@ def _export_project_document(
                     project, fps=fps, scale=scale, prepared_audio=audio,
                     ffmpeg=str(renderer.executable), cancel_event=cancel,
                     raster_counters=raster_counters,
+                    optimizations=optimizations,
                 )
             else:
                 frames.prepare(audio, str(renderer.executable))
@@ -148,6 +150,7 @@ def _export_project_document(
                 output_path=output, settings=settings, cancel_event=cancel,
                 progress_callback=progress_callback,
                 mux_progress_callback=mux_progress_callback,
+                optimizations=optimizations,
                 storage_path_callback=storage_path_callback,
                 metadata=ExportMetadata(title=project.settings.title,
                     artist=project.settings.author, comment=project.settings.description),
