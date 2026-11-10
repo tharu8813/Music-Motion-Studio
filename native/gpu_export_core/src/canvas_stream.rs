@@ -134,6 +134,71 @@ mod tests {
         wire.extend((metadata.len() as u32).to_le_bytes()); wire.extend(16u64.to_le_bytes());
         wire.extend(metadata); wire.extend(pixels); wire
     }
+    fn packet_v2(index: u64, reuse: bool, pixels: &[u8], claimed_pixels: &[u8]) -> Vec<u8> {
+        let metadata = serde_json::to_vec(&serde_json::json!({
+            "schema":1,"format":"mms_canvas_bgra_layers_v1",
+            "pixel_format":"BGRA8_STRAIGHT", "coordinate_origin":"top_left",
+            "width":2, "height":2,
+            "qt_canvas_rasterized_on_cpu":true,
+            "production_export_changed":false,
+            "native_gpu_alpha_composition_required":false,
+            "reuse_previous_frame":[reuse],
+            "layers":[{"file":"layer-0.bgra","stream_key":"base","z_order":0,
+                "opacity":1,"bytes":16,
+                "sha256":format!("{:x}",Sha256::digest(claimed_pixels))}]
+        })).unwrap();
+        let mut wire = Vec::from(&b"MMSB"[..]);
+        wire.extend(2u32.to_le_bytes());
+        wire.extend(index.to_le_bytes());
+        wire.extend((metadata.len() as u32).to_le_bytes());
+        wire.extend((if reuse {0} else {pixels.len() as u64}).to_le_bytes());
+        wire.extend(metadata);
+        if !reuse {wire.extend(pixels);}
+        wire
+    }
+    #[test]
+    fn v2_references_reconstruct_validated_pixels_with_zero_wire_bytes() {
+        let first_pixels = [14, 22, 30, 255].repeat(4);
+        let new_pixels = [18, 22, 30, 255].repeat(4);
+        let first_wire = packet_v2(0, false, &first_pixels, &first_pixels);
+        let first = read_frame_reuse(&mut &first_wire[..], 0, None).unwrap().unwrap();
+        assert_eq!(first.layers[0].pixels, first_pixels);
+
+        let repeated = packet_v2(1, true, &[], &first_pixels);
+        let second = read_frame_reuse(&mut &repeated[..], 1, Some(&first))
+            .unwrap().unwrap();
+        assert_eq!(second.layers[0].pixels, first_pixels);
+        assert_eq!(repeated.len(), 28 + u32::from_le_bytes(repeated[16..20].try_into().unwrap()) as usize);
+        let dirty = packet_v2(2, false, &new_pixels, &new_pixels);
+        let third = read_frame_reuse(&mut &dirty[..], 2, Some(&second)).unwrap().unwrap();
+        assert_eq!(third.layers[0].pixels, new_pixels);
+
+        // v1 never accepts v2, v2 never accepts v1: fail closed on
+        // mismatched binaries and do not send malformed PTS to NVENC.
+        assert!(read_frame(&mut &repeated[..], 1).is_err());
+        assert!(read_frame_reuse(&mut &packet()[..], 0, None).is_err());
+    }
+
+    #[test]
+    fn v2_rejects_missing_previous_tampered_checksum_and_payload_lengths() {
+        let pixels = [1, 2, 3, 255].repeat(4);
+        let ref_wire = packet_v2(1, true, &[], &pixels);
+        assert!(read_frame_reuse(&mut &ref_wire[..], 1, None).is_err());
+        let first = read_frame_reuse(
+            &mut &packet_v2(0, false, &pixels, &pixels)[..], 0, None,
+        ).unwrap().unwrap();
+        let different = [2, 2, 3, 255].repeat(4);
+        let forged = packet_v2(1, true, &[], &different);
+        assert!(read_frame_reuse(&mut &forged[..], 1, Some(&first)).is_err());
+        for bad in [
+            packet_v2(1, false, &pixels[..8], &pixels),
+            { let mut v=packet_v2(1,true,&[],&pixels);v[20..28].copy_from_slice(&1u64.to_le_bytes());v },
+            { let mut v=packet_v2(1,true,&[],&pixels);v[4..8].copy_from_slice(&1u32.to_le_bytes());v },
+        ] {
+            assert!(read_frame_reuse(&mut &bad[..], 1, Some(&first)).is_err());
+        }
+    }
+
     #[test]
     fn valid_fragmented_frames_and_all_truncations() {
         struct Fragments<'a>(&'a [u8]);
