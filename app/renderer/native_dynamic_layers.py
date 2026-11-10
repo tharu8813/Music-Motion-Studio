@@ -20,6 +20,7 @@ from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderSettings
 from app.renderer.python_visualizer import PythonVisualizerRenderer
 from app.timeline.render_plan import reactive_layer_windows
 from app.utils.visualizer_geometry import visualizer_export_rect
+from app.renderer.native_dynamic_motion import dynamic_layer_frame
 
 
 DYNAMIC_TYPES = frozenset({
@@ -109,6 +110,7 @@ def place_dynamic_overlay(image: QImage, x: int, y: int, width: int, height: int
 def interleave_dynamic_layers(
     static_frame: NativeCanvasFrame, stack: DynamicStack,
     rendered: list[tuple[object, QImage]],
+    *, seconds: float = 0.0, output_scale: float = 1.0,
 ) -> NativeCanvasFrame:
     """Keep native packet key convention while interleaving QPainter layers."""
     if len(rendered) != len(stack.source_ids):
@@ -119,9 +121,10 @@ def interleave_dynamic_layers(
             entry = static_frame.layers[index]
         else:
             overlay, image = rendered[index]
-            entry = place_dynamic_overlay(
-                image, int(overlay.x), int(overlay.y),
+            entry = dynamic_layer_frame(
+                image, overlay,
                 static_frame.width, static_frame.height,
+                seconds=seconds, output_scale=output_scale,
             )
         key = "base" if not layers else f"layer:{len(layers) - 1}"
         layers.append(NativeCanvasBgraLayer(
