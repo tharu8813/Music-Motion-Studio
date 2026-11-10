@@ -26,6 +26,7 @@ pub mod d3d11_affine;
 #[cfg(windows)]
 pub mod d3d11_nvenc_registration;
 
+pub mod canvas_layer_manifest;
 pub mod qt_canvas_packet;
 pub mod canvas_stream;
 pub mod resident_layer_cache;
