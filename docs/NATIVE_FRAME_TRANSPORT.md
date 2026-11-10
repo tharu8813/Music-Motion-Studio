@@ -256,7 +256,10 @@ Remove-Item Env:PLAYLIST_CANVAS_NATIVE_PIPELINED
 
 보고서 `native_report.cpu_parallel_bgra_frames`는 비동기 BGRA를 포함한
 프레임 수, `raster_cache.cpu_parallel_bgra_submissions`는 작업자에게
-위임한 Canvas/동적 레이어 수를 의미한다. 실제 성능 비교 기준은
+위임한 Canvas/동적 레이어 수를 의미한다.
+`raster_cache.cpu_parallel_bgra_peak_workers`는 실제 동시 작업자 최대 수(0~2),
+`raster_cache.cpu_parallel_bgra_work_seconds`는 병렬 작업자별 변환 시간의 합계다.
+작업자 시간은 다른 렌더링과 겹칠 수 있으므로 전체 경과 시간에 더하지 않는다. 실제 성능 비교 기준은
 `native_stream_wall_fps`, `native_stream_elapsed_seconds`,
 전체 메모리 사용량과 동등한 BGRA/NV12 출력이다.
 
