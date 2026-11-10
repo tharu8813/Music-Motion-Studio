@@ -312,7 +312,9 @@ class RuntimeContracts(unittest.TestCase):
                 renderer.return_value.prepare_playlist_audio.return_value = root / "audio.wav"
                 actual = export_project_document(project, result.output_path, native_exe=exe,
                     fps=60, scale=.25, cancel_event=cancel, progress_callback=progress, frame_source=source)
-            self.assertIs(actual, result)
+            self.assertEqual(actual.output_path, result.output_path)
+            self.assertEqual(actual.track_count, result.track_count)
+            self.assertIn("completed_wall_seconds", actual.native_report)
             self.assertIs(render.call_args.kwargs["cancel_event"], cancel)
             self.assertIs(render.call_args.kwargs["progress_callback"], progress)
             self.assertEqual(render.call_args.kwargs["compiled_plan"].duration_seconds, 1)

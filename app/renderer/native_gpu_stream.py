@@ -6,6 +6,7 @@ persistent GPU resources; finalization reuses the existing audio/mux path.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from dataclasses import replace
 import json
 import logging
 import math
@@ -104,7 +105,7 @@ def stream_native_canvas_h264(
         args = [
             str(exe), "--width", str(width), "--height", str(height),
             "--fps", str(fps), "--expected-frames", str(expected_frames),
-            "--duration-seconds", format(duration_seconds, ".12g"),
+            "--duration-seconds", format(duration_seconds, ".17g"),
             "--slots", str(slots), "--video-output", str(video),
             "--output", str(report), "--input-format", "binary-v1",
         ]
@@ -313,7 +314,7 @@ def render_native_gpu_playlist(
             storage_path_callback("render", root)
         video = root / "complete.h264"
         report = root / "complete.json"
-        stream_native_canvas_h264(
+        native_report = stream_native_canvas_h264(
             frames, executable=executable, video_path=video, report_path=report,
             width=settings.output_width, height=settings.output_height,
             fps=settings.fps, duration_seconds=compiled_plan.duration_seconds,
@@ -323,7 +324,7 @@ def render_native_gpu_playlist(
         ffprobe = Path(renderer.executable).with_name(
             "ffprobe.exe" if os.name == "nt" else "ffprobe",
         )
-        return finalize_native_gpu_mp4(
+        result = finalize_native_gpu_mp4(
             renderer, h264_path=video, gpu_report_path=report,
             prepared_audio_path=prepared_audio_path, tracks=tracks,
             compiled_plan=compiled_plan, output_path=output_path,
@@ -332,3 +333,4 @@ def render_native_gpu_playlist(
             progress_callback=mux_progress_callback,
             storage_path_callback=storage_path_callback,
         )
+        return replace(result, native_report=native_report)

@@ -17,7 +17,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from app.preview.native_canvas_layer_packets import NativeCanvasBgraLayer, NativeCanvasFrame
-from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderCancelledError, RenderError, RenderSettings
+from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderCancelledError, RenderError, RenderSettings, RenderResult
 from app.renderer.native_gpu_stream import (
     render_native_gpu_playlist, stream_native_canvas_h264,
 )
@@ -112,6 +112,19 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                                  ["frame_transport_bytes"], result["frame_transport_bytes"])
                 return result
 
+    def test_fractional_duration_roundtrips_across_native_process_boundary(self):
+        # Rounding this duration to 12 significant digits loses one CFR frame.
+        duration = 10.000000000009
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("app.renderer.native_gpu_stream.subprocess.Popen", side_effect=OSError("startup probe")) as launch:
+                with self.assertRaises(RenderError):
+                    stream_native_canvas_h264([], executable=Path(sys.executable),
+                        video_path=root / "video.h264", report_path=root / "report.json",
+                        width=64, height=64, fps=120, duration_seconds=duration, expected_frames=1201)
+            args = launch.call_args.args[0]
+            self.assertEqual(float(args[args.index("--duration-seconds") + 1]), duration)
+
     def test_streams_over_120_frames_with_one_staged_frame_per_ack(self):
         result = self._run_mock(count=135)
         self.assertEqual(result["frames_encoded"], 135)
@@ -203,7 +216,7 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
             with patch("app.renderer.native_gpu_stream.stream_native_canvas_h264") as stream, patch(
                 "app.renderer.native_gpu_stream.finalize_native_gpu_mp4"
             ) as finalizer:
-                finalizer.return_value = "FINALIZED"
+                finalizer.return_value = RenderResult(root / "result.mp4", 1)
                 result = render_native_gpu_playlist(
                     renderer, passed, executable=root / "native.exe",
                     tracks=[track], compiled_plan=plan,
@@ -215,7 +228,8 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                         output_width=64, output_height=64,
                     ),
                 )
-            self.assertEqual(result, "FINALIZED")
+            self.assertEqual(result.output_path, root / "result.mp4")
+            self.assertIs(result.native_report, stream.return_value)
             self.assertIs(stream.call_args.args[0], passed)
             self.assertEqual(stream.call_args.kwargs["expected_frames"], 30)
             self.assertEqual(finalizer.call_args.kwargs["tracks"], [track])

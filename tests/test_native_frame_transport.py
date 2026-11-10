@@ -8,7 +8,7 @@ from app.renderer.native_frame_transport import HEADER, frame_chunks, write_fram
 
 
 def frame():
-    return NS(width=2, height=2, layers=(NS(stream_key="base", opacity=1.0,
+    return NS(width=2, height=2, schema=1, layers=(NS(stream_key="base", width=2, height=2, opacity=1.0,
                                          pixels=bytes([1, 2, 3, 255])*4),))
 
 

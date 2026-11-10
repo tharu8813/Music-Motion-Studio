@@ -5,6 +5,8 @@ cancel_event. On the GUI/CLI thread the default lazy producer can be used
 directly. No editor scenes or source models are mutated or passed to workers.
 """
 from copy import deepcopy
+from dataclasses import replace
+from time import monotonic
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
@@ -27,6 +29,13 @@ def _require_developer_runtime():
     if not getattr(sys, "frozen", False):
         from scripts.rust_prerequisites import require_developer_environment
         require_developer_environment()
+    from PySide6.QtGui import QFontDatabase
+    from PySide6.QtWidgets import QApplication
+    if not isinstance(QApplication.instance(), QApplication):
+        raise RenderError("Create a QApplication before native Canvas export.")
+    if not QFontDatabase.families():
+        raise RenderError("Qt has no fonts available. On Windows use QT_QPA_PLATFORM=windows, "
+                          "or remove the offscreen override before exporting; missing glyphs cannot be exported safely.")
 
 
 def resolve_native_executable(explicit=None):
@@ -81,6 +90,7 @@ def _export_project_document(
     is cooperative. Worker callers must supply the GUI-owned frame bridge and
     keep the Qt event loop processing until its closed signal is delivered.
     """
+    started = monotonic()
     cancel = cancel_event or Event()
     _check_cancel(cancel)
     output = Path(output_path)
@@ -110,14 +120,17 @@ def _export_project_document(
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     frames = frame_source
+    raster_counters = frame_source.raster_counters if frame_source is not None else {}
     try:
         with TemporaryDirectory(prefix="mms-native-audio-") as directory:
             if storage_path_callback is not None:
                 storage_path_callback("frames", Path(directory))
+            audio_started = monotonic()
             audio = renderer.prepare_playlist_audio(
                 tracks, Path(directory), settings, transition_mode="none", cancel_event=cancel,
                 progress_callback=preparation_progress_callback,
             )
+            audio_seconds = monotonic() - audio_started
             _check_cancel(cancel)
             if preparation_progress_callback is not None:
                 preparation_progress_callback("Preparing visual frames", 1.0, "Analyzing audio for Canvas effects")
@@ -125,10 +138,11 @@ def _export_project_document(
                 frames = produce_complete_project_frames(
                     project, fps=fps, scale=scale, prepared_audio=audio,
                     ffmpeg=str(renderer.executable), cancel_event=cancel,
+                    raster_counters=raster_counters,
                 )
             else:
                 frames.prepare(audio, str(renderer.executable))
-            return render_native_gpu_playlist(
+            result = render_native_gpu_playlist(
                 renderer, frames, executable=executable, tracks=tracks,
                 compiled_plan=plan, prepared_audio_path=audio,
                 output_path=output, settings=settings, cancel_event=cancel,
@@ -138,6 +152,10 @@ def _export_project_document(
                 metadata=ExportMetadata(title=project.settings.title,
                     artist=project.settings.author, comment=project.settings.description),
             )
+            report = dict(result.native_report or {})
+            report.update(raster_cache=dict(raster_counters), audio_prepare_seconds=audio_seconds,
+                          completed_wall_seconds=monotonic() - started)
+            return replace(result, native_report=report)
     finally:
         if frames is not None:
             frames.close()

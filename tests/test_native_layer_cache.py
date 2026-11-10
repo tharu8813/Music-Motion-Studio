@@ -1,0 +1,103 @@
+"""Real Qt raster comparisons; no GPU/codec required."""
+import os
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+import unittest
+from unittest.mock import patch
+
+from PySide6.QtWidgets import QApplication
+from app.canvas.live_canvas import CanvasScene
+from app.canvas.source_item import SourceItem
+from app.models.source import Source, SourceType
+from app.models.playlist import PlaylistTrack
+from app.preview.canvas_snapshot import CanvasSnapshot
+from app.preview.native_canvas_layer_packets import capture_native_canvas_track_frame
+from app.renderer.native_dynamic_layers import build_dynamic_stack
+from app.renderer.native_layer_cache import NativeRasterCache, split_resident_bands
+from app.models.project import ProjectDocument, CanvasSettings
+
+
+class RasterCacheTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        self.scene = CanvasScene()
+        self.scene.set_artboard_size(128, 128)
+        self.scene.show_grid = False
+        self.addCleanup(self.scene.clear)
+        self.track = PlaylistTrack("", "First", duration_seconds=2)
+
+    def add(self, source):
+        self.scene.addItem(SourceItem(source))
+
+    def capture(self, bands, t, cache=None):
+        return capture_native_canvas_track_frame(self.scene, self.track, bands,
+            elapsed_seconds=t, playlist_duration_seconds=2, raster_cache=cache)
+
+    def test_identical_static_pixels_repaint_once_including_alpha_rotation_effects_clip(self):
+        # Full-frame snapshots preserve artboard clipping and existing painter
+        # effects. Cached bytes must match those same snapshots exactly.
+        for source in [
+            Source(SourceType.SHAPE, "Background", width=128, height=128, z_index=0),
+            Source(SourceType.TEXT, "Text", text="Cache", x=-12, y=12,
+                   width=96, height=80, z_index=2, rotation=23, opacity=.43,
+                   scale=1.2, blur=1.5, frame_width=2, mask_shape="circle", font_size=20),
+        ]:
+            source.shadow.enabled = True
+            source.shadow.blur_radius = 5
+            self.add(source)
+        bands = ((None, 0), (2, None))
+        cache = NativeRasterCache(self.scene, bands, 2)
+        reference = self.capture(bands, 0)
+        with patch.object(CanvasSnapshot, "capture_track", wraps=CanvasSnapshot.capture_track) as paint:
+            for i in range(60):
+                frame = self.capture(bands, i / 60, cache)
+                self.assertEqual(frame, reference)
+            self.assertEqual(paint.call_count, 2)
+        self.assertEqual(cache.rasterizations, 2)
+        self.assertEqual(cache.hits, 118)
+        self.assertEqual(cache.retained_bytes, 128 * 128 * 4 * 2)
+        cache.clear()
+        self.assertEqual(cache.retained_bytes, 0)
+
+    def test_mixed_bands_split_and_dynamic_clock_never_freezes(self):
+        sources = [Source(SourceType.SHAPE, "Static", width=128, height=128, z_index=0),
+                   Source(SourceType.PROGRESS_BAR, "Clock", progress_mode="track", z_index=2,
+                          width=128, height=90)]
+        for source in sources:
+            self.add(source)
+        project = ProjectDocument(canvas=CanvasSettings(128, 128), sources=sources)
+        stack = split_resident_bands(self.scene, build_dynamic_stack(project, 1), 2)
+        self.assertEqual(len(stack.bands), 2)
+        self.assertEqual(stack.order, (("canvas", 0), ("canvas", 1)))
+        cache = NativeRasterCache(self.scene, stack.bands, 2)
+        first = self.capture(stack.bands, 0, cache)
+        second = self.capture(stack.bands, 1, cache)
+        self.assertEqual(first.layers[0], second.layers[0])
+        self.assertTrue(first.layers[1].pixels != second.layers[1].pixels, "clock pixels must advance")
+        self.assertEqual(cache.rasterizations, 3)
+        self.assertEqual(cache.hits, 1)
+
+    def test_equal_z_and_stream_bound_keep_original_order(self):
+        sources = [Source(SourceType.SHAPE if i % 2 == 0 else SourceType.TIME,
+                          str(i), z_index=i, width=128, height=128) for i in range(20)]
+        sources.append(Source(SourceType.TIME, "Same Z", z_index=0))
+        for source in sources:
+            self.add(source)
+        project = ProjectDocument(sources=sources)
+        stack = split_resident_bands(self.scene, build_dynamic_stack(project, 1), 2)
+        self.assertLessEqual(len(stack.bands), 8)
+        cache = NativeRasterCache(self.scene, stack.bands, 2)
+        self.assertNotIn("base", cache.keys)
+        for i, band in enumerate(stack.bands):
+            if i:
+                self.assertGreater(band[0], stack.bands[i - 1][1])
+
+    def test_new_export_never_reuses_prior_project_pixels(self):
+        source = Source(SourceType.TEXT, "Label", text="Old", width=128, height=128)
+        self.add(source)
+        old = self.capture(((None, None),), 0, NativeRasterCache(self.scene, ((None, None),), 2))
+        source.text = "New longer label"
+        new = self.capture(((None, None),), 0, NativeRasterCache(self.scene, ((None, None),), 2))
+        self.assertTrue(old.layers[0].pixels != new.layers[0].pixels, "new export must repaint changed text")
