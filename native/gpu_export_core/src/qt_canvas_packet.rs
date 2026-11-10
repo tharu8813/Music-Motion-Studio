@@ -16,6 +16,13 @@ pub struct CanvasPacketLayer {
     pub opacity: f32,
     pub pixels: Vec<u8>,
     pub geometry: LayerGeometry,
+    // SHA-256 computed by the strictly validated packet parser. Never
+    // recompute it in the GPU resident cache: 1080p exports previously
+    // hashed every received BGRA plane twice on the Rust CPU.
+    //
+    // crate-visible only: downstream callers must not manufacture a
+    // "verified" checksum for bytes that have not passed validation.
+    pub(crate) validated_sha256: [u8; 32],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -99,13 +106,22 @@ pub fn load_qt_canvas_packet(path: &Path) -> Result<CanvasPacketFrame, String> {
 
 /// Shared validation for diagnostic files and production binary planes.
 pub fn parse_qt_canvas_packet(
-    manifest: &[u8], mut plane: impl FnMut(&str, usize) -> Result<Vec<u8>, String>,
+    manifest: &[u8], plane: impl FnMut(&str, usize) -> Result<Vec<u8>, String>,
 ) -> Result<CanvasPacketFrame, String> {
     if manifest.len() > 64 * 1024 {
         return Err("Canvas manifest exceeds 64 KiB".into());
     }
-    let root: Value = serde_json::from_slice(&manifest)
+    let root: Value = serde_json::from_slice(manifest)
         .map_err(|e| format!("Invalid Canvas packet JSON: {e}"))?;
+    parse_qt_canvas_packet_value(&root, plane)
+}
+
+/// A validated manifest can be reused by the streaming v2 layer-reference
+/// reader. This avoids parsing identical JSON twice per frame while retaining
+/// the entire shared geometry, SHA-256 and opaque-base validation.
+pub(crate) fn parse_qt_canvas_packet_value(
+    root: &Value, mut plane: impl FnMut(&str, usize) -> Result<Vec<u8>, String>,
+) -> Result<CanvasPacketFrame, String> {
     let schema = root["schema"].as_u64().ok_or("Canvas schema missing")?;
     if !matches!(schema, 1 | 2) || root["format"] != format!("mms_canvas_bgra_layers_v{schema}")
         || root["pixel_format"] != "BGRA8_STRAIGHT"
@@ -172,8 +188,10 @@ pub fn parse_qt_canvas_packet(
         if pixels.len() != plane_bytes {
             return Err(format!("Canvas layer {i} has unexpected byte count"));
         }
-        let actual = format!("{:x}", Sha256::digest(&pixels));
-        if !digest.eq_ignore_ascii_case(&actual) {
+        let actual = Sha256::digest(&pixels);
+        // Preserve the existing case-insensitive SHA-256 wire contract.
+        // Comparing the validated hex avoids introducing a second hash.
+        if !digest.eq_ignore_ascii_case(&format!("{actual:x}")) {
             return Err(format!("Canvas layer {i} checksum mismatch"));
         }
         // The video processor expects an opaque base, and transparent
@@ -186,6 +204,7 @@ pub fn parse_qt_canvas_packet(
             opacity: opacity as f32,
             pixels,
             geometry,
+            validated_sha256: actual.into(),
         });
     }
     Ok(CanvasPacketFrame { width, height, layers })
@@ -249,6 +268,10 @@ mod tests {
         assert_eq!((loaded.width, loaded.height), (4, 4));
         assert_eq!(loaded.layers.len(), 2);
         assert_eq!(loaded.layers[1].pixels, alpha);
+        assert_eq!(loaded.layers[0].validated_sha256,
+                   <[u8; 32]>::from(Sha256::digest(&base)));
+        assert_eq!(loaded.layers[1].validated_sha256,
+                   <[u8; 32]>::from(Sha256::digest(&alpha)));
         let mut altered = base;
         altered[0] ^= 0x01;
         std::fs::write(directory.join(names[0]), altered).unwrap();

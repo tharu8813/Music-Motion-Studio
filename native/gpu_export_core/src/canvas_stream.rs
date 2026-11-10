@@ -1,7 +1,7 @@
 //! MMSB v1: little-endian <4sI Q I Q>, JSON metadata then ordered BGRA planes.
 //! One frame in flight; ACK follows upload/submission, never just pipe receipt.
 use std::io::Read;
-use crate::qt_canvas_packet::{parse_qt_canvas_packet, CanvasPacketFrame, MAX_FRAME_BYTES, MAX_LAYERS};
+use crate::qt_canvas_packet::{parse_qt_canvas_packet, parse_qt_canvas_packet_value, CanvasPacketFrame, MAX_FRAME_BYTES, MAX_LAYERS};
 
 pub fn read_frame(reader: &mut impl Read, index: u64) -> Result<Option<CanvasPacketFrame>, String> {
     let mut header = [0u8; 28];
@@ -81,7 +81,7 @@ pub fn read_frame_reuse(
     }
     let mut remaining = payload;
     let mut layer_index = 0usize;
-    let frame = parse_qt_canvas_packet(&manifest, |_, size| {
+    let frame = parse_qt_canvas_packet_value(&root, |_, size| {
         let i = layer_index;
         layer_index += 1;
         if flags[i].as_bool() == Some(true) {
