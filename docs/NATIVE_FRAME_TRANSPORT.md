@@ -1,5 +1,30 @@
 # GPU 프레임 전송 계약
 
+## 현재 앱 동작 (2026-11-11)
+
+일반 사용자의 내보내기 창에는 **FFmpeg**와 **Rust GPU · D3D11 + NVENC**
+두 렌더 엔진만 제공한다. GPU 최적화 콤보박스는 없다. Rust GPU를 선택하면
+하나의 `automatic` 프로필이 작업별로 적용된다.
+
+- 순차 ACK를 유지하면서 프레임 선행 생성, Qt 투명 영역 크롭, Compact ROI,
+  binary-v2 이전 프레임 픽셀 재사용을 기본적으로 조합한다.
+- QImage를 그리는 Qt GUI 스레드는 유지하고, BGRA 변환만 최대 2개 CPU 작업자에
+  선택적으로 분배한다. **1 MiB 미만**의 작은 픽셀 평면은 바로 변환한다.
+  두 변환 슬롯이 바쁘면 Qt GUI 스레드에서 즉시 변환하므로 **세마포어 대기로
+  프레임 생성이 멈추지 않는다.** 원본 픽셀의 위치·해상도·시간은 바꾸지 않는다.
+- 출력이 unsupported 환경이거나 GPU preflight가 실패하면 기존 FFmpeg 폴백
+  경로는 그대로 사용한다. 사용자는 FFmpeg 엔진을 직접 선택할 수도 있다.
+- `native_report.raster_cache`에는 실제 `qt_canvas_capture_seconds`와
+  `qt_canvas_inline_bgra_seconds`, `parallel_bgra_inline_small`,
+  `parallel_bgra_inline_busy`, `cpu_parallel_bgra_peak_workers`가 표시된다.
+  원본 대조 테스트에서 `native_stream_wall_fps`, 전체 경과 시간 및 영상의
+  픽셀·가사·오디오 품질을 검증한 뒤 배포 안정성을 판단한다.
+
+아래의 예전 `standard`/`accelerated`/`cpu_parallel` 프로필과
+`PLAYLIST_CANVAS_NATIVE_*` 환경변수 설명은 **개발·회귀 테스트 및 과거
+실험 기록**이다. 일반 앱의 GPU 최적화 선택 UI에서는 제공하지 않는다.
+
+
 앱의 `native_project_export → render_native_gpu_playlist → stream_native_canvas_h264`
 경로는 작업자에 `--input-format binary-v1`을 전달한다. 프레임별 BGRA 파일과
 manifest 파일을 만들지 않는다. 기존 진단 CLI는 옵션 생략 또는
