@@ -120,7 +120,7 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                           if thread.name.startswith("mms-native-gpu-")], [])
 
     def _run_mock(self, *, count=135, provided=None, cancel=None, worker_source=MOCK_NATIVE_SOURCE,
-                  timeout=90, optimizations=None):
+                  timeout=90, optimizations=None, width=64, height=64):
         if os.name != "nt":
             self.skipTest("The native export transport is Windows-only")
         with TemporaryDirectory() as tmp:
@@ -139,11 +139,11 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
 
             with patch("app.renderer.native_gpu_stream.subprocess.Popen", side_effect=launch):
                 result = stream_native_canvas_h264(
-                    generated_frames(count) if provided is None else provided,
+                    generated_frames(count, width, height) if provided is None else provided,
                     executable=Path(sys.executable),
                     video_path=root / "video.h264",
                     report_path=root / "report.json",
-                    width=64, height=64, fps=30,
+                    width=width, height=height, fps=30,
                     duration_seconds=count / 30,
                     expected_frames=count, cancel_event=cancel,
                     acknowledgement_timeout=timeout,
@@ -244,6 +244,30 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
         self.assertEqual(report["max_outstanding_frame_packets"], 2)
         self.assertEqual(report["frame_reused_planes"], 5)
         self.assertEqual(report["frames_encoded"], 6)
+
+    def test_automatic_v3_delta_roundtrips_through_actual_child_process(self):
+        if os.name != "nt":
+            self.skipTest("Native Windows pipe worker required")
+        width = height = 512
+        stride = width * 4
+        def frames():
+            original = bytes((20, 60, 120, 255)) * (width * height)
+            for index in range(4):
+                data = bytearray(original)
+                # Change only a small line band, not full-frame pixels.
+                data[140 * stride:145 * stride] = bytes((index + 1, 10, 20, 255)) * (width * 5)
+                yield NativeCanvasFrame(width, height, (
+                    NativeCanvasBgraLayer("base", width, height, bytes(data)),
+                ))
+        result = self._run_mock(
+            count=4, provided=frames(), width=width, height=height,
+            optimizations=NativeGpuOptimizations.for_profile("automatic"),
+        )
+        self.assertEqual(result["frame_transport"], "binary-v3")
+        self.assertEqual(result["frame_row_delta_planes"], 3)
+        self.assertEqual(result["frames_encoded"], 4)
+        self.assertGreater(result["frame_row_delta_bytes_saved"], 3 * 900_000)
+        self.assertLess(result["frame_transport_bytes"], 2 * width * height * 4)
 
     def test_opt_in_reuses_identical_layers_with_real_native_write_and_ack(self):
         # The mock validates every recovered byte and SHA at each PTS;
