@@ -132,10 +132,13 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
             raise ValueError("Invalid binary frame layer")
 
     parallel = executor is not None and len(frame.layers) >= 2 and total_size >= 1 << 20
+    started_hash = monotonic() if timings is not None else 0.0
     if parallel:
         digests = list(executor.map(_hash_pixels, (layer.pixels for layer in frame.layers)))
     else:
         digests = [_hash_pixels(layer.pixels) for layer in frame.layers]
+    if timings is not None:
+        _metric(timings, "sha256_wall_seconds", monotonic() - started_hash)
 
     prior = reuse_state.previous if reuse_state is not None else {}
     reused = [
@@ -156,11 +159,14 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
     encoded = {}
     if compress_planes:
         candidates = [i for i, reuse in enumerate(reused) if not reuse]
+        started_lz4 = monotonic() if timings is not None else 0.0
         if parallel and len(candidates) >= 2:
             results = list(executor.map(_encode_pixels,
                                         (frame.layers[i].pixels for i in candidates)))
         else:
             results = [_encode_pixels(frame.layers[i].pixels) for i in candidates]
+        if timings is not None:
+            _metric(timings, "lz4_wall_seconds", monotonic() - started_lz4)
         for i, (data, algorithm, elapsed) in zip(candidates, results):
             encoded[i] = (data, algorithm)
             _metric(timings, "lz4_cpu_seconds", elapsed)
