@@ -150,6 +150,10 @@ def produce_complete_project_frames(
                         qt_canvas_paint_stage_seconds=raster_cache.qt_canvas_paint_stage_seconds,
                         qt_canvas_state_restore_seconds=raster_cache.qt_canvas_state_restore_seconds,
                         qt_canvas_inline_bgra_seconds=raster_cache.qt_canvas_inline_bgra_seconds,
+                    qt_canvas_band_timing={
+                        key: dict(costs)
+                        for key, costs in raster_cache.qt_canvas_band_timing.items()
+                    },
                         retained_bytes=raster_cache.retained_bytes,
                         peak_retained_bytes=raster_cache.peak_retained_bytes,
                         advanced_lyric_cache_entries=len(raster_cache.frozen_lyric_settings_cache),
@@ -187,6 +191,10 @@ def produce_complete_project_frames(
                     qt_canvas_paint_stage_seconds=raster_cache.qt_canvas_paint_stage_seconds,
                     qt_canvas_state_restore_seconds=raster_cache.qt_canvas_state_restore_seconds,
                     qt_canvas_inline_bgra_seconds=raster_cache.qt_canvas_inline_bgra_seconds,
+                    qt_canvas_band_timing={
+                        key: dict(costs)
+                        for key, costs in raster_cache.qt_canvas_band_timing.items()
+                    },
                 )
         scene.clear()
 
