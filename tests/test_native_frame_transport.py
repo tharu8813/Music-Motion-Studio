@@ -40,6 +40,50 @@ class TransportTests(unittest.TestCase):
         self.assertGreater(measurements["pipe_syswrite_calls"], 0)
         self.assertGreaterEqual(measurements["pipe_syswrite_seconds"], 0)
 
+    def test_per_layer_wire_accounting_keeps_packets_identical(self):
+        def make_frame(top):
+            base = NS(
+                stream_key="base", width=2, height=2, opacity=1.0,
+                pixels=bytes((5, 8, 11, 255)) * 4,
+            )
+            overlay = NS(
+                stream_key="layer:0", width=2, height=2, opacity=0.5,
+                pixels=bytes((top, 2, 3, 128)) * 4,
+            )
+            return NS(width=2, height=2, schema=1, layers=(base, overlay))
+
+        samples = (make_frame(20), make_frame(21), make_frame(21))
+        expected_reuse = FrameReuseState()
+        counted_reuse = FrameReuseState()
+        stats = {}
+        expected = [
+            b"".join(frame_chunks(sample, index, reuse_state=expected_reuse))
+            for index, sample in enumerate(samples)
+        ]
+        actual = [
+            b"".join(frame_chunks(sample, index, reuse_state=counted_reuse, timings=stats))
+            for index, sample in enumerate(samples)
+        ]
+        self.assertEqual(actual, expected)
+        self.assertEqual(stats["layer_transport"], {
+            "base": {
+                "planes": 3, "source_bytes": 48, "wire_bytes": 16,
+                "reused_planes": 2, "lz4_planes": 0,
+            },
+            "layer:0": {
+                "planes": 3, "source_bytes": 48, "wire_bytes": 32,
+                "reused_planes": 1, "lz4_planes": 0,
+            },
+        })
+        self.assertEqual(
+            sum(layer["wire_bytes"] for layer in stats["layer_transport"].values()),
+            stats["wire_payload_bytes"],
+        )
+        self.assertEqual(
+            sum(layer["reused_planes"] for layer in stats["layer_transport"].values()),
+            counted_reuse.reused_planes,
+        )
+
     def test_v2_previous_frame_references_skip_wire_payload_without_freezing_state(self):
         cache = FrameReuseState()
         first = frame()
