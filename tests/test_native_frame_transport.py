@@ -178,6 +178,8 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(decoded, make_frame().layers[0].pixels)
         self.assertEqual(hashlib.sha256(decoded).hexdigest(), layer["sha256"])
         self.assertEqual(stats["lz4_planes"], 1)
+        self.assertEqual(stats["layer_transport"]["base"]["lz4_planes"], 1)
+        self.assertEqual(stats["layer_transport"]["base"]["wire_bytes"], wire_len)
         self.assertGreater(stats["raw_source_bytes"], stats["wire_payload_bytes"])
 
         second = b"".join(frame_chunks(make_frame(), 1, reuse_state=cache,
