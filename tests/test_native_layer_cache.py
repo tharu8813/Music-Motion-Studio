@@ -386,6 +386,41 @@ class RasterCacheTests(unittest.TestCase):
             (("Bottom",), ("Top",)),
         )
 
+    def test_cached_scene_item_enumeration_preserves_z_band_pixels_and_current_visibility(self):
+        # With an immutable detached export scene, source enumeration should
+        # happen once when building the raster cache, not per band/frame.
+        # Compare to the original path (which calls scene.items each paint).
+        self.add(Source(
+            SourceType.SHAPE, "Opaque base", width=128, height=128, z_index=0,
+            fill_color="#19324C",
+        ))
+        self.add(Source(
+            SourceType.TEXT, "Dynamic clock", text="%current_time%",
+            x=10, y=20, width=98, height=40, z_index=2,
+            font_size=18, fill_color="#FFFFFF",
+        ))
+        self.add(Source(
+            SourceType.TEXT, "Unrelated band", text="Top",
+            x=50, y=80, width=45, height=26, z_index=4,
+            font_size=14, fill_color="#FEDCBA",
+        ))
+        bands = ((None, 0), (2, 3), (4, None))
+        expected = [self.capture(bands, t) for t in (0.0, 0.25, 0.75)]
+        cache = NativeRasterCache(
+            self.scene, bands, 2,
+            optimizations=NativeGpuOptimizations.for_profile("automatic"),
+        )
+        try:
+            with patch.object(self.scene, "items", wraps=self.scene.items) as enum:
+                actual = [self.capture(bands, t, cache) for t in (0.0, 0.25, 0.75)]
+            self.assertEqual(enum.call_count, 0,
+                "Native cached Z-band snapshots must not traverse QGraphicsScene per frame")
+            self.assertEqual(expected, actual)
+            self.assertEqual(len(cache.scene_source_items), 3)
+            self.assertEqual(cache.rasterizations, 3 * 3)
+        finally:
+            cache.clear()
+
     def test_explicit_gui_profile_overrides_legacy_experiment_environment(self):
         self.add(Source(SourceType.SHAPE, "Base", width=128, height=128))
         with patch.dict(os.environ, {
