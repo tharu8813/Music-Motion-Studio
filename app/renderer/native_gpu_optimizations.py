@@ -22,6 +22,9 @@ class NativeGpuOptimizations:
     # Automatic mode offloads only sufficiently large, already-painted
     # QImages and never blocks the GUI waiting for converter slots.
     adaptive_bgra: bool = False
+    # Only in an explicit developer CLI diagnostic: time actual Qt paint()
+    # invocations by SourceType, without modifying normal source items.
+    profile_canvas_source_paint: bool = False
 
     @classmethod
     def for_profile(cls, profile: str) -> "NativeGpuOptimizations":
