@@ -26,6 +26,7 @@ from app.renderer.native_gpu_stream import (
     render_native_gpu_playlist, stream_native_canvas_h264,
 )
 from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
+from app.renderer.native_frame_transport import supports_lz4_transport
 from app.timeline.compiler import compile_playlist
 from app.models.playlist import PlaylistTrack
 
@@ -37,6 +38,10 @@ import os
 import hashlib
 from pathlib import Path
 import sys
+try:
+    from lz4 import block as lz4_block
+except ImportError:
+    lz4_block = None
 
 flags = dict(zip(sys.argv[1::2], sys.argv[2::2]))
 count = int(flags["--expected-frames"])
@@ -50,8 +55,8 @@ def exact(n):
         result.extend(part)
     return result
 mode = flags["--input-format"]
-assert mode in ("binary-v1", "binary-v2")
-expected_version = 2 if mode == "binary-v2" else 1
+assert mode in ("binary-v1", "binary-v2", "binary-v3")
+expected_version = {"binary-v1": 1, "binary-v2": 2, "binary-v3": 3}[mode]
 previous = {}
 for index in range(count):
     magic, version, pts, metadata, payload = struct.unpack("<4sIQIQ", exact(28))
@@ -60,7 +65,7 @@ for index in range(count):
     flags = data.get("reuse_previous_frame", [False] * len(data["layers"]))
     assert len(flags) == len(data["layers"])
     assert all(type(flag) is bool for flag in flags)
-    if version == 2:
+    if version >= 2:
         assert "reuse_previous_frame" in data
     new = {}
     total = 0
@@ -70,10 +75,26 @@ for index in range(count):
         if reuse:
             assert key in previous, ("missing previous", key)
             assert previous[key][0] == dims
+            if version == 3:
+                assert layer["compression"] == "previous"
+                assert layer["wire_bytes"] == 0
             pixels = previous[key][1]
         else:
-            pixels = exact(layer["bytes"])
-            total += len(pixels)
+            encoded_length = layer["wire_bytes"] if version == 3 else layer["bytes"]
+            encoded = exact(encoded_length)
+            if version == 3:
+                if layer["compression"] == "lz4":
+                    assert lz4_block is not None
+                    pixels = lz4_block.decompress(
+                        encoded, uncompressed_size=layer["bytes"]
+                    )
+                else:
+                    assert layer["compression"] == "raw"
+                    assert encoded_length == layer["bytes"]
+                    pixels = encoded
+            else:
+                pixels = encoded
+            total += len(encoded)
         assert len(pixels) == layer["bytes"]
         assert hashlib.sha256(pixels).hexdigest() == layer["sha256"], (key, index)
         new[key] = (dims, pixels)
@@ -106,7 +127,7 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                           if thread.name.startswith("mms-native-gpu-")], [])
 
     def _run_mock(self, *, count=135, provided=None, cancel=None, worker_source=MOCK_NATIVE_SOURCE,
-                  timeout=90, optimizations=None):
+                  timeout=90, optimizations=None, width=64, height=64):
         if os.name != "nt":
             self.skipTest("The native export transport is Windows-only")
         with TemporaryDirectory() as tmp:
@@ -125,11 +146,11 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
 
             with patch("app.renderer.native_gpu_stream.subprocess.Popen", side_effect=launch):
                 result = stream_native_canvas_h264(
-                    generated_frames(count) if provided is None else provided,
+                    generated_frames(count, width, height) if provided is None else provided,
                     executable=Path(sys.executable),
                     video_path=root / "video.h264",
                     report_path=root / "report.json",
-                    width=64, height=64, fps=30,
+                    width=width, height=height, fps=30,
                     duration_seconds=count / 30,
                     expected_frames=count, cancel_event=cancel,
                     acknowledgement_timeout=timeout,
@@ -206,13 +227,14 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
             "PLAYLIST_CANVAS_NATIVE_PIPELINED": "0",
         }):
             accelerated = self._run_mock(count=6, optimizations=fast)
-        self.assertEqual(accelerated["frame_transport"], "binary-v2")
+        self.assertEqual(accelerated["frame_transport"],
+                         "binary-v3" if supports_lz4_transport() else "binary-v2")
         self.assertTrue(accelerated["frame_pipeline_enabled"])
         self.assertTrue(accelerated["frame_reuse_enabled"])
         self.assertEqual(accelerated["frame_reused_planes"], 5)
         self.assertEqual(accelerated["native_optimization_profile"], "accelerated")
 
-    def test_automatic_profile_keeps_bounded_pipeline_and_binary_v2_wire(self):
+    def test_automatic_profile_keeps_bounded_pipeline_and_adaptive_wire(self):
         automatic = NativeGpuOptimizations.for_profile("automatic")
         self.assertTrue(automatic.adaptive_bgra)
         self.assertTrue(automatic.parallel_bgra)
@@ -224,11 +246,28 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
         }):
             report = self._run_mock(count=6, optimizations=automatic)
         self.assertEqual(report["native_optimization_profile"], "automatic")
-        self.assertEqual(report["frame_transport"], "binary-v2")
+        self.assertEqual(report["frame_transport"],
+                         "binary-v3" if supports_lz4_transport() else "binary-v2")
         self.assertTrue(report["frame_pipeline_enabled"])
         self.assertEqual(report["max_outstanding_frame_packets"], 2)
         self.assertEqual(report["frame_reused_planes"], 5)
         self.assertEqual(report["frames_encoded"], 6)
+
+    def test_large_automatic_frame_uses_v3_compression_end_to_end(self):
+        if not supports_lz4_transport():
+            self.skipTest("lz4 not available in this Python environment")
+        report = self._run_mock(
+            count=4, width=320, height=180,
+            optimizations=NativeGpuOptimizations.for_profile("automatic"),
+        )
+        self.assertEqual(report["frame_transport"], "binary-v3")
+        self.assertEqual(report["frames_encoded"], 4)
+        self.assertEqual(report["frame_reused_planes"], 3)
+        self.assertGreaterEqual(report["frame_lz4_planes"], 1)
+        self.assertGreater(report["frame_wire_saved_bytes"], 0)
+        self.assertLess(
+            report["frame_wire_payload_bytes"], report["frame_raw_source_bytes"],
+        )
 
     def test_opt_in_reuses_identical_layers_with_real_native_write_and_ack(self):
         # The mock validates every recovered byte and SHA at each PTS;
@@ -238,7 +277,8 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
             "PLAYLIST_CANVAS_NATIVE_PIPELINED": "1",
         }):
             result = self._run_mock(count=135)
-        self.assertEqual(result["frame_transport"], "binary-v2")
+        self.assertEqual(result["frame_transport"],
+                         "binary-v3" if supports_lz4_transport() else "binary-v2")
         self.assertTrue(result["frame_reuse_enabled"])
         self.assertEqual(result["frame_reused_planes"], 134)
         self.assertEqual(result["frame_reused_bytes"], 134 * 64 * 64 * 4)
@@ -319,7 +359,8 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
         )
         self.assertEqual(produced, list(range(6)))
         self.assertEqual(result["frames_encoded"], 6)
-        self.assertEqual(result["frame_transport"], "binary-v2")
+        self.assertEqual(result["frame_transport"],
+                         "binary-v3" if supports_lz4_transport() else "binary-v2")
         self.assertEqual(result["native_optimization_profile"], "cpu_parallel")
         self.assertEqual(result["cpu_parallel_bgra_frames"], 6)
         self.assertEqual(result["frame_reused_planes"], 5)

@@ -10,6 +10,8 @@ wgpu = { version = "27.0.1", default-features = false, features = ["dx12", "vulk
 pollster = "0.4"
 serde_json = "1.0"
 sha2 = "0.10"
+# Bound-safe block decompression only; no frame codec or checksum dependencies.
+lz4_flex = { version = "=0.14.0", default-features = false, features = ["std", "safe-decode"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D_Fxc", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common"] }

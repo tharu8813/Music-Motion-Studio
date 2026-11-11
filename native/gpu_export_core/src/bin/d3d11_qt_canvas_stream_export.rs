@@ -114,7 +114,7 @@ mod windows_export {
     use music_motion_gpu_core::d3d11_frame_pool::NativeNv12FramePool;
     use music_motion_gpu_core::d3d11_nvenc_registration::NativeNvencRegistrationSession;
     use music_motion_gpu_core::qt_canvas_packet::{load_qt_canvas_packet, CanvasPacketFrame};
-    use music_motion_gpu_core::canvas_stream::{read_frame, read_frame_reuse};
+    use music_motion_gpu_core::canvas_stream::{read_frame, read_frame_reuse, read_frame_adaptive};
     use music_motion_gpu_core::resident_layer_cache::ResidentLayerCache;
     use music_motion_gpu_core::d3d11_affine::AffineLayerRenderer;
     use serde_json::{json, Value};
@@ -136,6 +136,7 @@ mod windows_export {
         report: PathBuf,
         binary: bool,
         binary_v2: bool,
+        binary_v3: bool,
     }
 
     fn parse_options() -> Result<Options, String> {
@@ -149,6 +150,7 @@ mod windows_export {
         let mut report = None;
         let mut binary = false;
         let mut binary_v2 = false;
+        let mut binary_v3 = false;
         let mut arguments = env::args().skip(1);
         while let Some(option) = arguments.next() {
             let value = arguments.next()
@@ -171,6 +173,7 @@ mod windows_export {
                 "--input-format" => match value.as_str() {
                     "binary-v1" => binary = true,
                     "binary-v2" => { binary = true; binary_v2 = true; },
+                    "binary-v3" => { binary = true; binary_v3 = true; },
                     "manifest" => binary = false,
                     _ => return Err("Unsupported frame input format".into()),
                 },
@@ -188,6 +191,7 @@ mod windows_export {
             report: report.ok_or("Missing --output")?,
             binary,
             binary_v2,
+            binary_v3,
         };
         if options.width < 64 || options.width > 3840
             || options.height < 64 || options.height > 2160
@@ -284,11 +288,18 @@ mod windows_export {
         Ok(())
     }
 
+    // Both v2 and adaptive-LZ4 v3 can reference the immediately preceding
+    // decoded frame; keep it alive after GPU submission until the next read.
+    fn needs_previous_packet(binary_v2: bool, binary_v3: bool) -> bool {
+        binary_v2 || binary_v3
+    }
+
     fn next_input_frame(
         input: &mut std::io::StdinLock<'_>, index: u64,
         previous: Option<&mut CanvasPacketFrame>, options: &Options,
     ) -> Result<Option<CanvasPacketFrame>, String> {
-        if options.binary_v2 { read_frame_reuse(input, index, previous) }
+        if options.binary_v3 { read_frame_adaptive(input, index, previous) }
+        else if options.binary_v2 { read_frame_reuse(input, index, previous) }
         else if options.binary { read_frame(input, index) }
         else {
             read_manifest_line(input)?
@@ -363,7 +374,7 @@ mod windows_export {
                     .map_err(|e| format!("Native frame acceptance channel closed: {e}"))?;
             }
             if clock.submitted == clock.expected {
-                let unexpected = if options.binary_v2 {
+                let unexpected = if needs_previous_packet(options.binary_v2, options.binary_v3) {
                     next_input_frame(&mut input, clock.submitted, Some(&mut current), &options)?
                 } else {
                     drop(current);
@@ -375,7 +386,7 @@ mod windows_export {
                 break;
             }
             let transfer_started = Instant::now();
-            let next = if options.binary_v2 {
+            let next = if needs_previous_packet(options.binary_v2, options.binary_v3) {
                 next_input_frame(&mut input, clock.submitted, Some(&mut current), &options)?
             } else {
                 drop(current);
@@ -424,7 +435,7 @@ mod windows_export {
             "qt_canvas_rasterized_on_cpu": true,
             "native_gpu_text_painting_implemented": false,
             "max_pending_gpu_slots": options.slots,
-            "input": if options.binary_v2 { "binary-v2" } else if options.binary { "binary-v1" } else { "newline_separated_manifest_paths_stdin" },
+            "input": if options.binary_v3 { "binary-v3" } else if options.binary_v2 { "binary-v2" } else if options.binary { "binary-v1" } else { "newline_separated_manifest_paths_stdin" },
             "frame_receive_seconds": transfer_seconds,
             "bgra_disk_bytes": if options.binary { Some(0u64) } else { None },
             "resident_layer_cache": {
@@ -465,6 +476,18 @@ mod windows_export {
             return Err(reason);
         }
         Ok(result)
+    }
+
+    #[cfg(test)]
+    mod reference_lifetime_tests {
+        use super::needs_previous_packet;
+
+        #[test]
+        fn v3_keeps_previous_packet_for_subsequent_frames() {
+            assert!(!needs_previous_packet(false, false)); // v1 and manifest
+            assert!(needs_previous_packet(true, false));   // v2
+            assert!(needs_previous_packet(false, true));   // LZ4 v3
+        }
     }
 
     pub fn run() -> Result<(), String> {

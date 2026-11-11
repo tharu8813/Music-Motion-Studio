@@ -4,6 +4,8 @@ PyJWT[crypto]>=2.10,<3.0
 ctranslate2>=4.8,<5.0
 sentencepiece>=0.2,<0.3
 numpy>=1.26,<3.0
+# Lossless fast block transport for Rust GPU frame layers (v3; raw fallback).
+lz4>=4.4.5,<5.0
 # AutoMix's default BPM/beat analyzer (app/automix/analysis/basic.py). Pulls
 # in scipy, numba/llvmlite, scikit-learn, soundfile, and pooch -- see
 # docs/automix-history/automix-phase1-dependency-evaluation.md for why librosa was chosen

@@ -60,7 +60,7 @@ AUTOMIX_MODEL_FILES = (
 # Mandatory on the build host and bundled with the finished executable.
 # Packaged end users do not need rustc, Cargo or MSVC installed.
 REQUIRED_EXPORT_NATIVE = ["music_motion_native"]
-_missing = [name for name in (*AUTOMIX_PACKAGES, *TRANSLATION_PACKAGES, "onnxruntime") if importlib.util.find_spec(name) is None]
+_missing = [name for name in (*AUTOMIX_PACKAGES, *TRANSLATION_PACKAGES, "onnxruntime", "lz4") if importlib.util.find_spec(name) is None]
 _missing += [name for name in AUTOMIX_MODEL_FILES if not (AUTOMIX_MODEL_DIRECTORY / name).is_file()]
 if _missing:
     raise SystemExit(
@@ -74,7 +74,7 @@ automix_hiddenimports: list = []
 gpu_export_executable = project_root / "native/gpu_export_core/target/release/d3d11_qt_canvas_stream_export.exe"
 if not gpu_export_executable.is_file():
     raise SystemExit("Build the GPU export executable first: cargo build --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_stream_export")
-for _package in (*AUTOMIX_PACKAGES, *TRANSLATION_PACKAGES):
+for _package in (*AUTOMIX_PACKAGES, *TRANSLATION_PACKAGES, "lz4"):
     _datas, _binaries, _hiddenimports = collect_all(_package, filter_submodules=runtime_submodule)
     automix_datas += _datas
     automix_binaries += _binaries
