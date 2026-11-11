@@ -7,6 +7,7 @@ opaque and transparent full-frame layers without an extra CPU flatten.
 from __future__ import annotations
 
 import hashlib
+from concurrent.futures import Future
 import json
 import os
 from pathlib import Path
@@ -25,10 +26,10 @@ from app.models.source import Source, SourceType
 from app.models.playlist import PlaylistTrack
 from app.preview.canvas_snapshot import CanvasSnapshot
 from app.preview.native_canvas_layer_packets import (
-    NativeCanvasBgraLayer, NativeCanvasFrame,
+    NativeCanvasBgraLayer, NativeCanvasFrame, DeferredNativeCanvasLayer,
     capture_native_canvas_frame, capture_native_canvas_track_frame,
     save_native_canvas_frame,
-    straight_bgra_bytes,
+    straight_bgra_bytes, straight_bgra_bytes_with_sha256,
 )
 
 
@@ -74,6 +75,33 @@ class NativeCanvasGpuPacketTests(unittest.TestCase):
         ]))
         self.assertGreater(data[2], 195)
         self.assertEqual(data[3], 128)
+
+    def test_converter_sha_matches_exact_straight_pixels_and_deferred_resolution(self):
+        for image_format in (
+            QImage.Format.Format_RGB32,
+            QImage.Format.Format_ARGB32,
+            QImage.Format.Format_ARGB32_Premultiplied,
+        ):
+            with self.subTest(image_format=image_format):
+                image = QImage(24, 12, image_format)
+                image.fill(QColor(204, 82, 33, 127))
+                expected = straight_bgra_bytes(image)
+                pixels, digest = straight_bgra_bytes_with_sha256(image)
+                self.assertEqual(pixels, expected)
+                self.assertEqual(digest, hashlib.sha256(expected).hexdigest())
+                future = Future()
+                future.set_result((pixels, digest))
+                resolved = DeferredNativeCanvasLayer(
+                    "base", 24, 12, future,
+                ).resolve()
+                self.assertEqual(resolved.pixels, expected)
+                self.assertEqual(resolved.precomputed_sha256, digest)
+                self.assertIsInstance(resolved.pixels, bytes)
+                with self.assertRaisesRegex(ValueError, "Precomputed SHA256"):
+                    NativeCanvasBgraLayer(
+                        "base", 24, 12, bytearray(pixels),
+                        precomputed_sha256=digest,
+                    )
 
     def test_real_canvas_source_items_captured_as_disjoint_alpha_layers(self):
         scene = self.build_scene()
