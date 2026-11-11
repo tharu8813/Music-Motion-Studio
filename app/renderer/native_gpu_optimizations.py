@@ -22,6 +22,8 @@ class NativeGpuOptimizations:
     # Automatic mode offloads only sufficiently large, already-painted
     # QImages and never blocks the GUI waiting for converter slots.
     adaptive_bgra: bool = False
+    # Developer-only, per-Z-stream lossless compression experiment; not a GUI option.
+    lz4_layer_probe_keys: frozenset[str] | None = None
 
     @classmethod
     def for_profile(cls, profile: str) -> "NativeGpuOptimizations":
