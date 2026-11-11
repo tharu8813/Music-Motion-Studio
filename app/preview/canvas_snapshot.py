@@ -1008,6 +1008,12 @@ class CanvasSnapshot:
                 source = keyframe_context.enter_context(
                     keyframe_source(graphics_item, key_values)
                 )
+            elif render_metrics is not None:
+                # Bounded developer-only accounting: the normal path has no
+                # extra timer or counter cost when the fast path is disabled.
+                render_metrics["empty_keyframe_context_skips"] = (
+                    render_metrics.get("empty_keyframe_context_skips", 0) + 1
+                )
             if (source.source_type is SourceType.TIME
                     or (source.source_type is SourceType.TEXT and "%" in source.text)):
                 original_text.append((graphics_item, source.text))
