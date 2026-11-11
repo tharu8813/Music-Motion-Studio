@@ -6,6 +6,7 @@ The receiver validates reconstructed bytes before D3D11 submission.
 import hashlib
 import json
 import struct
+from itertools import chain
 from time import monotonic
 from statistics import median
 
@@ -239,10 +240,15 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
 
 def write_frame(stream, frame, index, *, reuse_state=None, timings=None,
                 compress_planes=False, v3_wire=False, executor=None):
+    chunks = frame_chunks(frame, index, reuse_state=reuse_state, timings=timings,
+                          compress_planes=compress_planes, v3_wire=v3_wire,
+                          executor=executor)
+    # A frame always starts with the fixed 28-byte header followed by its
+    # bounded JSON manifest. One write for both eliminates a tiny pipe write
+    # per frame without touching layer payloads or the MMSB wire format.
+    preamble = next(chunks) + next(chunks)
     count = 0
-    for chunk in frame_chunks(frame, index, reuse_state=reuse_state, timings=timings,
-                              compress_planes=compress_planes, v3_wire=v3_wire,
-                              executor=executor):
+    for chunk in chain((preamble,), chunks):
         view = memoryview(chunk)
         while view:
             write_started = monotonic() if timings is not None else 0.0
