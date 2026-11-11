@@ -1,8 +1,10 @@
 """Protocol units require no Qt, GPU or frame spool."""
 import io
 import json
+import hashlib
 from types import SimpleNamespace as NS
 import unittest
+from unittest.mock import patch
 
 from app.renderer.native_frame_transport import (
     HEADER, AdaptiveCompressionBudget, FrameReuseState, frame_chunks, write_frame,
@@ -86,6 +88,64 @@ class TransportTests(unittest.TestCase):
                 ), len(expected))
                 self.assertEqual(partial.getvalue(), expected)
                 self.assertGreater(partial.calls, 3)
+
+    def test_prehashed_immutable_pixels_preserve_exact_v1_v2_v3_packets(self):
+        # A converter's digest is for these exact immutable bytes. Even when
+        # the sender skips hashing, the receiver's normal SHA contract and
+        # previous-frame reference manifests must remain byte-identical.
+        base = bytes((23, 45, 67, 255)) * 4
+        overlay = bytes((80, 12, 230, 128)) * 4
+
+        def make(use_hint):
+            layers = []
+            for key, data in (("base", base), ("layer:0", overlay)):
+                layers.append(NS(
+                    stream_key=key, width=2, height=2,
+                    opacity=1.0 if key == "base" else 0.5,
+                    pixels=data,
+                    precomputed_sha256=hashlib.sha256(data).hexdigest()
+                    if use_hint else None,
+                ))
+            return NS(width=2, height=2, schema=1, layers=tuple(layers))
+
+        for version in (1, 2, 3):
+            with self.subTest(version=version):
+                previous_a = FrameReuseState() if version >= 2 else None
+                previous_b = FrameReuseState() if version >= 2 else None
+                measurements = {}
+                for index in range(3):
+                    expected = b"".join(frame_chunks(
+                        make(False), index, reuse_state=previous_a,
+                        v3_wire=(version == 3),
+                    ))
+                    # All data is already safely hashed by an independent
+                    # conversion worker: sender must not hash it twice.
+                    with patch(
+                        "app.renderer.native_frame_transport._hash_pixels",
+                        side_effect=AssertionError("redundant SHA computation"),
+                    ):
+                        actual = b"".join(frame_chunks(
+                            make(True), index, reuse_state=previous_b,
+                            v3_wire=(version == 3), timings=measurements,
+                        ))
+                    self.assertEqual(actual, expected)
+                self.assertEqual(measurements["sha256_prefetched_planes"], 6)
+                self.assertEqual(measurements["sha256_prefetched_bytes"], 96)
+                self.assertEqual(measurements["sha256_bytes"], 96)
+                self.assertEqual(measurements["sha256_seconds"], 0)
+                if version >= 2:
+                    self.assertEqual(previous_b.reused_planes, 4)
+                    self.assertEqual(previous_a.reused_planes, previous_b.reused_planes)
+
+    def test_invalid_precomputed_sha_fails_closed(self):
+        sample = frame()
+        sample.layers[0].precomputed_sha256 = "incorrect"
+        with self.assertRaisesRegex(ValueError, "Invalid immutable BGRA"):
+            b"".join(frame_chunks(sample, 0))
+        sample.layers[0].precomputed_sha256 = "a" * 64
+        sample.layers[0].pixels = bytearray(sample.layers[0].pixels)
+        with self.assertRaisesRegex(ValueError, "Invalid immutable BGRA"):
+            b"".join(frame_chunks(sample, 0))
 
     def test_timing_measurement_preserves_exact_wire_bytes(self):
         baseline = io.BytesIO()
