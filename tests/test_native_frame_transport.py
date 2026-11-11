@@ -4,7 +4,9 @@ import json
 from types import SimpleNamespace as NS
 import unittest
 
-from app.renderer.native_frame_transport import HEADER, FrameReuseState, frame_chunks, write_frame
+from app.renderer.native_frame_transport import (
+    HEADER, AdaptiveCompressionBudget, FrameReuseState, frame_chunks, write_frame,
+)
 
 
 def frame():
@@ -162,6 +164,87 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(layer["compression"], "raw")
         self.assertEqual(layer["wire_bytes"], payload)
         self.assertEqual(wire[28+mlen:], bytes(pixels))
+
+    def test_parallel_hash_and_lz4_keep_identical_wire_bytes_and_order(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from app.renderer.native_frame_transport import supports_lz4_transport
+        if not supports_lz4_transport():
+            self.skipTest("lz4 wheel not available")
+
+        width, height = 640, 360
+        def make_layer(key, w, h, pixel):
+            return NS(
+                stream_key=key, width=w, height=h, opacity=1.0,
+                pixels=pixel * (w*h), inverse_transform=None, clip=None,
+            )
+        source = NS(width=width, height=height, schema=2, layers=(
+            make_layer("base", width, height, b"\x14\x54\x7f\xff"),
+            make_layer("layer:0", 320, 180, b"\x00\x00\x00\x80"),
+            make_layer("layer:1", 320, 180, b"\x00\x20\x00\x40"),
+        ))
+        for compressed in (False, True):
+            serial = b"".join(frame_chunks(
+                source, 0, reuse_state=FrameReuseState(),
+                v3_wire=True, compress_planes=compressed,
+            ))
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                parallel = b"".join(frame_chunks(
+                    source, 0, reuse_state=FrameReuseState(),
+                    v3_wire=True, compress_planes=compressed, executor=pool,
+                ))
+            self.assertEqual(serial, parallel)
+            _, version, _, mlen, payload = HEADER.unpack(parallel[:28])
+            self.assertEqual(version, 3)
+            entries = json.loads(parallel[28:28+mlen])["layers"]
+            self.assertEqual(len(entries), 3)
+            self.assertEqual(sum(item["wire_bytes"] for item in entries), payload)
+            if not compressed:
+                self.assertEqual([item["compression"] for item in entries],
+                                 ["raw"] * 3)
+
+    def test_v3_raw_frame_can_follow_lz4_and_reuse_previous(self):
+        from app.renderer.native_frame_transport import supports_lz4_transport
+        if not supports_lz4_transport():
+            self.skipTest("lz4 wheel not available")
+        def changed(byte):
+            source = frame()
+            source.layers[0].pixels = bytes((byte, 2, 3, 255)) * 4
+            return source
+        cache = FrameReuseState()
+        compressed = b"".join(frame_chunks(
+            changed(1), 0, reuse_state=cache, compress_planes=True,
+        ))
+        raw = b"".join(frame_chunks(
+            changed(2), 1, reuse_state=cache, v3_wire=True, compress_planes=False,
+        ))
+        _, v0, _, _, _ = HEADER.unpack(compressed[:28])
+        _, v1, _, length, payload = HEADER.unpack(raw[:28])
+        self.assertEqual((v0, v1, payload), (3, 3, 16))
+        self.assertEqual(json.loads(raw[28:28+length])["layers"][0]["compression"], "raw")
+        self.assertEqual(raw[28+length:], changed(2).layers[0].pixels)
+        repeated = b"".join(frame_chunks(
+            changed(2), 2, reuse_state=cache, v3_wire=True,
+        ))
+        _, version, _, length, payload = HEADER.unpack(repeated[:28])
+        self.assertEqual((version, payload), (3, 0))
+        self.assertEqual(json.loads(repeated[28:28+length])["layers"][0]["compression"],
+                         "previous")
+
+    def test_auto_compression_calibration_chooses_actual_fastest_wire(self):
+        for compressed_elapsed, expected in ((0.035, False), (0.004, True)):
+            probe = AdaptiveCompressionBudget()
+            for i in range(probe.PROBE_FRAMES):
+                choice = probe.use_compression(i)
+                self.assertEqual(choice, i % 2 == 0)
+                probe.record(choice, compressed_elapsed if choice else 0.010, 4_000_000)
+            self.assertEqual(probe.use_compression(probe.PROBE_FRAMES), expected)
+            self.assertEqual(probe.decision, "lz4" if expected else "raw")
+            self.assertEqual(len(probe.samples[True]), 32)
+            self.assertEqual(len(probe.samples[False]), 32)
+        empty = AdaptiveCompressionBudget()
+        empty.record(True, 0.001, 16)
+        self.assertFalse(empty.use_compression(empty.PROBE_FRAMES))
+        self.assertEqual(empty.decision, "raw")
 
     def test_v3_requires_bundled_lz4_and_reuse(self):
         with self.assertRaises(ValueError):
