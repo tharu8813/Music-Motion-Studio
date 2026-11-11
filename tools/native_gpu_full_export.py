@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+from dataclasses import replace
 import json
 import math
 from time import monotonic
@@ -70,6 +71,7 @@ def export_complete_project(
     fps: int = 60, scale: float = 0.5, ffmpeg: str | None = None,
     smoke_seconds: float | None = None, report_path: Path | None = None,
     gpu_profile: str | None = None,
+    gpu_force_lz4: bool = False,
 ) -> Path:
     """Run actual complete GPU encoding + MP4 mux with the existing soundtrack."""
     source = Path(project_path)
@@ -91,6 +93,10 @@ def export_complete_project(
         NativeGpuOptimizations.for_profile(gpu_profile)
         if gpu_profile is not None else None
     )
+    if gpu_force_lz4:
+        if gpu_profile != "automatic":
+            raise ValueError("--gpu-force-lz4 requires --gpu-profile automatic")
+        optimizations = replace(optimizations, force_lz4_probe=True)
     started = monotonic()
     project = ProjectService.load(source)
     if smoke_seconds is not None:
@@ -147,6 +153,10 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Developer A/B only: automatic matches the normal application's Rust GPU engine",
     )
+    parser.add_argument(
+        "--gpu-force-lz4", action="store_true",
+        help="Developer hardware A/B only: force lossless v3 LZ4 on all compressible layers; never a GUI option",
+    )
     parser.add_argument("--report", type=Path, default=None, help="Preserve developer diagnostics outside temporary staging")
     parser.add_argument(
         "--smoke-seconds", type=float, default=None,
@@ -163,6 +173,7 @@ def main(argv: list[str] | None = None) -> int:
             fps=args.fps, scale=args.scale, ffmpeg=args.ffmpeg,
             smoke_seconds=args.smoke_seconds, report_path=args.report,
             gpu_profile=args.gpu_profile,
+            gpu_force_lz4=args.gpu_force_lz4,
         )
     except Exception as exc:
         if args.report is not None and not args.report.exists():
