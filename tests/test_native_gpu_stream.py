@@ -10,6 +10,7 @@ from pathlib import Path
 from concurrent.futures import Future
 import os
 import json
+import hashlib
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
@@ -177,6 +178,36 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                         width=64, height=64, fps=120, duration_seconds=duration, expected_frames=1201)
             args = launch.call_args.args[0]
             self.assertEqual(float(args[args.index("--duration-seconds") + 1]), duration)
+
+    def test_converter_prehash_keeps_actual_mock_ack_sha_and_references(self):
+        if os.name != "nt":
+            self.skipTest("Windows native transport mock required")
+        count, width, height = 12, 320, 180
+        base = bytes((8, 10, 33, 255)) * (width * height)
+
+        def frames():
+            for i in range(count):
+                overlay = bytes((i + 1, 32, 62, 96)) * (width * height)
+                future = Future()
+                future.set_result((overlay, hashlib.sha256(overlay).hexdigest()))
+                yield DeferredNativeCanvasFrame(
+                    width, height, (
+                        NativeCanvasBgraLayer("base", width, height, base),
+                        DeferredNativeCanvasLayer("layer:0", width, height, future),
+                    ),
+                )
+
+        opts = NativeGpuOptimizations.for_profile("automatic")
+        result = self._run_mock(
+            count=count, width=width, height=height,
+            provided=frames(), optimizations=opts,
+        )
+        self.assertEqual(result["frames_encoded"], count)
+        self.assertEqual(result["frame_sha256_prefetched_planes"], count)
+        self.assertEqual(result["frame_sha256_prefetched_bytes"], count * width * height * 4)
+        self.assertEqual(result["frame_reused_planes"], count - 1)
+        self.assertEqual(result["frame_sha256_bytes"], count * 2 * width * height * 4)
+        self.assertEqual(result["frame_layer_transport"]["layer:0"]["planes"], count)
 
     def test_streams_over_120_frames_with_one_staged_frame_per_ack(self):
         result = self._run_mock(count=135)
