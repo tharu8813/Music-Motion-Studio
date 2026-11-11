@@ -45,9 +45,48 @@ class _ProfiledNativeSourceItem(SourceItem):
     inside each item paint; scene clear/fill/composite overhead is excluded.
     """
 
-    def __init__(self, source, paint_costs: dict[str, dict[str, int | float]]):
+    def __init__(self, source, paint_costs: dict[str, dict[str, int | float]],
+                 text_stage_costs: dict[str, dict[str, dict[str, int | float]]] | None = None):
         super().__init__(source)
         self._native_paint_costs = paint_costs
+        self._native_text_stage_costs = text_stage_costs
+
+    def _measure_text_stage(self, stage, callable_, *args):
+        # The SourceItem base constructor may call a text helper before
+        # these opt-in profiling fields exist. Preserve that path exactly.
+        stages = getattr(self, "_native_text_stage_costs", None)
+        if stages is None:
+            return callable_(*args)
+        started = monotonic()
+        try:
+            return callable_(*args)
+        finally:
+            category = self.source.source_type.value
+            bucket = stages.setdefault(category, {})
+            cost = bucket.setdefault(stage, {"calls": 0, "seconds": 0.0})
+            cost["calls"] += 1
+            cost["seconds"] += monotonic() - started
+
+    def text_font(self, size, weight):
+        return self._measure_text_stage("font", super().text_font, size, weight)
+
+    def _render_text(self):
+        return self._measure_text_stage("template", super()._render_text)
+
+    def _draw_text(self, painter, rect, flags, text):
+        return self._measure_text_stage(
+            "draw_text", super()._draw_text, painter, rect, flags, text,
+        )
+
+    def _text_layout_path(self, painter, rect, flags, text):
+        return self._measure_text_stage(
+            "layout_path", super()._text_layout_path, painter, rect, flags, text,
+        )
+
+    def _draw_glyph_shadow(self, painter, rect, flags, text, stroke):
+        return self._measure_text_stage(
+            "glyph_shadow", super()._draw_glyph_shadow, painter, rect, flags, text, stroke,
+        )
 
     def paint(self, painter, option, widget=None):
         category = self.source.source_type.value
@@ -105,12 +144,13 @@ def produce_complete_project_frames(
         optimizations is not None and optimizations.profile_canvas_source_paint
     )
     paint_costs: dict[str, dict[str, int | float]] = {}
+    text_stage_costs: dict[str, dict[str, dict[str, int | float]]] = {}
     try:
         scene.set_artboard_size(project.canvas.width, project.canvas.height)
         scene.show_grid = False
         for source in sorted(included, key=lambda item: item.z_index):
             scene.addItem(
-                _ProfiledNativeSourceItem(source, paint_costs)
+                _ProfiledNativeSourceItem(source, paint_costs, text_stage_costs)
                 if profile_paint else SourceItem(source)
             )
         stack = split_resident_bands(scene, stack, plan.duration_seconds)
@@ -177,6 +217,11 @@ def produce_complete_project_frames(
                             category: dict(costs)
                             for category, costs in paint_costs.items()
                         }
+                        raster_counters["qt_canvas_text_stage_costs"] = {
+                            category: {stage: dict(cost)
+                                       for stage, cost in stages.items()}
+                            for category, stages in text_stage_costs.items()
+                        }
                     raster_counters.update(
                         rasterizations=raster_cache.rasterizations,
                         reuse_hits=raster_cache.hits,
@@ -221,6 +266,11 @@ def produce_complete_project_frames(
                     raster_counters["qt_canvas_source_type_paint"] = {
                         category: dict(costs)
                         for category, costs in paint_costs.items()
+                    }
+                    raster_counters["qt_canvas_text_stage_costs"] = {
+                        category: {stage: dict(cost)
+                                   for stage, cost in stages.items()}
+                        for category, stages in text_stage_costs.items()
                     }
                 # After the converter pool joins, report final worker totals
                 # instead of a snapshot with the final BGRA packet pending.

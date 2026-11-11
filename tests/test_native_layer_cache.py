@@ -80,6 +80,7 @@ class RasterCacheTests(unittest.TestCase):
         scene_profiled.show_grid = False
         self.addCleanup(scene_profiled.clear)
         costs = {}
+        text_stages = {}
         sources = (
             Source(
                 SourceType.SHAPE, "Opaque", x=0, y=0, width=128, height=128,
@@ -89,11 +90,14 @@ class RasterCacheTests(unittest.TestCase):
                 SourceType.TEXT, "Dynamic Clock", x=15, y=20,
                 width=94, height=64, text="%current_time%",
                 font_size=20, fill_color="#ffcc88", z_index=2,
+                text_stroke_width=1.25,
             ),
         )
         for source in sources:
             self.add(deepcopy(source))
-            scene_profiled.addItem(_ProfiledNativeSourceItem(deepcopy(source), costs))
+            scene_profiled.addItem(_ProfiledNativeSourceItem(
+                deepcopy(source), costs, text_stages,
+            ))
 
         for seconds in (0.0, 0.25, 0.9):
             with self.subTest(seconds=seconds):
@@ -115,6 +119,21 @@ class RasterCacheTests(unittest.TestCase):
         for key in ("shape", "text"):
             self.assertEqual(costs[key]["calls"], 3)
             self.assertGreater(costs[key]["seconds"], 0.0)
+        self.assertEqual(set(text_stages), {"text"})
+        for stage in ("font", "template", "draw_text", "layout_path"):
+            with self.subTest(stage=stage):
+                self.assertGreaterEqual(text_stages["text"][stage]["calls"], 3)
+                self.assertGreater(text_stages["text"][stage]["seconds"], 0.0)
+        # draw_text includes layout_path. These overlapping timers must not
+        # be added or misread as independent cost on a real export.
+        self.assertLessEqual(
+            text_stages["text"]["layout_path"]["seconds"],
+            text_stages["text"]["draw_text"]["seconds"] + 0.05,
+        )
+        self.assertLessEqual(
+            text_stages["text"]["draw_text"]["seconds"],
+            costs["text"]["seconds"] + 0.05,
+        )
 
     def test_raster_metrics_split_state_setup_paint_and_restore_without_pixel_changes(self):
         self.add(Source(

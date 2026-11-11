@@ -174,6 +174,27 @@ class NativeGpuFullProjectTests(unittest.TestCase):
                 sum(row["seconds"] for row in by_type.values()),
                 metrics["qt_canvas_paint_stage_seconds"] + 0.2,
             )
+            self.assertIn("qt_canvas_text_stage_costs", metrics)
+            stage_costs = metrics["qt_canvas_text_stage_costs"]
+            self.assertTrue(stage_costs)
+            self.assertGreater(
+                sum(row["calls"] for stages in stage_costs.values()
+                    for row in stages.values()), 0,
+            )
+            self.assertTrue(all(
+                row["seconds"] > 0
+                for stages in stage_costs.values() for row in stages.values()
+            ))
+            # Inclusive substage timings overlap. Every substage remains
+            # bounded by that category's measured outer paint() duration.
+            for category, stages in stage_costs.items():
+                self.assertIn(category, by_type)
+                for stage, entry in stages.items():
+                    with self.subTest(category=category, stage=stage):
+                        self.assertLessEqual(
+                            entry["seconds"],
+                            by_type[category]["seconds"] + 0.2,
+                        )
 
     def test_invalid_smoke_seconds_fail_before_any_gpu_or_audio_work(self):
         with TemporaryDirectory() as temp:
