@@ -22,6 +22,13 @@ class NativeGpuOptimizations:
     # Automatic mode offloads only sufficiently large, already-painted
     # QImages and never blocks the GUI waiting for converter slots.
     adaptive_bgra: bool = False
+    # Bounded developer-only A/B override. Ordinary GUI/Rust GPU automatic
+    # exports always keep the existing three workers unless measured otherwise.
+    packet_workers: int = 3
+
+    def __post_init__(self):
+        if type(self.packet_workers) is not int or not 1 <= self.packet_workers <= 6:
+            raise ValueError("Native packet worker count must be an integer from 1 to 6")
 
     @classmethod
     def for_profile(cls, profile: str) -> "NativeGpuOptimizations":
