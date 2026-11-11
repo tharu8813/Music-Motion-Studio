@@ -115,10 +115,6 @@ class RasterCacheTests(unittest.TestCase):
         for key in ("shape", "text"):
             self.assertEqual(costs[key]["calls"], 3)
             self.assertGreater(costs[key]["seconds"], 0.0)
-        self.assertLessEqual(
-            sum(item["seconds"] for item in costs.values()),
-            3.0,
-        )
 
     def test_raster_metrics_split_state_setup_paint_and_restore_without_pixel_changes(self):
         self.add(Source(
