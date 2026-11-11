@@ -156,8 +156,13 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                     acknowledgement_timeout=timeout,
                     optimizations=optimizations,
                 )
-                self.assertEqual(json.loads((root / "report.json").read_text())
-                                 ["frame_transport_bytes"], result["frame_transport_bytes"])
+                persisted = json.loads((root / "report.json").read_text())
+                self.assertEqual(persisted["frame_transport_bytes"], result["frame_transport_bytes"])
+                self.assertEqual(persisted["frame_layer_transport"], result["frame_layer_transport"])
+                self.assertEqual(
+                    sum(entry["wire_bytes"] for entry in result["frame_layer_transport"].values()),
+                    result["frame_wire_payload_bytes"],
+                )
                 return result
 
     def test_fractional_duration_roundtrips_across_native_process_boundary(self):
