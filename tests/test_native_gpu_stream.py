@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from concurrent.futures import Future
+from dataclasses import replace
 import os
 import json
 import subprocess
@@ -273,6 +274,36 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
         self.assertLess(
             report["frame_wire_payload_bytes"], report["frame_raw_source_bytes"],
         )
+
+    def test_forced_lz4_developer_probe_is_lossless_and_not_the_gui_default(self):
+        if not supports_lz4_transport():
+            self.skipTest("lz4 is required for the developer compression comparison")
+        automatic = NativeGpuOptimizations.for_profile("automatic")
+        self.assertFalse(automatic.force_lz4_probe)
+        experimental = replace(automatic, force_lz4_probe=True)
+
+        def changing_frames():
+            for index in range(70):
+                pixels = bytes((index % 256, 40, 80, 255)) * (320 * 180)
+                yield NativeCanvasFrame(320, 180, (
+                    NativeCanvasBgraLayer("base", 320, 180, pixels),
+                ))
+
+        # The real transport writer uses the unchanged validated v3 protocol.
+        # The Python native-worker double checks every decompressed BGRA byte,
+        # SHA-256, frame index and ACK, including frames beyond the old probe.
+        report = self._run_mock(
+            count=70, width=320, height=180,
+            provided=changing_frames(), optimizations=experimental,
+        )
+        self.assertEqual(report["frames_encoded"], 70)
+        self.assertEqual(report["frame_transport"], "binary-v3")
+        self.assertEqual(report["native_optimization_profile"], "automatic")
+        self.assertEqual(report["frame_lz4_auto_choice"], "forced_lz4_experiment")
+        self.assertEqual(report["frame_lz4_probe_samples"], {})
+        self.assertEqual(report["frame_lz4_planes"], 70)
+        self.assertEqual(report["frame_reused_planes"], 0)
+        self.assertLess(report["frame_wire_payload_bytes"], report["frame_raw_source_bytes"])
 
     def test_opt_in_reuses_identical_layers_with_real_native_write_and_ack(self):
         # The mock validates every recovered byte and SHA at each PTS;
