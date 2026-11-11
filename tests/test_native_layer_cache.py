@@ -450,6 +450,69 @@ class RasterCacheTests(unittest.TestCase):
         cache.clear()
         self.assertEqual(cache.frozen_lyric_settings_cache, {})
 
+    def test_precomputed_native_z_exclusions_match_original_scene_scan(self):
+        # Native export may reuse Z-band membership only inside its detached,
+        # immutable scene. Compare actual BGRA packets against the original
+        # full scene.items() scan at several time-dependent frame positions.
+        self.add(Source(
+            SourceType.SHAPE, "Base", width=128, height=128, z_index=0,
+            fill_color="#182F47",
+        ))
+        clock = Source(
+            SourceType.TEXT, "Clock", text="%current_time%",
+            x=13, y=24, width=96, height=54, z_index=2, font_size=22,
+        )
+        clock.shadow.enabled = True
+        clock.shadow.offset_x = 3
+        clock.shadow.blur_radius = 7
+        self.add(clock)
+        self.add(Source(
+            SourceType.SHAPE, "Hidden", x=0, y=0,
+            width=128, height=128, z_index=3, fill_color="#FF0000",
+        ))
+        self.add(Source(
+            SourceType.TEXT, "Upper", text="%current_time%",
+            x=58, y=60, width=64, height=37, z_index=4, font_size=16,
+        ))
+        by_name = {
+            item.source.name: item for item in self.scene.items()
+            if isinstance(item, SourceItem)
+        }
+        by_name["Hidden"].setVisible(False)
+        bands = ((None, 0), (1, 3), (4, None))
+        profile = NativeGpuOptimizations.for_profile("automatic")
+        original = NativeRasterCache(self.scene, bands, 2, optimizations=profile)
+        optimized = NativeRasterCache(self.scene, bands, 2, optimizations=profile)
+        # Force the previous scene enumeration as a pixel-exact reference.
+        original.band_excluded_items = (None,) * len(bands)
+        try:
+            self.assertEqual(
+                tuple(tuple(item.source.name for item in band)
+                      for band in optimized.band_excluded_items),
+                (("Upper", "Clock"), ("Upper", "Base"), ("Clock", "Base")),
+            )
+            for seconds in (0, 0.35, 1.25):
+                with self.subTest(seconds=seconds):
+                    before = self.capture(bands, seconds, original)
+                    after = self.capture(bands, seconds, optimized)
+                    if isinstance(before, DeferredNativeCanvasFrame):
+                        before = before.resolve()
+                    if isinstance(after, DeferredNativeCanvasFrame):
+                        after = after.resolve()
+                    self.assertEqual(after, before)
+                    self.assertFalse(by_name["Hidden"].isVisible())
+                    self.assertTrue(all(
+                        item.isVisible() for name, item in by_name.items()
+                        if name != "Hidden"
+                    ))
+                    self.assertEqual(by_name["Clock"].source.text, "%current_time%")
+            self.assertEqual(
+                optimized.rasterizations, original.rasterizations,
+            )
+        finally:
+            optimized.clear()
+            original.clear()
+
     def test_band_source_items_precomputed_in_z_order_without_leaking_sources(self):
         bottom = Source(SourceType.SHAPE, "Bottom", width=128, height=128, z_index=0)
         top = Source(SourceType.TEXT, "Top", width=80, height=60, z_index=3)
