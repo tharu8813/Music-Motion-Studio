@@ -381,6 +381,7 @@ def capture_native_canvas_track_frame(
             # preselected source items avoid repeated per-frame Qt traversal.
             **({
                 "band_source_items": raster_cache.band_source_items[index],
+                "capture_excluded_items": raster_cache.band_excluded_items[index],
                 "_frozen_lyric_settings_cache": raster_cache.frozen_lyric_settings_cache,
             } if raster_cache is not None else {}),
         )
