@@ -405,11 +405,24 @@ class RasterCacheTests(unittest.TestCase):
             font_size=14, fill_color="#FEDCBA",
         ))
         bands = ((None, 0), (2, 3), (4, None))
-        expected = [self.capture(bands, t) for t in (0.0, 0.25, 0.75)]
-        cache = NativeRasterCache(
-            self.scene, bands, 2,
-            optimizations=NativeGpuOptimizations.for_profile("automatic"),
+        profile = NativeGpuOptimizations.for_profile("automatic")
+        reference_cache = NativeRasterCache(
+            self.scene, bands, 2, optimizations=profile,
         )
+        # Both sides MUST use the same partial/compact ROI settings.
+        # Force only the legacy scene traversal in the baseline to isolate
+        # the specific optimization rather than comparing different formats.
+        reference_cache.scene_source_items = None
+        try:
+            with patch.object(self.scene, "items", wraps=self.scene.items) as old_scan:
+                expected = [
+                    self.capture(bands, t, reference_cache) for t in (0.0, 0.25, 0.75)
+                ]
+            self.assertGreater(old_scan.call_count, 0)
+        finally:
+            reference_cache.clear()
+
+        cache = NativeRasterCache(self.scene, bands, 2, optimizations=profile)
         try:
             with patch.object(self.scene, "items", wraps=self.scene.items) as enum:
                 actual = [self.capture(bands, t, cache) for t in (0.0, 0.25, 0.75)]
