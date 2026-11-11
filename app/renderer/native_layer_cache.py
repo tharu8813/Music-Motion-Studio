@@ -80,6 +80,10 @@ class NativeRasterCache:
         self.qt_canvas_paint_stage_seconds = 0.0
         self.qt_canvas_state_restore_seconds = 0.0
         self.qt_canvas_inline_bgra_seconds = 0.0
+        # Diagnostics only: bounded by the native export's <=8 Canvas Z bands.
+        # Each bucket measures real captures of one existing stream key; no
+        # frames, pixels or QObjects are retained.
+        self.qt_canvas_band_timing: dict[str, dict[str, int | float]] = {}
         self._bgra_executor = (
             ThreadPoolExecutor(max_workers=2, thread_name_prefix="mms-bgra")
             if self.parallel_bgra_enabled else None
@@ -186,7 +190,30 @@ class NativeRasterCache:
         layer = self.layers.get(key)
         if layer is not None:
             self.hits += 1
+            # Invariant planes produce no Qt paint cost on a cache hit.
+            bucket = self.qt_canvas_band_timing.get(key)
+            if bucket is not None:
+                bucket["reuse_hits"] += 1
         return layer
+
+    def record_band_capture(self, key, metrics, elapsed):
+        """Account for a completed Qt Canvas capture, not BGRA conversion.
+
+        The layer is painted exactly as before. Stage timers are provided by
+        CanvasSnapshot and are nonoverlapping within the capture call.
+        """
+        bucket = self.qt_canvas_band_timing.setdefault(key, {
+            "captures": 0, "reuse_hits": 0,
+            "capture_seconds": 0.0, "state_setup_seconds": 0.0,
+            "paint_stage_seconds": 0.0, "state_restore_seconds": 0.0,
+            "partial_captures": 0,
+        })
+        bucket["captures"] += 1
+        bucket["capture_seconds"] += elapsed
+        bucket["state_setup_seconds"] += metrics["state_setup_seconds"]
+        bucket["paint_stage_seconds"] += metrics["paint_stage_seconds"]
+        bucket["state_restore_seconds"] += metrics["state_restore_seconds"]
+        bucket["partial_captures"] += int(bool(metrics.get("partial_render")))
 
     def record(self, layer):
         self.rasterizations += 1
