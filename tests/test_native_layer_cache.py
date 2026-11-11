@@ -2,6 +2,7 @@
 import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import unittest
+from copy import deepcopy
 from types import SimpleNamespace
 from threading import Event, Lock, current_thread, enumerate as active_threads
 from unittest.mock import patch
@@ -20,6 +21,7 @@ from app.preview.native_canvas_layer_packets import (
 from app.renderer.native_dynamic_layers import DynamicStack, build_dynamic_stack, interleave_dynamic_layers
 from app.renderer.native_frame_transport import frame_chunks
 from app.renderer.native_layer_cache import NativeRasterCache, split_resident_bands
+from app.renderer.native_project_frames import _ProfiledNativeSourceItem
 from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
 from app.models.project import ProjectDocument, CanvasSettings
 
@@ -68,6 +70,51 @@ class RasterCacheTests(unittest.TestCase):
         self.assertEqual(cache.retained_bytes, 128 * 128 * 4 * 2)
         cache.clear()
         self.assertEqual(cache.retained_bytes, 0)
+
+    def test_opt_in_source_type_paint_profiler_preserves_actual_qt_pixels(self):
+        # The profiling subclass has identical scene rendering semantics.
+        # This checks that real QGraphicsScene.render calls the Python
+        # override and that costs are grouped by generic source type.
+        scene_profiled = CanvasScene()
+        scene_profiled.set_artboard_size(128, 128)
+        scene_profiled.show_grid = False
+        self.addCleanup(scene_profiled.clear)
+        costs = {}
+        sources = (
+            Source(
+                SourceType.SHAPE, "Opaque", x=0, y=0, width=128, height=128,
+                fill_color="#213547", z_index=0,
+            ),
+            Source(
+                SourceType.TEXT, "Dynamic Clock", x=15, y=20,
+                width=94, height=64, text="%current_time%",
+                font_size=20, fill_color="#ffcc88", z_index=2,
+            ),
+        )
+        for source in sources:
+            self.add(deepcopy(source))
+            scene_profiled.addItem(_ProfiledNativeSourceItem(deepcopy(source), costs))
+
+        for seconds in (0.0, 0.25, 0.9):
+            with self.subTest(seconds=seconds):
+                arguments = dict(
+                    elapsed_seconds=seconds,
+                    playlist_duration_seconds=2,
+                    output_scale=1.5,
+                )
+                original = CanvasSnapshot.capture_track(
+                    self.scene, self.track, 1, 1, 0.0, **arguments,
+                )
+                instrumented = CanvasSnapshot.capture_track(
+                    scene_profiled, self.track, 1, 1, 0.0, **arguments,
+                )
+                self.assertEqual(straight_bgra_bytes(instrumented),
+                                 straight_bgra_bytes(original))
+
+        self.assertEqual(set(costs), {"shape", "text"})
+        for key in ("shape", "text"):
+            self.assertEqual(costs[key]["calls"], 3)
+            self.assertGreater(costs[key]["seconds"], 0.0)
 
     def test_raster_metrics_split_state_setup_paint_and_restore_without_pixel_changes(self):
         self.add(Source(
