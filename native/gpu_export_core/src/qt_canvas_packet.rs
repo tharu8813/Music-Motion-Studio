@@ -292,6 +292,39 @@ mod tests {
         assert!(load_qt_canvas_packet(Path::new("missing-qt-canvas-packet.json")).is_err());
     }
     #[test]
+    fn correctly_hashed_transparent_base_is_still_rejected() {
+        let mut base = [4u8, 9, 12, 255].repeat(16);
+        for schema in [1, 2] {
+            for corrupt_pixel in [0, 1, 7, 8, 15] {
+                base[corrupt_pixel * 4 + 3] = 254;
+                let root = serde_json::json!({
+                    "schema":schema,
+                    "format":format!("mms_canvas_bgra_layers_v{schema}"),
+                    "pixel_format":"BGRA8_STRAIGHT",
+                    "coordinate_origin":"top_left",
+                    "width":4, "height":4,
+                    "qt_canvas_rasterized_on_cpu":true,
+                    "native_gpu_alpha_composition_required":false,
+                    "production_export_changed":false,
+                    "layers":[{"file":"base.bgra", "stream_key":"base", "z_order":0,
+                        "opacity":1.0, "bytes":base.len(),
+                        "sha256":format!("{:x}", Sha256::digest(&base))}]
+                });
+                // The payload checksum matches the corrupted bytes, so only
+                // the independent alpha contract must reject this packet.
+                let error = parse_qt_canvas_packet_value(
+                    &root, |_, size| {
+                        assert_eq!(size, base.len());
+                        Ok(base.clone())
+                    }
+                ).unwrap_err();
+                assert!(error.contains("fully opaque"), "{schema}/{corrupt_pixel}: {error}");
+                base[corrupt_pixel * 4 + 3] = 255;
+            }
+        }
+    }
+
+    #[test]
     fn parses_even_dimensions_strictly() {
         let v = serde_json::json!({"width": 320,"height": 180});
         assert_eq!(positive_dimension(&v, "width", 3840).unwrap(), 320);
