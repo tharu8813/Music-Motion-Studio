@@ -34,6 +34,13 @@ The regular automatic/GUI/FFmpeg capture path has the same behavior as
 before. There is no user-facing performance toggle, frame cache,
 worker-count change or project-specific special case.
 
+Opt-in output additionally accounts for the number of actual bypassed
+identity contexts as `native_report.raster_cache.qt_canvas_band_timing`
+`[base|layer:N].empty_keyframe_context_skips`. This is a small integer
+per current generic Z band and has no side effects on pixels or keyframe
+evaluation. In normal mode the count remains zero. Benchmark reports can
+thus prove that the fast path ran on the selected project.
+
 Example candidate (developer worktree):
 
 ```powershell
