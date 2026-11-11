@@ -856,6 +856,7 @@ class CanvasSnapshot:
                       partial_render_keep_cropped: bool = False,
                       render_metrics: dict[str, object] | None = None,
                       band_source_items: Sequence[SourceItem] | None = None,
+                      skip_empty_keyframe_context: bool = False,
                       junction: MixJunction | None = None,
                       bass_level: float = 0.0,
                       music_levels: dict[str, float] | None = None,
@@ -990,7 +991,21 @@ class CanvasSnapshot:
                 graphics_item.setRotation(source.rotation)
             key_values = evaluate_keyframes(source, global_seconds, track.id,
                 elapsed_seconds if keyframe_active and global_seconds >= start_seconds and 0 <= elapsed_seconds < track.duration_seconds else None)
-            source = keyframe_context.enter_context(keyframe_source(graphics_item, key_values))
+            # With no evaluated values, keyframe_source() is an identity
+            # context. Avoid constructing/registering thousands of no-op
+            # ExitStack callbacks in the detached export experiment.
+            #
+            # Editor blur transitions are the exception: even when values are
+            # empty, keyframe_source() must re-filter the original pixmap.
+            editor_blur_rebind = (
+                getattr(graphics_item, "_editor_keyframe_pose", False)
+                and "blur" in getattr(graphics_item, "_editor_keyframe_values", {})
+            )
+            if not (skip_empty_keyframe_context and not key_values
+                    and not editor_blur_rebind):
+                source = keyframe_context.enter_context(
+                    keyframe_source(graphics_item, key_values)
+                )
             if (source.source_type is SourceType.TIME
                     or (source.source_type is SourceType.TEXT and "%" in source.text)):
                 original_text.append((graphics_item, source.text))
