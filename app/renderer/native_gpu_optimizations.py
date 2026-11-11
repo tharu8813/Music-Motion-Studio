@@ -22,6 +22,8 @@ class NativeGpuOptimizations:
     # Automatic mode offloads only sufficiently large, already-painted
     # QImages and never blocks the GUI waiting for converter slots.
     adaptive_bgra: bool = False
+    # Developer-only hardware comparison. Never selected by the normal GUI.
+    force_lz4_probe: bool = False
 
     @classmethod
     def for_profile(cls, profile: str) -> "NativeGpuOptimizations":
