@@ -518,12 +518,6 @@ class RasterCacheTests(unittest.TestCase):
         hidden.visible = False
         self.add(hidden)
         bands = ((None, 0), (2, 2), (4, None))
-        with patch.dict(os.environ, {
-            "PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS": "1",
-            "PLAYLIST_CANVAS_NATIVE_COMPACT_BANDS": "1",
-        }):
-            cache = NativeRasterCache(self.scene, bands, 2)
-
         original = CanvasSnapshot._dynamic_band_capture_rect
         compared = []
 
@@ -543,8 +537,15 @@ class RasterCacheTests(unittest.TestCase):
                                                 for item in source_items)))
             return actual
 
-        try:
-            for scale in (0.5, 1.0, 1.5):
+        for scale in (0.5, 1.0, 1.5):
+            # One cache per export/scale: a new output geometry must never
+            # reuse a previous resolution's BGRA planes.
+            with patch.dict(os.environ, {
+                "PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS": "1",
+                "PLAYLIST_CANVAS_NATIVE_COMPACT_BANDS": "0",
+            }):
+                cache = NativeRasterCache(self.scene, bands, 2)
+            try:
                 for seconds in (0.0, 0.25, 0.9):
                     with self.subTest(scale=scale, seconds=seconds):
                         kwargs = dict(elapsed_seconds=seconds,
@@ -561,12 +562,12 @@ class RasterCacheTests(unittest.TestCase):
                             )
                         self.assertEqual(native.resolve() if isinstance(
                             native, DeferredNativeCanvasFrame) else native, reference)
-            self.assertTrue(any(z_min == 2 for z_min, _, _ in compared))
-            self.assertTrue(any(z_min == 4 for z_min, _, _ in compared))
-            self.assertTrue(all("Hidden" not in names for _, _, names in compared))
-            self.assertGreater(cache.partial_band_captures, 0)
-        finally:
-            cache.clear()
+                self.assertGreater(cache.partial_band_captures, 0)
+            finally:
+                cache.clear()
+        self.assertTrue(any(z_min == 2 for z_min, _, _ in compared))
+        self.assertTrue(any(z_min == 4 for z_min, _, _ in compared))
+        self.assertTrue(all("Hidden" not in names for _, _, names in compared))
 
     def test_opt_in_partial_transparent_band_preserves_unchanged_native_packets(self):
         # 0.5 output scale exercises otherwise misaligned original bounds.
