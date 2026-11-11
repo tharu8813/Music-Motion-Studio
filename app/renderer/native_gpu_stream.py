@@ -121,6 +121,11 @@ def stream_native_canvas_h264(
         # One automatic path: fast per-layer compression if the bundled LZ4
         # wheel is present, otherwise preserve tested binary-v2 semantics.
         compressed_transport = reuse_enabled and supports_lz4_transport()
+        probe_keys = (
+            optimizations.lz4_layer_probe_keys if optimizations is not None else None
+        )
+        if probe_keys is not None and not compressed_transport:
+            raise RenderError("Selected-layer LZ4 probe requires reuse and installed lz4")
         input_format = ("binary-v3" if compressed_transport
                         else "binary-v2" if reuse_enabled else "binary-v1")
         args = [
@@ -190,19 +195,26 @@ def stream_native_canvas_h264(
         # leave the thread that owns each QImage.
         packet_executor = ThreadPoolExecutor(max_workers=3,
                                              thread_name_prefix="mms-native-layer")
-        compression_budget = AdaptiveCompressionBudget() if compressed_transport else None
+        compression_budget = (
+            AdaptiveCompressionBudget()
+            if compressed_transport and probe_keys is None else None
+        )
 
         def send_packet(resolved: NativeCanvasFrame, index: int) -> int:
             # Always emit v3 when negotiated. It can send lossless raw planes
             # after the per-export latency probe rejects expensive compression.
-            compress = (compression_budget.use_compression(index)
-                        if compression_budget is not None else False)
+            compress = (
+                probe_keys is not None or
+                (compression_budget.use_compression(index)
+                 if compression_budget is not None else False)
+            )
             raw_before = frame_write_timings.get("raw_source_bytes", 0)
             begun = monotonic()
             written = write_frame(
                 worker.stdin, resolved, index, reuse_state=reuse_state,
                 timings=frame_write_timings, compress_planes=compress,
                 v3_wire=compressed_transport, executor=packet_executor,
+                compress_stream_keys=probe_keys,
             )
             if compression_budget is not None:
                 compression_budget.record(
@@ -433,8 +445,13 @@ def stream_native_canvas_h264(
                 frame_lz4_wall_seconds=frame_write_timings.get("lz4_wall_seconds", 0.0),
                 frame_lz4_planes=frame_write_timings.get("lz4_planes", 0),
                 frame_lz4_auto_choice=(
-                    compression_budget.decision if compression_budget else "not_available"
+                    "selected_layers_experiment" if probe_keys is not None
+                    else compression_budget.decision if compression_budget else "not_available"
                 ),
+                frame_lz4_selected_stream_keys=(
+                    sorted(probe_keys) if probe_keys is not None else []
+                ),
+                frame_lz4_layer_cost=frame_write_timings.get("lz4_layer_cost", {}),
                 frame_lz4_probe_samples=(
                     {str(key).lower(): len(values)
                      for key, values in compression_budget.samples.items()}
