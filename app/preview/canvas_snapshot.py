@@ -1608,6 +1608,11 @@ class CanvasSnapshot:
             if partial_render and transparent and capture_rect is None:
                 candidate = CanvasSnapshot._dynamic_band_capture_rect(
                     scene, z_min, z_max,
+                    # Native export already owns the filtered, live SourceItems
+                    # for this band. Avoid another full QGraphicsScene.items()
+                    # enumeration in every ROI frame. When no preselected
+                    # band was provided, retain the original scene traversal.
+                    source_items=source_items if band_source_items is not None else None,
                 )
                 artboard = scene.artboard_rect
                 if candidate is not None:
