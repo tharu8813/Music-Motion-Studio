@@ -69,6 +69,9 @@ class NativeRasterCache:
         self.adaptive_bgra_enabled = bool(
             optimizations is not None and optimizations.adaptive_bgra
         )
+        self.skip_empty_keyframe_context = bool(
+            optimizations is not None and optimizations.skip_empty_keyframe_context
+        )
         # Converting a small Qt image is usually cheaper than submitting a
         # Future and waiting on its result. Tune on real RTX benchmarks only.
         self._min_async_bgra_bytes = 1024 * 1024
