@@ -178,6 +178,20 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             self.assertEqual(completed[0], (320, 180, 4))
             self.assertEqual(path.read_bytes(), original_bytes)
 
+    def test_forced_lz4_developer_probe_requires_explicit_automatic_profile(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project.json"
+            project.write_text("{}", encoding="utf8")
+            for profile in (None, "standard", "accelerated", "cpu_parallel"):
+                with self.subTest(profile=profile), self.assertRaisesRegex(
+                    ValueError, "--gpu-force-lz4 requires --gpu-profile automatic"
+                ):
+                    export_complete_project(
+                        project, root / "probe.mp4",
+                        gpu_profile=profile, gpu_force_lz4=True,
+                    )
+
     def test_refuses_to_overwrite_user_video_before_audio_or_gpu_start(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)
