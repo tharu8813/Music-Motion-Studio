@@ -185,7 +185,7 @@ def stream_native_canvas_h264(
         frame_pipe_write_seconds = 0.0
         cpu_parallel_bgra_frames = 0
         frame_ack_wait_seconds = 0.0
-        frame_write_timings: dict[str, float | int] = {}
+        frame_write_timings: dict[str, float | int | dict] = {}
         # Only immutable BGRA bytes run on this bounded CPU pool. No Qt calls
         # leave the thread that owns each QImage.
         packet_executor = ThreadPoolExecutor(max_workers=3,
@@ -445,6 +445,7 @@ def stream_native_canvas_h264(
                 frame_wire_saved_bytes=max(0,
                     frame_write_timings.get("raw_source_bytes", 0) -
                     frame_write_timings.get("wire_payload_bytes", 0)),
+                frame_layer_transport=frame_write_timings.get("layer_transport", {}),
                 frame_ack_wait_seconds=frame_ack_wait_seconds,
                 native_worker_finalize_seconds=monotonic() - finalize_started,
                 native_stream_elapsed_seconds=stream_elapsed,
