@@ -121,6 +121,9 @@ def stream_native_canvas_h264(
         # One automatic path: fast per-layer compression if the bundled LZ4
         # wheel is present, otherwise preserve tested binary-v2 semantics.
         compressed_transport = reuse_enabled and supports_lz4_transport()
+        forced_lz4 = bool(optimizations is not None and optimizations.force_lz4_probe)
+        if forced_lz4 and not compressed_transport:
+            raise RenderError("Forced LZ4 diagnostic requires native layer reuse and installed lz4")
         input_format = ("binary-v3" if compressed_transport
                         else "binary-v2" if reuse_enabled else "binary-v1")
         args = [
@@ -190,13 +193,20 @@ def stream_native_canvas_h264(
         # leave the thread that owns each QImage.
         packet_executor = ThreadPoolExecutor(max_workers=3,
                                              thread_name_prefix="mms-native-layer")
-        compression_budget = AdaptiveCompressionBudget() if compressed_transport else None
+        compression_budget = (
+            AdaptiveCompressionBudget()
+            if compressed_transport and not forced_lz4 else None
+        )
 
         def send_packet(resolved: NativeCanvasFrame, index: int) -> int:
             # Always emit v3 when negotiated. It can send lossless raw planes
             # after the per-export latency probe rejects expensive compression.
-            compress = (compression_budget.use_compression(index)
-                        if compression_budget is not None else False)
+            compress = (
+                forced_lz4 or (
+                    compression_budget.use_compression(index)
+                    if compression_budget is not None else False
+                )
+            )
             raw_before = frame_write_timings.get("raw_source_bytes", 0)
             begun = monotonic()
             written = write_frame(
@@ -433,7 +443,8 @@ def stream_native_canvas_h264(
                 frame_lz4_wall_seconds=frame_write_timings.get("lz4_wall_seconds", 0.0),
                 frame_lz4_planes=frame_write_timings.get("lz4_planes", 0),
                 frame_lz4_auto_choice=(
-                    compression_budget.decision if compression_budget else "not_available"
+                    "forced_lz4_experiment" if forced_lz4
+                    else compression_budget.decision if compression_budget else "not_available"
                 ),
                 frame_lz4_probe_samples=(
                     {str(key).lower(): len(values)
