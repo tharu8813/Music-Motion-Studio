@@ -13,6 +13,7 @@ from functools import wraps
 from math import ceil, floor
 import os
 from pathlib import Path
+from time import monotonic
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPixmap, QTransform
@@ -869,6 +870,7 @@ class CanvasSnapshot:
         entrance/exit, and on-screen clocks that start with a track (Now
         Playing, the album-art background cross-fade) start at the handover.
         """
+        phase_started = monotonic() if render_metrics is not None else None
         screen_elapsed = (
             junction.visual_elapsed
             if junction is not None and junction.visual_elapsed is not None
@@ -1588,6 +1590,9 @@ class CanvasSnapshot:
                         QTransform().translate(center_x, 0.0).scale(pose.scale_x, 1.0)
                         .translate(-center_x, 0.0),
                     )
+        if render_metrics is not None:
+            render_metrics["state_setup_seconds"] = monotonic() - phase_started
+            phase_started = monotonic()
         try:
             effective_capture_rect = capture_rect
             used_partial_render = False
@@ -1636,8 +1641,10 @@ class CanvasSnapshot:
             if render_metrics is not None:
                 render_metrics["partial_render"] = used_partial_render
                 render_metrics["capture_rect"] = effective_capture_rect
+                render_metrics["paint_stage_seconds"] = monotonic() - phase_started
             return captured
         finally:
+            restore_started = monotonic() if render_metrics is not None else None
             for item, opacity in original_editor_poses:
                 item._editor_keyframe_opacity = opacity
             for source, opacity in original_keyframe_opacity:
@@ -1736,3 +1743,5 @@ class CanvasSnapshot:
                 graphics_item.setTransform(transform)
             for item, suppressed in original_sync_flags.items():
                 item._suppress_position_sync = suppressed
+            if render_metrics is not None:
+                render_metrics["state_restore_seconds"] = monotonic() - restore_started

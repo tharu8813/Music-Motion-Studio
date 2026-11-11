@@ -146,6 +146,9 @@ def produce_complete_project_frames(
                         parallel_bgra_inline_small=raster_cache.parallel_bgra_inline_small,
                         parallel_bgra_inline_busy=raster_cache.parallel_bgra_inline_busy,
                         qt_canvas_capture_seconds=raster_cache.qt_canvas_capture_seconds,
+                        qt_canvas_state_setup_seconds=raster_cache.qt_canvas_state_setup_seconds,
+                        qt_canvas_paint_stage_seconds=raster_cache.qt_canvas_paint_stage_seconds,
+                        qt_canvas_state_restore_seconds=raster_cache.qt_canvas_state_restore_seconds,
                         qt_canvas_inline_bgra_seconds=raster_cache.qt_canvas_inline_bgra_seconds,
                         retained_bytes=raster_cache.retained_bytes,
                         peak_retained_bytes=raster_cache.peak_retained_bytes,
@@ -180,6 +183,9 @@ def produce_complete_project_frames(
                     parallel_bgra_inline_small=raster_cache.parallel_bgra_inline_small,
                     parallel_bgra_inline_busy=raster_cache.parallel_bgra_inline_busy,
                     qt_canvas_capture_seconds=raster_cache.qt_canvas_capture_seconds,
+                    qt_canvas_state_setup_seconds=raster_cache.qt_canvas_state_setup_seconds,
+                    qt_canvas_paint_stage_seconds=raster_cache.qt_canvas_paint_stage_seconds,
+                    qt_canvas_state_restore_seconds=raster_cache.qt_canvas_state_restore_seconds,
                     qt_canvas_inline_bgra_seconds=raster_cache.qt_canvas_inline_bgra_seconds,
                 )
         scene.clear()

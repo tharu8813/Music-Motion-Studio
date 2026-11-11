@@ -75,6 +75,10 @@ class NativeRasterCache:
         self.parallel_bgra_inline_small = 0
         self.parallel_bgra_inline_busy = 0
         self.qt_canvas_capture_seconds = 0.0
+        # Nonoverlapping portions of the Qt capture call. No effect on pixels.
+        self.qt_canvas_state_setup_seconds = 0.0
+        self.qt_canvas_paint_stage_seconds = 0.0
+        self.qt_canvas_state_restore_seconds = 0.0
         self.qt_canvas_inline_bgra_seconds = 0.0
         self._bgra_executor = (
             ThreadPoolExecutor(max_workers=2, thread_name_prefix="mms-bgra")

@@ -69,6 +69,41 @@ class RasterCacheTests(unittest.TestCase):
         cache.clear()
         self.assertEqual(cache.retained_bytes, 0)
 
+    def test_raster_metrics_split_state_setup_paint_and_restore_without_pixel_changes(self):
+        self.add(Source(
+            SourceType.SHAPE, "Opaque", width=128, height=128, z_index=0,
+            fill_color="#123456",
+        ))
+        bands = ((None, None),)
+        cache = NativeRasterCache(self.scene, bands, 2)
+        try:
+            actual = self.capture(bands, 0, cache)
+            expected = self.capture(bands, 0)
+            self.assertEqual(actual, expected)
+            self.assertGreater(cache.qt_canvas_capture_seconds, 0)
+            self.assertGreater(cache.qt_canvas_paint_stage_seconds, 0)
+            self.assertGreaterEqual(cache.qt_canvas_state_setup_seconds, 0)
+            self.assertGreaterEqual(cache.qt_canvas_state_restore_seconds, 0)
+            measured = (
+                cache.qt_canvas_state_setup_seconds
+                + cache.qt_canvas_paint_stage_seconds
+                + cache.qt_canvas_state_restore_seconds
+            )
+            # Capture timing surrounds the call; split stages must not double
+            # count state preparation, painting, or state restoration.
+            self.assertLessEqual(measured, cache.qt_canvas_capture_seconds + 0.001)
+            report_before = (cache.qt_canvas_capture_seconds, measured)
+            self.assertEqual(self.capture(bands, 0.5, cache), expected)
+            self.assertEqual(
+                (cache.qt_canvas_capture_seconds,
+                 cache.qt_canvas_state_setup_seconds
+                 + cache.qt_canvas_paint_stage_seconds
+                 + cache.qt_canvas_state_restore_seconds),
+                report_before,
+            )
+        finally:
+            cache.clear()
+
     def test_native_bgra_fast_path_matches_qt_straight_alpha_reference(self):
         # The opaque base Qt image already stores B,G,R,0xFF on Windows.
         # Premultiplied overlays MUST still be unpremultiplied by Qt.
