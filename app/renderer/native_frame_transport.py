@@ -105,7 +105,8 @@ def _encode_pixels(pixels):
 
 
 def frame_chunks(frame, index, *, reuse_state=None, timings=None,
-                 compress_planes=False, v3_wire=False, executor=None):
+                 compress_planes=False, v3_wire=False, executor=None,
+                 compress_stream_keys=None):
     """Iterate one bounded packet with immutable pixels.
 
     An optional small shared executor runs CPU hashing/compression of separate
@@ -123,6 +124,16 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
             or frame.width % 2 or frame.height % 2
             or not 1 <= len(frame.layers) <= 8 or total_size > MAX_PAYLOAD):
         raise ValueError("Invalid binary frame geometry or memory limit")
+
+    if compress_stream_keys is not None:
+        # Only the opt-in developer probe may select a subset. Keep normal
+        # automatic frame-wide compression behavior unchanged.
+        if (not compress_planes or not isinstance(compress_stream_keys, frozenset)
+                or not compress_stream_keys or
+                not compress_stream_keys.issubset({
+                    "base", *(f"layer:{i}" for i in range(len(frame.layers) - 1))
+                })):
+            raise ValueError("Selected LZ4 stream keys must exist in this v3 frame")
 
     for i, layer in enumerate(frame.layers):
         size = sizes[i]
@@ -158,7 +169,13 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
 
     encoded = {}
     if compress_planes:
-        candidates = [i for i, reuse in enumerate(reused) if not reuse]
+        candidates = [
+            i for i, reuse in enumerate(reused)
+            if not reuse and (
+                compress_stream_keys is None or
+                ("base" if i == 0 else f"layer:{i-1}") in compress_stream_keys
+            )
+        ]
         started_lz4 = monotonic() if timings is not None else 0.0
         if parallel and len(candidates) >= 2:
             results = list(executor.map(_encode_pixels,
@@ -170,6 +187,22 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
         for i, (data, algorithm, elapsed) in zip(candidates, results):
             encoded[i] = (data, algorithm)
             _metric(timings, "lz4_cpu_seconds", elapsed)
+            if timings is not None:
+                # Measurements are per-task elapsed time and can overlap when
+                # the bounded packet executor processes layers in parallel.
+                key = "base" if i == 0 else f"layer:{i-1}"
+                costs = timings.setdefault("lz4_layer_cost", {})
+                bucket = costs.setdefault(key, {
+                    "attempted_planes": 0, "source_bytes": 0,
+                    "wire_bytes": 0, "saved_bytes": 0,
+                    "task_elapsed_seconds": 0.0, "compressed_planes": 0,
+                })
+                bucket["attempted_planes"] += 1
+                bucket["source_bytes"] += sizes[i]
+                bucket["wire_bytes"] += len(data)
+                bucket["saved_bytes"] += sizes[i] - len(data)
+                bucket["task_elapsed_seconds"] += elapsed
+                bucket["compressed_planes"] += int(algorithm == "lz4")
             if algorithm == "lz4":
                 _metric(timings, "lz4_planes", 1)
 
@@ -238,11 +271,12 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
     yield from payloads
 
 def write_frame(stream, frame, index, *, reuse_state=None, timings=None,
-                compress_planes=False, v3_wire=False, executor=None):
+                compress_planes=False, v3_wire=False, executor=None,
+                compress_stream_keys=None):
     count = 0
     for chunk in frame_chunks(frame, index, reuse_state=reuse_state, timings=timings,
                               compress_planes=compress_planes, v3_wire=v3_wire,
-                              executor=executor):
+                              executor=executor, compress_stream_keys=compress_stream_keys):
         view = memoryview(chunk)
         while view:
             write_started = monotonic() if timings is not None else 0.0
