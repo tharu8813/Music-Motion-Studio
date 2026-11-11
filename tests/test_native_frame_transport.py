@@ -28,6 +28,65 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(json.loads(raw[28:28+meta])["layers"][0]["bytes"], 16)
         self.assertEqual(raw[28+meta:], frame().layers[0].pixels)
 
+    def test_coalesced_preamble_keeps_exact_wire_in_all_versions(self):
+        class CountingWriter(io.BytesIO):
+            def __init__(self, maximum_chunk=None):
+                super().__init__()
+                self.calls = 0
+                self.maximum_chunk = maximum_chunk
+
+            def write(self, data):
+                self.calls += 1
+                if self.maximum_chunk is not None:
+                    data = data[:self.maximum_chunk]
+                return super().write(data)
+
+        def two_layers():
+            result = frame()
+            result.layers += (
+                NS(stream_key="layer:0", width=2, height=2, opacity=0.5,
+                   pixels=bytes((4, 5, 6, 128)) * 4),
+            )
+            return result
+
+        for version in (1, 2, 3):
+            with self.subTest(version=version):
+                reference_state = FrameReuseState() if version >= 2 else None
+                writer_state = FrameReuseState() if version >= 2 else None
+                for frame_index in range(2):
+                    sample = two_layers()
+                    kwargs = {"v3_wire": version == 3}
+                    reference = b"".join(frame_chunks(
+                        sample, frame_index, reuse_state=reference_state, **kwargs,
+                    ))
+                    writer = CountingWriter()
+                    measured = {}
+                    count = write_frame(
+                        writer, sample, frame_index, reuse_state=writer_state,
+                        timings=measured, **kwargs,
+                    )
+                    self.assertEqual(count, len(reference))
+                    self.assertEqual(writer.getvalue(), reference)
+                    # First: one header+manifest write, then two BGRA planes.
+                    # v2/v3 second: both planes reference the previous frame.
+                    expected_calls = 1 if version >= 2 and frame_index else 3
+                    self.assertEqual(writer.calls, expected_calls)
+                    self.assertEqual(measured["pipe_syswrite_calls"], expected_calls)
+
+                partial = CountingWriter(maximum_chunk=3)
+                expected = b"".join(frame_chunks(
+                    two_layers(), 7, reuse_state=(
+                        FrameReuseState() if version >= 2 else None
+                    ), v3_wire=version == 3,
+                ))
+                self.assertEqual(write_frame(
+                    partial, two_layers(), 7,
+                    reuse_state=FrameReuseState() if version >= 2 else None,
+                    v3_wire=version == 3,
+                ), len(expected))
+                self.assertEqual(partial.getvalue(), expected)
+                self.assertGreater(partial.calls, 3)
+
     def test_timing_measurement_preserves_exact_wire_bytes(self):
         baseline = io.BytesIO()
         measured = io.BytesIO()
