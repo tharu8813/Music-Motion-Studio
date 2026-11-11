@@ -18,7 +18,8 @@ from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
 from app.timeline.compiler import compile_playlist
 from tests.test_native_canvas_dynamic_overlays import dynamic_project, sample_wav
 from tools.native_gpu_full_export import (
-    export_complete_project, make_short_smoke_project, produce_complete_project_frames,
+    _parse_probe_keys, export_complete_project, make_short_smoke_project,
+    produce_complete_project_frames,
 )
 
 
@@ -177,6 +178,31 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             self.assertEqual(len(completed), 30)
             self.assertEqual(completed[0], (320, 180, 4))
             self.assertEqual(path.read_bytes(), original_bytes)
+
+    def test_selected_lz4_probe_requires_explicit_profile_and_valid_stream_keys(self):
+        self.assertEqual(
+            _parse_probe_keys("layer:1, base,layer:0"),
+            frozenset({"base", "layer:0", "layer:1"}),
+        )
+        for invalid in ("", ",", "layer:0,layer:0", "layer:7",
+                        "Particles", "layer:0;layer:1"):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(
+                ValueError, "--gpu-lz4-layers requires unique"
+            ):
+                _parse_probe_keys(invalid)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "project.json"
+            project.write_text("{}", encoding="utf8")
+            for profile in (None, "standard", "accelerated", "cpu_parallel"):
+                with self.subTest(profile=profile), self.assertRaisesRegex(
+                    ValueError, "--gpu-lz4-layers requires --gpu-profile automatic"
+                ):
+                    export_complete_project(
+                        project, root / "new.mp4",
+                        gpu_profile=profile, gpu_lz4_layers="layer:0",
+                    )
 
     def test_refuses_to_overwrite_user_video_before_audio_or_gpu_start(self):
         with TemporaryDirectory() as temp:
