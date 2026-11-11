@@ -104,6 +104,59 @@ class RasterCacheTests(unittest.TestCase):
         finally:
             cache.clear()
 
+    def test_band_capture_costs_match_global_qt_totals_and_cached_frames(self):
+        self.add(Source(
+            SourceType.SHAPE, "Opaque", width=128, height=128,
+            z_index=0, fill_color="#123456",
+        ))
+        self.add(Source(
+            SourceType.TEXT, "Clock", text="%current_time%",
+            x=10, y=11, width=90, height=48, z_index=2,
+        ))
+        bands = ((None, 0), (2, None))
+        cache = NativeRasterCache(self.scene, bands, 2)
+        try:
+            for t in (0, 0.2, 0.4):
+                original = self.capture(bands, t)
+                measured = self.capture(bands, t, cache)
+                self.assertEqual(measured, original)
+            per_band = cache.qt_canvas_band_timing
+            self.assertEqual(set(per_band), {"base", "layer:0"})
+            self.assertEqual(per_band["base"]["captures"], 1)
+            self.assertEqual(per_band["base"]["reuse_hits"], 2)
+            self.assertEqual(per_band["layer:0"]["captures"], 3)
+            self.assertEqual(per_band["layer:0"]["reuse_hits"], 0)
+            self.assertEqual(sum(item["captures"] for item in per_band.values()), 4)
+            self.assertEqual(
+                sum(item["capture_seconds"] for item in per_band.values()),
+                cache.qt_canvas_capture_seconds,
+            )
+            self.assertEqual(
+                sum(item["state_setup_seconds"] for item in per_band.values()),
+                cache.qt_canvas_state_setup_seconds,
+            )
+            self.assertEqual(
+                sum(item["paint_stage_seconds"] for item in per_band.values()),
+                cache.qt_canvas_paint_stage_seconds,
+            )
+            self.assertEqual(
+                sum(item["state_restore_seconds"] for item in per_band.values()),
+                cache.qt_canvas_state_restore_seconds,
+            )
+            for bucket in per_band.values():
+                self.assertGreater(bucket["capture_seconds"], 0)
+                self.assertGreater(bucket["paint_stage_seconds"], 0)
+                self.assertLessEqual(
+                    bucket["state_setup_seconds"]
+                    + bucket["paint_stage_seconds"]
+                    + bucket["state_restore_seconds"],
+                    bucket["capture_seconds"] + 0.001,
+                )
+            self.assertEqual(cache.rasterizations, 4)
+            self.assertEqual(cache.hits, 2)
+        finally:
+            cache.clear()
+
     def test_native_bgra_fast_path_matches_qt_straight_alpha_reference(self):
         # The opaque base Qt image already stores B,G,R,0xFF on Windows.
         # Premultiplied overlays MUST still be unpremultiplied by Qt.
