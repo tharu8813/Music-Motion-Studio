@@ -69,6 +69,11 @@ class NativeRasterCache:
         self.adaptive_bgra_enabled = bool(
             optimizations is not None and optimizations.adaptive_bgra
         )
+        # Only used for existing large QImage-to-BGRA converter tasks;
+        # SHA is computed in the same worker immediately after conversion.
+        self.prehash_bgra_enabled = bool(
+            optimizations is not None and optimizations.prehash_bgra
+        )
         # Converting a small Qt image is usually cheaper than submitting a
         # Future and waiting on its result. Tune on real RTX benchmarks only.
         self._min_async_bgra_bytes = 1024 * 1024
