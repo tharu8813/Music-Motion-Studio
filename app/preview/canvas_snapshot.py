@@ -997,12 +997,14 @@ class CanvasSnapshot:
             #
             # Editor blur transitions are the exception: even when values are
             # empty, keyframe_source() must re-filter the original pixmap.
-            editor_blur_rebind = (
-                getattr(graphics_item, "_editor_keyframe_pose", False)
-                and "blur" in getattr(graphics_item, "_editor_keyframe_values", {})
+            identity_context = (
+                skip_empty_keyframe_context and not key_values
+                and not (
+                    getattr(graphics_item, "_editor_keyframe_pose", False)
+                    and "blur" in getattr(graphics_item, "_editor_keyframe_values", {})
+                )
             )
-            if not (skip_empty_keyframe_context and not key_values
-                    and not editor_blur_rebind):
+            if not identity_context:
                 source = keyframe_context.enter_context(
                     keyframe_source(graphics_item, key_values)
                 )
