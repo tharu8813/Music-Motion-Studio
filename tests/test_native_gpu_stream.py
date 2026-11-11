@@ -6,6 +6,7 @@ Windows Rust CI separately compiles the actual D3D11 NVENC worker.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from concurrent.futures import Future
 import os
@@ -177,6 +178,48 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                         width=64, height=64, fps=120, duration_seconds=duration, expected_frames=1201)
             args = launch.call_args.args[0]
             self.assertEqual(float(args[args.index("--duration-seconds") + 1]), duration)
+
+    def test_developer_five_packet_workers_keep_exact_sha_reuse_and_frame_order(self):
+        if os.name != "nt":
+            self.skipTest("Windows native transport mock required")
+        width, height, count = 320, 180, 12
+        solid = bytes((9, 23, 46, 255)) * (width * height)
+
+        def samples():
+            for index in range(count):
+                overlays = [
+                    NativeCanvasBgraLayer(
+                        f"layer:{band}", width, height,
+                        bytes((index + 2 + band, band, 27, 128))
+                        * (width * height),
+                    )
+                    for band in range(4)
+                ]
+                yield NativeCanvasFrame(
+                    width, height,
+                    (NativeCanvasBgraLayer("base", width, height, solid), *overlays),
+                )
+
+        alternate = replace(
+            NativeGpuOptimizations.for_profile("automatic"),
+            packet_workers=5,
+        )
+        result = self._run_mock(
+            count=count, width=width, height=height,
+            provided=samples(), optimizations=alternate,
+        )
+        self.assertEqual(result["frame_packet_workers"], 5)
+        self.assertEqual(result["frames_encoded"], count)
+        self.assertEqual(result["frame_transport"], "binary-v3"
+                         if supports_lz4_transport() else "binary-v2")
+        self.assertEqual(result["frame_sha256_bytes"], count * 5 * width * height * 4)
+        self.assertEqual(result["frame_reused_planes"], count - 1)
+        self.assertEqual(set(result["frame_layer_transport"]),
+                         {"base", "layer:0", "layer:1", "layer:2", "layer:3"})
+        self.assertEqual(
+            sum(v["planes"] for v in result["frame_layer_transport"].values()),
+            count * 5,
+        )
 
     def test_streams_over_120_frames_with_one_staged_frame_per_ack(self):
         result = self._run_mock(count=135)
