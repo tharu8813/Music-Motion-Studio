@@ -38,6 +38,19 @@ real D3D11/NVENC pixel/lyrics/audio parity checks. CI is a **safety gate**, not
 evidence of speed: the current Rust compiler may already auto-vectorize the
 old four-byte loop, and a word-wide check can be equal or slower.
 
+First compare the old scalar predicate with the new wide predicate using
+the same **release-mode** binary and same CPU, alternating run order:
+
+```powershell
+cargo test --release --manifest-path native/gpu_export_core/Cargo.toml `
+  opaque_bgra_scalar_vs_wide_cpu_benchmark -- --ignored --nocapture
+```
+
+The ignored test prints four alternating repetitions of 100 opaque
+1920x1080 frames per predicate. It deliberately has **no timing pass/fail
+assertions** and does not run in CI by default. It is a microbenchmark, not
+proof that the complete Qt/Python-to-Rust export gets faster.
+
 Before adopting this as a production optimization, run identical 30-second
 1080p60 exports on the **same Qt/Python head** with baseline native worker
 versus candidate native worker, in balanced A/B order. Use new MP4/JSON paths;
