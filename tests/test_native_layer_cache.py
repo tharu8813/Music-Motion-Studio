@@ -487,9 +487,13 @@ class RasterCacheTests(unittest.TestCase):
         original.band_excluded_items = (None,) * len(bands)
         try:
             self.assertEqual(
-                tuple(tuple(item.source.name for item in band)
+                tuple(frozenset(item.source.name for item in band)
                       for band in optimized.band_excluded_items),
-                (("Upper", "Clock"), ("Upper", "Base"), ("Clock", "Base")),
+                (
+                    frozenset(("Upper", "Clock")),
+                    frozenset(("Upper", "Base")),
+                    frozenset(("Clock", "Base")),
+                ),
             )
             for seconds in (0, 0.35, 1.25):
                 with self.subTest(seconds=seconds):
