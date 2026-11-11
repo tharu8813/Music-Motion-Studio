@@ -42,10 +42,16 @@ class NativeRasterCache:
         # Each native export owns a frozen, detached scene.  Determine band
         # membership once instead of enumerating the whole QGraphicsScene
         # three or more times for every single CFR frame.
+        # Keep ALL SourceItems, including those currently hidden. Some
+        # timeline effects toggle visibility between frames. The Qt capture
+        # checks their actual visibility and current Z-order on every paint;
+        # only the expensive scene-wide enumeration is cached.
+        self.scene_source_items = tuple(
+            item for item in scene.items() if isinstance(item, SourceItem)
+        )
         visible_items = tuple(
-            item for item in scene.items()
-            if isinstance(item, SourceItem)
-            and item.isVisible() and item.source.visible
+            item for item in self.scene_source_items
+            if item.isVisible() and item.source.visible
         )
         self.band_source_items = tuple(
             tuple(item for item in visible_items
