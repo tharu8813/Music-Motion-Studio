@@ -121,6 +121,23 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             self.assertEqual(compile_playlist(clipped.playlist).duration_seconds, 1.0)
             self.assertIn("smoke clip", clipped.settings.title)
 
+    def test_developer_prehash_flag_requires_automatic_and_does_not_change_gui_default(self):
+        self.assertFalse(NativeGpuOptimizations.for_profile("automatic").prehash_bgra)
+        for profile in ("standard", "accelerated", "cpu_parallel"):
+            self.assertFalse(NativeGpuOptimizations.for_profile(profile).prehash_bgra)
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project.json"
+            project.write_text("{}", encoding="utf8")
+            for profile in (None, "standard", "accelerated", "cpu_parallel"):
+                with self.subTest(profile=profile), self.assertRaisesRegex(
+                    ValueError, "--gpu-prehash-bgra requires --gpu-profile automatic"
+                ):
+                    export_complete_project(
+                        project, root / "output.mp4",
+                        gpu_profile=profile, gpu_prehash_bgra=True,
+                    )
+
     def test_invalid_smoke_seconds_fail_before_any_gpu_or_audio_work(self):
         with TemporaryDirectory() as temp:
             project = dynamic_project(Path(temp) / "song.wav")
