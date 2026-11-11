@@ -48,6 +48,56 @@ This is an internal implementation detail; the user chooses only FFmpeg or Rust 
   references; Rust v3 corrupted/hash-forged/truncated payload and v2/v3 version checks.
   No GUI optimization choice has been added.
 
+
+## Follow-up RTX 5060 real-hardware measurement: LZ4 regression
+
+The user successfully exported all 1,800 frames of the same 1080p
+30-second clip using v3; the former frame-1 previous-packet error is fixed.
+
+| Metric | v2 baseline | v3 with always-on LZ4 |
+| --- | ---: | ---: |
+| Native pipeline FPS | 23.685 | **17.575** |
+| Full CLI wall clock | 83.49s | **109.49s** |
+| Wire bytes | 48.945GB | **3.057GB** |
+| Sender SHA-256 duration | 25.04s | 25.71s |
+| LZ4 sender CPU duration | 0 | **20.85s** |
+| OS pipe write duration | 32.80s | 37.63s |
+| Total Python send/write duration | ~61.65s | **87.15s** |
+| Native frame receive duration | - | 93.97s |
+
+Despite ~93.8% fewer wire bytes, compression increased elapsed time:
+`pipe_syswrite_seconds` includes receiver backpressure, so shrinking the
+byte stream doesn't guarantee shorter writes or faster end-to-end execution.
+
+### 2026-11-11 revision: CPU parallelism + automatic wire selection
+
+- Parallelize hashing and eligible LZ4 compression across **up to 3**
+  immutable BGRA planes with one bounded, per-export worker pool. Never
+  invoke Qt painting off its owner thread.
+- Keep SHA-256 verification and all v3 wire metadata; results are inserted
+  in original layer order, deterministically.
+- During the first **64 frames**, alternate LZ4 and raw v3 packets. Compare
+  per-frame sender wall time per uncompressed MB, skipping frames below
+  1 MiB of changed BGRA. The export only retains LZ4 if measured median
+  sender latency is at least **10% faster** than uncompressed; otherwise
+  v3 continues with raw planes automatically. Sparse or inconclusive
+  calibration chooses raw.
+- This is **one automatic** transport policy, not another user setting.
+  The Rust worker already supports compressed, raw, and previous-frame
+  references mixed inside one binary-v3 stream.
+- New report metrics: `frame_lz4_auto_choice`,
+  `frame_lz4_probe_samples`, `frame_sha256_wall_seconds`,
+  `frame_lz4_wall_seconds`. The original SHA/LZ4 CPU-second values now
+  sum concurrent thread times; **only the new wall-second fields** track
+  elapsed latency directly.
+- Unit tests compare complete serial vs parallel packets, adaptive choices
+  for slower/faster LZ4, and v3 transitions from LZ4 to raw and references.
+
+**Unverified gain:** the prior 17.575FPS result is measured; this revision
+still requires Windows CI and a second identical RTX 5060 A/B export
+before claiming any throughput increase. The automatic fallback is designed
+to avoid retaining the demonstrated large LZ4 regression.
+
 ## Real hardware test
 
 Pull the updated source **and rebuild the Rust native release executable**.
