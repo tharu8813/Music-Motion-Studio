@@ -22,6 +22,10 @@ class NativeGpuOptimizations:
     # Automatic mode offloads only sufficiently large, already-painted
     # QImages and never blocks the GUI waiting for converter slots.
     adaptive_bgra: bool = False
+    # Experiment only: hash immutable BGRA bytes on the existing QImage
+    # conversion worker rather than hashing them again on the IPC sender.
+    # Normal automatic exports keep this off until real MP4 A/B validation.
+    prehash_bgra: bool = False
 
     @classmethod
     def for_profile(cls, profile: str) -> "NativeGpuOptimizations":
