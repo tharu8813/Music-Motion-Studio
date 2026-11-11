@@ -490,6 +490,84 @@ class RasterCacheTests(unittest.TestCase):
         self.assertTrue(fast.partial_band_enabled)
         self.assertTrue(fast.compact_band_enabled)
 
+    def test_partial_roi_uses_preselected_band_items_and_preserves_exact_bounds(self):
+        # Each frame of a multi-band native project already has the selected
+        # SourceItems. Bounds must match the legacy whole-scene traversal
+        # after track/animation/visibility updates and retain exact BGRA.
+        self.add(Source(
+            SourceType.SHAPE, "Base", width=128, height=128, z_index=0,
+            fill_color="#213547",
+        ))
+        first = Source(
+            SourceType.TEXT, "Clock A", text="%current_time%",
+            x=16, y=18, width=64, height=32, z_index=2, font_size=15,
+        )
+        first.shadow.enabled = True
+        first.shadow.offset_x = 2
+        first.shadow.offset_y = 3
+        first.shadow.blur_radius = 6
+        self.add(first)
+        self.add(Source(
+            SourceType.TEXT, "Clock B", text="%current_time%",
+            x=67, y=67, width=49, height=28, z_index=4, font_size=13,
+        ))
+        # A disabled source exists in the scene, but must never leak into
+        # band bounds or transparent video pixels.
+        hidden = Source(SourceType.SHAPE, "Hidden", width=128, height=128,
+                        z_index=4, fill_color="#ff00ff")
+        hidden.visible = False
+        self.add(hidden)
+        bands = ((None, 0), (2, 2), (4, None))
+        with patch.dict(os.environ, {
+            "PLAYLIST_CANVAS_NATIVE_PARTIAL_BANDS": "1",
+            "PLAYLIST_CANVAS_NATIVE_COMPACT_BANDS": "1",
+        }):
+            cache = NativeRasterCache(self.scene, bands, 2)
+
+        original = CanvasSnapshot._dynamic_band_capture_rect
+        compared = []
+
+        def compare_bounds(scene, z_min, z_max, *, transformed_preview=False,
+                           source_items=None):
+            self.assertIsNotNone(source_items,
+                                 "Native ROI must use the preselected band")
+            actual = original(
+                scene, z_min, z_max, transformed_preview=transformed_preview,
+                source_items=source_items,
+            )
+            expected = original(
+                scene, z_min, z_max, transformed_preview=transformed_preview,
+            )
+            self.assertEqual(actual, expected)
+            compared.append((z_min, z_max, tuple(item.source.name
+                                                for item in source_items)))
+            return actual
+
+        try:
+            for scale in (0.5, 1.0, 1.5):
+                for seconds in (0.0, 0.25, 0.9):
+                    with self.subTest(scale=scale, seconds=seconds):
+                        kwargs = dict(elapsed_seconds=seconds,
+                                      playlist_duration_seconds=2,
+                                      output_scale=scale)
+                        reference = capture_native_canvas_track_frame(
+                            self.scene, self.track, bands, **kwargs,
+                        )
+                        with patch.object(CanvasSnapshot, "_dynamic_band_capture_rect",
+                                          side_effect=compare_bounds):
+                            native = capture_native_canvas_track_frame(
+                                self.scene, self.track, bands,
+                                raster_cache=cache, **kwargs,
+                            )
+                        self.assertEqual(native.resolve() if isinstance(
+                            native, DeferredNativeCanvasFrame) else native, reference)
+            self.assertTrue(any(z_min == 2 for z_min, _, _ in compared))
+            self.assertTrue(any(z_min == 4 for z_min, _, _ in compared))
+            self.assertTrue(all("Hidden" not in names for _, _, names in compared))
+            self.assertGreater(cache.partial_band_captures, 0)
+        finally:
+            cache.clear()
+
     def test_opt_in_partial_transparent_band_preserves_unchanged_native_packets(self):
         # 0.5 output scale exercises otherwise misaligned original bounds.
         self.add(Source(
