@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+from dataclasses import replace
 import json
 import math
+import re
 from time import monotonic
 import hashlib
 from pathlib import Path
@@ -65,11 +67,23 @@ def make_short_smoke_project(
     return clip
 
 
+def _parse_probe_keys(raw: str) -> frozenset[str]:
+    """Validate developer-only stream selection, independent of source names."""
+    keys = [value.strip() for value in raw.split(",")]
+    if (not keys or len(keys) != len(set(keys))
+            or any(re.fullmatch(r"base|layer:[0-6]", value) is None for value in keys)):
+        raise ValueError(
+            "--gpu-lz4-layers requires unique comma-separated base/layer:0..layer:6 keys"
+        )
+    return frozenset(keys)
+
+
 def export_complete_project(
     project_path: Path, output_path: Path, *, native_exe: Path | None = None,
     fps: int = 60, scale: float = 0.5, ffmpeg: str | None = None,
     smoke_seconds: float | None = None, report_path: Path | None = None,
     gpu_profile: str | None = None,
+    gpu_lz4_layers: str | None = None,
 ) -> Path:
     """Run actual complete GPU encoding + MP4 mux with the existing soundtrack."""
     source = Path(project_path)
@@ -91,6 +105,12 @@ def export_complete_project(
         NativeGpuOptimizations.for_profile(gpu_profile)
         if gpu_profile is not None else None
     )
+    if gpu_lz4_layers is not None:
+        if gpu_profile != "automatic":
+            raise ValueError("--gpu-lz4-layers requires --gpu-profile automatic")
+        optimizations = replace(
+            optimizations, lz4_layer_probe_keys=_parse_probe_keys(gpu_lz4_layers),
+        )
     started = monotonic()
     project = ProjectService.load(source)
     if smoke_seconds is not None:
@@ -147,6 +167,10 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Developer A/B only: automatic matches the normal application's Rust GPU engine",
     )
+    parser.add_argument(
+        "--gpu-lz4-layers", type=str, default=None,
+        help="Developer A/B only: losslessly LZ4-encode selected stream keys, e.g. layer:0,layer:1",
+    )
     parser.add_argument("--report", type=Path, default=None, help="Preserve developer diagnostics outside temporary staging")
     parser.add_argument(
         "--smoke-seconds", type=float, default=None,
@@ -163,6 +187,7 @@ def main(argv: list[str] | None = None) -> int:
             fps=args.fps, scale=args.scale, ffmpeg=args.ffmpeg,
             smoke_seconds=args.smoke_seconds, report_path=args.report,
             gpu_profile=args.gpu_profile,
+            gpu_lz4_layers=args.gpu_lz4_layers,
         )
     except Exception as exc:
         if args.report is not None and not args.report.exists():
