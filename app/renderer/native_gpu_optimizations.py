@@ -22,6 +22,9 @@ class NativeGpuOptimizations:
     # Automatic mode offloads only sufficiently large, already-painted
     # QImages and never blocks the GUI waiting for converter slots.
     adaptive_bgra: bool = False
+    # Developer-only experiment: skip an identity keyframe Source context
+    # when it cannot change pixels, transforms, or image filter state.
+    skip_empty_keyframe_context: bool = False
 
     @classmethod
     def for_profile(cls, profile: str) -> "NativeGpuOptimizations":
