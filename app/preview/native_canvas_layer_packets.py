@@ -45,6 +45,9 @@ class NativeCanvasBgraLayer:
     opacity: float = 1.0
     inverse_transform: tuple[float, ...] | None = None
     clip: tuple[int, ...] | None = None
+    # Internal producer-side hint only. The Rust receiver still verifies
+    # uncompressed BGRA SHA before using pixels or previous-frame references.
+    precomputed_sha256: str | None = None
 
     def __post_init__(self) -> None:
         if not 0 < self.width <= 3840 or not 0 < self.height <= 2160:
@@ -53,6 +56,11 @@ class NativeCanvasBgraLayer:
             raise ValueError("Native Canvas layer BGRA bytes do not match dimensions")
         if not 0.0 <= self.opacity <= 1.0:
             raise ValueError("Native Canvas layer opacity must be in [0, 1]")
+        if self.precomputed_sha256 is not None:
+            digest = self.precomputed_sha256
+            if (type(self.pixels) is not bytes or type(digest) is not str
+                    or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest)):
+                raise ValueError("Precomputed SHA256 requires immutable BGRA bytes and lowercase hex")
         if self.inverse_transform is not None:
             m = self.inverse_transform
             if (len(m) != 6 or any(isinstance(x, bool) or not math.isfinite(x) or abs(x) > 1e6 for x in m)
@@ -102,16 +110,22 @@ class DeferredNativeCanvasLayer:
     stream_key: str
     width: int
     height: int
-    pixels_future: Future[bytes]
+    pixels_future: Future[bytes | tuple[bytes, str]]
     opacity: float = 1.0
     inverse_transform: tuple[float, ...] | None = None
     clip: tuple[int, ...] | None = None
 
     def resolve(self) -> NativeCanvasBgraLayer:
+        output = self.pixels_future.result()
+        if isinstance(output, tuple):
+            pixels, digest = output
+        else:
+            pixels, digest = output, None
         return NativeCanvasBgraLayer(
             stream_key=self.stream_key, width=self.width, height=self.height,
-            pixels=self.pixels_future.result(), opacity=self.opacity,
+            pixels=pixels, opacity=self.opacity,
             inverse_transform=self.inverse_transform, clip=self.clip,
+            precomputed_sha256=digest,
         )
 
 
@@ -170,6 +184,17 @@ def straight_bgra_bytes(image: QImage) -> bytes:
     if stride == width * 4:
         return raw
     return b"".join(raw[y * stride:y * stride + width * 4] for y in range(height))
+
+
+def straight_bgra_bytes_with_sha256(image: QImage) -> tuple[bytes, str]:
+    """Optional conversion-worker fast path; hash exactly the returned bytes.
+
+    The source QImage remains owned by the bounded converter worker, and its
+    bytes are immutable before the digest is computed. The Rust verifier
+    independently recomputes SHA-256 on its reconstructed BGRA buffer.
+    """
+    pixels = straight_bgra_bytes(image)
+    return pixels, hashlib.sha256(pixels).hexdigest()
 
 
 def _validate_bands(
@@ -428,10 +453,14 @@ def capture_native_canvas_track_frame(
         )
         future = None
         if use_parallel:
+            converter = (
+                straight_bgra_bytes_with_sha256
+                if raster_cache.prehash_bgra_enabled else straight_bgra_bytes
+            )
             future = (
-                raster_cache.maybe_submit_bgra(image, straight_bgra_bytes)
+                raster_cache.maybe_submit_bgra(image, converter)
                 if raster_cache.adaptive_bgra_enabled
-                else raster_cache.submit_bgra(QImage(image), straight_bgra_bytes)
+                else raster_cache.submit_bgra(QImage(image), converter)
             )
         if future is not None:
             layers.append(DeferredNativeCanvasLayer(
