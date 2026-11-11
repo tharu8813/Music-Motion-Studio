@@ -274,7 +274,8 @@ class CanvasSnapshot:
     def capture(scene: CanvasScene, output_scale: float = 1.0,
                 z_min: float | None = None, z_max: float | None = None,
                 transparent: bool = False, image_buffer: QImage | None = None,
-                capture_rect: QRectF | None = None) -> QImage:
+                capture_rect: QRectF | None = None,
+                scene_source_items: Sequence[SourceItem] | None = None) -> QImage:
         """Render all or one Z-index band of the artboard at project resolution.
 
         Transparent Z bands are the basis for interleaving static Canvas content
@@ -316,7 +317,13 @@ class CanvasSnapshot:
             scene.guide_y = None
             scene.suppress_render_background = transparent
             if z_min is not None or z_max is not None:
-                for item in scene.items():
+                # Native exports use a detached fixed scene. Preselect the
+                # SourceItem objects once per export instead of traversing
+                # QGraphicsScene.items() separately for every frame and band.
+                # Check visibility/Z live to preserve animation semantics.
+                candidates = (scene_source_items
+                              if scene_source_items is not None else scene.items())
+                for item in candidates:
                     if not isinstance(item, SourceItem) or not item.isVisible():
                         continue
                     z_value = item.source.z_index
@@ -855,6 +862,7 @@ class CanvasSnapshot:
                       partial_render_keep_cropped: bool = False,
                       render_metrics: dict[str, object] | None = None,
                       band_source_items: Sequence[SourceItem] | None = None,
+                      scene_source_items: Sequence[SourceItem] | None = None,
                       junction: MixJunction | None = None,
                       bass_level: float = 0.0,
                       music_levels: dict[str, float] | None = None,
@@ -1601,8 +1609,10 @@ class CanvasSnapshot:
                         candidate, scene.artboard_rect, output_scale, tile=32,
                     )
             if partial_render and transparent and capture_rect is None:
+                # Band members were already selected at frame entry. Bounds
+                # and motion checks still run against the current frame.
                 candidate = CanvasSnapshot._dynamic_band_capture_rect(
-                    scene, z_min, z_max,
+                    scene, z_min, z_max, source_items=source_items,
                 )
                 artboard = scene.artboard_rect
                 if candidate is not None:
@@ -1624,6 +1634,7 @@ class CanvasSnapshot:
                 scene, output_scale, z_min=z_min, z_max=z_max, transparent=transparent,
                 image_buffer=(None if used_partial_render else image_buffer),
                 capture_rect=effective_capture_rect,
+                scene_source_items=scene_source_items,
             )
             if (used_partial_render and effective_capture_rect is not None
                     and not partial_render_keep_cropped):
