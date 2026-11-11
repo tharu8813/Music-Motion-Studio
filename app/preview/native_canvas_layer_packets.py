@@ -385,10 +385,12 @@ def capture_native_canvas_track_frame(
             } if raster_cache is not None else {}),
         )
         if raster_cache is not None:
-            raster_cache.qt_canvas_capture_seconds += monotonic() - paint_started
+            capture_elapsed = monotonic() - paint_started
+            raster_cache.qt_canvas_capture_seconds += capture_elapsed
             raster_cache.qt_canvas_state_setup_seconds += capture_metrics["state_setup_seconds"]
             raster_cache.qt_canvas_paint_stage_seconds += capture_metrics["paint_stage_seconds"]
             raster_cache.qt_canvas_state_restore_seconds += capture_metrics["state_restore_seconds"]
+            raster_cache.record_band_capture(key, capture_metrics, capture_elapsed)
         inverse = None
         clip = None
         is_compact = bool(compact and capture_metrics.get("partial_render"))
