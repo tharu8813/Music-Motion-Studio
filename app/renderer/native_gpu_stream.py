@@ -10,6 +10,7 @@ remain ordered, and Qt methods never run on that sender thread.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import json
 import logging
@@ -23,7 +24,8 @@ from threading import Event, Thread, Lock
 from time import monotonic
 
 from app.preview.native_canvas_layer_packets import DeferredNativeCanvasFrame, NativeCanvasFrame
-from app.renderer.native_frame_transport import FrameReuseState, write_frame, supports_lz4_transport
+from app.renderer.native_frame_transport import (AdaptiveCompressionBudget, FrameReuseState,
+                                                 write_frame, supports_lz4_transport)
 from app.renderer.ffmpeg_renderer import (
     ExportMetadata, FFmpegRenderer, RenderCancelledError, RenderError,
     RenderResult, RenderSettings,
@@ -184,6 +186,30 @@ def stream_native_canvas_h264(
         cpu_parallel_bgra_frames = 0
         frame_ack_wait_seconds = 0.0
         frame_write_timings: dict[str, float | int] = {}
+        # Only immutable BGRA bytes run on this bounded CPU pool. No Qt calls
+        # leave the thread that owns each QImage.
+        packet_executor = ThreadPoolExecutor(max_workers=3,
+                                             thread_name_prefix="mms-native-layer")
+        compression_budget = AdaptiveCompressionBudget() if compressed_transport else None
+
+        def send_packet(resolved: NativeCanvasFrame, index: int) -> int:
+            # Always emit v3 when negotiated. It can send lossless raw planes
+            # after the per-export latency probe rejects expensive compression.
+            compress = (compression_budget.use_compression(index)
+                        if compression_budget is not None else False)
+            raw_before = frame_write_timings.get("raw_source_bytes", 0)
+            begun = monotonic()
+            written = write_frame(
+                worker.stdin, resolved, index, reuse_state=reuse_state,
+                timings=frame_write_timings, compress_planes=compress,
+                v3_wire=compressed_transport, executor=packet_executor,
+            )
+            if compression_budget is not None:
+                compression_budget.record(
+                    compress, monotonic() - begun,
+                    frame_write_timings.get("raw_source_bytes", 0) - raw_before,
+                )
+            return written
         # Experimental, rollback-friendly optimization. A frame is never
         # painted on the sender thread, and at most two packets coexist.
         overlap_enabled = (
@@ -276,11 +302,7 @@ def stream_native_canvas_h264(
                                 frame.resolve() if isinstance(frame, DeferredNativeCanvasFrame)
                                 else frame
                             )
-                            written_bytes = write_frame(
-                                worker.stdin, resolved, index, reuse_state=reuse_state,
-                                timings=frame_write_timings,
-                                compress_planes=compressed_transport,
-                            )
+                            written_bytes = send_packet(resolved, index)
                             wrote_at = monotonic()
                             _frame_acknowledgement(
                                 events, worker, index, cancel,
@@ -308,11 +330,7 @@ def stream_native_canvas_h264(
                             frame.resolve() if isinstance(frame, DeferredNativeCanvasFrame)
                             else frame
                         )
-                        sent.put(write_frame(
-                            worker.stdin, resolved, index, reuse_state=reuse_state,
-                            timings=frame_write_timings,
-                            compress_planes=compressed_transport,
-                        ))
+                        sent.put(send_packet(resolved, index))
                     except Exception as exc:
                         sent.put(exc)
                 started = monotonic()
@@ -412,6 +430,14 @@ def stream_native_canvas_h264(
                 frame_pipe_syswrite_calls=frame_write_timings.get("pipe_syswrite_calls", 0),
                 frame_lz4_cpu_seconds=frame_write_timings.get("lz4_cpu_seconds", 0.0),
                 frame_lz4_planes=frame_write_timings.get("lz4_planes", 0),
+                frame_lz4_auto_choice=(
+                    compression_budget.decision if compression_budget else "not_available"
+                ),
+                frame_lz4_probe_samples=(
+                    {str(key).lower(): len(values)
+                     for key, values in compression_budget.samples.items()}
+                    if compression_budget else {}
+                ),
                 frame_raw_source_bytes=frame_write_timings.get("raw_source_bytes", 0),
                 frame_wire_payload_bytes=frame_write_timings.get("wire_payload_bytes", 0),
                 frame_wire_saved_bytes=max(0,
@@ -449,6 +475,7 @@ def stream_native_canvas_h264(
             _abort_worker(worker)
             if sender is not None:
                 sender.join(timeout=4)
+            packet_executor.shutdown(wait=True, cancel_futures=True)
             if worker.stdin is not None and not worker.stdin.closed:
                 try:
                     worker.stdin.close()
