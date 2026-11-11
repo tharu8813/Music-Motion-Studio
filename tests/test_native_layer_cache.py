@@ -142,10 +142,13 @@ class RasterCacheTests(unittest.TestCase):
             cache.clear()
 
     def test_automatic_gpu_big_conversion_uses_nonblocking_bounded_workers(self):
-        cache = NativeRasterCache(
-            self.scene, ((None, None),), 2,
-            optimizations=NativeGpuOptimizations.for_profile("automatic"),
-        )
+        # Small CPU configurations deliberately retain the old two-slot path.
+        with patch("app.renderer.native_layer_cache.os.cpu_count", return_value=4):
+            cache = NativeRasterCache(
+                self.scene, ((None, None),), 2,
+                optimizations=NativeGpuOptimizations.for_profile("automatic"),
+            )
+        self.assertEqual(cache.parallel_bgra_worker_limit, 2)
         image = QImage(512, 512, QImage.Format.Format_ARGB32)
         image.fill(QColor(12, 21, 44, 172))
         entered = Event()
@@ -186,6 +189,63 @@ class RasterCacheTests(unittest.TestCase):
         self.assertEqual(second.result(), expected)
         self.assertEqual(cache.parallel_bgra_peak_workers, 2)
         self.assertFalse(any(t.name.startswith("mms-bgra_") for t in active_threads()))
+
+    def test_high_core_automatic_uses_three_bounded_converter_workers(self):
+        # Explicitly mock the hardware so Windows CI is deterministic even
+        # when its runner has fewer CPUs than the target RTX desktop.
+        with patch("app.renderer.native_layer_cache.os.cpu_count", return_value=20):
+            cache = NativeRasterCache(
+                self.scene, ((None, None),), 2,
+                optimizations=NativeGpuOptimizations.for_profile("automatic"),
+            )
+        self.assertEqual(cache.parallel_bgra_worker_limit, 3)
+        image = QImage(512, 512, QImage.Format.Format_ARGB32)
+        image.fill(QColor(41, 59, 79, 191))
+        expected = straight_bgra_bytes(image)
+        start_three = Event()
+        release = Event()
+        active = 0
+        lock = Lock()
+
+        def blocked(qimage):
+            nonlocal active
+            with lock:
+                active += 1
+                if active == 3:
+                    start_three.set()
+            if not release.wait(8.0):
+                raise RuntimeError("Conversion test worker was not released")
+            return straight_bgra_bytes(qimage)
+
+        futures = []
+        try:
+            for _ in range(3):
+                future = cache.maybe_submit_bgra(image, blocked)
+                self.assertIsNotNone(future)
+                futures.append(future)
+            self.assertTrue(start_three.wait(5.0))
+            # All three task slots are reserved: never block the Qt thread.
+            self.assertIsNone(cache.maybe_submit_bgra(image, blocked))
+            self.assertEqual(cache.parallel_bgra_inline_busy, 1)
+            self.assertEqual(cache.parallel_bgra_submissions, 3)
+            self.assertEqual(cache.parallel_bgra_peak_workers, 3)
+        finally:
+            release.set()
+            cache.clear()
+        self.assertEqual([future.result() for future in futures],
+                         [expected, expected, expected])
+        self.assertFalse(any(t.name.startswith("mms-bgra_") for t in active_threads()))
+
+    def test_legacy_parallel_mode_keeps_two_worker_cap_on_high_core_cpu(self):
+        with patch("app.renderer.native_layer_cache.os.cpu_count", return_value=20):
+            legacy = NativeRasterCache(
+                self.scene, ((None, None),), 2,
+                optimizations=NativeGpuOptimizations.for_profile("cpu_parallel"),
+            )
+        try:
+            self.assertEqual(legacy.parallel_bgra_worker_limit, 2)
+        finally:
+            legacy.clear()
 
     def test_automatic_gpu_skips_tiny_dynamic_texture_conversion_futures(self):
         base = NativeCanvasFrame(
