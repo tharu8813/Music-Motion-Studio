@@ -95,6 +95,24 @@ def _hash_pixels(pixels):
     return hashlib.sha256(pixels).hexdigest(), monotonic() - started
 
 
+def _hash_layer(layer):
+    """Hash immutable plane data or reuse its conversion-worker digest.
+
+    Only internally produced immutable bytes can carry a precomputed digest.
+    A malformed hint fails closed; Rust independently checks the digest on
+    the receiving process before accepting the data.
+    """
+    prehashed = getattr(layer, "precomputed_sha256", None)
+    if prehashed is not None:
+        if (type(layer.pixels) is not bytes or type(prehashed) is not str
+                or len(prehashed) != 64
+                or any(c not in "0123456789abcdef" for c in prehashed)):
+            raise ValueError("Invalid immutable BGRA precomputed SHA256")
+        return prehashed, 0.0, True
+    digest, elapsed = _hash_pixels(layer.pixels)
+    return digest, elapsed, False
+
+
 def _encode_pixels(pixels):
     started = monotonic()
     original = memoryview(pixels)
@@ -135,9 +153,9 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
     parallel = executor is not None and len(frame.layers) >= 2 and total_size >= 1 << 20
     started_hash = monotonic() if timings is not None else 0.0
     if parallel:
-        digests = list(executor.map(_hash_pixels, (layer.pixels for layer in frame.layers)))
+        digests = list(executor.map(_hash_layer, frame.layers))
     else:
-        digests = [_hash_pixels(layer.pixels) for layer in frame.layers]
+        digests = [_hash_layer(layer) for layer in frame.layers]
     if timings is not None:
         _metric(timings, "sha256_wall_seconds", monotonic() - started_hash)
 
@@ -153,9 +171,12 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
         for i, layer in enumerate(frame.layers)
     }
 
-    for i, (digest, elapsed) in enumerate(digests):
+    for i, (digest, elapsed, prehashed) in enumerate(digests):
         _metric(timings, "sha256_seconds", elapsed)
         _metric(timings, "sha256_bytes", sizes[i])
+        if prehashed:
+            _metric(timings, "sha256_prefetched_planes", 1)
+            _metric(timings, "sha256_prefetched_bytes", sizes[i])
 
     encoded = {}
     if compress_planes:
