@@ -121,6 +121,33 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             self.assertEqual(compile_playlist(clipped.playlist).duration_seconds, 1.0)
             self.assertIn("smoke clip", clipped.settings.title)
 
+    def test_developer_packet_workers_are_bounded_and_do_not_change_gui_default(self):
+        for profile in ("automatic", "accelerated", "cpu_parallel", "standard"):
+            self.assertEqual(NativeGpuOptimizations.for_profile(profile).packet_workers, 3)
+        for invalid in (0, 7, -1, 2.5, True, "5"):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(
+                ValueError, "Native packet worker count"
+            ):
+                NativeGpuOptimizations(packet_workers=invalid)
+
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project.json"
+            project.write_text("{}", encoding="utf8")
+            for profile in (None, "standard", "accelerated", "cpu_parallel"):
+                with self.subTest(profile=profile), self.assertRaisesRegex(
+                    ValueError, "--gpu-packet-workers requires --gpu-profile automatic"
+                ):
+                    export_complete_project(
+                        project, root / "output.mp4",
+                        gpu_profile=profile, gpu_packet_workers=5,
+                    )
+            with self.assertRaisesRegex(ValueError, "Native packet worker count"):
+                export_complete_project(
+                    project, root / "output.mp4",
+                    gpu_profile="automatic", gpu_packet_workers=7,
+                )
+
     def test_invalid_smoke_seconds_fail_before_any_gpu_or_audio_work(self):
         with TemporaryDirectory() as temp:
             project = dynamic_project(Path(temp) / "song.wav")
