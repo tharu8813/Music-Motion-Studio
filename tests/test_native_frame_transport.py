@@ -190,6 +190,85 @@ class TransportTests(unittest.TestCase):
         self.assertEqual((entry["compression"], entry["wire_bytes"]), ("previous", 0))
         self.assertEqual(cache.reused_planes, 1)
 
+    def test_v3_selective_lz4_preserves_other_planes_and_validates_reuse(self):
+        from app.renderer.native_frame_transport import supports_lz4_transport
+        if not supports_lz4_transport():
+            self.skipTest("lz4 wheel not available")
+        import hashlib
+        from lz4 import block
+
+        width, height = 320, 180
+        count = width * height
+        base_pixels = bytes((20, 30, 40, 255)) * count
+        tail_pixels = bytes((7, 8, 9, 128)) * count
+        selected = frozenset({"layer:0"})
+        state = FrameReuseState()
+        stats = {}
+
+        for index in range(2):
+            top_pixels = bytes((index + 2, 4, 6, 100)) * count
+            sample = NS(width=width, height=height, schema=1, layers=(
+                NS(stream_key="base", width=width, height=height,
+                   pixels=base_pixels, opacity=1.0),
+                NS(stream_key="layer:0", width=width, height=height,
+                   pixels=top_pixels, opacity=1.0),
+                NS(stream_key="layer:1", width=width, height=height,
+                   pixels=tail_pixels, opacity=1.0),
+            ))
+            packet = b"".join(frame_chunks(
+                sample, index, reuse_state=state, v3_wire=True,
+                compress_planes=True, compress_stream_keys=selected,
+                timings=stats,
+            ))
+            magic, version, frame_index, meta_len, wire_size = HEADER.unpack(packet[:28])
+            self.assertEqual((magic, version, frame_index), (b"MMSB", 3, index))
+            manifest = json.loads(packet[28:28 + meta_len])
+            entries = manifest["layers"]
+            self.assertEqual([entry["compression"] for entry in entries],
+                             ["raw", "lz4", "raw"] if index == 0 else
+                             ["previous", "lz4", "previous"])
+            self.assertEqual(sum(entry["wire_bytes"] for entry in entries), wire_size)
+            body = packet[28 + meta_len:]
+            if index == 0:
+                self.assertEqual(body[:len(base_pixels)], base_pixels)
+                body = body[len(base_pixels):]
+            encoded = body[:entries[1]["wire_bytes"]]
+            self.assertEqual(
+                block.decompress(encoded, uncompressed_size=len(top_pixels)),
+                top_pixels,
+            )
+            self.assertEqual(hashlib.sha256(top_pixels).hexdigest(),
+                             entries[1]["sha256"])
+            body = body[entries[1]["wire_bytes"]:]
+            self.assertEqual(body, tail_pixels if index == 0 else b"")
+
+        self.assertEqual(state.reused_planes, 2)
+        self.assertEqual(stats["lz4_planes"], 2)
+        self.assertEqual(list(stats["lz4_layer_cost"]), ["layer:0"])
+        measured = stats["lz4_layer_cost"]["layer:0"]
+        self.assertEqual(measured["attempted_planes"], 2)
+        self.assertEqual(measured["compressed_planes"], 2)
+        self.assertEqual(measured["source_bytes"], 2 * len(top_pixels))
+        self.assertGreater(measured["saved_bytes"], 0)
+        self.assertGreaterEqual(measured["task_elapsed_seconds"], 0)
+        self.assertEqual(
+            measured["source_bytes"] - measured["wire_bytes"],
+            measured["saved_bytes"],
+        )
+
+        with self.assertRaisesRegex(ValueError, "Selected LZ4 stream keys"):
+            list(frame_chunks(
+                sample, 0, reuse_state=FrameReuseState(),
+                v3_wire=True, compress_planes=True,
+                compress_stream_keys=frozenset({"layer:6"}),
+            ))
+        with self.assertRaisesRegex(ValueError, "Selected LZ4 stream keys"):
+            list(frame_chunks(
+                sample, 0, reuse_state=FrameReuseState(),
+                v3_wire=True, compress_planes=False,
+                compress_stream_keys=selected,
+            ))
+
     def test_v3_raw_fallback_keeps_noise_identical(self):
         from app.renderer.native_frame_transport import supports_lz4_transport
         if not supports_lz4_transport():
