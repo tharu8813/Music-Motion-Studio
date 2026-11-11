@@ -275,7 +275,8 @@ class CanvasSnapshot:
     def capture(scene: CanvasScene, output_scale: float = 1.0,
                 z_min: float | None = None, z_max: float | None = None,
                 transparent: bool = False, image_buffer: QImage | None = None,
-                capture_rect: QRectF | None = None) -> QImage:
+                capture_rect: QRectF | None = None,
+                excluded_source_items: Sequence[SourceItem] | None = None) -> QImage:
         """Render all or one Z-index band of the artboard at project resolution.
 
         Transparent Z bands are the basis for interleaving static Canvas content
@@ -317,14 +318,22 @@ class CanvasSnapshot:
             scene.guide_y = None
             scene.suppress_render_background = transparent
             if z_min is not None or z_max is not None:
-                for item in scene.items():
-                    if not isinstance(item, SourceItem) or not item.isVisible():
-                        continue
-                    z_value = item.source.z_index
-                    if ((z_min is not None and z_value < z_min)
-                            or (z_max is not None and z_value > z_max)):
-                        hidden_items.append(item)
-                        item.setVisible(False)
+                if excluded_source_items is not None:
+                    # A detached native export precomputes immutable Z-band
+                    # membership once; only runtime visibility can change.
+                    for item in excluded_source_items:
+                        if item.isVisible():
+                            hidden_items.append(item)
+                            item.setVisible(False)
+                else:
+                    for item in scene.items():
+                        if not isinstance(item, SourceItem) or not item.isVisible():
+                            continue
+                        z_value = item.source.z_index
+                        if ((z_min is not None and z_value < z_min)
+                                or (z_max is not None and z_value > z_max)):
+                            hidden_items.append(item)
+                            item.setVisible(False)
             target = QRectF(0, 0, width, height)
             accelerated = capture_canvas_opengl(
                 scene, target, source_rect, transparent,
@@ -856,6 +865,7 @@ class CanvasSnapshot:
                       partial_render_keep_cropped: bool = False,
                       render_metrics: dict[str, object] | None = None,
                       band_source_items: Sequence[SourceItem] | None = None,
+                      capture_excluded_items: Sequence[SourceItem] | None = None,
                       junction: MixJunction | None = None,
                       bass_level: float = 0.0,
                       music_levels: dict[str, float] | None = None,
@@ -1607,7 +1617,7 @@ class CanvasSnapshot:
                     )
             if partial_render and transparent and capture_rect is None:
                 candidate = CanvasSnapshot._dynamic_band_capture_rect(
-                    scene, z_min, z_max,
+                    scene, z_min, z_max, source_items=source_items,
                 )
                 artboard = scene.artboard_rect
                 if candidate is not None:
@@ -1629,6 +1639,7 @@ class CanvasSnapshot:
                 scene, output_scale, z_min=z_min, z_max=z_max, transparent=transparent,
                 image_buffer=(None if used_partial_render else image_buffer),
                 capture_rect=effective_capture_rect,
+                excluded_source_items=capture_excluded_items,
             )
             if (used_partial_render and effective_capture_rect is not None
                     and not partial_render_keep_cropped):
