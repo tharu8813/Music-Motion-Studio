@@ -288,6 +288,12 @@ mod windows_export {
         Ok(())
     }
 
+    // Both v2 and adaptive-LZ4 v3 can reference the immediately preceding
+    // decoded frame; keep it alive after GPU submission until the next read.
+    fn needs_previous_packet(binary_v2: bool, binary_v3: bool) -> bool {
+        binary_v2 || binary_v3
+    }
+
     fn next_input_frame(
         input: &mut std::io::StdinLock<'_>, index: u64,
         previous: Option<&mut CanvasPacketFrame>, options: &Options,
@@ -368,7 +374,7 @@ mod windows_export {
                     .map_err(|e| format!("Native frame acceptance channel closed: {e}"))?;
             }
             if clock.submitted == clock.expected {
-                let unexpected = if options.binary_v2 {
+                let unexpected = if needs_previous_packet(options.binary_v2, options.binary_v3) {
                     next_input_frame(&mut input, clock.submitted, Some(&mut current), &options)?
                 } else {
                     drop(current);
@@ -380,7 +386,7 @@ mod windows_export {
                 break;
             }
             let transfer_started = Instant::now();
-            let next = if options.binary_v2 {
+            let next = if needs_previous_packet(options.binary_v2, options.binary_v3) {
                 next_input_frame(&mut input, clock.submitted, Some(&mut current), &options)?
             } else {
                 drop(current);
@@ -470,6 +476,18 @@ mod windows_export {
             return Err(reason);
         }
         Ok(result)
+    }
+
+    #[cfg(test)]
+    mod reference_lifetime_tests {
+        use super::needs_previous_packet;
+
+        #[test]
+        fn v3_keeps_previous_packet_for_subsequent_frames() {
+            assert!(!needs_previous_packet(false, false)); // v1 and manifest
+            assert!(needs_previous_packet(true, false));   // v2
+            assert!(needs_previous_packet(false, true));   // LZ4 v3
+        }
     }
 
     pub fn run() -> Result<(), String> {
