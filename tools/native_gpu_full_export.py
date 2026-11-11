@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+from dataclasses import replace
 import json
 import math
 from time import monotonic
@@ -70,6 +71,7 @@ def export_complete_project(
     fps: int = 60, scale: float = 0.5, ffmpeg: str | None = None,
     smoke_seconds: float | None = None, report_path: Path | None = None,
     gpu_profile: str | None = None,
+    gpu_packet_workers: int | None = None,
 ) -> Path:
     """Run actual complete GPU encoding + MP4 mux with the existing soundtrack."""
     source = Path(project_path)
@@ -91,6 +93,11 @@ def export_complete_project(
         NativeGpuOptimizations.for_profile(gpu_profile)
         if gpu_profile is not None else None
     )
+    if gpu_packet_workers is not None:
+        if gpu_profile != "automatic":
+            raise ValueError("--gpu-packet-workers requires --gpu-profile automatic")
+        # Validate through the immutable configuration constructor.
+        optimizations = replace(optimizations, packet_workers=gpu_packet_workers)
     started = monotonic()
     project = ProjectService.load(source)
     if smoke_seconds is not None:
@@ -147,6 +154,10 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Developer A/B only: automatic matches the normal application's Rust GPU engine",
     )
+    parser.add_argument(
+        "--gpu-packet-workers", type=int, default=None,
+        help="Developer-only SHA-256/LZ4 packet-task A/B worker count (1..6, automatic profile required)",
+    )
     parser.add_argument("--report", type=Path, default=None, help="Preserve developer diagnostics outside temporary staging")
     parser.add_argument(
         "--smoke-seconds", type=float, default=None,
@@ -163,6 +174,7 @@ def main(argv: list[str] | None = None) -> int:
             fps=args.fps, scale=args.scale, ffmpeg=args.ffmpeg,
             smoke_seconds=args.smoke_seconds, report_path=args.report,
             gpu_profile=args.gpu_profile,
+            gpu_packet_workers=args.gpu_packet_workers,
         )
     except Exception as exc:
         if args.report is not None and not args.report.exists():
