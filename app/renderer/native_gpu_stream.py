@@ -432,6 +432,7 @@ def stream_native_canvas_h264(
                 frame_lz4_cpu_seconds=frame_write_timings.get("lz4_cpu_seconds", 0.0),
                 frame_lz4_wall_seconds=frame_write_timings.get("lz4_wall_seconds", 0.0),
                 frame_lz4_planes=frame_write_timings.get("lz4_planes", 0),
+                frame_lz4_layer_cost=frame_write_timings.get("lz4_layer_cost", {}),
                 frame_lz4_auto_choice=(
                     compression_budget.decision if compression_budget else "not_available"
                 ),

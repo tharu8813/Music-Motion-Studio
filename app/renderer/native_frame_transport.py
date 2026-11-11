@@ -171,6 +171,23 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
         for i, (data, algorithm, elapsed) in zip(candidates, results):
             encoded[i] = (data, algorithm)
             _metric(timings, "lz4_cpu_seconds", elapsed)
+            if timings is not None:
+                # Diagnostic only: at most eight existing MMSB stream keys.
+                # Thread-task durations may overlap, so never add these
+                # values to obtain wall-clock export time.
+                key = "base" if i == 0 else f"layer:{i-1}"
+                by_layer = timings.setdefault("lz4_layer_cost", {})
+                bucket = by_layer.setdefault(key, {
+                    "attempted_planes": 0, "source_bytes": 0,
+                    "wire_bytes": 0, "saved_bytes": 0,
+                    "task_elapsed_seconds": 0.0, "compressed_planes": 0,
+                })
+                bucket["attempted_planes"] += 1
+                bucket["source_bytes"] += sizes[i]
+                bucket["wire_bytes"] += len(data)
+                bucket["saved_bytes"] += sizes[i] - len(data)
+                bucket["task_elapsed_seconds"] += elapsed
+                bucket["compressed_planes"] += int(algorithm == "lz4")
             if algorithm == "lz4":
                 _metric(timings, "lz4_planes", 1)
 

@@ -273,6 +273,14 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
         self.assertLess(
             report["frame_wire_payload_bytes"], report["frame_raw_source_bytes"],
         )
+        self.assertEqual(
+            list(report["frame_lz4_layer_cost"]), ["base"],
+        )
+        cost = report["frame_lz4_layer_cost"]["base"]
+        self.assertEqual(cost["attempted_planes"], 1)
+        self.assertEqual(cost["compressed_planes"], 1)
+        self.assertGreater(cost["saved_bytes"], 0)
+        self.assertGreaterEqual(cost["task_elapsed_seconds"], 0)
 
     def test_opt_in_reuses_identical_layers_with_real_native_write_and_ack(self):
         # The mock validates every recovered byte and SHA at each PTS;
