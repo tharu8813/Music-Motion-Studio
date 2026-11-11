@@ -69,6 +69,44 @@ class RasterCacheTests(unittest.TestCase):
         cache.clear()
         self.assertEqual(cache.retained_bytes, 0)
 
+    def test_async_canvas_prehash_preserves_exact_bgrawire_and_legacy_default(self):
+        self.scene.set_artboard_size(640, 512)
+        self.add(Source(
+            SourceType.SHAPE, "Opaque", width=640, height=512,
+            z_index=0, fill_color="#124680",
+        ))
+        self.add(Source(
+            SourceType.TEXT, "Animated Clock", text="%current_time%",
+            width=640, height=512, z_index=2, font_size=36,
+        ))
+        bands = ((None, 0), (2, None))
+        opts = NativeGpuOptimizations(
+            parallel_bgra=True, adaptive_bgra=True, prehash_bgra=True,
+        )
+        self.assertFalse(NativeGpuOptimizations.for_profile("automatic").prehash_bgra)
+        baseline = self.capture(bands, 0.25)
+        cache = NativeRasterCache(self.scene, bands, 2, optimizations=opts)
+        try:
+            deferred = self.capture(bands, 0.25, cache)
+            self.assertIsInstance(deferred, DeferredNativeCanvasFrame)
+            resolved = deferred.resolve()
+            self.assertEqual(len(resolved.layers), 2)
+            self.assertIsNone(resolved.layers[0].precomputed_sha256)
+            self.assertIsNotNone(resolved.layers[1].precomputed_sha256)
+            self.assertEqual(
+                resolved.layers[1].precomputed_sha256,
+                __import__("hashlib").sha256(resolved.layers[1].pixels).hexdigest(),
+            )
+            expected = b"".join(frame_chunks(baseline, 0))
+            measured = {}
+            actual = b"".join(frame_chunks(resolved, 0, timings=measured))
+            self.assertEqual(actual, expected)
+            self.assertEqual(measured["sha256_prefetched_planes"], 1)
+            self.assertEqual(measured["sha256_prefetched_bytes"], 640 * 512 * 4)
+            self.assertEqual(cache.parallel_bgra_submissions, 1)
+        finally:
+            cache.clear()
+
     def test_raster_metrics_split_state_setup_paint_and_restore_without_pixel_changes(self):
         self.add(Source(
             SourceType.SHAPE, "Opaque", width=128, height=128, z_index=0,
