@@ -370,6 +370,7 @@ def capture_native_canvas_track_frame(
             # preselected source items avoid repeated per-frame Qt traversal.
             **({
                 "band_source_items": raster_cache.band_source_items[index],
+                "scene_source_items": raster_cache.scene_source_items,
                 "_frozen_lyric_settings_cache": raster_cache.frozen_lyric_settings_cache,
             } if raster_cache is not None else {}),
         )
