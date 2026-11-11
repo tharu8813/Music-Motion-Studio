@@ -121,6 +121,23 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             self.assertEqual(compile_playlist(clipped.playlist).duration_seconds, 1.0)
             self.assertIn("smoke clip", clipped.settings.title)
 
+    def test_noop_keyframe_context_flag_requires_automatic_profile(self):
+        self.assertFalse(
+            NativeGpuOptimizations.for_profile("automatic").skip_empty_keyframe_context
+        )
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project.json"
+            project.write_text("{}", encoding="utf8")
+            for profile in (None, "standard", "accelerated", "cpu_parallel"):
+                with self.subTest(profile=profile), self.assertRaisesRegex(
+                    ValueError, "--gpu-skip-empty-keyframes requires --gpu-profile automatic"
+                ):
+                    export_complete_project(
+                        project, root / "out.mp4", gpu_profile=profile,
+                        gpu_skip_empty_keyframe_context=True,
+                    )
+
     def test_invalid_smoke_seconds_fail_before_any_gpu_or_audio_work(self):
         with TemporaryDirectory() as temp:
             project = dynamic_project(Path(temp) / "song.wav")
