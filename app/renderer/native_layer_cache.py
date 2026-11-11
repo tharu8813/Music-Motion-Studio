@@ -57,9 +57,11 @@ class NativeRasterCache:
         # detached native project is immutable throughout the export.
         self.frozen_lyric_settings_cache = {}
         # QGraphicsScene and all QPainter calls remain GUI-thread-only.
-        # Only independent, immutable QImage -> BGRA byte conversions are
-        # allowed on up to two CPU workers. Semaphore prevents unbounded
-        # 4K image tasks (a full BGRA plane is ~31.6 MiB).
+        # Only independent, immutable QImage -> BGRA byte conversions run
+        # on CPU workers. Automatic mode may try a third worker on machines
+        # with >=8 logical CPUs. Semaphore bounds queued/running 4K images
+        # (one full BGRA plane is ~31.6 MiB); legacy modes keep two workers.
+        # Measure on actual hardware before treating this as a speedup.
         self.parallel_bgra_enabled = (
             optimizations.parallel_bgra if optimizations is not None
             else os.environ.get(
@@ -76,11 +78,17 @@ class NativeRasterCache:
         self.parallel_bgra_inline_busy = 0
         self.qt_canvas_capture_seconds = 0.0
         self.qt_canvas_inline_bgra_seconds = 0.0
-        self._bgra_executor = (
-            ThreadPoolExecutor(max_workers=2, thread_name_prefix="mms-bgra")
-            if self.parallel_bgra_enabled else None
+        self.parallel_bgra_worker_limit = (
+            3 if self.parallel_bgra_enabled and self.adaptive_bgra_enabled
+            and (os.cpu_count() or 1) >= 8 else 2
         )
-        self._bgra_slots = BoundedSemaphore(2)
+        self._bgra_executor = (
+            ThreadPoolExecutor(
+                max_workers=self.parallel_bgra_worker_limit,
+                thread_name_prefix="mms-bgra",
+            ) if self.parallel_bgra_enabled else None
+        )
+        self._bgra_slots = BoundedSemaphore(self.parallel_bgra_worker_limit)
         self._bgra_stats_lock = Lock()
         self._bgra_active_workers = 0
         self.parallel_bgra_submissions = 0
@@ -135,8 +143,8 @@ class NativeRasterCache:
     def maybe_submit_bgra(self, image, converter):
         """Automatic mode: never block the Qt paint thread on worker capacity.
 
-        Only large images qualify. When both workers are busy, convert this
-        independent snapshot inline instead of stalling the GUI and delaying
+        Only large images qualify. When all bounded workers are busy, convert
+        this independent snapshot inline rather than stalling the GUI or delaying
         frame N+1. Worker tasks retain only their own copied QImage wrapper.
         """
         if not self.parallel_bgra_enabled:
