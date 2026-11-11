@@ -210,6 +210,7 @@ class NativeRasterCache:
             "capture_seconds": 0.0, "state_setup_seconds": 0.0,
             "paint_stage_seconds": 0.0, "state_restore_seconds": 0.0,
             "partial_captures": 0,
+            "empty_keyframe_context_skips": 0,
         })
         bucket["captures"] += 1
         bucket["capture_seconds"] += elapsed
@@ -217,6 +218,7 @@ class NativeRasterCache:
         bucket["paint_stage_seconds"] += metrics["paint_stage_seconds"]
         bucket["state_restore_seconds"] += metrics["state_restore_seconds"]
         bucket["partial_captures"] += int(bool(metrics.get("partial_render")))
+        bucket["empty_keyframe_context_skips"] += int(metrics.get("empty_keyframe_context_skips", 0))
 
     def record(self, layer):
         self.rasterizations += 1
