@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from concurrent.futures import Future
+from dataclasses import replace
 import os
 import json
 import subprocess
@@ -272,6 +273,44 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
         self.assertGreater(report["frame_wire_saved_bytes"], 0)
         self.assertLess(
             report["frame_wire_payload_bytes"], report["frame_raw_source_bytes"],
+        )
+
+    def test_selected_layer_lz4_probe_keeps_full_sha_ack_and_default_profile(self):
+        if not supports_lz4_transport():
+            self.skipTest("lz4 wheel is required for selected-layer codec test")
+        auto = NativeGpuOptimizations.for_profile("automatic")
+        self.assertIsNone(auto.lz4_layer_probe_keys)
+        selected = replace(auto, lz4_layer_probe_keys=frozenset({"layer:0"}))
+
+        def frames():
+            width, height = 320, 180
+            base = bytes((50, 60, 70, 255)) * (width * height)
+            for index in range(8):
+                changing = bytes((index + 10, 3, 5, 128)) * (width * height)
+                yield NativeCanvasFrame(width, height, (
+                    NativeCanvasBgraLayer("base", width, height, base),
+                    NativeCanvasBgraLayer("layer:0", width, height, changing),
+                ))
+
+        # The native process test double reconstructs every frame and checks
+        # exact SHA-256, PTS and ACK even after mixed raw/LZ4/reuse transport.
+        result = self._run_mock(
+            count=8, width=320, height=180,
+            provided=frames(), optimizations=selected,
+        )
+        self.assertEqual(result["frames_encoded"], 8)
+        self.assertEqual(result["frame_transport"], "binary-v3")
+        self.assertEqual(result["native_optimization_profile"], "automatic")
+        self.assertEqual(result["frame_lz4_auto_choice"], "selected_layers_experiment")
+        self.assertEqual(result["frame_lz4_selected_stream_keys"], ["layer:0"])
+        self.assertEqual(result["frame_lz4_probe_samples"], {})
+        self.assertEqual(result["frame_lz4_planes"], 8)
+        self.assertEqual(result["frame_reused_planes"], 7)
+        self.assertEqual(result["frame_layer_transport"]["base"]["lz4_planes"], 0)
+        self.assertEqual(result["frame_layer_transport"]["layer:0"]["lz4_planes"], 8)
+        self.assertEqual(list(result["frame_lz4_layer_cost"]), ["layer:0"])
+        self.assertEqual(
+            result["frame_lz4_layer_cost"]["layer:0"]["compressed_planes"], 8,
         )
 
     def test_opt_in_reuses_identical_layers_with_real_native_write_and_ack(self):
