@@ -53,6 +53,15 @@ class NativeRasterCache:
                   and (upper is None or item.source.z_index <= upper))
             for lower, upper in bands
         )
+        # Exported source Z order is fixed in this detached scene. Avoid
+        # repeating scene.items() plus band comparisons in every Qt paint.
+        # Keep isVisible() checks at capture time for timeline-masked items.
+        self.band_excluded_items = tuple(
+            tuple(item for item in visible_items
+                  if (lower is not None and item.source.z_index < lower)
+                  or (upper is not None and item.source.z_index > upper))
+            for lower, upper in bands
+        )
         # CanvasSnapshot already has this worker-only cache contract.  The
         # detached native project is immutable throughout the export.
         self.frozen_lyric_settings_cache = {}
