@@ -148,7 +148,7 @@ def interleave_dynamic_layers(
         else:
             layers.append(NativeCanvasBgraLayer(
                 key, entry.width, entry.height, entry.pixels, entry.opacity,
-                entry.inverse_transform, entry.clip,
+                entry.inverse_transform, entry.clip, entry.precomputed_sha256,
             ))
     output = dict(
         width=static_frame.width, height=static_frame.height,
