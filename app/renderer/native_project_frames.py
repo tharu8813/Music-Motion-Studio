@@ -35,6 +35,34 @@ def _check_cancel(cancel):
     if cancel.is_set():
         raise RenderCancelledError("Native GPU export was cancelled.")
 
+
+class _ProfiledNativeSourceItem(SourceItem):
+    """Developer diagnostics only: measure actual Qt item renderer calls.
+
+    This subclass is instantiated solely for detached native CLI profile
+    exports. Normal GUI, preview, and production renderer objects remain
+    the unchanged SourceItem implementation. Times include Python/Qt work
+    inside each item paint; scene clear/fill/composite overhead is excluded.
+    """
+
+    def __init__(self, source, paint_costs: dict[str, dict[str, int | float]]):
+        super().__init__(source)
+        self._native_paint_costs = paint_costs
+
+    def paint(self, painter, option, widget=None):
+        category = self.source.source_type.value
+        started = monotonic()
+        try:
+            return super().paint(painter, option, widget)
+        finally:
+            elapsed = monotonic() - started
+            bucket = self._native_paint_costs.setdefault(
+                category, {"calls": 0, "seconds": 0.0},
+            )
+            bucket["calls"] += 1
+            bucket["seconds"] += elapsed
+
+
 def produce_complete_project_frames(
     project: ProjectDocument, *, fps: int, scale: float,
     prepared_audio: Path, ffmpeg: str, cancel_event: Event | None = None,
@@ -71,11 +99,20 @@ def produce_complete_project_frames(
     reactive = [s for s in included if s.uses_bass_reaction]
     scene = CanvasScene()
     raster_cache = None
+    # A per-export, bounded map indexed by enum source types, never by
+    # project-specific names, IDs or contents. Only development CLI enables.
+    profile_paint = bool(
+        optimizations is not None and optimizations.profile_canvas_source_paint
+    )
+    paint_costs: dict[str, dict[str, int | float]] = {}
     try:
         scene.set_artboard_size(project.canvas.width, project.canvas.height)
         scene.show_grid = False
         for source in sorted(included, key=lambda item: item.z_index):
-            scene.addItem(SourceItem(source))
+            scene.addItem(
+                _ProfiledNativeSourceItem(source, paint_costs)
+                if profile_paint else SourceItem(source)
+            )
         stack = split_resident_bands(scene, stack, plan.duration_seconds)
         raster_cache = NativeRasterCache(
             scene, stack.bands, plan.duration_seconds, optimizations=optimizations,
@@ -135,6 +172,11 @@ def produce_complete_project_frames(
                     raster_cache=raster_cache,
                 )
                 if raster_counters is not None:
+                    if profile_paint:
+                        raster_counters["qt_canvas_source_type_paint"] = {
+                            category: dict(costs)
+                            for category, costs in paint_costs.items()
+                        }
                     raster_counters.update(
                         rasterizations=raster_cache.rasterizations,
                         reuse_hits=raster_cache.hits,
@@ -175,6 +217,11 @@ def produce_complete_project_frames(
         if raster_cache is not None:
             raster_cache.clear()
             if raster_counters is not None:
+                if profile_paint:
+                    raster_counters["qt_canvas_source_type_paint"] = {
+                        category: dict(costs)
+                        for category, costs in paint_costs.items()
+                    }
                 # After the converter pool joins, report final worker totals
                 # instead of a snapshot with the final BGRA packet pending.
                 raster_counters.update(
