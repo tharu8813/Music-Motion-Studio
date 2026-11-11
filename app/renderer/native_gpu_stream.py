@@ -188,7 +188,10 @@ def stream_native_canvas_h264(
         frame_write_timings: dict[str, float | int | dict] = {}
         # Only immutable BGRA bytes run on this bounded CPU pool. No Qt calls
         # leave the thread that owns each QImage.
-        packet_executor = ThreadPoolExecutor(max_workers=3,
+        # A/B-only control of CPU SHA-256/LZ4 task parallelism. The normal
+        # automatic profile continues using the established 3-worker pool.
+        packet_workers = optimizations.packet_workers if optimizations is not None else 3
+        packet_executor = ThreadPoolExecutor(max_workers=packet_workers,
                                              thread_name_prefix="mms-native-layer")
         compression_budget = AdaptiveCompressionBudget() if compressed_transport else None
 
@@ -424,6 +427,7 @@ def stream_native_canvas_h264(
                 frame_production_seconds=frame_production_seconds,
                 frame_production_max_seconds=frame_production_max_seconds,
                 frame_pipe_write_seconds=frame_pipe_write_seconds,
+                frame_packet_workers=packet_workers,
                 frame_sha256_seconds=frame_write_timings.get("sha256_seconds", 0.0),
                 frame_sha256_wall_seconds=frame_write_timings.get("sha256_wall_seconds", 0.0),
                 frame_sha256_bytes=frame_write_timings.get("sha256_bytes", 0),
