@@ -147,23 +147,32 @@ fn read_frame_with_refs(
             if encoded_size as u64 > remaining {
                 return Err("Binary frame payload shorter than declared planes".into());
             }
-            let pixels = if algorithm == "lz4" {
+            // After frame N's upload/submission, its CPU BGRA bytes are no
+            // longer in use. Recycle the backing allocation for a *changed*
+            // plane of the same stream and size in N+1 instead of allocating
+            // and zero-filling another multi-megabyte Vec on every frame.
+            // This is storage reuse, NOT content reuse: raw input must
+            // overwrite every byte, LZ4 must decode to the exact size, and
+            // parse_qt_canvas_packet_value still verifies the NEW SHA-256.
+            let mut pixels = previous.as_deref_mut()
+                .and_then(|p| p.layers.get_mut(i))
+                .filter(|old| old.pixels.len() == size
+                    && old.stream_key == layers[i]["stream_key"].as_str().unwrap_or(""))
+                .map(|old| std::mem::take(&mut old.pixels))
+                .unwrap_or_else(|| vec![0; size]);
+            if algorithm == "lz4" {
                 let mut encoded = vec![0; encoded_size];
                 reader.read_exact(&mut encoded)
                     .map_err(|e| format!("Truncated binary-v3 compressed plane: {e}"))?;
-                let mut decoded = vec![0; size];
-                let decoded_len = lz4_flex::block::decompress_into(&encoded, &mut decoded)
+                let decoded_len = lz4_flex::block::decompress_into(&encoded, &mut pixels)
                     .map_err(|e| format!("Invalid binary-v3 LZ4 payload: {e}"))?;
                 if decoded_len != size {
                     return Err("Binary-v3 LZ4 decoded length mismatch".into());
                 }
-                decoded
             } else {
-                let mut pixels = vec![0; size];
                 reader.read_exact(&mut pixels)
                     .map_err(|e| format!("Truncated binary plane: {e}"))?;
-                pixels
-            };
+            }
             remaining -= encoded_size as u64;
             Ok(pixels)
         }
@@ -230,8 +239,12 @@ mod tests {
         assert!(first.layers[0].pixels.is_empty(), "reused BGRA must be moved, not cloned");
         assert_eq!(repeated.len(), 28 + u32::from_le_bytes(repeated[16..20].try_into().unwrap()) as usize);
         let dirty = packet_v2(2, false, &new_pixels, &new_pixels);
+        let backing = second.layers[0].pixels.as_ptr();
         let third = read_frame_reuse(&mut &dirty[..], 2, Some(&mut second)).unwrap().unwrap();
         assert_eq!(third.layers[0].pixels, new_pixels);
+        assert!(second.layers[0].pixels.is_empty());
+        assert_eq!(third.layers[0].pixels.as_ptr(), backing,
+            "changed v2 BGRA should recycle previous plane allocation");
 
         // v1 never accepts v2, v2 never accepts v1: fail closed on
         // mismatched binaries and do not send malformed PTS to NVENC.
@@ -302,11 +315,36 @@ mod tests {
         assert!(first.layers[0].pixels.is_empty());
         assert_eq!(second.layers[0].pixels, pixels);
         let raw = packet_v3(2, false, false, &pixels, &pixels);
+        let backing = second.layers[0].pixels.as_ptr();
         let final_frame = read_frame_adaptive(&mut &raw[..], 2, Some(&mut second))
             .unwrap().unwrap();
         assert_eq!(final_frame.layers[0].pixels, pixels);
+        assert!(second.layers[0].pixels.is_empty());
+        assert_eq!(final_frame.layers[0].pixels.as_ptr(), backing,
+            "changed raw v3 plane should reuse the previous decoded allocation");
         // Format version is explicitly negotiated, never interpreted as v2.
         assert!(read_frame_reuse(&mut &compressed[..], 0, None).is_err());
+    }
+
+    #[test]
+    fn v3_reuses_allocations_for_changed_lz4_and_still_rejects_forgery() {
+        let initial = [9, 8, 7, 255].repeat(4);
+        let changed = [10, 8, 7, 255].repeat(4);
+        let more = [11, 8, 7, 255].repeat(4);
+        let mut first = read_frame_adaptive(
+            &mut &packet_v3(0, false, false, &initial, &initial)[..], 0, None,
+        ).unwrap().unwrap();
+        let first_ptr = first.layers[0].pixels.as_ptr();
+        let mut second = read_frame_adaptive(
+            &mut &packet_v3(1, true, false, &changed, &changed)[..], 1, Some(&mut first),
+        ).unwrap().unwrap();
+        assert_eq!(second.layers[0].pixels, changed);
+        assert!(first.layers[0].pixels.is_empty());
+        assert_eq!(second.layers[0].pixels.as_ptr(), first_ptr,
+            "changed LZ4 frame must decode into recycled CPU BGRA");
+        let forged = packet_v3(2, false, false, &more, &initial);
+        assert!(read_frame_adaptive(&mut &forged[..], 2, Some(&mut second)).is_err(),
+            "reusing allocation must never bypass SHA-256 validation");
     }
 
     #[test]
