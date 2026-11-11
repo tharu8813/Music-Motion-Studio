@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 import os
 from pathlib import Path
 import shutil
@@ -120,6 +121,59 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             self.assertEqual(clipped.sources[0].id, project.sources[0].id)
             self.assertEqual(compile_playlist(clipped.playlist).duration_seconds, 1.0)
             self.assertIn("smoke clip", clipped.settings.title)
+
+    def test_qt_paint_profiler_flag_is_dev_only_and_preserves_automatic_default(self):
+        self.assertFalse(
+            NativeGpuOptimizations.for_profile("automatic").profile_canvas_source_paint
+        )
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "project.json"
+            source.write_text("{}", encoding="utf8")
+            for profile in (None, "standard", "accelerated", "cpu_parallel"):
+                with self.subTest(profile=profile), self.assertRaisesRegex(
+                    ValueError, "--gpu-profile-qt-paint requires --gpu-profile automatic",
+                ):
+                    export_complete_project(
+                        source, root / "out.mp4", gpu_profile=profile,
+                        gpu_profile_qt_paint=True,
+                    )
+
+    def test_native_qt_source_paint_report_counts_real_rendered_types(self):
+        ffmpeg = os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG") or shutil.which("ffmpeg")
+        if not ffmpeg or not Path(ffmpeg).is_file():
+            self.skipTest("Verified FFmpeg required for actual Canvas frame profiling")
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            audio = root / "sine.wav"
+            sample_wav(audio)
+            project = dynamic_project(audio)
+            snapshot = project.to_dict()
+            metrics = {}
+            opts = replace(
+                NativeGpuOptimizations.for_profile("automatic"),
+                profile_canvas_source_paint=True,
+            )
+            frames = produce_complete_project_frames(
+                project, fps=30, scale=0.25, prepared_audio=audio,
+                ffmpeg=str(ffmpeg), optimizations=opts,
+                raster_counters=metrics,
+            )
+            seen = 0
+            for frame in frames:
+                seen += 1
+                self.assertEqual((frame.width, frame.height), (320, 180))
+            self.assertEqual(seen, 30)
+            self.assertEqual(project.to_dict(), snapshot)
+            self.assertIn("qt_canvas_source_type_paint", metrics)
+            by_type = metrics["qt_canvas_source_type_paint"]
+            self.assertTrue(by_type)
+            self.assertGreater(sum(row["calls"] for row in by_type.values()), 0)
+            self.assertTrue(all(row["seconds"] > 0 for row in by_type.values()))
+            self.assertLessEqual(
+                sum(row["seconds"] for row in by_type.values()),
+                metrics["qt_canvas_paint_stage_seconds"] + 0.2,
+            )
 
     def test_invalid_smoke_seconds_fail_before_any_gpu_or_audio_work(self):
         with TemporaryDirectory() as temp:
