@@ -2,6 +2,7 @@
 import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import unittest
+from dataclasses import replace
 from types import SimpleNamespace
 from threading import Event, Lock, current_thread, enumerate as active_threads
 from unittest.mock import patch
@@ -9,6 +10,8 @@ from unittest.mock import patch
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QImage, QColor, QPainter
 from app.canvas.live_canvas import CanvasScene
+from app.animation.keyframes import Keyframe
+from app.animation.canvas_keyframes import keyframe_source
 from app.canvas.source_item import SourceItem
 from app.models.source import Source, SourceType
 from app.models.playlist import PlaylistTrack
@@ -68,6 +71,65 @@ class RasterCacheTests(unittest.TestCase):
         self.assertEqual(cache.retained_bytes, 128 * 128 * 4 * 2)
         cache.clear()
         self.assertEqual(cache.retained_bytes, 0)
+
+    def test_opt_in_skips_only_empty_keyframe_context_and_keeps_exact_canvas_packets(self):
+        self.add(Source(
+            SourceType.SHAPE, "Opaque", width=128, height=128,
+            z_index=0, fill_color="#213547",
+        ))
+        self.add(Source(
+            SourceType.TEXT, "Clock", text="%current_time%",
+            x=10, y=12, width=110, height=55, z_index=2, font_size=23,
+        ))
+        animated = Source(
+            SourceType.SHAPE, "Keyframed", x=17, y=65,
+            width=30, height=24, z_index=4, fill_color="#ffaa33",
+        )
+        animated.keyframes.global_curves["x"] = [
+            Keyframe(0.0, 17.0, "linear"),
+            Keyframe(1.0, 78.0, "linear"),
+        ]
+        self.add(animated)
+        bands = ((None, 0), (2, 2), (4, None))
+        normal = NativeGpuOptimizations.for_profile("automatic")
+        faster = replace(normal, skip_empty_keyframe_context=True)
+        self.assertFalse(normal.skip_empty_keyframe_context)
+        self.assertTrue(faster.skip_empty_keyframe_context)
+        original = NativeRasterCache(self.scene, bands, 2, optimizations=normal)
+        candidate = NativeRasterCache(self.scene, bands, 2, optimizations=faster)
+        try:
+            for elapsed in (0.0, 0.25, 0.5, 0.9):
+                kwargs = dict(elapsed_seconds=elapsed, playlist_duration_seconds=2)
+                with patch(
+                    "app.preview.canvas_snapshot.keyframe_source",
+                    wraps=keyframe_source,
+                ) as old_bindings:
+                    expected = capture_native_canvas_track_frame(
+                        self.scene, self.track, bands, raster_cache=original, **kwargs,
+                    )
+                with patch(
+                    "app.preview.canvas_snapshot.keyframe_source",
+                    wraps=keyframe_source,
+                ) as new_bindings:
+                    actual = capture_native_canvas_track_frame(
+                        self.scene, self.track, bands, raster_cache=candidate, **kwargs,
+                    )
+                if isinstance(expected, DeferredNativeCanvasFrame):
+                    expected = expected.resolve()
+                if isinstance(actual, DeferredNativeCanvasFrame):
+                    actual = actual.resolve()
+                self.assertEqual(actual, expected)
+                self.assertEqual(b"".join(frame_chunks(actual, 0)),
+                                 b"".join(frame_chunks(expected, 0)))
+                # First frame checks all 3 SourceItems, while later frames
+                # reuse the invariant base in both versions.
+                self.assertEqual(old_bindings.call_count, 3 if elapsed == 0 else 2)
+                self.assertEqual(new_bindings.call_count, 1)
+            self.assertEqual(candidate.rasterizations, original.rasterizations)
+            self.assertEqual(candidate.hits, original.hits)
+        finally:
+            original.clear()
+            candidate.clear()
 
     def test_raster_metrics_split_state_setup_paint_and_restore_without_pixel_changes(self):
         self.add(Source(
