@@ -382,6 +382,7 @@ def capture_native_canvas_track_frame(
             **({
                 "band_source_items": raster_cache.band_source_items[index],
                 "_frozen_lyric_settings_cache": raster_cache.frozen_lyric_settings_cache,
+                "skip_empty_keyframe_context": raster_cache.skip_empty_keyframe_context,
             } if raster_cache is not None else {}),
         )
         if raster_cache is not None:
