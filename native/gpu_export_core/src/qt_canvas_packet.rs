@@ -292,6 +292,43 @@ mod tests {
         assert!(load_qt_canvas_packet(Path::new("missing-qt-canvas-packet.json")).is_err());
     }
     #[test]
+    #[ignore = "Manual release-mode CPU comparison; not an automated speedup claim"]
+    fn opaque_bgra_scalar_vs_wide_cpu_benchmark() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn scalar(pixels: &[u8]) -> bool {
+            pixels.chunks_exact(4).all(|pixel| pixel[3] == 255)
+        }
+        fn measure(name: &str, pixels: &[u8], predicate: fn(&[u8]) -> bool) {
+            let started = Instant::now();
+            for _ in 0..100 {
+                assert!(black_box(predicate(black_box(pixels))));
+            }
+            println!(
+                "opaque-bgra-benchmark {name}: 100 x 1080p BGRA = {:.6}s",
+                started.elapsed().as_secs_f64()
+            );
+        }
+
+        // Fully opaque base is the common-case full-plane scan. Black-box
+        // the input to keep LLVM from eliminating a known constant check.
+        let mut pixels = vec![0u8; 1920 * 1080 * 4];
+        for pixel in pixels.chunks_exact_mut(4) {
+            pixel[3] = 255;
+        }
+        for round in 0..4 {
+            if round % 2 == 0 {
+                measure("scalar", &pixels, scalar);
+                measure("wide", &pixels, is_opaque_bgra);
+            } else {
+                measure("wide", &pixels, is_opaque_bgra);
+                measure("scalar", &pixels, scalar);
+            }
+        }
+    }
+
+    #[test]
     fn correctly_hashed_transparent_base_is_still_rejected() {
         let mut base = [4u8, 9, 12, 255].repeat(16);
         for schema in [1, 2] {
