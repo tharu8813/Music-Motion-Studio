@@ -127,6 +127,18 @@ class RasterCacheTests(unittest.TestCase):
                 self.assertEqual(new_bindings.call_count, 1)
             self.assertEqual(candidate.rasterizations, original.rasterizations)
             self.assertEqual(candidate.hits, original.hits)
+            # One invariant base capture + four dynamic clock captures.
+            self.assertEqual(sum(
+                x["empty_keyframe_context_skips"]
+                for x in candidate.qt_canvas_band_timing.values()
+            ), 5)
+            self.assertTrue(all(
+                x["empty_keyframe_context_skips"] == 0
+                for x in original.qt_canvas_band_timing.values()
+            ))
+            self.assertEqual(
+                candidate.qt_canvas_band_timing["layer:0"]["empty_keyframe_context_skips"], 4,
+            )
         finally:
             original.clear()
             candidate.clear()
