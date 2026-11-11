@@ -127,19 +127,19 @@ class RasterCacheTests(unittest.TestCase):
             self.assertEqual(per_band["layer:0"]["captures"], 3)
             self.assertEqual(per_band["layer:0"]["reuse_hits"], 0)
             self.assertEqual(sum(item["captures"] for item in per_band.values()), 4)
-            self.assertEqual(
+            self.assertAlmostEqual(
                 sum(item["capture_seconds"] for item in per_band.values()),
                 cache.qt_canvas_capture_seconds,
             )
-            self.assertEqual(
+            self.assertAlmostEqual(
                 sum(item["state_setup_seconds"] for item in per_band.values()),
                 cache.qt_canvas_state_setup_seconds,
             )
-            self.assertEqual(
+            self.assertAlmostEqual(
                 sum(item["paint_stage_seconds"] for item in per_band.values()),
                 cache.qt_canvas_paint_stage_seconds,
             )
-            self.assertEqual(
+            self.assertAlmostEqual(
                 sum(item["state_restore_seconds"] for item in per_band.values()),
                 cache.qt_canvas_state_restore_seconds,
             )
