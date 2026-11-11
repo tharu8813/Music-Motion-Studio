@@ -131,6 +131,37 @@ class RasterCacheTests(unittest.TestCase):
             original.clear()
             candidate.clear()
 
+    def test_empty_keyframes_keep_editor_blur_rebind_path(self):
+        # Even without evaluated curve values, the editor may need to
+        # regenerate its filtered pixmap. The early-skip must not bypass it.
+        source = Source(
+            SourceType.SHAPE, "Editor blur", width=128, height=128,
+            z_index=0, fill_color="#556677",
+        )
+        item = SourceItem(source)
+        self.scene.addItem(item)
+        item._editor_keyframe_pose = True
+        item._editor_keyframe_base = source
+        item._editor_keyframe_opacity = source.opacity
+        item._editor_keyframe_values = {"blur": 3.0}
+        bands = ((None, None),)
+        opts = replace(
+            NativeGpuOptimizations.for_profile("automatic"),
+            skip_empty_keyframe_context=True,
+        )
+        with patch("app.preview.canvas_snapshot.keyframe_source",
+                   wraps=keyframe_source) as bindings:
+            capture = CanvasSnapshot.capture_track(
+                self.scene, self.track, 1, 1, 0.0,
+                elapsed_seconds=0.3, playlist_duration_seconds=2,
+                skip_empty_keyframe_context=opts.skip_empty_keyframe_context,
+            )
+        self.assertFalse(capture.isNull())
+        self.assertEqual(bindings.call_count, 1)
+        self.assertIs(item.source, source)
+        self.assertTrue(item._editor_keyframe_pose)
+        self.assertEqual(item._editor_keyframe_opacity, source.opacity)
+
     def test_raster_metrics_split_state_setup_paint_and_restore_without_pixel_changes(self):
         self.add(Source(
             SourceType.SHAPE, "Opaque", width=128, height=128, z_index=0,
