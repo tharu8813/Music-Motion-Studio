@@ -232,6 +232,62 @@ pub(crate) fn parse_qt_canvas_packet_value(
 mod tests {
     use super::*;
     #[test]
+    fn opaque_bgra_wide_matches_per_pixel_validation_at_every_tail_and_offset() {
+        assert!(is_opaque_bgra(&[]));
+        for pixel_count in 1..48 {
+            let mut pixels = Vec::with_capacity(pixel_count * 4);
+            for i in 0..pixel_count {
+                pixels.extend([
+                    ((i * 13) % 256) as u8,
+                    ((i * 19) % 256) as u8,
+                    ((i * 23) % 256) as u8,
+                    255,
+                ]);
+            }
+            let scalar = |bytes: &[u8]| -> bool {
+                bytes.len() % 4 == 0
+                    && bytes.chunks_exact(4).all(|p| p[3] == 255)
+            };
+            assert!(scalar(&pixels));
+            assert!(is_opaque_bgra(&pixels), "{pixel_count} opaque pixels");
+            // Do not reject non-alpha changes, including boundaries between
+            // adjacent 64-bit words and the final unmatched 4-byte pixel.
+            for offset in (0..pixels.len()).step_by(4) {
+                pixels[offset] ^= 0x80;
+                assert!(is_opaque_bgra(&pixels));
+                pixels[offset] ^= 0x80;
+            }
+            for i in 0..pixel_count {
+                pixels[i * 4 + 3] = 0;
+                assert_eq!(is_opaque_bgra(&pixels), scalar(&pixels));
+                assert!(!is_opaque_bgra(&pixels), "opaque rejection at pixel {i}/{pixel_count}");
+                pixels[i * 4 + 3] = 255;
+            }
+            for extra in 1..4 {
+                let mut malformed = pixels.clone();
+                malformed.extend(std::iter::repeat_n(255, extra));
+                assert!(!is_opaque_bgra(&malformed));
+            }
+        }
+    }
+
+    #[test]
+    fn opaque_bgra_wide_rejects_large_frame_boundary_alpha_mutations() {
+        let mut pixels = vec![0u8; 1920 * 1080 * 4];
+        for chunk in pixels.chunks_exact_mut(4) {
+            chunk[3] = 255;
+        }
+        assert!(is_opaque_bgra(&pixels));
+        for index in [0, 1, 1920 * 540, 1920 * 1080 - 2, 1920 * 1080 - 1] {
+            let pos = index * 4 + 3;
+            pixels[pos] = 254;
+            assert!(!is_opaque_bgra(&pixels), "bad alpha at index {index}");
+            pixels[pos] = 255;
+        }
+        assert!(is_opaque_bgra(&pixels));
+    }
+
+    #[test]
     fn rejects_missing_manifest() {
         assert!(load_qt_canvas_packet(Path::new("missing-qt-canvas-packet.json")).is_err());
     }
