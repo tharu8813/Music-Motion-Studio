@@ -83,6 +83,24 @@ pub struct CanvasPacketFrame {
     pub layers: Vec<CanvasPacketLayer>,
 }
 
+/// Check that every BGRA alpha byte is 0xff without allocating a staging
+/// buffer. Two pixels share one 64-bit mask operation. Byte-order conversion
+/// uses `from_le_bytes`, so this stays correct on any host architecture.
+///
+/// The packet parser has already checked the pixel buffer length. Keep this
+/// helper fail-closed for malformed standalone inputs as well.
+fn is_opaque_bgra(pixels: &[u8]) -> bool {
+    if pixels.len() % 4 != 0 {
+        return false;
+    }
+    const ALPHA_MASK: u64 = 0xff00_0000_ff00_0000;
+    let mut pairs = pixels.chunks_exact(8);
+    pairs.all(|pair| {
+        let two_pixels = u64::from_le_bytes(pair.try_into().expect("eight-byte chunk"));
+        (two_pixels & ALPHA_MASK) == ALPHA_MASK
+    }) && pairs.remainder().chunks_exact(4).all(|pixel| pixel[3] == 255)
+}
+
 fn positive_dimension(value: &Value, key: &str, max: u32) -> Result<u32, String> {
     let raw = value[key].as_u64().ok_or_else(|| format!("Missing positive {key}"))?;
     if raw < 2 || raw > max as u64 || raw % 2 != 0 {
@@ -196,7 +214,7 @@ pub(crate) fn parse_qt_canvas_packet_value(
         }
         // The video processor expects an opaque base, and transparent
         // overlays must be straight alpha from Qt's Format_ARGB32.
-        if i == 0 && pixels.chunks_exact(4).any(|px| px[3] != 255) {
+        if i == 0 && !is_opaque_bgra(&pixels) {
             return Err("Qt Canvas base must be fully opaque".into());
         }
         layers.push(CanvasPacketLayer {
