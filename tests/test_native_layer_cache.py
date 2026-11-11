@@ -7,7 +7,7 @@ from threading import Event, Lock, current_thread, enumerate as active_threads
 from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
-from PySide6.QtGui import QImage, QColor
+from PySide6.QtGui import QImage, QColor, QPainter
 from app.canvas.live_canvas import CanvasScene
 from app.canvas.source_item import SourceItem
 from app.models.source import Source, SourceType
@@ -68,6 +68,56 @@ class RasterCacheTests(unittest.TestCase):
         self.assertEqual(cache.retained_bytes, 128 * 128 * 4 * 2)
         cache.clear()
         self.assertEqual(cache.retained_bytes, 0)
+
+    def test_native_bgra_fast_path_matches_qt_straight_alpha_reference(self):
+        # The opaque base Qt image already stores B,G,R,0xFF on Windows.
+        # Premultiplied overlays MUST still be unpremultiplied by Qt.
+        for width, height in ((2, 2), (17, 9), (128, 65), (320, 180)):
+            for fmt in (
+                QImage.Format.Format_RGB32,
+                QImage.Format.Format_ARGB32,
+                QImage.Format.Format_ARGB32_Premultiplied,
+                QImage.Format.Format_Grayscale8,
+            ):
+                with self.subTest(size=(width, height), fmt=str(fmt)):
+                    source = QImage(width, height, fmt)
+                    source.fill(QColor(28, 60, 140, 175))
+                    painter = QPainter(source)
+                    try:
+                        painter.fillRect(1, 1, max(1, width - 2), max(1, height - 2),
+                                         QColor(228, 80, 20, 100))
+                    finally:
+                        painter.end()
+                    canonical = source.convertToFormat(QImage.Format.Format_ARGB32)
+                    expected = bytes(canonical.constBits())
+                    self.assertEqual(canonical.bytesPerLine(), width * 4)
+                    self.assertEqual(straight_bgra_bytes(source), expected)
+                    self.assertEqual(len(straight_bgra_bytes(source)), width * height * 4)
+                    if fmt == QImage.Format.Format_RGB32:
+                        self.assertEqual(set(expected[3::4]), {255})
+
+    def test_native_bgra_fast_path_matches_real_qt_opaque_base_and_alpha_band(self):
+        self.add(Source(
+            SourceType.SHAPE, "Opaque", width=128, height=128, z_index=0,
+            fill_color="#14293F",
+        ))
+        self.add(Source(
+            SourceType.TEXT, "Alpha lyrics", text="Test",
+            x=12, y=18, width=100, height=54, z_index=2,
+            font_size=21, opacity=0.67, fill_color="#FFDD88",
+        ))
+        for transparent, z_min, z_max in ((False, None, 0), (True, 2, None)):
+            image = CanvasSnapshot.capture(
+                self.scene, output_scale=1, z_min=z_min, z_max=z_max,
+                transparent=transparent,
+            )
+            self.assertEqual(
+                image.format(),
+                (QImage.Format.Format_ARGB32_Premultiplied if transparent
+                 else QImage.Format.Format_RGB32),
+            )
+            canonical = image.convertToFormat(QImage.Format.Format_ARGB32)
+            self.assertEqual(straight_bgra_bytes(image), bytes(canonical.constBits()))
 
     def test_automatic_gpu_small_images_do_not_create_conversion_futures(self):
         self.add(Source(

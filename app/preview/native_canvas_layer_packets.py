@@ -150,7 +150,18 @@ def straight_bgra_bytes(image: QImage) -> bytes:
         raise RuntimeError("Native D3D11 BGRA packets require little-endian QImage storage")
     if image.isNull():
         raise ValueError("Cannot serialize a null Qt Canvas image")
-    raster = image.convertToFormat(QImage.Format.Format_ARGB32)
+    # The native Qt painter produces an opaque QImage.Format_RGB32 base
+    # layer: on little-endian systems it is already packed B,G,R,0xFF.
+    # Converting it to Format_ARGB32 allocated/copied another full-resolution
+    # image even though the output BGRA bytes are identical. Format_ARGB32
+    # is likewise straight-alpha already. Only other formats (especially
+    # premultiplied transparent glyph bands) need the Qt conversion.
+    if image.format() in (
+        QImage.Format.Format_RGB32, QImage.Format.Format_ARGB32,
+    ):
+        raster = image
+    else:
+        raster = image.convertToFormat(QImage.Format.Format_ARGB32)
     width, height = raster.width(), raster.height()
     stride = raster.bytesPerLine()
     raw = bytes(raster.constBits())
