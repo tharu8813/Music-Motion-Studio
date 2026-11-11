@@ -179,6 +179,8 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
     for i, layer in enumerate(frame.layers):
         size = sizes[i]
         key = "base" if i == 0 else f"layer:{i-1}"
+        layer_wire_bytes = 0
+        layer_lz4 = False
         info = dict(file=f"layer-{i}.bgra", stream_key=key, z_order=i,
                     opacity=layer.opacity, bytes=size, sha256=digests[i][0])
         if frame.schema == 2:
@@ -189,16 +191,31 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
                 info["clip"] = layer.clip
         if not reused[i]:
             data, algorithm = encoded.get(i, (memoryview(layer.pixels), "raw"))
+            layer_wire_bytes = len(data)
+            layer_lz4 = algorithm == "lz4"
             if version == 3:
                 info["compression"] = algorithm
-                info["wire_bytes"] = len(data)
+                info["wire_bytes"] = layer_wire_bytes
             payloads.append(data)
-            wire_size += len(data)
+            wire_size += layer_wire_bytes
             _metric(timings, "raw_source_bytes", size)
-            _metric(timings, "wire_payload_bytes", len(data))
+            _metric(timings, "wire_payload_bytes", layer_wire_bytes)
         elif version == 3:
             info["compression"] = "previous"
             info["wire_bytes"] = 0
+        if timings is not None:
+            # Diagnostics only: bounded by the protocol's 8 stream keys.
+            # No per-frame payload/metadata change, no retained BGRA bytes.
+            by_stream = timings.setdefault("layer_transport", {})
+            bucket = by_stream.setdefault(key, {
+                "planes": 0, "source_bytes": 0, "wire_bytes": 0,
+                "reused_planes": 0, "lz4_planes": 0,
+            })
+            bucket["planes"] += 1
+            bucket["source_bytes"] += size
+            bucket["wire_bytes"] += layer_wire_bytes
+            bucket["reused_planes"] += int(reused[i])
+            bucket["lz4_planes"] += int(layer_lz4)
         layers.append(info)
 
     descriptor = dict(schema=frame.schema, format=f"mms_canvas_bgra_layers_v{frame.schema}",
