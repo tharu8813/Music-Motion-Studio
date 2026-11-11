@@ -190,6 +190,68 @@ class TransportTests(unittest.TestCase):
         self.assertEqual((entry["compression"], entry["wire_bytes"]), ("previous", 0))
         self.assertEqual(cache.reused_planes, 1)
 
+    def test_lz4_per_layer_cost_stats_preserve_packet_and_account_for_raw_fallback(self):
+        from app.renderer.native_frame_transport import supports_lz4_transport
+        if not supports_lz4_transport():
+            self.skipTest("lz4 wheel not available")
+        import random
+        width, height = 320, 180
+        size = width * height * 4
+        solid = bytes((20, 40, 60, 255)) * (width * height)
+        noise = random.Random(81).randbytes(size)
+
+        def make_frame():
+            return NS(width=width, height=height, schema=1, layers=(
+                NS(stream_key="base", width=width, height=height,
+                   opacity=1.0, pixels=solid),
+                NS(stream_key="layer:0", width=width, height=height,
+                   opacity=1.0, pixels=noise),
+            ))
+
+        measured_state = FrameReuseState()
+        expected_state = FrameReuseState()
+        timings = {}
+        for i in range(2):
+            expected = b"".join(frame_chunks(
+                make_frame(), i, reuse_state=expected_state,
+                compress_planes=True, v3_wire=True,
+            ))
+            actual = b"".join(frame_chunks(
+                make_frame(), i, reuse_state=measured_state,
+                compress_planes=True, v3_wire=True, timings=timings,
+            ))
+            self.assertEqual(actual, expected)
+            _, version, index, metadata_length, payload_size = HEADER.unpack(actual[:28])
+            self.assertEqual((version, index), (3, i))
+            manifest = json.loads(actual[28:28 + metadata_length])
+            self.assertEqual(sum(entry["wire_bytes"] for entry in manifest["layers"]),
+                             payload_size)
+            if i == 0:
+                self.assertEqual([layer["compression"] for layer in manifest["layers"]],
+                                 ["lz4", "raw"])
+            else:
+                self.assertEqual([layer["compression"] for layer in manifest["layers"]],
+                                 ["previous", "previous"])
+
+        costs = timings["lz4_layer_cost"]
+        self.assertEqual(set(costs), {"base", "layer:0"})
+        self.assertEqual(costs["base"]["attempted_planes"], 1)
+        self.assertEqual(costs["base"]["compressed_planes"], 1)
+        self.assertEqual(costs["layer:0"]["attempted_planes"], 1)
+        self.assertEqual(costs["layer:0"]["compressed_planes"], 0)
+        self.assertEqual(costs["layer:0"]["wire_bytes"], size)
+        self.assertEqual(costs["layer:0"]["saved_bytes"], 0)
+        self.assertEqual(sum(bucket["compressed_planes"] for bucket in costs.values()),
+                         timings["lz4_planes"])
+        self.assertEqual(sum(bucket["task_elapsed_seconds"] for bucket in costs.values()),
+                         timings["lz4_cpu_seconds"])
+        for bucket in costs.values():
+            self.assertEqual(bucket["source_bytes"] - bucket["wire_bytes"],
+                             bucket["saved_bytes"])
+            self.assertGreaterEqual(bucket["task_elapsed_seconds"], 0)
+        self.assertEqual(measured_state.reused_planes, 2)
+        self.assertEqual(measured_state.reused_planes, expected_state.reused_planes)
+
     def test_v3_raw_fallback_keeps_noise_identical(self):
         from app.renderer.native_frame_transport import supports_lz4_transport
         if not supports_lz4_transport():
