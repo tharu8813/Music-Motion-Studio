@@ -45,6 +45,34 @@ class RasterCacheTests(unittest.TestCase):
         return capture_native_canvas_track_frame(self.scene, self.track, bands,
             elapsed_seconds=t, playlist_duration_seconds=2, raster_cache=cache)
 
+    def test_personal_color_is_shared_by_bands_and_keyed_by_track_artwork(self):
+        for z_index in (0, 1):
+            self.add(Source(SourceType.SHAPE, f"Color {z_index}",
+                width=100, height=100, z_index=z_index, personal_color_enabled=True))
+        bands = ((None, 0), (1, None))
+        cache = NativeRasterCache(self.scene, bands, 2)
+        self.addCleanup(cache.clear)
+        tracks = (
+            PlaylistTrack("song.wav", "First", cover_path="red.png", duration_seconds=2),
+            PlaylistTrack("song.wav", "Second", cover_path="missing.png", duration_seconds=2),
+        )
+
+        def extract(_audio, cover):
+            return QColor("#c13125") if cover == "red.png" else QColor()
+
+        with patch("app.preview.canvas_snapshot.extract_track_personal_color", side_effect=extract) as color:
+            references = []
+            for self.track in tracks:
+                references.append(self.capture(bands, 0))
+            self.assertNotEqual(*references)
+            color.reset_mock()
+            for self.track, reference in zip(tracks, references, strict=True):
+                for timestamp in (0.0, 0.5, 1.0):
+                    self.assertEqual(self.capture(bands, timestamp, cache), reference)
+            self.assertEqual(color.call_count, 2)
+            cache.clear()
+            self.assertEqual(cache.personal_colors, {})
+
     def test_identical_static_pixels_repaint_once_including_alpha_rotation_effects_clip(self):
         # Full-frame snapshots preserve artboard clipping and existing painter
         # effects. Cached bytes must match those same snapshots exactly.

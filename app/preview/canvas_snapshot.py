@@ -862,7 +862,8 @@ class CanvasSnapshot:
                       motion_pose_overrides: dict[str, AnimationPose] | None = None,
                       compact_preview_band: bool = False,
                       lyric_instrumental_spans: tuple | None = None,
-                      lyric_instrumental_spans_by_source: dict[str, tuple] | None = None) -> QImage:
+                      lyric_instrumental_spans_by_source: dict[str, tuple] | None = None,
+                      personal_color_cache: dict[tuple[str, str], QColor] | None = None) -> QImage:
         """Capture one track state with metadata, cover art, and an optional Z band.
 
         ``junction``: the frame sits at a crossfade/AutoMix handover of the
@@ -952,11 +953,15 @@ class CanvasSnapshot:
             if track_cover is None:
                 track_cover = extract_track_cover(track.file_path, track.cover_path)
             return track_cover
-        personal_color = (
-            extract_track_personal_color(track.file_path, track.cover_path)
-            if any(item.source.uses_personal_color for item in source_items)
-            else QColor()
-        )
+        personal_color = QColor()
+        if any(item.source.uses_personal_color for item in source_items):
+            if personal_color_cache is None:
+                personal_color = extract_track_personal_color(track.file_path, track.cover_path)
+            else:
+                key = (track.file_path, track.cover_path)
+                if key not in personal_color_cache:
+                    personal_color_cache[key] = extract_track_personal_color(*key)
+                personal_color = personal_color_cache[key]
         for graphics_item in source_items:
             if not isinstance(graphics_item, SourceItem):
                 continue
