@@ -1,11 +1,13 @@
 """Protocol units require no Qt, GPU or frame spool."""
 import io
 import json
+import mmap
 from types import SimpleNamespace as NS
 import unittest
 
 from app.renderer.native_frame_transport import (
-    HEADER, AdaptiveCompressionBudget, FrameReuseState, frame_chunks, write_frame,
+    HEADER, SHARED_PACKET_LENGTH, AdaptiveCompressionBudget, FrameReuseState,
+    frame_chunks, write_frame,
 )
 
 
@@ -15,6 +17,27 @@ def frame():
 
 
 class TransportTests(unittest.TestCase):
+    def test_shared_packet_keeps_wire_bytes_and_falls_back_when_too_large(self):
+        sample = frame()
+        for capacity in (32, 4096):
+            with self.subTest(capacity=capacity), mmap.mmap(-1, capacity) as mapping:
+                state = FrameReuseState()
+                reference = FrameReuseState()
+                for index in range(2):
+                    expected = b"".join(frame_chunks(sample, index, reuse_state=reference, v3_wire=True))
+                    stream, stats = io.BytesIO(), {}
+                    self.assertEqual(write_frame(
+                        stream, sample, index, reuse_state=state, timings=stats,
+                        v3_wire=True, shared_packet=mapping,
+                    ), len(expected))
+                    if capacity >= len(expected):
+                        self.assertEqual(stream.getvalue(), SHARED_PACKET_LENGTH.pack(len(expected)))
+                        self.assertEqual(mapping[:len(expected)], expected)
+                        self.assertEqual(stats["shared_packet_bytes"], len(expected))
+                    else:
+                        self.assertEqual(stream.getvalue(), SHARED_PACKET_LENGTH.pack(0) + expected)
+                        self.assertEqual(stats["shared_packet_fallback_frames"], 1)
+
     def test_partial_writes_and_wire_layout(self):
         class Partial(io.BytesIO):
             def write(self, data):

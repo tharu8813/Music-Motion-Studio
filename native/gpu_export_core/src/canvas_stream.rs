@@ -47,7 +47,7 @@ pub fn read_frame(reader: &mut impl Read, index: u64) -> Result<Option<CanvasPac
 pub fn read_frame_reuse(
     reader: &mut impl Read, index: u64, previous: Option<&mut CanvasPacketFrame>,
 ) -> Result<Option<CanvasPacketFrame>, String> {
-    read_frame_with_refs(reader, index, previous, 2)
+    read_frame_with_refs(reader, index, previous, 2, false)
 }
 
 /// Binary-v3: unchanged SHA-256 and metadata rules, optional LZ4 block
@@ -56,12 +56,19 @@ pub fn read_frame_reuse(
 pub fn read_frame_adaptive(
     reader: &mut impl Read, index: u64, previous: Option<&mut CanvasPacketFrame>,
 ) -> Result<Option<CanvasPacketFrame>, String> {
-    read_frame_with_refs(reader, index, previous, 3)
+    read_frame_with_refs(reader, index, previous, 3, false)
+}
+
+pub fn read_frame_parallel(
+    reader: &mut impl Read, index: u64, previous: Option<&mut CanvasPacketFrame>, adaptive: bool,
+) -> Result<Option<CanvasPacketFrame>, String> {
+    read_frame_with_refs(reader, index, previous, if adaptive { 3 } else { 2 }, true)
 }
 
 fn read_frame_with_refs(
     reader: &mut impl Read, index: u64, previous: Option<&mut CanvasPacketFrame>,
     expected_version: u32,
+    parallel: bool,
 ) -> Result<Option<CanvasPacketFrame>, String> {
     let mut header = [0u8; 28];
     loop {
@@ -98,7 +105,7 @@ fn read_frame_with_refs(
     let mut remaining = payload;
     let mut previous = previous;
     let mut layer_index = 0usize;
-    let frame = parse_qt_canvas_packet_value(&root, |_, size| {
+    let frame = parse_qt_canvas_packet_value(&root, parallel, |_, size| {
         let i = layer_index;
         layer_index += 1;
         // v3 checks encoded lengths, algorithms and the total payload before

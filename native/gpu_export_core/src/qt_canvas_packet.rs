@@ -113,14 +113,62 @@ pub fn parse_qt_canvas_packet(
     }
     let root: Value = serde_json::from_slice(manifest)
         .map_err(|e| format!("Invalid Canvas packet JSON: {e}"))?;
-    parse_qt_canvas_packet_value(&root, plane)
+    parse_qt_canvas_packet_value(&root, false, plane)
+}
+
+fn verify_layer(pixels: &[u8], digest: &str, index: usize) -> Result<[u8; 32], String> {
+    let actual = Sha256::digest(pixels);
+    if !digest.eq_ignore_ascii_case(&format!("{actual:x}")) {
+        return Err(format!("Canvas layer {index} checksum mismatch"));
+    }
+    if index == 0 && pixels.chunks_exact(4).any(|px| px[3] != 255) {
+        return Err("Qt Canvas base must be fully opaque".into());
+    }
+    Ok(actual.into())
+}
+
+fn verify_layer_batch(
+    layers: &mut [CanvasPacketLayer], items: &[Value], first: usize,
+) -> Result<(), String> {
+    for (offset, (layer, item)) in layers.iter_mut().zip(items).enumerate() {
+        let digest = item["sha256"].as_str().ok_or("Layer SHA-256 missing")?;
+        layer.validated_sha256 = verify_layer(&layer.pixels, digest, first + offset)?;
+    }
+    Ok(())
+}
+
+fn verify_layers_in_parallel(layers: &mut [CanvasPacketLayer], items: &[Value]) -> Result<(), String> {
+    let total = layers.iter().map(|layer| layer.pixels.len()).sum::<usize>();
+    let (index, left_bytes) = layers.iter().scan(0, |sum, layer| {
+        *sum += layer.pixels.len();
+        Some(*sum)
+    }).take(layers.len() - 1).enumerate()
+        .min_by_key(|(_, bytes)| bytes.abs_diff(total / 2))
+        .ok_or("Parallel Canvas validation needs at least two layers")?;
+    if left_bytes.min(total - left_bytes) < 1024 * 1024 {
+        return verify_layer_batch(layers, items, 0);
+    }
+    let split = index + 1;
+    let (left, right) = layers.split_at_mut(split);
+    let (first, second) = items.split_at(split);
+    let checked = std::thread::scope(|scope| {
+        let worker = std::thread::Builder::new()
+            .spawn_scoped(scope, || verify_layer_batch(left, first, 0)).ok()?;
+        let right_result = verify_layer_batch(right, second, split);
+        Some(worker.join().unwrap_or_else(|_| Err("Canvas validation worker panicked".into()))
+            .and(right_result))
+    });
+    match checked {
+        Some(result) => result,
+        None => verify_layer_batch(layers, items, 0),
+    }
 }
 
 /// A validated manifest can be reused by the streaming v2 layer-reference
 /// reader. This avoids parsing identical JSON twice per frame while retaining
 /// the entire shared geometry, SHA-256 and opaque-base validation.
 pub(crate) fn parse_qt_canvas_packet_value(
-    root: &Value, mut plane: impl FnMut(&str, usize) -> Result<Vec<u8>, String>,
+    root: &Value, parallel: bool, mut plane: impl FnMut(&str, usize) -> Result<Vec<u8>, String>,
 ) -> Result<CanvasPacketFrame, String> {
     let schema = root["schema"].as_u64().ok_or("Canvas schema missing")?;
     if !matches!(schema, 1 | 2) || root["format"] != format!("mms_canvas_bgra_layers_v{schema}")
@@ -147,6 +195,7 @@ pub(crate) fn parse_qt_canvas_packet_value(
     if root["native_gpu_alpha_composition_required"] != (items.len() > 1) {
         return Err("Canvas alpha-composition manifest flag contradicts layer count".into());
     }
+    let parallel = parallel && items.len() > 1 && plane_bytes >= 1024 * 1024;
     let mut layers = Vec::with_capacity(items.len());
     for (i, entry) in items.iter().enumerate() {
         if entry["z_order"].as_u64() != Some(i as u64) {
@@ -188,24 +237,17 @@ pub(crate) fn parse_qt_canvas_packet_value(
         if pixels.len() != plane_bytes {
             return Err(format!("Canvas layer {i} has unexpected byte count"));
         }
-        let actual = Sha256::digest(&pixels);
-        // Preserve the existing case-insensitive SHA-256 wire contract.
-        // Comparing the validated hex avoids introducing a second hash.
-        if !digest.eq_ignore_ascii_case(&format!("{actual:x}")) {
-            return Err(format!("Canvas layer {i} checksum mismatch"));
-        }
-        // The video processor expects an opaque base, and transparent
-        // overlays must be straight alpha from Qt's Format_ARGB32.
-        if i == 0 && pixels.chunks_exact(4).any(|px| px[3] != 255) {
-            return Err("Qt Canvas base must be fully opaque".into());
-        }
+        let validated_sha256 = if parallel { [0; 32] } else { verify_layer(&pixels, digest, i)? };
         layers.push(CanvasPacketLayer {
             stream_key: expected_key,
             opacity: opacity as f32,
             pixels,
             geometry,
-            validated_sha256: actual.into(),
+            validated_sha256,
         });
+    }
+    if parallel {
+        verify_layers_in_parallel(&mut layers, items)?;
     }
     Ok(CanvasPacketFrame { width, height, layers })
 }
@@ -277,6 +319,37 @@ mod tests {
         std::fs::write(directory.join(names[0]), altered).unwrap();
         assert!(load_qt_canvas_packet(&manifest).unwrap_err().contains("checksum mismatch"));
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn parallel_validation_preserves_digests_and_rejects_either_invalid_batch() {
+        let base = [18, 29, 42, 255].repeat(512 * 512);
+        let overlay = [3, 9, 7, 128].repeat(512 * 512);
+        let root = serde_json::json!({
+            "schema": 1, "format": "mms_canvas_bgra_layers_v1", "pixel_format": "BGRA8_STRAIGHT",
+            "coordinate_origin": "top_left", "width": 512, "height": 512,
+            "qt_canvas_rasterized_on_cpu": true, "production_export_changed": false,
+            "native_gpu_alpha_composition_required": true,
+            "layers": [
+                {"file": "base.bgra", "stream_key": "base", "z_order": 0, "opacity": 1,
+                 "bytes": base.len(), "sha256": format!("{:x}", Sha256::digest(&base))},
+                {"file": "overlay.bgra", "stream_key": "layer:0", "z_order": 1, "opacity": 1,
+                 "bytes": overlay.len(), "sha256": format!("{:x}", Sha256::digest(&overlay))},
+            ],
+        });
+        let read = |name: &str, _| Ok(if name == "base.bgra" { base.clone() } else { overlay.clone() });
+        let serial = parse_qt_canvas_packet_value(&root, false, read).unwrap();
+        let parallel = parse_qt_canvas_packet_value(&root, true, read).unwrap();
+        for (left, right) in serial.layers.iter().zip(parallel.layers) {
+            assert_eq!(left.validated_sha256, right.validated_sha256);
+            assert_eq!(left.pixels, right.pixels);
+        }
+        for index in 0..2 {
+            let mut bad = root.clone();
+            bad["layers"][index]["sha256"] = "0".repeat(64).into();
+            assert_eq!(parse_qt_canvas_packet_value(&bad, true, read).unwrap_err(),
+                       format!("Canvas layer {index} checksum mismatch"));
+        }
     }
 
     #[test]
