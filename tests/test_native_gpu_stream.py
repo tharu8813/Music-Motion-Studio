@@ -32,7 +32,9 @@ from app.models.playlist import PlaylistTrack
 
 
 MOCK_NATIVE_SOURCE = '''
+import io
 import json
+import mmap
 import struct
 import os
 import hashlib
@@ -47,10 +49,13 @@ flags = dict(zip(sys.argv[1::2], sys.argv[2::2]))
 count = int(flags["--expected-frames"])
 output = Path(flags["--video-output"])
 report = Path(flags["--output"])
+mapping_name = flags.get("--shared-packet-map")
+mapping = mmap.mmap(-1, 32 * 1024 * 1024, tagname=mapping_name) if mapping_name else None
+input_stream = sys.stdin.buffer
 def exact(n):
     result = bytearray()
     while len(result) < n:
-        part = sys.stdin.buffer.read(min(n-len(result), 997))
+        part = input_stream.read(min(n-len(result), 997))
         assert part, "truncated"
         result.extend(part)
     return result
@@ -59,6 +64,11 @@ assert mode in ("binary-v1", "binary-v2", "binary-v3")
 expected_version = {"binary-v1": 1, "binary-v2": 2, "binary-v3": 3}[mode]
 previous = {}
 for index in range(count):
+    if mapping is not None:
+        input_stream = sys.stdin.buffer
+        length, = struct.unpack("<I", exact(4))
+        if length:
+            input_stream = io.BytesIO(mapping[:length])
     magic, version, pts, metadata, payload = struct.unpack("<4sIQIQ", exact(28))
     assert (magic, version, pts) == (b"MMSB", expected_version, index)
     data = json.loads(exact(metadata))
@@ -100,6 +110,8 @@ for index in range(count):
         new[key] = (dims, pixels)
     assert total == payload
     previous = new
+    if input_stream is not sys.stdin.buffer:
+        assert not input_stream.read(1)
     print(f"MMS_FRAME_ACCEPTED {index}", flush=True)
 assert not sys.stdin.buffer.read(1)
 assert index+1 == count, (index, count)
@@ -164,6 +176,21 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                     result["frame_wire_payload_bytes"],
                 )
                 return result
+
+    def test_named_mapping_keeps_frame_order_reuse_and_worker_acknowledgements(self):
+        result = self._run_mock(count=8, optimizations=NativeGpuOptimizations(
+            pipelined=True, reuse_layers=True, shared_packet_transport=True,
+        ))
+        self.assertEqual(result["frame_shared_packet_frames"], 8)
+        self.assertEqual(result["frame_shared_packet_fallback_frames"], 0)
+        self.assertEqual(result["frame_shared_packet_bytes"], result["frame_transport_bytes"])
+        self.assertEqual(result["frame_reused_planes"], 7)
+
+    def test_mapping_allocation_failure_uses_existing_pipe(self):
+        with patch("app.renderer.native_gpu_stream.mmap.mmap", side_effect=OSError("test allocation failure")):
+            result = self._run_mock(count=4, optimizations=NativeGpuOptimizations.for_profile("automatic"))
+        self.assertFalse(result["frame_shared_packet_enabled"])
+        self.assertEqual(result["frame_reused_planes"], 3)
 
     def test_fractional_duration_roundtrips_across_native_process_boundary(self):
         # Rounding this duration to 12 significant digits loses one CFR frame.
@@ -243,6 +270,8 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
         automatic = NativeGpuOptimizations.for_profile("automatic")
         self.assertTrue(automatic.adaptive_bgra)
         self.assertTrue(automatic.parallel_bgra)
+        self.assertTrue(automatic.shared_packet_transport)
+        self.assertTrue(automatic.parallel_packet_validation)
         self.assertEqual(automatic, NativeGpuOptimizations.for_profile("automatic"))
         self.assertFalse(NativeGpuOptimizations.for_profile("accelerated").adaptive_bgra)
         with patch.dict(os.environ, {

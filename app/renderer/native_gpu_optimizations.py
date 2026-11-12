@@ -25,12 +25,15 @@ class NativeGpuOptimizations:
     # Only in an explicit developer CLI diagnostic: time actual Qt paint()
     # invocations by SourceType, without modifying normal source items.
     profile_canvas_source_paint: bool = False
+    shared_packet_transport: bool = False
+    parallel_packet_validation: bool = False
 
     @classmethod
     def for_profile(cls, profile: str) -> "NativeGpuOptimizations":
         if profile == "standard":
             return cls()
         if profile in {"accelerated", "cpu_parallel", "automatic"}:
+            automatic = profile == "automatic"
             return cls(
                 pipelined=True,
                 partial_bands=True,
@@ -39,6 +42,8 @@ class NativeGpuOptimizations:
                 # Separate, opt-in A/B profile. Do not silently change the
                 # previously tested accelerated mode on existing installs.
                 parallel_bgra=profile in {"cpu_parallel", "automatic"},
-                adaptive_bgra=profile == "automatic",
+                adaptive_bgra=automatic,
+                shared_packet_transport=automatic,
+                parallel_packet_validation=automatic,
             )
         raise ValueError(f"Unknown native GPU optimization profile: {profile!r}")

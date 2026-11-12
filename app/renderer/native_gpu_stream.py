@@ -11,10 +11,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from dataclasses import replace
 import json
 import logging
 import math
+import mmap
 import os
 from pathlib import Path
 from queue import Empty, Full, Queue
@@ -22,10 +24,12 @@ import subprocess
 import tempfile
 from threading import Event, Thread, Lock
 from time import monotonic
+from uuid import uuid4
 
 from app.preview.native_canvas_layer_packets import DeferredNativeCanvasFrame, NativeCanvasFrame
 from app.renderer.native_frame_transport import (AdaptiveCompressionBudget, FrameReuseState,
-                                                 write_frame, supports_lz4_transport)
+                                                 SHARED_PACKET_CAPACITY, write_frame,
+                                                 supports_lz4_transport)
 from app.renderer.ffmpeg_renderer import (
     ExportMetadata, FFmpegRenderer, RenderCancelledError, RenderError,
     RenderResult, RenderSettings,
@@ -109,7 +113,7 @@ def stream_native_canvas_h264(
     if video == report or any(path.exists() or path.is_symlink()
                               for path in (video, report, video.with_suffix(".h264.part"))):
         raise RenderError("Native export refuses to replace existing output or report.")
-    with tempfile.TemporaryDirectory(prefix="mms-native-stream-"):
+    with tempfile.TemporaryDirectory(prefix="mms-native-stream-"), ExitStack() as resources:
         stream_started = monotonic()
         reuse_enabled = (
             optimizations.reuse_layers if optimizations is not None
@@ -131,6 +135,19 @@ def stream_native_canvas_h264(
             "--output", str(report), "--input-format",
             input_format,
         ]
+        shared_packet = None
+        if reuse_enabled and optimizations is not None and optimizations.parallel_packet_validation:
+            args.extend(("--parallel-packet-validation", "1"))
+        if optimizations is not None and optimizations.shared_packet_transport:
+            mapping_name = f"Local\\MMS-Canvas-{uuid4().hex}"
+            try:
+                shared_packet = resources.enter_context(
+                    mmap.mmap(-1, SHARED_PACKET_CAPACITY, tagname=mapping_name),
+                )
+            except OSError:
+                logging.getLogger(__name__).warning("Shared Canvas packet mapping unavailable; using the pipe")
+            else:
+                args.extend(("--shared-packet-map", mapping_name))
         try:
             worker = subprocess.Popen(
                 args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -203,6 +220,7 @@ def stream_native_canvas_h264(
                 worker.stdin, resolved, index, reuse_state=reuse_state,
                 timings=frame_write_timings, compress_planes=compress,
                 v3_wire=compressed_transport, executor=packet_executor,
+                shared_packet=shared_packet,
             )
             if compression_budget is not None:
                 compression_budget.record(
@@ -429,6 +447,11 @@ def stream_native_canvas_h264(
                 frame_sha256_bytes=frame_write_timings.get("sha256_bytes", 0),
                 frame_pipe_syswrite_seconds=frame_write_timings.get("pipe_syswrite_seconds", 0.0),
                 frame_pipe_syswrite_calls=frame_write_timings.get("pipe_syswrite_calls", 0),
+                frame_shared_packet_enabled=shared_packet is not None,
+                frame_shared_packet_bytes=frame_write_timings.get("shared_packet_bytes", 0),
+                frame_shared_packet_frames=frame_write_timings.get("shared_packet_frames", 0),
+                frame_shared_packet_write_seconds=frame_write_timings.get("shared_packet_write_seconds", 0.0),
+                frame_shared_packet_fallback_frames=frame_write_timings.get("shared_packet_fallback_frames", 0),
                 frame_lz4_cpu_seconds=frame_write_timings.get("lz4_cpu_seconds", 0.0),
                 frame_lz4_wall_seconds=frame_write_timings.get("lz4_wall_seconds", 0.0),
                 frame_lz4_planes=frame_write_timings.get("lz4_planes", 0),

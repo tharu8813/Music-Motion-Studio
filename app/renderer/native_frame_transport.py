@@ -27,6 +27,8 @@ class FrameReuseState:
 
 HEADER = struct.Struct("<4sIQIQ")
 MAX_PAYLOAD = 3840 * 2160 * 4 * 8
+SHARED_PACKET_CAPACITY = 32 * 1024 * 1024
+SHARED_PACKET_LENGTH = struct.Struct("<I")
 
 
 def supports_lz4_transport() -> bool:
@@ -256,16 +258,35 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
     yield from payloads
 
 def write_frame(stream, frame, index, *, reuse_state=None, timings=None,
-                compress_planes=False, v3_wire=False, executor=None):
+                compress_planes=False, v3_wire=False, executor=None, shared_packet=None):
     chunks = frame_chunks(frame, index, reuse_state=reuse_state, timings=timings,
                           compress_planes=compress_planes, v3_wire=v3_wire,
                           executor=executor)
     # A frame always starts with the fixed 28-byte header followed by its
     # bounded JSON manifest. One write for both eliminates a tiny pipe write
     # per frame without touching layer payloads or the MMSB wire format.
-    preamble = next(chunks) + next(chunks)
+    header = next(chunks)
+    preamble = header + next(chunks)
+    chunks = chain((preamble,), chunks)
+    if shared_packet is not None:
+        packet_bytes = len(preamble) + HEADER.unpack(header)[-1]
+        if packet_bytes <= len(shared_packet):
+            shared_packet.seek(0)
+            started = monotonic()
+            for chunk in chunks:
+                shared_packet.write(chunk)
+            _metric(timings, "shared_packet_write_seconds", monotonic() - started)
+            _metric(timings, "shared_packet_bytes", packet_bytes)
+            _metric(timings, "shared_packet_frames", 1)
+            # The sender waits for this frame's ACK before touching the mapping again.
+            chunks = (SHARED_PACKET_LENGTH.pack(packet_bytes),)
+        else:
+            _metric(timings, "shared_packet_fallback_frames", 1)
+            chunks = chain((SHARED_PACKET_LENGTH.pack(0),), chunks)
+    else:
+        packet_bytes = None
     count = 0
-    for chunk in chain((preamble,), chunks):
+    for chunk in chunks:
         view = memoryview(chunk)
         while view:
             write_started = monotonic() if timings is not None else 0.0
@@ -278,4 +299,4 @@ def write_frame(stream, frame, index, *, reuse_state=None, timings=None,
             count += written
             view = view[written:]
     stream.flush()
-    return count
+    return count if packet_bytes is None else packet_bytes

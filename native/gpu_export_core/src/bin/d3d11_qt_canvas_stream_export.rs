@@ -114,16 +114,46 @@ mod windows_export {
     use music_motion_gpu_core::d3d11_frame_pool::NativeNv12FramePool;
     use music_motion_gpu_core::d3d11_nvenc_registration::NativeNvencRegistrationSession;
     use music_motion_gpu_core::qt_canvas_packet::{load_qt_canvas_packet, CanvasPacketFrame};
-    use music_motion_gpu_core::canvas_stream::{read_frame, read_frame_reuse, read_frame_adaptive};
+    use music_motion_gpu_core::canvas_stream::{read_frame, read_frame_reuse, read_frame_adaptive, read_frame_parallel};
     use music_motion_gpu_core::resident_layer_cache::ResidentLayerCache;
     use music_motion_gpu_core::d3d11_affine::AffineLayerRenderer;
     use serde_json::{json, Value};
     use std::collections::VecDeque;
     use std::env;
     use std::fs::{self, File, OpenOptions};
-    use std::io::{self, BufWriter, Write};
+    use std::io::{self, BufWriter, Read, Write};
     use std::path::{Path, PathBuf};
     use std::time::{Duration, Instant};
+    use windows::core::HSTRING;
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Memory::{
+        MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FILE_MAP_READ,
+        MEMORY_MAPPED_VIEW_ADDRESS,
+    };
+
+    const SHARED_PACKET_CAPACITY: usize = 32 * 1024 * 1024;
+
+    struct SharedPacketMap(MEMORY_MAPPED_VIEW_ADDRESS);
+
+    impl SharedPacketMap {
+        fn open(name: &str) -> Result<Self, String> {
+            let handle = unsafe { OpenFileMappingW(FILE_MAP_READ.0, false, &HSTRING::from(name)) }
+                .map_err(|e| format!("Cannot open shared Canvas packet mapping: {e}"))?;
+            let view = unsafe { MapViewOfFile(handle, FILE_MAP_READ, 0, 0, SHARED_PACKET_CAPACITY) };
+            let map_error = view.Value.is_null().then(io::Error::last_os_error);
+            let _ = unsafe { CloseHandle(handle) };
+            if let Some(error) = map_error {
+                return Err(format!("Cannot map shared Canvas packet: {error}"));
+            }
+            Ok(Self(view))
+        }
+    }
+
+    impl Drop for SharedPacketMap {
+        fn drop(&mut self) {
+            let _ = unsafe { UnmapViewOfFile(self.0) };
+        }
+    }
 
     struct Options {
         width: u32,
@@ -137,6 +167,8 @@ mod windows_export {
         binary: bool,
         binary_v2: bool,
         binary_v3: bool,
+        shared_packet_map: Option<String>,
+        parallel_packet_validation: bool,
     }
 
     fn parse_options() -> Result<Options, String> {
@@ -151,6 +183,8 @@ mod windows_export {
         let mut binary = false;
         let mut binary_v2 = false;
         let mut binary_v3 = false;
+        let mut shared_packet_map = None;
+        let mut parallel_packet_validation = false;
         let mut arguments = env::args().skip(1);
         while let Some(option) = arguments.next() {
             let value = arguments.next()
@@ -170,6 +204,8 @@ mod windows_export {
                     .map_err(|_| "Invalid NV12 frame pool slot count")?,
                 "--video-output" => video = Some(PathBuf::from(value)),
                 "--output" => report = Some(PathBuf::from(value)),
+                "--shared-packet-map" => shared_packet_map = Some(value),
+                "--parallel-packet-validation" if value == "1" => parallel_packet_validation = true,
                 "--input-format" => match value.as_str() {
                     "binary-v1" => binary = true,
                     "binary-v2" => { binary = true; binary_v2 = true; },
@@ -192,6 +228,8 @@ mod windows_export {
             binary,
             binary_v2,
             binary_v3,
+            shared_packet_map,
+            parallel_packet_validation,
         };
         if options.width < 64 || options.width > 3840
             || options.height < 64 || options.height > 2160
@@ -201,6 +239,12 @@ mod windows_export {
             return Err("Production D3D11 needs even 64..3840x64..2160 dimensions and 2..8 slots".into());
         }
         FrameClock::new(options.frames, options.fps, options.seconds)?;
+        if options.shared_packet_map.is_some() && !options.binary {
+            return Err("Shared Canvas packets require a binary input format".into());
+        }
+        if options.parallel_packet_validation && !(options.binary_v2 || options.binary_v3) {
+            return Err("Parallel Canvas validation requires binary-v2 or binary-v3 input".into());
+        }
         if options.video.extension().and_then(|x| x.to_str()) != Some("h264")
             || options.report.extension().and_then(|x| x.to_str()) != Some("json")
             || options.video == options.report
@@ -262,21 +306,34 @@ mod windows_export {
         }
     }
 
+    #[derive(Default)]
+    struct StageTimings {
+        gpu_submit: f64,
+        gpu_wait: f64,
+        nvenc: f64,
+        shared_packet_decode: f64,
+    }
+
     fn consume(
         pool: &mut NativeNv12FramePool,
         encoder: &mut NativeNvencRegistrationSession,
         pending: &mut VecDeque<(usize, i64)>,
         writer: &mut StagedVideo,
         clock: &mut FrameClock,
+        timings: &mut StageTimings,
     ) -> Result<(), String> {
         let &(slot, expected_pts) = pending.front().ok_or("No queued native video frame")?;
+        let waiting = Instant::now();
         pool.wait_for_gpu_copy(slot, Duration::from_secs(15))?;
+        timings.gpu_wait += waiting.elapsed().as_secs_f64();
         let ready = pool.acquire_gpu_complete_ready()?
             .ok_or("Native D3D11 frame was not ready for NVENC")?;
         if ready.slot_index != slot || ready.pts != expected_pts {
             return Err("Native D3D11 completion order or slot mismatch".into());
         }
+        let encoding = Instant::now();
         let (packet, actual_pts) = encoder.encode_gpu_complete_frame(&ready)?;
+        timings.nvenc += encoding.elapsed().as_secs_f64();
         if actual_pts != expected_pts as u64 {
             return Err("NVENC picture presentation timestamp mismatch".into());
         }
@@ -294,17 +351,62 @@ mod windows_export {
         binary_v2 || binary_v3
     }
 
+    fn read_binary_frame(
+        input: &mut impl Read, index: u64,
+        previous: Option<&mut CanvasPacketFrame>, options: &Options,
+    ) -> Result<Option<CanvasPacketFrame>, String> {
+        if options.parallel_packet_validation { read_frame_parallel(input, index, previous, options.binary_v3) }
+        else if options.binary_v3 { read_frame_adaptive(input, index, previous) }
+        else if options.binary_v2 { read_frame_reuse(input, index, previous) }
+        else { read_frame(input, index) }
+    }
+
+    fn read_shared_length(input: &mut impl Read) -> Result<Option<usize>, String> {
+        let mut length = [0u8; 4];
+        loop {
+            match input.read(&mut length[..1]) {
+                Ok(0) => return Ok(None),
+                Ok(_) => break,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(format!("Shared packet length: {e}")),
+            }
+        }
+        input.read_exact(&mut length[1..]).map_err(|e| format!("Truncated shared packet length: {e}"))?;
+        let length = u32::from_le_bytes(length) as usize;
+        if length > SHARED_PACKET_CAPACITY {
+            return Err("Shared Canvas packet exceeds mapping capacity".into());
+        }
+        Ok(Some(length))
+    }
+
     fn next_input_frame(
         input: &mut std::io::StdinLock<'_>, index: u64,
         previous: Option<&mut CanvasPacketFrame>, options: &Options,
+        mapping: Option<&SharedPacketMap>,
+        timings: &mut StageTimings,
     ) -> Result<Option<CanvasPacketFrame>, String> {
-        if options.binary_v3 { read_frame_adaptive(input, index, previous) }
-        else if options.binary_v2 { read_frame_reuse(input, index, previous) }
-        else if options.binary { read_frame(input, index) }
-        else {
-            read_manifest_line(input)?
-                .map(|name| load_qt_canvas_packet(Path::new(&name))).transpose()
+        if let Some(mapping) = mapping {
+            let Some(length) = read_shared_length(input)? else { return Ok(None); };
+            if length == 0 {
+                return read_binary_frame(input, index, previous, options)?
+                    .map(Some).ok_or_else(|| "Missing inline Canvas packet".into());
+            }
+            // The sender publishes the length after writing the view and waits for
+            // this frame's ACK. The parser returns only owned planes before ACK.
+            let mut packet = unsafe { std::slice::from_raw_parts(mapping.0.Value.cast::<u8>(), length) };
+            let started = Instant::now();
+            let decoded = read_binary_frame(&mut packet, index, previous, options)?;
+            timings.shared_packet_decode += started.elapsed().as_secs_f64();
+            if !packet.is_empty() || decoded.is_none() {
+                return Err("Shared Canvas packet length does not match the frame".into());
+            }
+            return Ok(decoded);
         }
+        if options.binary {
+            return read_binary_frame(input, index, previous, options);
+        }
+        read_manifest_line(input)?
+            .map(|name| load_qt_canvas_packet(Path::new(&name))).transpose()
     }
 
     fn export(options: Options) -> Result<Value, String> {
@@ -313,12 +415,15 @@ mod windows_export {
         let stdin = io::stdin();
         let mut input = stdin.lock();
         let mut writer = StagedVideo::open(&options.video)?;
+        let mapping = options.shared_packet_map.as_deref().map(SharedPacketMap::open).transpose()?;
+        let mapping = mapping.as_ref();
 
         // The named helper below returns an owned packet, with no lifetime
         // tied to its previous-frame input borrow. v1 never retains frames.
         let mut transfer_seconds = 0.0;
+        let mut timings = StageTimings::default();
         let transfer_started = Instant::now();
-        let frame = next_input_frame(&mut input, 0, None, &options)?
+        let frame = next_input_frame(&mut input, 0, None, &options, mapping, &mut timings)?
             .ok_or("Native producer closed without any Canvas frames")?;
         transfer_seconds += transfer_started.elapsed().as_secs_f64();
         if (frame.width, frame.height) != (options.width, options.height) {
@@ -336,12 +441,13 @@ mod windows_export {
         let mut current = frame;
         loop {
             if pending.len() == options.slots {
-                consume(&mut pool, &mut encoder, &mut pending, &mut writer, &mut clock)?;
+                consume(&mut pool, &mut encoder, &mut pending, &mut writer, &mut clock, &mut timings)?;
             }
             if current.width != options.width || current.height != options.height {
                 return Err("Canvas packet dimensions changed mid-export".into());
             }
             let pts = clock.next_submission()?;
+            let submit_started = Instant::now();
             resident.update_sized(&current,
                 |w,h| affine.create_input(w,h),
                 |texture,pixels,width| affine.upload(texture,pixels,width),
@@ -355,6 +461,7 @@ mod windows_export {
                 })
             }).collect::<Result<Vec<_>, String>>()?;
             let slot = pool.queue_gpu_canvas_layers(&processor, &layers, pts)?;
+            timings.gpu_submit += submit_started.elapsed().as_secs_f64();
             pending.push_back((slot, pts));
             // Keep an actual maximum of ONE decoded CPU packet in memory.
             // Resident input textures are reused on the same immediate context;
@@ -375,10 +482,10 @@ mod windows_export {
             }
             if clock.submitted == clock.expected {
                 let unexpected = if needs_previous_packet(options.binary_v2, options.binary_v3) {
-                    next_input_frame(&mut input, clock.submitted, Some(&mut current), &options)?
+                    next_input_frame(&mut input, clock.submitted, Some(&mut current), &options, mapping, &mut timings)?
                 } else {
                     drop(current);
-                    next_input_frame(&mut input, clock.submitted, None, &options)?
+                    next_input_frame(&mut input, clock.submitted, None, &options, mapping, &mut timings)?
                 };
                 if unexpected.is_some() {
                     return Err("More Canvas packets supplied than compiled playlist frames".into());
@@ -387,16 +494,16 @@ mod windows_export {
             }
             let transfer_started = Instant::now();
             let next = if needs_previous_packet(options.binary_v2, options.binary_v3) {
-                next_input_frame(&mut input, clock.submitted, Some(&mut current), &options)?
+                next_input_frame(&mut input, clock.submitted, Some(&mut current), &options, mapping, &mut timings)?
             } else {
                 drop(current);
-                next_input_frame(&mut input, clock.submitted, None, &options)?
+                next_input_frame(&mut input, clock.submitted, None, &options, mapping, &mut timings)?
             };
             current = next.ok_or("Native Canvas source ended before the full playlist")?;
             transfer_seconds += transfer_started.elapsed().as_secs_f64();
         }
         while !pending.is_empty() {
-            consume(&mut pool, &mut encoder, &mut pending, &mut writer, &mut clock)?;
+            consume(&mut pool, &mut encoder, &mut pending, &mut writer, &mut clock, &mut timings)?;
         }
         clock.finish()?;
         resident.clear();
@@ -408,6 +515,12 @@ mod windows_export {
         }
         let bytes = writer.bytes_written;
         writer.publish(&options.video)?;
+        let stage_seconds = json!({
+            "d3d11_upload_and_submit": timings.gpu_submit,
+            "d3d11_completion_wait": timings.gpu_wait,
+            "nvenc_encode": timings.nvenc,
+            "shared_packet_decode": timings.shared_packet_decode,
+        });
         let result = json!({
             "schema": 1,
             "status": "measured",
@@ -437,6 +550,8 @@ mod windows_export {
             "max_pending_gpu_slots": options.slots,
             "input": if options.binary_v3 { "binary-v3" } else if options.binary_v2 { "binary-v2" } else if options.binary { "binary-v1" } else { "newline_separated_manifest_paths_stdin" },
             "frame_receive_seconds": transfer_seconds,
+            "native_stage_seconds": stage_seconds,
+            "parallel_packet_validation": options.parallel_packet_validation,
             "bgra_disk_bytes": if options.binary { Some(0u64) } else { None },
             "resident_layer_cache": {
                 "allocations": resident.counters.allocations,
@@ -480,13 +595,23 @@ mod windows_export {
 
     #[cfg(test)]
     mod reference_lifetime_tests {
-        use super::needs_previous_packet;
+        use super::{needs_previous_packet, read_shared_length, SHARED_PACKET_CAPACITY};
 
         #[test]
         fn v3_keeps_previous_packet_for_subsequent_frames() {
             assert!(!needs_previous_packet(false, false)); // v1 and manifest
             assert!(needs_previous_packet(true, false));   // v2
             assert!(needs_previous_packet(false, true));   // LZ4 v3
+        }
+
+        #[test]
+        fn shared_lengths_distinguish_inline_eof_and_bad_headers() {
+            assert_eq!(read_shared_length(&mut &[][..]).unwrap(), None);
+            assert_eq!(read_shared_length(&mut &0u32.to_le_bytes()[..]).unwrap(), Some(0));
+            let max = SHARED_PACKET_CAPACITY as u32;
+            assert_eq!(read_shared_length(&mut &max.to_le_bytes()[..]).unwrap(), Some(max as usize));
+            assert!(read_shared_length(&mut &(max + 1).to_le_bytes()[..]).is_err());
+            assert!(read_shared_length(&mut &[1u8, 0][..]).is_err());
         }
     }
 
