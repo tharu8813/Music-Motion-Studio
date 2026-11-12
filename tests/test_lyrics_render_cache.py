@@ -3,7 +3,9 @@ from copy import deepcopy
 import unittest
 from unittest.mock import patch
 from PySide6.QtWidgets import QApplication
-from PySide6.QtGui import QFontMetricsF
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QFontMetricsF, QImage, QPainter
+from app.canvas.renderers import lyrics_renderer
 from app.canvas.live_canvas import CanvasScene
 from app.canvas.source_item import SourceItem
 from app.models.source import Source, SourceType
@@ -41,6 +43,71 @@ class LyricsRenderCacheTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def test_canvas_word_reveal_accepts_scalar_and_tuple_qtextline_coordinates(self):
+        # Track details already supports both PySide6 cursorToX variants.
+        # Canvas lyric preview/export used to index [0] unconditionally.
+        text = "안녕 🎵 world"
+        for cursor in (0, 1, 3, 4, 6):
+            class FakeLine:
+                def __init__(self, as_tuple):
+                    self.as_tuple = as_tuple
+
+                def cursorToX(self, pos):
+                    x = float(pos) * 7.0
+                    return (x, pos) if self.as_tuple else x
+
+            self.assertEqual(
+                lyrics_renderer._qtextline_cursor_x(FakeLine(False), cursor),
+                lyrics_renderer._qtextline_cursor_x(FakeLine(True), cursor),
+            )
+
+        snapshots = []
+        for as_tuple in (False, True):
+            class FakeLine:
+                def setLineWidth(self, width):
+                    pass
+
+                def cursorToX(self, pos):
+                    x = float(pos) * 7.0
+                    return (x, pos) if as_tuple else x
+
+            class FakeLayout:
+                def __init__(self, text, font):
+                    pass
+
+                def setTextOption(self, option):
+                    pass
+
+                def beginLayout(self):
+                    pass
+
+                def createLine(self):
+                    return FakeLine()
+
+                def endLayout(self):
+                    pass
+
+            item = SourceItem(Source(
+                SourceType.LYRICS, "Karaoke", width=200, height=80,
+                font_size=22,
+            ))
+            image = QImage(200, 80, QImage.Format.Format_ARGB32_Premultiplied)
+            image.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(image)
+            try:
+                painter.setFont(item.text_font(22, 500))
+                with patch.object(lyrics_renderer, "QTextLayout", FakeLayout):
+                    lyrics_renderer.paint_word_reveal(
+                        item, painter, QRectF(0, 0, 200, 80),
+                        Qt.AlignmentFlag.AlignHCenter | Qt.TextFlag.TextSingleLine,
+                        text, 0.0, highlight_ranges=((0.0, 4.5),),
+                    )
+            finally:
+                painter.end()
+            snapshots.append(bytes(image.constBits()))
+            self.assertTrue(item._lyric_reveal_cache)
+        self.assertEqual(snapshots[0], snapshots[1])
 
     def test_metrics_are_reused_and_property_changes_invalidate_resources(self):
         item = SourceItem(Source(SourceType.LYRICS, 'Lyrics'))
