@@ -308,7 +308,9 @@ def capture_native_canvas_track_frame(
     keyframe_active: bool = True,
     bass_level: float = 0.0,
     music_levels: dict[str, float] | None = None,
+    lyric_instrumental_spans_by_source: dict[str, tuple] | None = None,
     raster_cache: object | None = None,
+    band_states: Sequence[tuple] | None = None,
 ) -> NativeCanvasFrame | DeferredNativeCanvasFrame:
     """Capture a REAL track/lyrics state through the established export painter.
 
@@ -356,8 +358,9 @@ def capture_native_canvas_track_frame(
         compact = bool(partial and raster_cache.compact_band_enabled)
         capture_metrics: dict[str, object] = {}
         paint_started = monotonic() if raster_cache is not None else 0.0
-        image = CanvasSnapshot.capture_track(
-            scene, track, track_number, track_total, track_start_seconds,
+        capture_state = dict(
+            track=track, track_number=track_number, track_total=track_total,
+            start_seconds=track_start_seconds,
             elapsed_seconds=elapsed_seconds,
             timeline_seconds=(track_start_seconds + elapsed_seconds
                               if timeline_seconds is None else timeline_seconds),
@@ -370,6 +373,22 @@ def capture_native_canvas_track_frame(
             keyframe_active=keyframe_active,
             bass_level=bass_level,
             music_levels=music_levels,
+            lyric_instrumental_spans_by_source=lyric_instrumental_spans_by_source,
+        )
+        if band_states is not None:
+            sample, band_bass, band_music, band_instrumental = band_states[index]
+            capture_state.update(
+                track=sample.track, track_number=sample.track_number,
+                start_seconds=sample.track_start_seconds, elapsed_seconds=sample.elapsed_seconds,
+                timeline_seconds=sample.timeline_seconds, animation_phase=sample.animation_phase,
+                animation_progress=sample.animation_progress,
+                animation_phase_duration=sample.animation_phase_duration,
+                keyframe_active=sample.keyframe_active, junction=sample.junction,
+                bass_level=band_bass, music_levels=band_music,
+                lyric_instrumental_spans_by_source=band_instrumental,
+            )
+        image = CanvasSnapshot.capture_track(
+            scene, **capture_state,
             output_scale=output_scale,
             z_min=z_min, z_max=z_max,
             transparent=index != 0,

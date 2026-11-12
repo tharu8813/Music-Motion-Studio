@@ -76,8 +76,8 @@ class RustFramePipeTests(TestCase):
         packed = layered_filter_graph(
             [], [], 30, 32, 32, base_is_cfr=True, base_bgr24=True,
         )
-        self.assertTrue(original.startswith("[0:v]settb=AVTB"))
-        self.assertTrue(packed.startswith("[0:v]format=bgr0,settb=AVTB"))
+        self.assertTrue(original.startswith("[0:v]settb=1/30,setpts=N"))
+        self.assertTrue(packed.startswith("[0:v]format=bgr0,settb=1/30,setpts=N"))
         # The timebase and compositor keep identical semantics.
         self.assertEqual(packed.replace("[0:v]format=bgr0,", "[0:v]", 1), original)
 

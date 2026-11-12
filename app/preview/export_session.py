@@ -19,7 +19,7 @@ from PySide6.QtGui import QImage
 
 from app.models.playlist import PlaylistTrack
 from app.models.source import SourceType
-from app.services.lyrics_intro_service import completed_instrumental_spans, request_instrumental_analysis
+from app.services.lyrics_intro_service import prepare_instrumental_spans
 from app.preview.export_canvas_capture import ExportCanvasCapturer
 from app.preview.export_plan import ExportPlan
 from app.renderer.export_timeline import ExportFrameSample, ExportFrameSchedule
@@ -201,20 +201,13 @@ class ExportSession:
         sources = [item.source.resolved_lyrics() for item in scene_items()
                    if hasattr(item, "source") and item.source.visible
                    and item.source.source_type is SourceType.LYRICS]
-        analysis_jobs = [(track, source, request_instrumental_analysis(track, source))
-                         for track in self._tracks for source in sources]
-        futures = {future for _track, _source, future in analysis_jobs if future is not None}
-        if futures:
-            self._report_progress(0, "가사 공백의 보컬을 분석하고 있습니다." if self._korean else
-                                  "Analyzing vocals in lyric gaps.")
-        while futures:
-            self._ensure_not_cancelled()
-            _done, futures = wait(futures, timeout=0.05)
-            self._pump_ui()
-
-        instrumental_by_track = {track.id: {} for track in self._tracks}
-        for track, source, future in analysis_jobs:
-            instrumental_by_track[track.id][source.id] = completed_instrumental_spans(source, future)
+        instrumental_by_track = prepare_instrumental_spans(
+            self._tracks, sources, self._ensure_not_cancelled, pump_ui=self._pump_ui,
+            on_start=lambda: self._report_progress(
+                0, "가사 공백의 보컬을 분석하고 있습니다." if self._korean else
+                "Analyzing vocals in lyric gaps.",
+            ),
+        )
 
         capturer = ExportCanvasCapturer(
             self._scene,

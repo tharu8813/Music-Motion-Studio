@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QApplication
 from app.canvas.live_canvas import CanvasScene
 from app.canvas.source_item import SourceItem
 from app.models.project import ProjectDocument
+from app.models.source import SourceType
 from app.preview.native_canvas_layer_packets import NativeCanvasFrame, capture_native_canvas_track_frame
 from app.renderer.ffmpeg_renderer import RenderError, RenderCancelledError
 from app.renderer.native_dynamic_layers import (
@@ -28,8 +29,11 @@ from app.renderer.native_project_support import (
     TimelineValidationError, resolve_project_frame, validate_project_for_gpu_capture,
 )
 from app.timeline.compiler import compile_playlist
+from app.services.lyrics_intro_service import prepare_instrumental_spans
 from app.renderer.native_layer_cache import NativeRasterCache, split_resident_bands
 from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
+from app.renderer.export_timeline import ExportTimelinePlanner
+from app.renderer.cfr_sample_pruning import iter_cfr_emitting_samples
 
 def _check_cancel(cancel):
     if cancel.is_set():
@@ -106,6 +110,7 @@ def produce_complete_project_frames(
     project: ProjectDocument, *, fps: int, scale: float,
     prepared_audio: Path, ffmpeg: str, cancel_event: Event | None = None,
     analysis: PreparedProjectFrameAudio | None = None,
+    instrumental_by_track: dict[str, dict[str, tuple]] | None = None,
     raster_counters: dict | None = None,
     optimizations: NativeGpuOptimizations | None = None,
 ) -> Iterator[NativeCanvasFrame]:
@@ -157,6 +162,16 @@ def produce_complete_project_frames(
         raster_cache = NativeRasterCache(
             scene, stack.bands, plan.duration_seconds, optimizations=optimizations,
         )
+        schedules = ExportTimelinePlanner.build_by_z_band(
+            tracks, included, set(), stack.bands, fps, plan, lazy=True,
+        )
+        band_schedules = [iter_cfr_emitting_samples(samples, fps) for samples in schedules.values()]
+        band_samples = [next(schedule) for schedule in band_schedules]
+        if instrumental_by_track is None:
+            instrumental_by_track = prepare_instrumental_spans(
+                tracks, (s for s in included if s.source_type is SourceType.LYRICS),
+                lambda: _check_cancel(cancel),
+            )
         before = project.to_dict()
         with ExitStack() as resources:
             overlays, dynamic_streams, _origin = resources.enter_context(
@@ -178,6 +193,19 @@ def produce_complete_project_frames(
                     state["track"], state["track_elapsed_seconds"], fps,
                     reactive, envelopes,
                 )
+                band_states = []
+                for index, schedule in enumerate(band_schedules):
+                    while band_samples[index].cfr_target_frame_count <= frame_index:
+                        next_sample = next(schedule, None)
+                        if next_sample is None:
+                            break
+                        band_samples[index] = next_sample
+                    sample = band_samples[index]
+                    band_bass, band_music = canvas_reaction_at(
+                        sample.track, sample.elapsed_seconds, fps, reactive, envelopes,
+                    )
+                    band_states.append((sample, band_bass, band_music,
+                                        instrumental_by_track[sample.track.id]))
                 static = capture_native_canvas_track_frame(
                     scene, state["track"], stack.bands,
                     elapsed_seconds=state["track_elapsed_seconds"],
@@ -194,7 +222,9 @@ def produce_complete_project_frames(
                     compiled_plan=plan,
                     bass_level=bass,
                     music_levels=music,
+                    lyric_instrumental_spans_by_source=instrumental_by_track[state["track"].id],
                     raster_cache=raster_cache,
+                    band_states=band_states,
                 )
                 try:
                     layers = [
@@ -333,6 +363,7 @@ class GuiProjectFrameSource(QObject):
         self._audio = None
         self._ffmpeg = None
         self._analysis = None
+        self._instrumental_by_track = None
         self.raster_counters = {}
         self._result = None
         self._error = None
@@ -347,9 +378,14 @@ class GuiProjectFrameSource(QObject):
         self._audio, self._ffmpeg = Path(prepared_audio), str(ffmpeg)
         _check_cancel(self.cancel_event)
         try:
+            self._instrumental_by_track = prepare_instrumental_spans(
+                [t for t in self.project.playlist if t.enabled and t.duration_seconds > 0],
+                (s for s in self.project.sources if s.visible and s.source_type is SourceType.LYRICS),
+                lambda: _check_cancel(self.cancel_event),
+            )
             self._analysis = prepare_project_frame_audio(
                 self.project, compile_playlist(self.project.playlist, enabled_only=True),
-                fps=self.fps, prepared_audio=self._audio, ffmpeg=self._ffmpeg,
+                fps=self.fps, scale=self.scale, prepared_audio=self._audio, ffmpeg=self._ffmpeg,
                 cancel_event=self.cancel_event,
             )
         except Exception:
@@ -402,6 +438,7 @@ class GuiProjectFrameSource(QObject):
                     prepared_audio=self._audio, ffmpeg=self._ffmpeg,
                     cancel_event=self.cancel_event,
                     analysis=self._analysis,
+                    instrumental_by_track=self._instrumental_by_track,
                     raster_counters=self.raster_counters,
                     optimizations=self.optimizations,
                 )
@@ -433,5 +470,6 @@ class GuiProjectFrameSource(QObject):
             self._iterator = None
             self._result = None
             self._analysis = None
+            self._instrumental_by_track = None
             self._ready.set()
             self.closed.emit()

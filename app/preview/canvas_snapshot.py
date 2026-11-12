@@ -357,6 +357,15 @@ class CanvasSnapshot:
         return image
 
     @staticmethod
+    def _paint_can_extend_beyond_crop(source: Source) -> bool:
+        # The text painter can stroke/blur glyphs beyond the layout rect. Lyric
+        # motion also moves individual rows without changing the item's bounds.
+        return source.source_type is SourceType.LYRICS or (
+            source.source_type in {SourceType.TEXT, SourceType.TIME, SourceType.TRACK_LIST}
+            and (source.text_stroke_width > 0 or (source.shadow.enabled and source.text_shadow_glyph))
+        )
+
+    @staticmethod
     def _dynamic_band_capture_rect(
         scene: CanvasScene,
         z_min: float | None,
@@ -379,6 +388,8 @@ class CanvasSnapshot:
                 or (z_max is not None and source.z_index > z_max)
             ):
                 continue
+            if CanvasSnapshot._paint_can_extend_beyond_crop(source):
+                return None
             if not transformed_preview and (
                 CanvasSnapshot._keyframes_change_capture_bounds(source)
                 or has_custom_motion(source)
@@ -458,7 +469,8 @@ class CanvasSnapshot:
             ):
                 continue
             if (CanvasSnapshot._keyframes_change_capture_bounds(source)
-                    or has_custom_motion(source)):
+                    or has_custom_motion(source)
+                    or CanvasSnapshot._paint_can_extend_beyond_crop(source)):
                 # An opacity fade needs no larger fixed export rectangle.
                 # Position/size/rotation/blur/shadow keyframes still fall back.
                 return None

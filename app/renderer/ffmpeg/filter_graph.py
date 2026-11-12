@@ -110,7 +110,7 @@ def python_visualizer_filter_graph(visualizers: list["VisualizerOverlay"], fps: 
     # constant frame rate *before* overlay framesync, otherwise framesync outputs
     # only one frame per still image and the video visibly stutters.
     graph: list[str] = [
-        f"[0:v]fps={fps}:start_time=0,settb=AVTB,setpts=N/({fps}*TB)[base]"
+        f"[0:v]fps={fps}:start_time=0,settb=1/{fps},setpts=N[base]"
     ]
     current = "[base]"
     for index, overlay in enumerate(visualizers):
@@ -213,11 +213,10 @@ def layered_filter_graph(visualizers: list["VisualizerOverlay"],
         video_input_slots = planned_slots
     if len(video_input_slots) != len(video_clips):
         raise ValueError("Video input slots do not match scheduled clips.")
-    base_timing = (
-        f"settb=AVTB,setpts=N/({fps}*TB)"
-        if base_is_cfr
-        else f"fps={fps}:start_time=0,settb=AVTB,setpts=N/({fps}*TB)"
-    )
+    # Use one tick per frame so framesync cannot pick the preceding overlay
+    # frame when 1/fps has no exact representation in microseconds.
+    cfr_timing = f"settb=1/{fps},setpts=N"
+    base_timing = cfr_timing if base_is_cfr else f"fps={fps}:start_time=0,{cfr_timing}"
     # FFmpeg auto-negotiates different overlay/swscale formats for raw BGR24
     # versus BGR0. Convert BGR24 back to BGR0 *inside FFmpeg* before any
     # compositing so byte-identical output is retained, while the named pipe
@@ -430,7 +429,7 @@ def layered_filter_graph(visualizers: list["VisualizerOverlay"],
                 layer_input = f"[staticrgba{order}]"
                 graph.append(
                     f"[{input_index}:v:0][{input_index}:v:1]"
-                    f"alphamerge{layer_input}"
+                    f"alphamerge,{cfr_timing}{layer_input}"
                 )
             else:
                 layer_input = f"[{input_index}:v]"

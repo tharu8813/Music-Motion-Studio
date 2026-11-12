@@ -1,4 +1,4 @@
-"""Detached project overlay definitions matching ExportOrchestrator.visualizers."""
+"""Build the reactive overlay definitions used by both export engines."""
 from app.models.source import SourceType
 from app.animation.keyframe_render import KeyframeRenderBinding
 from app.preview.album_art import adjust_personal_color, extract_track_personal_color
@@ -9,14 +9,14 @@ from app.utils.visualizer_geometry import visualizer_export_rect
 def project_visualizers(
     project, tracks: list, render_scale: float = 1.0, compiled_plan=None,
 ) -> list[VisualizerOverlay]:
-    """Translate visible, axis-aligned Canvas visualizers into Python-rendered overlays.
+    return visualizer_overlays(project.sources, tracks, render_scale, compiled_plan)
 
-    ``render_scale`` (>= 1.0) maps Canvas coordinates onto the export's final
-    pixel grid so an overlay stays aligned with the up-rendered base stream.
-    """
+
+def visualizer_overlays(sources, tracks, render_scale=1.0, compiled_plan=None) -> list[VisualizerOverlay]:
+    """Map visible sources onto the final pixel grid before rounding geometry."""
     overlays: list[VisualizerOverlay] = []
     visualizer_sources = [
-        source for source in project.sources
+        source for source in sources
         if source.source_type in {
             SourceType.AUDIO_VISUALIZER, SourceType.AUDIO_WAVEFORM,
             SourceType.AUDIO_LEVEL_METER, SourceType.PARTICLE_OVERLAY,
@@ -43,7 +43,7 @@ def project_visualizers(
         )
         overlays.append(VisualizerOverlay(
             keyframe_binding=KeyframeRenderBinding.build(
-                source, compiled_plan or compile_playlist(active_tracks), render_scale, sources=project.sources),
+                source, compiled_plan or compile_playlist(active_tracks), render_scale, sources=sources),
             x=overlay_x,
             y=overlay_y,
             width=overlay_width,

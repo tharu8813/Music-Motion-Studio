@@ -10,7 +10,7 @@ from __future__ import annotations
 def visualizer_export_rect(source: object, render_scale: float) -> tuple[int, int, int, int]:
     """Return (left, top, width, height) at the target render resolution."""
     scale = float(getattr(source, "scale", 1.0))
-    output = max(1.0, float(render_scale))
+    output = float(render_scale)
     width = float(getattr(source, "width"))
     height = float(getattr(source, "height"))
     left = float(getattr(source, "x")) + (width - width * scale) / 2.0

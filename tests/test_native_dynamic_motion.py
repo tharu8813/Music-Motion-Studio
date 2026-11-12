@@ -32,6 +32,16 @@ class DynamicMotionTests(unittest.TestCase):
     def alpha(self, packet, x, y):
         return packet.pixels[(y * packet.width + x) * 4 + 3]
 
+    def test_particle_geometry_is_rounded_once_at_output_resolution(self):
+        project = project_fixture()
+        source = Source(SourceType.PARTICLE_OVERLAY, "Fractional placement",
+                        x=15.4, y=22.6, width=40.4, height=50.4, z_index=9)
+        project.sources.append(source)
+        for scale, expected in ((0.5, (8, 11, 20, 25)), (1.5, (23, 34, 61, 76))):
+            with self.subTest(scale=scale):
+                overlay, = project_visualizers(project, project.playlist, scale)
+                self.assertEqual((overlay.x, overlay.y, overlay.width, overlay.height), expected)
+
     def test_rotation_expands_outside_original_box_and_keeps_alpha(self):
         packet = dynamic_layer_frame(self.image(), SimpleNamespace(x=20, y=20, rotation=90),
                                      64, 64, seconds=0)

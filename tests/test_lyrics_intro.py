@@ -91,6 +91,21 @@ class LyricsIntroTests(unittest.TestCase):
         failed.set_exception(RuntimeError('Unavailable'))
         self.assertEqual(service.completed_instrumental_spans(source, failed), ())
 
+    def test_export_waits_for_pending_lyric_gap_before_freezing_track_state(self):
+        source, track = self.source(subtitle_intro_midtrack=True), self.track()
+        pending = Future()
+
+        def finish_analysis():
+            if not pending.done():
+                pending.set_result((((6, 17),), ()))
+
+        with patch.object(service, "request_instrumental_analysis", return_value=pending) as request:
+            actual = service.prepare_instrumental_spans(
+                [track], [source], lambda: None, pump_ui=finish_analysis,
+            )
+        request.assert_called_once_with(track, source)
+        self.assertEqual(actual, {track.id: {source.id: ((6, 17),)}})
+
     def test_worker_snapshot_uses_source_specific_completed_spans(self):
         from app.preview import canvas_snapshot as snapshot_module
 
