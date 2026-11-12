@@ -616,6 +616,16 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
     painter.restore()
 
 
+def _qtextline_cursor_x(line, cursor: int) -> float:
+    """Handle scalar and (x, adjusted-cursor) Qt/PySide6 return variants.
+
+    The track-details TTML widget supports both forms already; the shared
+    Canvas/MP4 karaoke renderer must not crash on the scalar-only binding.
+    """
+    result = line.cursorToX(cursor)
+    return float(result[0] if isinstance(result, tuple) else result)
+
+
 def paint_word_reveal(item, painter: QPainter, row: QRectF, flags, text: str, revealed: float,
                       *, highlight_ranges: tuple[tuple[float, float], ...] | None = None) -> None:
     """Reuse shaped glyphs while supporting multiple simultaneously sung words."""
@@ -636,10 +646,10 @@ def paint_word_reveal(item, painter: QPainter, row: QRectF, flags, text: str, re
         line = layout.createLine()
         line.setLineWidth(row.width())
         layout.endLayout()
-        positions, cursor = [line.cursorToX(0)[0]], 0
+        positions, cursor = [_qtextline_cursor_x(line, 0)], 0
         for char in text:
             cursor += 2 if ord(char) > 0xFFFF else 1
-            positions.append(line.cursorToX(cursor)[0])
+            positions.append(_qtextline_cursor_x(line, cursor))
         path = item._text_layout_path(painter, QRectF(0, 0, row.width(), row.height()), flags, text)
         cached = (tuple(positions), path)
         item._lyric_reveal_cache[key] = cached
