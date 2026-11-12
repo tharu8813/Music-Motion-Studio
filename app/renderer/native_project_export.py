@@ -19,6 +19,7 @@ from app.renderer.native_gpu_stream import render_native_gpu_playlist
 from app.renderer.native_project_frames import produce_complete_project_frames, _check_cancel
 from app.renderer.native_dynamic_layers import build_dynamic_stack
 from app.renderer.native_project_support import validate_project_for_gpu_capture
+from app.services.video_encoder_service import DEFAULT_NATIVE_NVENC_PRESET
 from app.timeline.compiler import compile_playlist
 
 
@@ -62,6 +63,7 @@ def export_project_document(
     ffmpeg=None, cancel_event=None, progress_callback=None, frame_source=None,
     mux_progress_callback=None, audio_bitrate="192k", storage_path_callback=None,
     preparation_progress_callback=None, optimizations=None,
+    native_nvenc_preset=DEFAULT_NATIVE_NVENC_PRESET, native_nvenc_cq=0,
 ):
     """Render a detached project; always release the supplied GUI frame source."""
     try:
@@ -73,6 +75,7 @@ def export_project_document(
             storage_path_callback=storage_path_callback,
             preparation_progress_callback=preparation_progress_callback,
             optimizations=optimizations,
+            native_nvenc_preset=native_nvenc_preset, native_nvenc_cq=native_nvenc_cq,
         )
     finally:
         if frame_source is not None:
@@ -84,6 +87,7 @@ def _export_project_document(
     ffmpeg=None, cancel_event=None, progress_callback=None, frame_source=None,
     mux_progress_callback=None, audio_bitrate="192k", storage_path_callback=None,
     preparation_progress_callback=None, optimizations=None,
+    native_nvenc_preset=DEFAULT_NATIVE_NVENC_PRESET, native_nvenc_cq=0,
 ):
     """Render the entire detached document and return the usual RenderResult.
 
@@ -116,6 +120,7 @@ def _export_project_document(
     settings = RenderSettings(
         fps=fps, video_codec="h264_nvenc",
         audio_bitrate=audio_bitrate,
+        native_nvenc_preset=native_nvenc_preset, native_nvenc_cq=native_nvenc_cq,
         output_width=round(project.canvas.width * scale),
         output_height=round(project.canvas.height * scale),
     )

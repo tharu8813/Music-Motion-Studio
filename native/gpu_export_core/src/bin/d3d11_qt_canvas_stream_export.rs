@@ -169,6 +169,8 @@ mod windows_export {
         binary_v3: bool,
         shared_packet_map: Option<String>,
         parallel_packet_validation: bool,
+        nvenc_preset: u8,
+        nvenc_cq: u8,
     }
 
     fn parse_options() -> Result<Options, String> {
@@ -185,6 +187,8 @@ mod windows_export {
         let mut binary_v3 = false;
         let mut shared_packet_map = None;
         let mut parallel_packet_validation = false;
+        let mut nvenc_preset = 3;
+        let mut nvenc_cq = 0;
         let mut arguments = env::args().skip(1);
         while let Some(option) = arguments.next() {
             let value = arguments.next()
@@ -206,6 +210,14 @@ mod windows_export {
                 "--output" => report = Some(PathBuf::from(value)),
                 "--shared-packet-map" => shared_packet_map = Some(value),
                 "--parallel-packet-validation" if value == "1" => parallel_packet_validation = true,
+                "--nvenc-preset" => nvenc_preset = match value.as_str() {
+                    "p1" => 1,
+                    "p3" => 3,
+                    "p5" => 5,
+                    _ => return Err("NVENC preset must be p1, p3 or p5".into()),
+                },
+                "--nvenc-cq" => nvenc_cq = value.parse::<u8>().ok()
+                    .filter(|cq| *cq <= 51).ok_or("NVENC quality must be between 0 and 51")?,
                 "--input-format" => match value.as_str() {
                     "binary-v1" => binary = true,
                     "binary-v2" => { binary = true; binary_v2 = true; },
@@ -230,6 +242,8 @@ mod windows_export {
             binary_v3,
             shared_packet_map,
             parallel_packet_validation,
+            nvenc_preset,
+            nvenc_cq,
         };
         if options.width < 64 || options.width > 3840
             || options.height < 64 || options.height > 2160
@@ -433,8 +447,8 @@ mod windows_export {
         let processor = NativeBgraNv12VideoProcessor::new_for_pool(&pool)?;
         let mut resident = ResidentLayerCache::new(options.width, options.height);
         let mut affine = AffineLayerRenderer::new(&pool)?;
-        let mut encoder = NativeNvencRegistrationSession::new_for_pool_with_fps(
-            &pool, options.fps,
+        let mut encoder = NativeNvencRegistrationSession::new_for_pool_with_encoding(
+            &pool, options.fps, options.nvenc_preset, options.nvenc_cq,
         )?;
         let adapter = pool.adapter_name().to_string();
         let mut pending: VecDeque<(usize, i64)> = VecDeque::with_capacity(options.slots);
@@ -521,7 +535,7 @@ mod windows_export {
             "nvenc_encode": timings.nvenc,
             "shared_packet_decode": timings.shared_packet_decode,
         });
-        let result = json!({
+        let mut result = json!({
             "schema": 1,
             "status": "measured",
             "production_export_scope": "production_complete_playlist",
@@ -563,6 +577,10 @@ mod windows_export {
                 "peak_resident_bytes": resident.counters.peak_resident_bytes,
                 "pixel_identity": "sha256_cpu",
             },
+        });
+        result["nvenc_encoding"] = json!({
+            "preset": format!("p{}", options.nvenc_preset),
+            "cq": options.nvenc_cq,
         });
         // A failed report means no completed deliverable. If the runner
         // closes/crashes mid-export, no report is emitted at all.

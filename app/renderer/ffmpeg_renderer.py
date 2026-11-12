@@ -36,6 +36,7 @@ from app.renderer.python_visualizer import PythonVisualizerError, PythonVisualiz
 from app.utils.subprocess_utils import hidden_process_kwargs
 from app.services.export_validation_service import ExportValidationResult
 from app.services.export_policy import ExportPolicy
+from app.services.video_encoder_service import DEFAULT_NATIVE_NVENC_PRESET
 from app.services.export_formats import (
     VIDEO_FORMATS, AUDIO_FORMATS, AUDIO_ENCODERS, is_audio_export,
     audio_encoding_arguments, video_container_arguments,
@@ -86,6 +87,8 @@ class RenderSettings:
     output_width: int = 1920
     output_height: int = 1080
     work_mode: str = WORK_MODE_AUTO
+    native_nvenc_preset: str = DEFAULT_NATIVE_NVENC_PRESET
+    native_nvenc_cq: int = 0
 
 
 @dataclass(frozen=True, slots=True)

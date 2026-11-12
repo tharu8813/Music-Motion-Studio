@@ -13,12 +13,14 @@ use std::ptr;
 use std::time::{Duration, Instant};
 
 use mini_nvcodec::{try_init_nvenc, API_VERSION_LADDER, NvencApi, NvencApiVersion};
-use mini_nvcodec::guids::{NV_ENC_CODEC_H264_GUID, NV_ENC_PRESET_P3_GUID};
+use mini_nvcodec::guids::{
+    NV_ENC_CODEC_H264_GUID, NV_ENC_PRESET_P1_GUID, NV_ENC_PRESET_P3_GUID, NV_ENC_PRESET_P5_GUID,
+};
 use mini_nvcodec::nvenc_sys::{
     GUID, NVENCSTATUS, NV_ENC_BUFFER_FORMAT, NV_ENC_BUFFER_USAGE,
     NV_ENC_DEVICE_TYPE, NV_ENC_INITIALIZE_PARAMS, NV_ENC_INPUT_RESOURCE_TYPE,
     NV_ENC_MAP_INPUT_RESOURCE, NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS,
-    NV_ENC_PRESET_CONFIG, NV_ENC_REGISTER_RESOURCE, NV_ENC_TUNING_INFO,
+    NV_ENC_PARAMS_RC_MODE, NV_ENC_PRESET_CONFIG, NV_ENC_REGISTER_RESOURCE, NV_ENC_TUNING_INFO,
     NV_ENC_CREATE_BITSTREAM_BUFFER, NV_ENC_PIC_PARAMS, NV_ENC_PIC_STRUCT,
     NV_ENC_LOCK_BITSTREAM, NV_ENC_PIC_FLAG_OUTPUT_SPSPPS, NV_ENC_PIC_FLAG_FORCEIDR,
     NV_ENC_VUI_COLOR_PRIMARIES, NV_ENC_VUI_TRANSFER_CHARACTERISTIC,
@@ -139,13 +141,26 @@ impl NativeNvencRegistrationSession {
         Self::new_for_pool_with_fps(pool, 60)
     }
 
-    /// A full-length production encoder must use the selected export FPS.
-    /// The old six-frame probe still calls new_for_pool (60 FPS).
     pub fn new_for_pool_with_fps(
         pool: &NativeNv12FramePool, fps: u32,
     ) -> Result<Self, String> {
+        Self::new_for_pool_with_encoding(pool, fps, 3, 0)
+    }
+
+    pub fn new_for_pool_with_encoding(
+        pool: &NativeNv12FramePool, fps: u32, preset_level: u8, cq: u8,
+    ) -> Result<Self, String> {
         if !(1..=240).contains(&fps) {
             return Err("NVENC video FPS must be between 1 and 240".into());
+        }
+        let preset_guid = match preset_level {
+            1 => NV_ENC_PRESET_P1_GUID,
+            3 => NV_ENC_PRESET_P3_GUID,
+            5 => NV_ENC_PRESET_P5_GUID,
+            _ => return Err("NVENC preset must be P1, P3 or P5".into()),
+        };
+        if cq > 51 {
+            return Err("NVENC target quality must be between 0 and 51".into());
         }
         let api = try_init_nvenc()
             .ok_or_else(|| "NVENC driver library or supported API unavailable".to_owned())?;
@@ -207,7 +222,7 @@ impl NativeNvencRegistrationSession {
                 unsafe {
                     (api.nvEncGetEncodePresetConfigEx)(
                         session, NV_ENC_CODEC_H264_GUID,
-                        NV_ENC_PRESET_P3_GUID, NV_ENC_TUNING_INFO::HIGH_QUALITY,
+                        preset_guid, NV_ENC_TUNING_INFO::HIGH_QUALITY,
                         &mut preset,
                     )
                 },
@@ -221,6 +236,16 @@ impl NativeNvencRegistrationSession {
             preset.presetCfg.rcParams.lookaheadDepth = 0;
             preset.presetCfg.rcParams.set_enableLookahead(0);
             preset.presetCfg.rcParams.set_enableExtLookahead(0);
+            if cq != 0 {
+                let rc = &mut preset.presetCfg.rcParams;
+                rc.rateControlMode = NV_ENC_PARAMS_RC_MODE::VBR;
+                rc.targetQuality = cq;
+                rc.targetQualityLSB = 0;
+                rc.averageBitRate = 0;
+                rc.maxBitRate = 0;
+                rc.vbvBufferSize = 0;
+                rc.vbvInitialDelay = 0;
+            }
 
             // Hardware patch-center parity measured on RTX 5060:
             // D3D11 VideoProcessor -> NV12 matches BT.709 full range.
@@ -238,7 +263,7 @@ impl NativeNvencRegistrationSession {
                 unsafe { std::mem::zeroed() };
             init.version = version.initialize_params_ver();
             init.encodeGUID = NV_ENC_CODEC_H264_GUID;
-            init.presetGUID = NV_ENC_PRESET_P3_GUID;
+            init.presetGUID = preset_guid;
             init.encodeWidth = width;
             init.encodeHeight = height;
             init.darWidth = width;

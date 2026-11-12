@@ -124,6 +124,8 @@ class RenderWorker(QThread):
                     scale=self.native_scale, ffmpeg=str(self.renderer.executable),
                     cancel_event=self._cancel_event, frame_source=self.native_frame_source,
                     audio_bitrate=self.settings.audio_bitrate,
+                    native_nvenc_preset=self.settings.native_nvenc_preset,
+                    native_nvenc_cq=self.settings.native_nvenc_cq,
                     optimizations=self.native_optimizations,
                     storage_path_callback=self.storage_path_changed.emit,
                     preparation_progress_callback=lambda stage, fraction, message: self.progress.emit(

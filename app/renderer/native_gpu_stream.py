@@ -36,6 +36,7 @@ from app.renderer.ffmpeg_renderer import (
 )
 from app.renderer.native_gpu_export import finalize_native_gpu_mp4
 from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
+from app.services.video_encoder_service import DEFAULT_NATIVE_NVENC_PRESET, NATIVE_NVENC_PRESETS
 
 
 def _abort_worker(worker: subprocess.Popen) -> None:
@@ -84,6 +85,8 @@ def stream_native_canvas_h264(
     progress_callback: Callable[[int, int], None] | None = None,
     acknowledgement_timeout: float = 90.0,
     optimizations: NativeGpuOptimizations | None = None,
+    native_nvenc_preset: str = DEFAULT_NATIVE_NVENC_PRESET,
+    native_nvenc_cq: int = 0,
 ) -> dict:
     """Stream CFR frames with bounded memory and an upload/submission ACK.
 
@@ -100,6 +103,9 @@ def stream_native_canvas_h264(
         raise RenderError("The installed native D3D11 NVENC export executable is missing.")
     if os.name != "nt":
         raise RenderError("Native D3D11 GPU export requires Windows.")
+    if (native_nvenc_preset not in NATIVE_NVENC_PRESETS
+            or type(native_nvenc_cq) is not int or not 0 <= native_nvenc_cq <= 51):
+        raise RenderError("Invalid Rust GPU NVENC preset or quality value.")
     if not (1 <= fps <= 240 and 64 <= width <= 3840 and 64 <= height <= 2160
             and width % 2 == 0 and height % 2 == 0 and 2 <= slots <= 8
             and isinstance(expected_frames, int)
@@ -135,6 +141,10 @@ def stream_native_canvas_h264(
             "--output", str(report), "--input-format",
             input_format,
         ]
+        if native_nvenc_preset != DEFAULT_NATIVE_NVENC_PRESET:
+            args.extend(("--nvenc-preset", native_nvenc_preset))
+        if native_nvenc_cq:
+            args.extend(("--nvenc-cq", str(native_nvenc_cq)))
         shared_packet = None
         if reuse_enabled and optimizations is not None and optimizations.parallel_packet_validation:
             args.extend(("--parallel-packet-validation", "1"))
@@ -556,6 +566,8 @@ def render_native_gpu_playlist(
             expected_frames=count, cancel_event=cancel_event,
             progress_callback=progress_callback,
             optimizations=optimizations,
+            native_nvenc_preset=settings.native_nvenc_preset,
+            native_nvenc_cq=settings.native_nvenc_cq,
         )
         ffprobe = Path(renderer.executable).with_name(
             "ffprobe.exe" if os.name == "nt" else "ffprobe",
