@@ -73,6 +73,25 @@ class RasterCacheTests(unittest.TestCase):
             cache.clear()
             self.assertEqual(cache.personal_colors, {})
 
+    def test_wide_glyph_outline_is_not_clipped_by_native_band_crop(self):
+        self.scene.set_artboard_size(320, 180)
+        self.add(Source(SourceType.SHAPE, "Base", width=320, height=180, z_index=0))
+        self.add(Source(
+            SourceType.TEXT, "Stroke", text="W", x=90, y=60, width=65, height=52,
+            font_size=45, text_alignment="left", text_overflow="wrap", z_index=1,
+            text_stroke_width=30, text_stroke_color="#F01010",
+        ))
+        bands = ((None, 0), (1, None))
+        cache = NativeRasterCache(self.scene, bands, 2, optimizations=NativeGpuOptimizations(
+            partial_bands=True, compact_bands=True,
+        ))
+        self.addCleanup(cache.clear)
+        reference = self.capture(bands, 0)
+        actual = self.capture(bands, 0, cache)
+        self.assertEqual(actual, reference)
+        self.assertEqual(cache.partial_band_captures, 0)
+        self.assertIsNone(CanvasSnapshot.band_capture_envelope(self.scene, 1, None))
+
     def test_identical_static_pixels_repaint_once_including_alpha_rotation_effects_clip(self):
         # Full-frame snapshots preserve artboard clipping and existing painter
         # effects. Cached bytes must match those same snapshots exactly.

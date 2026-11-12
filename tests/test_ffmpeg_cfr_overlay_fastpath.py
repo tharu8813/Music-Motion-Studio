@@ -69,7 +69,7 @@ class CfrOverlayFastpathTests(unittest.TestCase):
             base_is_cfr=True, optimize_constant_overlays=True,
         )
         self.assertIn("[0:v]fps=60:start_time=0", original)
-        self.assertIn("[0:v]settb=AVTB,setpts=N/(60*TB)[base]", faster)
+        self.assertIn("[0:v]settb=1/60,setpts=N[base]", faster)
         self.assertNotIn("eval=init", original)
         self.assertIn("[base][2:v]overlay=8:4:eof_action=pass:eval=init", faster)
         self.assertIn("[zlayer0][3:v]overlay=1:3:eof_action=pass:eval=init", faster)
@@ -90,6 +90,40 @@ class CfrOverlayFastpathTests(unittest.TestCase):
             )
         self.assertIn("overlay='10+T*2':'4':eof_action=pass", graph)
         self.assertNotIn("eval=init", graph)
+
+    def test_framesync_preserves_every_frame_of_staged_and_raw_overlays_at_30_fps(self):
+        ffmpeg = FFmpegRenderer.find_executable(os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG"))
+        with TemporaryDirectory() as raw:
+            root = Path(raw)
+            rgba = root / "sequence.rgba"
+            rgba.write_bytes(b"".join(bytes((gray, gray, gray, 255)) * 256
+                                      for gray in (20, 50, 80, 110, 140, 170)))
+            raw_input = ["-f", "rawvideo", "-pix_fmt", "rgba", "-s", "16x16",
+                         "-framerate", "30", "-i", str(rgba)]
+            alpha_pair = root / "prepared.mkv"
+            subprocess.run([
+                ffmpeg, "-v", "error", *raw_input, "-filter_complex_threads", "1",
+                "-filter_complex", "[0:v]split[c0][a0];[c0]format=bgr0[c];[a0]alphaextract[a]",
+                "-map", "[c]", "-map", "[a]", "-c:v", "ffv1", str(alpha_pair),
+            ], check=True, capture_output=True, timeout=20, **hidden_process_kwargs())
+            graph = filter_graph.layered_filter_graph(
+                [VisualizerOverlay(0, 0, 16, 16, "bars", "#FFFFFF")],
+                [(1.0, alpha_pair, "alpha_pair", 16, 0)], 30, 32, 16,
+                base_already_sized=True, base_is_cfr=True,
+            )
+            video = subprocess.run([
+                ffmpeg, "-v", "error", "-filter_complex_threads", "1",
+                "-f", "lavfi", "-i", "color=black:size=32x16:rate=30",
+                "-f", "lavfi", "-i", "anullsrc", *raw_input, "-i", str(alpha_pair),
+                "-filter_complex", graph, "-map", "[vout]", "-frames:v", "6",
+                "-pix_fmt", "yuv420p", "-f", "rawvideo", "-",
+            ], check=True, capture_output=True, timeout=20, **hidden_process_kwargs()).stdout
+            frame_size = 32 * 16 * 3 // 2
+            self.assertEqual(len(video), 6 * frame_size)
+            left = list(video[8 * 32 + 8::frame_size])
+            right = list(video[8 * 32 + 24::frame_size])
+            self.assertEqual(left, right)
+            self.assertEqual(left, sorted(set(left)))
 
     def test_ffmpeg_real_frames_are_identical_before_and_after(self) -> None:
         ffmpeg = os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG")

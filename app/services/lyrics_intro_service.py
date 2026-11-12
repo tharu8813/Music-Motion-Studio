@@ -1,6 +1,6 @@
 """Measure only long lyric gaps, off the paint thread; reuse the vocal separator/cache."""
 
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from hashlib import sha256
 import logging
 from pathlib import Path
@@ -116,6 +116,28 @@ def completed_instrumental_spans(source: Source, future: Future | None):
         return ()
     windows, blocked = result
     return confirmed_instrumental_spans(windows, blocked, source.subtitle_intro_gap)
+
+
+def prepare_instrumental_spans(tracks, sources, check_cancel, *, on_start=None, pump_ui=None):
+    """Give each export one frozen lyric-gap result before the first frame."""
+    check_cancel()
+    tracks = tuple(tracks)
+    sources = tuple(sources)
+    jobs = [(track.id, source, request_instrumental_analysis(track, source))
+            for track in tracks for source in sources]
+    futures = {future for _track_id, _source, future in jobs if future is not None}
+    if futures and on_start is not None:
+        on_start()
+    while futures:
+        check_cancel()
+        _done, futures = wait(futures, timeout=0.05)
+        if pump_ui is not None:
+            pump_ui()
+    check_cancel()
+    result = {track.id: {} for track in tracks}
+    for track_id, source, future in jobs:
+        result[track_id][source.id] = completed_instrumental_spans(source, future)
+    return result
 
 
 def _measure(track, windows, configured):

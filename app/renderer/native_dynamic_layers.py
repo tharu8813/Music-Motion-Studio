@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event
@@ -47,11 +47,11 @@ class PreparedProjectFrameAudio:
     envelopes: dict
 
 
-def prepare_project_frame_audio(project, plan, *, fps, prepared_audio, ffmpeg, cancel_event):
+def prepare_project_frame_audio(project, plan, *, fps, scale, prepared_audio, ffmpeg, cancel_event):
     """Run expensive decoding/analysis on the render worker, without a scene."""
     from app.renderer.native_project_overlays import project_visualizers
     tracks = [t for t in project.playlist if t.enabled and t.duration_seconds > 0]
-    overlays = project_visualizers(project, tracks, compiled_plan=plan)
+    overlays = project_visualizers(project, tracks, scale, plan)
     levels = waveform = stereo = None
     if overlays:
         analyzer = PythonVisualizerRenderer(FFmpegRenderer(ffmpeg).executable)
@@ -73,13 +73,13 @@ def build_dynamic_stack(project, scale: float) -> DynamicStack:
     dynamic = [s for s in project.sources if s.visible and s.source_type in DYNAMIC_TYPES]
     if not dynamic:
         return DynamicStack(((None, None),), (("canvas", 0),), ())
+    geometry = {source.id: visualizer_export_rect(source, scale) for source in dynamic}
     for source in dynamic:
-        _x, _y, width, height = visualizer_export_rect(source, 1.0)
-        if max(8, round(width * scale)) > 3840 or max(8, round(height * scale)) > 2160:
+        _x, _y, width, height = geometry[source.id]
+        if width > 3840 or height > 2160:
             raise ValueError(f"{source.name or source.id}: GPU dynamic source texture exceeds 3840x2160; use existing FFmpeg export")
     dynamic.sort(key=lambda s: (
-        s.z_index, visualizer_export_rect(s, scale)[1],
-        visualizer_export_rect(s, scale)[0],
+        s.z_index, geometry[s.id][1], geometry[s.id][0],
     ))
     static = [s for s in project.sources if s.visible and s.source_type not in DYNAMIC_TYPES]
     if any(s.z_index == d.z_index for s in static for d in dynamic):
@@ -255,25 +255,7 @@ def real_audio_dynamic_frames(
 
     active_tracks = [t for t in project.playlist if t.enabled and t.duration_seconds > 0]
     overlays = (analysis.overlays if analysis is not None
-                else project_visualizers(project, active_tracks, compiled_plan=plan))
-    # Export production renders at >=1x and its geometry helper intentionally
-    # clamps downscaling. Native diagnostic packets may be 0.25x, so scale
-    # the *already resolved* export geometry rather than misplace effects.
-    if scale != 1.0:
-        overlays = [
-            replace(
-                item, x=round(item.x * scale), y=round(item.y * scale),
-                width=max(8, round(item.width * scale)),
-                height=max(8, round(item.height * scale)),
-                line_width=item.line_width * scale,
-                level_meter_gap=item.level_meter_gap * scale,
-                particle_min_size=item.particle_min_size * scale,
-                particle_max_size=item.particle_max_size * scale,
-                frame_width=item.frame_width * scale,
-                frame_inset=item.frame_inset * scale,
-            )
-            for item in overlays
-        ]
+                else project_visualizers(project, active_tracks, scale, plan))
     if not overlays:
         yield [], [], "no_dynamic_layers"
         return

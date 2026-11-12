@@ -1413,7 +1413,7 @@ class FunctionalRegressionTests(unittest.TestCase):
         )
 
         dynamic = graph.index("[base][2:v]overlay=")
-        alpha_merge = graph.index("[3:v:0][3:v:1]alphamerge[staticrgba1]")
+        alpha_merge = graph.index("[3:v:0][3:v:1]alphamerge,settb=1/30,setpts=N[staticrgba1]")
         foreground = graph.index("[zlayer0][staticrgba1]overlay=0:0")
         self.assertLess(dynamic, alpha_merge)
         self.assertLess(alpha_merge, foreground)

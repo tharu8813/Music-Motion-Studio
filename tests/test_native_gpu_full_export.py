@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from dataclasses import replace
 import os
 from pathlib import Path
+from threading import Event
 import shutil
 from tempfile import TemporaryDirectory
 import unittest
@@ -13,8 +15,18 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QImage, QColor, QPainter
 
-from app.renderer.ffmpeg_renderer import RenderResult
+from app.canvas.live_canvas import CanvasScene
+from app.canvas.source_item import SourceItem
+from app.models.source import Source, SourceType
+from app.preview.export_canvas_capture import ExportCanvasCapturer
+from app.preview.native_canvas_layer_packets import straight_bgra_bytes
+from app.renderer.export_timeline import ExportTimelinePlanner
+from app.renderer.cfr_sample_pruning import iter_cfr_emitting_samples
+from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderFrame, RenderResult
+from app.renderer.native_dynamic_layers import prepare_project_frame_audio
+from app.renderer.python_visualizer import PythonVisualizerRenderer
 from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
 from app.timeline.compiler import compile_playlist
 from tests.test_native_canvas_dynamic_overlays import dynamic_project, sample_wav
@@ -33,6 +45,70 @@ class NativeGpuFullProjectTests(unittest.TestCase):
         gate = patch("app.renderer.native_project_export._require_developer_runtime")
         gate.start()
         self.addCleanup(gate.stop)
+
+    def test_production_frames_match_existing_canvas_capture_for_music_lyrics_and_particles(self):
+        ffmpeg = FFmpegRenderer.find_executable(os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG"))
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            audio = root / "tone.wav"
+            sample_wav(audio)
+            project = dynamic_project(audio)
+            project.canvas.width, project.canvas.height = 320, 180
+            cover = QImage(128, 128, QImage.Format.Format_RGB32)
+            cover.fill(QColor("#154266"))
+            painter = QPainter(cover)
+            painter.fillRect(0, 0, 50, 128, QColor("#e36b34"))
+            painter.end()
+            cover.save(str(root / "cover.png"))
+            track = project.playlist[0]
+            track.cover_path = str(root / "cover.png")
+            track.lyrics = [{"start": 0, "end": 1, "text": "Current lyric"}]
+            project.sources = [
+                Source(SourceType.BACKGROUND, "Bass", width=320, height=180, z_index=0,
+                       background_mode="album_art", background_bass_reactive=True),
+                Source(SourceType.LYRICS, "Lyrics", x=20, y=20, width=280, height=130,
+                       z_index=1, font_size=24, music_reactive_enabled=True,
+                       animation_in="fade", animation_in_duration=0.3,
+                       animation_out="fade", animation_out_duration=0.3,
+                       subtitle_animation="none", subtitle_intro_enabled=False,
+                       subtitle_intro_midtrack=False, subtitle_context_lines=0, subtitle_next_lines=0),
+                Source(SourceType.PARTICLE_OVERLAY, "Particles", width=320, height=180,
+                       z_index=2, particle_density=12, opacity=0.18),
+            ]
+            plan = compile_playlist(project.playlist)
+            analysis = prepare_project_frame_audio(project, plan, fps=15, scale=1,
+                prepared_audio=audio, ffmpeg=str(ffmpeg), cancel_event=Event())
+            self.assertGreater(max(analysis.envelopes[track.id]), 0)
+            self.assertGreater(max(analysis.envelopes[(track.id, project.sources[1].music_reaction_profile)]), 0)
+            scene = CanvasScene()
+            scene.set_artboard_size(320, 180)
+            self.addCleanup(scene.clear)
+            for source in deepcopy(project.sources):
+                scene.addItem(SourceItem(source))
+            reference = ExportCanvasCapturer(scene, [track], 1, {project.sources[-1].id},
+                [(None, 1.5)], lambda image, duration, _key: RenderFrame(image, duration),
+                lambda: None, lambda *_: None, bass_envelopes=analysis.envelopes,
+                bass_fps=15, compiled_plan=plan)
+            particles = PythonVisualizerRenderer(ffmpeg)._layer_frames(
+                analysis.overlays[0], analysis.levels, 15, Event(), None,
+            )
+            native = produce_complete_project_frames(project, fps=15, scale=1,
+                prepared_audio=audio, ffmpeg=str(ffmpeg), analysis=analysis,
+                optimizations=NativeGpuOptimizations.for_profile("automatic"))
+            self.addCleanup(native.close)
+            self.addCleanup(particles.close)
+            schedule = iter(iter_cfr_emitting_samples(ExportTimelinePlanner.iter_build(
+                [track], project.sources[:-1], 15, plan,
+            ), 15))
+            sample = next(schedule)
+            for index, packet in enumerate(native):
+                packet = packet.resolve() if hasattr(packet, "resolve") else packet
+                while sample.cfr_target_frame_count <= index:
+                    sample = next(schedule)
+                image = reference.capture_stream(sample, "base").image
+                self.assertEqual(packet.layers[0].pixels, straight_bgra_bytes(image))
+                self.assertEqual(packet.layers[1].pixels, straight_bgra_bytes(next(particles)))
+            self.assertEqual(index + 1, 15)
 
     def test_complete_project_yields_all_real_qt_and_audio_layers_lazily(self):
         ffmpeg = os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG") or shutil.which("ffmpeg")
