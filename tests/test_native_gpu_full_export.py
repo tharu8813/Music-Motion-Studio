@@ -47,7 +47,7 @@ class NativeGpuFullProjectTests(unittest.TestCase):
         self.addCleanup(gate.stop)
 
     def test_production_frames_match_existing_canvas_capture_for_music_lyrics_and_particles(self):
-        ffmpeg = FFmpegRenderer.find_executable()
+        ffmpeg = FFmpegRenderer.find_executable(os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG"))
         with TemporaryDirectory() as temp:
             root = Path(temp)
             audio = root / "tone.wav"

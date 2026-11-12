@@ -92,7 +92,7 @@ class CfrOverlayFastpathTests(unittest.TestCase):
         self.assertNotIn("eval=init", graph)
 
     def test_framesync_preserves_every_frame_of_staged_and_raw_overlays_at_30_fps(self):
-        ffmpeg = FFmpegRenderer.find_executable()
+        ffmpeg = FFmpegRenderer.find_executable(os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG"))
         with TemporaryDirectory() as raw:
             root = Path(raw)
             rgba = root / "sequence.rgba"
