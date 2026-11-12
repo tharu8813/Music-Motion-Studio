@@ -56,6 +56,8 @@ class NativeRasterCache:
         # CanvasSnapshot already has this worker-only cache contract.  The
         # detached native project is immutable throughout the export.
         self.frozen_lyric_settings_cache = {}
+        # Asset lookup is shared by all bands of this detached export.
+        self.personal_colors = {}
         # QGraphicsScene and all QPainter calls remain GUI-thread-only.
         # Only independent, immutable QImage -> BGRA byte conversions are
         # allowed on up to two CPU workers. Semaphore prevents unbounded
@@ -250,4 +252,5 @@ class NativeRasterCache:
             pool.shutdown(wait=True, cancel_futures=True)
         self.layers.clear()
         self.frozen_lyric_settings_cache.clear()
+        self.personal_colors.clear()
         self.retained_bytes = 0
