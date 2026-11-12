@@ -100,18 +100,19 @@ class GpuUiTests(unittest.TestCase):
             auto.reuse_layers, auto.parallel_bgra, auto.adaptive_bgra,
         )))
 
-    def test_automatic_gpu_export_summary_uses_only_selected_language(self):
+    def test_gpu_export_summary_localizes_the_active_encoding_settings(self):
         self.window.translator.is_korean = True
         self.start()
         label = self.window._export_dialog.set_export_details.call_args.args[2]
-        self.assertIn("자동 최적화", label)
-        self.assertNotIn("Auto optimized", label)
+        self.assertIn("화질 자동 · 인코딩 속도 P3", label)
+        self.assertNotIn("Encoding speed", label)
 
         self.window.translator.is_korean = False
+        self.options.app_settings = AppSettings(native_nvenc_cq=19, native_nvenc_preset="p5")
         self.start()
         label = self.window._export_dialog.set_export_details.call_args.args[2]
-        self.assertIn("Auto optimized", label)
-        self.assertNotIn("자동 최적화", label)
+        self.assertIn("Quality CQ 19 · Encoding speed P5", label)
+        self.assertNotIn("인코딩 속도", label)
 
     def test_old_speed_choice_and_global_cli_flags_cannot_change_gui_gpu_mode(self):
         # Historical settings or a third-party caller may still have an old
@@ -249,7 +250,8 @@ class GpuUiTests(unittest.TestCase):
         renderer.render.assert_called_once()
         cancel = Event()
         source = object()
-        worker = RenderWorker(renderer, QImage(), [], self.output, RenderSettings(),
+        worker = RenderWorker(renderer, QImage(), [], self.output,
+                              RenderSettings(native_nvenc_preset="p5", native_nvenc_cq=19),
                               native_project=self.project, native_frame_source=source,
                               cancel_event=cancel)
         with patch("app.renderer.native_project_export.export_project_document") as export:
@@ -257,6 +259,8 @@ class GpuUiTests(unittest.TestCase):
         self.assertIs(export.call_args.kwargs["cancel_event"], cancel)
         self.assertIs(export.call_args.kwargs["frame_source"], source)
         self.assertIsNone(export.call_args.kwargs["optimizations"])
+        self.assertEqual(export.call_args.kwargs["native_nvenc_preset"], "p5")
+        self.assertEqual(export.call_args.kwargs["native_nvenc_cq"], 19)
         self.assertEqual(renderer.render.call_count, 1)
 
     def test_export_video_ui_dispatches_gpu_and_keeps_ffmpeg_default(self):

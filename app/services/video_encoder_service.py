@@ -11,6 +11,8 @@ from app.utils.subprocess_utils import hidden_process_kwargs
 AUTO_VIDEO_ENCODER = "auto"
 CPU_H264_ENCODER = "libx264"
 NVIDIA_H264_ENCODER = "h264_nvenc"
+NATIVE_NVENC_PRESETS = ("p1", "p3", "p5")
+DEFAULT_NATIVE_NVENC_PRESET = "p3"
 
 
 class VideoEncoderAdvisor:

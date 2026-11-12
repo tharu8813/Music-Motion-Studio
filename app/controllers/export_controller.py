@@ -999,6 +999,8 @@ class ExportOrchestrator:
             renderer.prevent_output_overwrite = True
             if self.start_gpu_export(renderer, active_tracks, output, export_options):
                 return
+            export_options.engine_combo.setCurrentIndex(0)
+            quality_profile_name = export_options.quality_mode_combo.currentText()
         resolved = self.resolve_render_settings(
             renderer, requested_app_settings, output,
             export_options.save_as_default,
@@ -1369,7 +1371,7 @@ class ExportOrchestrator:
         from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
 
         window = self.window
-        settings = options.app_settings.render_settings()
+        settings = replace(options.app_settings, video_codec="h264_nvenc").render_settings()
         project = deepcopy(window._project_document())
         width, height = project.canvas.width, project.canvas.height
         scale = settings.output_width / width
@@ -1473,10 +1475,14 @@ class ExportOrchestrator:
         window._export_dialog = dialog
         dialog.set_korean(window.translator.is_korean)
         dialog.set_native_gpu_export(True)
-        gpu_label = (
-            "Rust GPU · D3D11 + NVENC · H.264 (베타) · 자동 최적화"
-            if window.translator.is_korean else
-            "Rust GPU · D3D11 + NVENC · H.264 (Beta) · Auto optimized"
+        gpu_label = f"Rust GPU · {settings.output_width} × {settings.output_height} · {settings.fps} FPS"
+        korean = window.translator.is_korean
+        quality = f"CQ {settings.native_nvenc_cq}" if settings.native_nvenc_cq else ("자동" if korean else "Auto")
+        speed = settings.native_nvenc_preset.upper()
+        gpu_label += (
+            f"\n화질 {quality} · 인코딩 속도 {speed} · 오디오 AAC {settings.audio_bitrate}"
+            if korean else
+            f"\nQuality {quality} · Encoding speed {speed} · AAC audio {settings.audio_bitrate}"
         )
         dialog.set_export_details(len(tracks), window._playlist_duration(tracks),
                                   gpu_label, output)

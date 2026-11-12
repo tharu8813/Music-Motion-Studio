@@ -12,7 +12,10 @@ from app.renderer.ffmpeg_renderer import (
     WORK_MODE_AUTO,
     WORK_MODES,
 )
-from app.services.video_encoder_service import AUTO_VIDEO_ENCODER, VideoEncoderAdvisor
+from app.services.video_encoder_service import (
+    AUTO_VIDEO_ENCODER, DEFAULT_NATIVE_NVENC_PRESET, NATIVE_NVENC_PRESETS,
+    VideoEncoderAdvisor,
+)
 from app.services.export_validation_service import EXPORT_FPS_OPTIONS
 
 
@@ -77,6 +80,8 @@ class AppSettings:
     # persisted as app-wide defaults because every project can have a different ratio.
     render_width: int = 0
     render_height: int = 0
+    native_nvenc_preset: str = DEFAULT_NATIVE_NVENC_PRESET
+    native_nvenc_cq: int = 0
 
     @property
     def resolution(self) -> tuple[int, int]:
@@ -100,6 +105,8 @@ class AppSettings:
             audio_bitrate=self.audio_bitrate,
             output_width=width,
             output_height=height,
+            native_nvenc_preset=self.native_nvenc_preset,
+            native_nvenc_cq=self.native_nvenc_cq,
             work_mode=(
                 self.work_mode if self.work_mode in WORK_MODES else WORK_MODE_AUTO
             ),
@@ -135,6 +142,12 @@ class AppSettingsService(QObject):
             ),
             crf=max(0, min(51, settings.crf)),
             preset=settings.preset if settings.preset in ENCODING_PRESETS else "medium",
+            native_nvenc_preset=(
+                settings.native_nvenc_preset
+                if settings.native_nvenc_preset in NATIVE_NVENC_PRESETS
+                else DEFAULT_NATIVE_NVENC_PRESET
+            ),
+            native_nvenc_cq=max(0, min(51, settings.native_nvenc_cq)),
             audio_bitrate=(settings.audio_bitrate if settings.audio_bitrate in AUDIO_BITRATES
                            else "192k"),
             work_mode=(
@@ -178,6 +191,8 @@ class AppSettingsService(QObject):
         self._settings.setValue("video_codec_auto_v1", True)
         self._settings.setValue("crf", normalized.crf)
         self._settings.setValue("preset", normalized.preset)
+        self._settings.setValue("native_nvenc_preset", normalized.native_nvenc_preset)
+        self._settings.setValue("native_nvenc_cq", normalized.native_nvenc_cq)
         self._settings.setValue("audio_bitrate", normalized.audio_bitrate)
         self._settings.setValue("work_mode", normalized.work_mode)
         self._settings.endGroup()
@@ -218,6 +233,7 @@ class AppSettingsService(QObject):
             if stored_video_codec == "libx264":
                 stored_video_codec = AUTO_VIDEO_ENCODER
             self._settings.setValue("video_codec_auto_v1", True)
+        native_preset = str(self._settings.value("native_nvenc_preset", DEFAULT_NATIVE_NVENC_PRESET))
         values = AppSettings(
             ffmpeg_path=str(self._settings.value("ffmpeg_path", "")),
             output_directory=str(self._settings.value("output_directory", "")),
@@ -226,6 +242,10 @@ class AppSettingsService(QObject):
             video_codec=stored_video_codec,
             crf=self._int_value("crf", 18),
             preset=str(self._settings.value("preset", "medium")),
+            native_nvenc_preset=(
+                native_preset if native_preset in NATIVE_NVENC_PRESETS else DEFAULT_NATIVE_NVENC_PRESET
+            ),
+            native_nvenc_cq=max(0, min(51, self._int_value("native_nvenc_cq", 0))),
             audio_bitrate=str(self._settings.value("audio_bitrate", "192k")),
             work_mode=str(self._settings.value("work_mode", WORK_MODE_AUTO)),
         )

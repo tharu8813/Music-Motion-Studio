@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -34,7 +35,9 @@ from app.services.app_settings_service import (
     AppSettings,
 )
 from app.utils.i18n import Language, Translator
-from app.services.video_encoder_service import AUTO_VIDEO_ENCODER
+from app.services.video_encoder_service import (
+    AUTO_VIDEO_ENCODER, DEFAULT_NATIVE_NVENC_PRESET, NATIVE_NVENC_PRESETS,
+)
 from app.services.export_validation_service import EXPORT_FPS_OPTIONS
 from app.utils.time_format import format_clock
 from app.services.export_formats import VIDEO_FORMATS, AUDIO_FORMATS, SUBTITLE_FORMATS
@@ -49,6 +52,12 @@ class ExportSettingsDialog(AdaptiveDialog):
         "fast": (22, "veryfast", "192k"),
         "high": (15, "medium", "320k"),
         "compact": (24, "medium", "192k"),
+    }
+    NATIVE_QUALITY_PROFILES = {
+        "balanced": (0, DEFAULT_NATIVE_NVENC_PRESET),
+        "fast": (24, "p1"),
+        "high": (17, "p5"),
+        "compact": (28, DEFAULT_NATIVE_NVENC_PRESET),
     }
 
     def __init__(self, settings: AppSettings, track_count: int, duration_seconds: float,
@@ -86,6 +95,19 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.preset_combo = QComboBox()
         self.preset_combo.addItems(ENCODING_PRESETS)
         self.preset_combo.setCurrentText(settings.preset)
+        self.native_codec_combo = QComboBox()
+        self.native_codec_combo.addItem("H.264 (NVENC)")
+        self.native_codec_combo.setEnabled(False)
+        self.native_cq_spin = QSpinBox()
+        self.native_cq_spin.setRange(0, 51)
+        self.native_cq_spin.setValue(settings.native_nvenc_cq)
+        self.native_preset_combo = QComboBox()
+        for preset in NATIVE_NVENC_PRESETS:
+            self.native_preset_combo.addItem(preset.upper(), preset)
+        preset_index = self.native_preset_combo.findData(settings.native_nvenc_preset)
+        if preset_index < 0:
+            preset_index = self.native_preset_combo.findData(DEFAULT_NATIVE_NVENC_PRESET)
+        self.native_preset_combo.setCurrentIndex(preset_index)
         self.audio_bitrate_combo = QComboBox()
         self.audio_bitrate_combo.addItems(AUDIO_BITRATES)
         self.audio_bitrate_combo.setCurrentText(settings.audio_bitrate)
@@ -135,17 +157,11 @@ class ExportSettingsDialog(AdaptiveDialog):
 
         render_group = QGroupBox()
         render_form = QFormLayout(render_group)
+        self.engine_label = QLabel()
         self.engine_combo = QComboBox()
-        self.engine_combo.addItem("FFmpeg (CPU / NVENC / QSV / AMF)", "ffmpeg")
-        self.engine_combo.addItem("Rust GPU · D3D11 + NVENC (Beta)", "native_gpu")
-        render_form.addRow("렌더 엔진 / Render engine", self.engine_combo)
-        engine_hint = QLabel(
-            "Rust GPU: Windows + NVIDIA NVENC, MP4/H.264. GPU 합성은 인코더 선택과 별개입니다.\n"
-            "Canvas painting uses Qt; audio/mux requires FFmpeg. Unsupported projects use FFmpeg.\n"
-            "Beta uses native encoder quality; FFmpeg CRF/preset do not apply."
-        )
-        engine_hint.setWordWrap(True)
-        render_form.addRow(engine_hint)
+        self.engine_combo.addItem("FFmpeg", "ffmpeg")
+        self.engine_combo.addItem("Rust GPU", "native_gpu")
+        render_form.addRow(self.engine_label, self.engine_combo)
         self.resolution_label = QLabel()
         self.fps_label = QLabel()
         self.codec_label = QLabel()
@@ -159,10 +175,13 @@ class ExportSettingsDialog(AdaptiveDialog):
         advanced_grid = QGridLayout(advanced_group)
         advanced_grid.addWidget(self.codec_label, 0, 0)
         advanced_grid.addWidget(self.codec_combo, 0, 1)
+        advanced_grid.addWidget(self.native_codec_combo, 0, 1)
         advanced_grid.addWidget(self.crf_label, 0, 2)
         advanced_grid.addWidget(self.crf_spin, 0, 3)
+        advanced_grid.addWidget(self.native_cq_spin, 0, 3)
         advanced_grid.addWidget(self.preset_label, 1, 0)
         advanced_grid.addWidget(self.preset_combo, 1, 1)
+        advanced_grid.addWidget(self.native_preset_combo, 1, 1)
         advanced_grid.addWidget(self.audio_label, 1, 2)
         advanced_grid.addWidget(self.audio_bitrate_combo, 1, 3)
         advanced_grid.setColumnStretch(1, 1)
@@ -230,6 +249,8 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.codec_combo.currentIndexChanged.connect(self._advanced_value_changed)
         self.crf_spin.valueChanged.connect(self._advanced_value_changed)
         self.preset_combo.currentIndexChanged.connect(self._advanced_value_changed)
+        self.native_cq_spin.valueChanged.connect(self._advanced_value_changed)
+        self.native_preset_combo.currentIndexChanged.connect(self._advanced_value_changed)
         self.audio_bitrate_combo.currentIndexChanged.connect(
             self._advanced_value_changed
         )
@@ -241,11 +262,13 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.output_path_edit.textChanged.connect(self._update_output_filename)
         self.format_combo.currentIndexChanged.connect(self._format_changed)
         self.export_type_combo.currentIndexChanged.connect(self._export_type_changed)
+        self.engine_combo.currentIndexChanged.connect(self._engine_changed)
         self.setTabOrder(self.export_type_combo, self.format_combo)
         self.setTabOrder(self.format_combo, self.filename_edit)
         self.setTabOrder(self.filename_edit, self.output_path_edit)
         self.setTabOrder(self.output_path_edit, self.output_browse_button)
-        self.setTabOrder(self.output_browse_button, self.resolution_combo)
+        self.setTabOrder(self.output_browse_button, self.engine_combo)
+        self.setTabOrder(self.engine_combo, self.resolution_combo)
         self.setTabOrder(self.resolution_combo, self.fps_combo)
         self.setTabOrder(self.fps_combo, self.quality_mode_combo)
         self.setTabOrder(self.quality_mode_combo, self.optimize_button)
@@ -253,7 +276,9 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.setTabOrder(self.advanced_check, self.codec_combo)
         self.setTabOrder(self.codec_combo, self.crf_spin)
         self.setTabOrder(self.crf_spin, self.preset_combo)
-        self.setTabOrder(self.preset_combo, self.audio_bitrate_combo)
+        self.setTabOrder(self.preset_combo, self.native_cq_spin)
+        self.setTabOrder(self.native_cq_spin, self.native_preset_combo)
+        self.setTabOrder(self.native_preset_combo, self.audio_bitrate_combo)
         self.setTabOrder(self.audio_bitrate_combo, self.save_default_check)
         self.setTabOrder(
             self.save_default_check,
@@ -265,9 +290,16 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.resize(preferred_width, self.body_scroll.widget().sizeHint().height() + 90)
 
     def _advanced_visibility_changed(self, visible: bool) -> None:
-        self.advanced_group.setVisible(visible and not self.subtitle_only)
-        # Let the body scroll instead of forcing the action buttons offscreen.
-        self.body_scroll.widget().adjustSize()
+        expanded = not self.subtitle_only and (self.audio_only or visible)
+        self.advanced_group.setVisible(expanded)
+        body = self.body_scroll.widget()
+        body.layout().activate()
+        if expanded and self.isVisible():
+            extra_height = body.sizeHint().height() - self.body_scroll.viewport().height()
+            if extra_height > 0:
+                self.resize(self.width(), self.height() + extra_height)
+                self.fit_to_screen()
+            self.body_scroll.ensureWidgetVisible(self.advanced_group, 0, 4)
 
     @classmethod
     def _matching_quality_profile(
@@ -322,11 +354,14 @@ class ExportSettingsDialog(AdaptiveDialog):
         crf, preset, audio_bitrate = self.QUALITY_PROFILES[profile_name]
         self._applying_quality_profile = True
         try:
-            self.codec_combo.setCurrentIndex(
-                max(0, self.codec_combo.findData(AUTO_VIDEO_ENCODER))
-            )
-            self.crf_spin.setValue(crf)
-            self.preset_combo.setCurrentText(preset)
+            if self._uses_native_encoder:
+                cq, native_preset = self.NATIVE_QUALITY_PROFILES[profile_name]
+                self.native_cq_spin.setValue(cq)
+                self.native_preset_combo.setCurrentIndex(self.native_preset_combo.findData(native_preset))
+            else:
+                self.codec_combo.setCurrentIndex(self.codec_combo.findData(AUTO_VIDEO_ENCODER))
+                self.crf_spin.setValue(crf)
+                self.preset_combo.setCurrentText(preset)
             self.audio_bitrate_combo.setCurrentText(audio_bitrate)
         finally:
             self._applying_quality_profile = False
@@ -335,15 +370,20 @@ class ExportSettingsDialog(AdaptiveDialog):
     def _advanced_value_changed(self, _value: object = None) -> None:
         if self._applying_quality_profile:
             return
-        matching = self._matching_quality_profile(
-            self.crf_spin.value(), self.preset_combo.currentText(),
-            self.audio_bitrate_combo.currentText(),
-            str(self.codec_combo.currentData()),
-        )
-        # Encoder selection is deliberately treated as an expert override even
-        # if the remaining values happen to match a simple profile.
-        if self.sender() is self.codec_combo:
-            matching = "custom"
+        audio_bitrate = self.audio_bitrate_combo.currentText()
+        if self._uses_native_encoder:
+            values = (self.native_cq_spin.value(), self.native_preset_combo.currentData())
+            matching = next((
+                name for name, profile in self.NATIVE_QUALITY_PROFILES.items()
+                if profile == values and self.QUALITY_PROFILES[name][2] == audio_bitrate
+            ), "custom")
+        else:
+            matching = self._matching_quality_profile(
+                self.crf_spin.value(), self.preset_combo.currentText(),
+                audio_bitrate, str(self.codec_combo.currentData()),
+            )
+            if self.sender() is self.codec_combo:
+                matching = "custom"
         index = self.quality_mode_combo.findData(matching)
         if index >= 0 and index != self.quality_mode_combo.currentIndex():
             blocked = self.quality_mode_combo.blockSignals(True)
@@ -376,6 +416,15 @@ class ExportSettingsDialog(AdaptiveDialog):
                 "Advanced values are customized. An unsupported GPU encoder can cause export to fail.",
             ),
         }
+        if self._uses_native_encoder:
+            descriptions["balanced"] = (
+                "화질은 NVENC에 맡기고 균형 잡힌 인코딩 속도를 사용합니다.",
+                "Uses automatic NVENC quality and a balanced encoding speed.",
+            )
+            descriptions["custom"] = (
+                "고급 인코딩 설정에서 Rust GPU의 화질, 속도, 오디오 비트레이트를 조절할 수 있습니다.",
+                "Adjust Rust GPU quality, encoding speed, and audio bitrate in advanced settings.",
+            )
         ko_text, en_text = descriptions.get(profile, descriptions["custom"])
         self.quality_description_label.setText(ko_text if korean else en_text)
         self._update_workload_hint()
@@ -428,8 +477,8 @@ class ExportSettingsDialog(AdaptiveDialog):
             base_name = self._base_settings.resolution_name
         else:
             width, height, base_name = resolution_data
-        return AppSettings(
-            ffmpeg_path=self._base_settings.ffmpeg_path,
+        return replace(
+            self._base_settings,
             output_directory=str(self.output_path.parent),
             resolution_name=str(base_name),
             fps=int(self.fps_combo.currentText()),
@@ -437,10 +486,8 @@ class ExportSettingsDialog(AdaptiveDialog):
             crf=self.crf_spin.value(),
             preset=self.preset_combo.currentText(),
             audio_bitrate=self.audio_bitrate_combo.currentText(),
-            work_mode=self._base_settings.work_mode,
-            smooth_scrolling=self._base_settings.smooth_scrolling,
-            smooth_scroll_duration_ms=self._base_settings.smooth_scroll_duration_ms,
-            preview_backend=self._base_settings.preview_backend,
+            native_nvenc_preset=str(self.native_preset_combo.currentData()),
+            native_nvenc_cq=self.native_cq_spin.value(),
             render_width=int(width),
             render_height=int(height),
         )
@@ -523,6 +570,11 @@ class ExportSettingsDialog(AdaptiveDialog):
     def output_format(self) -> str:
         return str(self.format_combo.currentData() or "mp4")
 
+    @property
+    def _uses_native_encoder(self) -> bool:
+        return (not self.audio_only and not self.subtitle_only
+                and self.engine_combo.currentData() == "native_gpu")
+
     def _export_type_changed(self, _index: int = -1) -> None:
         formats = SUBTITLE_FORMATS if self.subtitle_only else AUDIO_FORMATS if self.audio_only else VIDEO_FORMATS
         self.format_combo.blockSignals(True)
@@ -535,9 +587,6 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.quality_group.setVisible(video)
         self.advanced_group.setVisible(not self.subtitle_only and (self.audio_only or self.advanced_check.isChecked()))
         self.save_default_check.setVisible(not self.subtitle_only)
-        for widget in (self.codec_label, self.codec_combo, self.crf_label,
-                       self.crf_spin, self.preset_label, self.preset_combo):
-            widget.setVisible(video)
         advanced_layout = self.advanced_group.layout()
         advanced_layout.addWidget(self.audio_label, 0 if self.audio_only else 1,
                                   0 if self.audio_only else 2)
@@ -545,14 +594,48 @@ class ExportSettingsDialog(AdaptiveDialog):
                                   1 if self.audio_only else 3)
         advanced_layout.setColumnStretch(3, 0 if self.audio_only else 1)
         self.retranslate()
-        self._format_changed()
+        self._advanced_value_changed()
         if self.isVisible():
             self.layout().activate()
             self.fit_to_screen()
 
+    def _engine_changed(self, _index: int = -1) -> None:
+        self._update_encoding_controls()
+        self._advanced_value_changed()
+
+    def _update_encoding_controls(self) -> None:
+        video = not (self.audio_only or self.subtitle_only)
+        native = self._uses_native_encoder
+        self.format_combo.setEnabled(not native)
+        if native:
+            self.format_combo.setCurrentIndex(self.format_combo.findData("mp4"))
+        for label in (self.codec_label, self.crf_label, self.preset_label):
+            label.setVisible(video)
+        for widget in (self.codec_combo, self.crf_spin, self.preset_combo):
+            widget.setVisible(video and not native)
+            widget.setEnabled(video and not native)
+        self.native_codec_combo.setVisible(native)
+        for widget in (self.native_cq_spin, self.native_preset_combo):
+            widget.setVisible(native)
+            widget.setEnabled(native)
+        korean = self.translator.is_korean
+        self.crf_label.setText(
+            ("영상 화질 (CQ)" if native else "영상 화질")
+            if korean else ("Video quality (CQ)" if native else "Video quality")
+        )
+        for label, field in (
+            (self.codec_label, self.native_codec_combo if native else self.codec_combo),
+            (self.crf_label, self.native_cq_spin if native else self.crf_spin),
+            (self.preset_label, self.native_preset_combo if native else self.preset_combo),
+        ):
+            label.setBuddy(field)
+            field.setAccessibleName(label.text())
+        self._format_changed()
+
     def _format_changed(self, _index: int = -1) -> None:
         lossless = self.output_format in {"wav", "flac"}
         self.audio_bitrate_combo.setEnabled(not lossless)
+        self.audio_label.setEnabled(not lossless)
         self.audio_label.setText(
             ("오디오 품질 (무손실)" if lossless else "오디오 비트레이트")
             if self.translator.is_korean else
@@ -638,6 +721,7 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.format_label.setText("파일 형식" if korean else "File format")
         self.filename_label.setText("파일 이름" if korean else "File name")
         self.output_directory_label.setText("저장 폴더" if korean else "Save folder")
+        self.engine_label.setText("엔진" if korean else "Engine")
         self.advanced_group.setTitle(
             ("오디오 설정" if korean else "Audio settings") if self.audio_only else
             ("고급 인코딩 설정" if korean else "Advanced encoding settings")
@@ -653,19 +737,27 @@ class ExportSettingsDialog(AdaptiveDialog):
                 automatic_index,
                 "자동 선택 (권장)" if korean else "Automatic (Recommended)",
             )
-        self.crf_label.setText("화질 (CRF, 낮을수록 고화질)" if korean else "Quality (CRF, lower is higher quality)")
         self.preset_label.setText("인코딩 속도" if korean else "Encoding speed")
-        self.audio_label.setText("오디오 품질 (AAC)" if korean else "Audio quality (AAC)")
+        quality_hint = "숫자가 낮을수록 화질이 높습니다." if korean else "Lower values preserve more detail."
+        self.crf_spin.setToolTip(quality_hint)
+        self.native_cq_spin.setSpecialValueText("자동" if korean else "Auto")
+        self.native_cq_spin.setToolTip(quality_hint)
+        native_preset_labels = (
+            ("속도 우선 (P1)", "균형 (P3)", "화질 우선 (P5)")
+            if korean else ("Fast (P1)", "Balanced (P3)", "Quality (P5)")
+        )
+        for index, text in enumerate(native_preset_labels):
+            self.native_preset_combo.setItemText(index, text)
         self.optimize_button.setText(
             "권장 설정으로 되돌리기" if korean else "Restore recommended settings"
         )
+        self.optimize_button.setToolTip(
+            "해상도와 FPS를 유지하고 현재 엔진의 권장 인코딩 설정을 적용합니다."
+            if korean else
+            "Keeps resolution and frame rate and restores the selected engine’s recommended settings."
+        )
         self.advanced_check.setText(
             "고급 인코딩 설정 표시" if korean else "Show advanced encoding settings"
-        )
-        self.optimize_button.setToolTip(
-            "해상도와 FPS는 유지하고 하드웨어 자동 선택과 H.264 권장값을 적용합니다."
-            if korean else
-            "Keeps resolution and FPS while restoring automatic hardware selection and recommended H.264 values."
         )
         self.save_default_check.setText(
             "이 값을 다음 내보내기의 기본값으로 저장" if korean else "Save these values as future export defaults"
@@ -714,16 +806,16 @@ class ExportSettingsDialog(AdaptiveDialog):
                 f"{self.track_count} track(s) · total duration {duration}\n"
                 "Save lyrics on the mix timeline. Overlapping lyrics show the outgoing track above the incoming track."
             )
-        self._format_changed()
+        self._update_encoding_controls()
         for label, field in (
             (self.export_type_label, self.export_type_combo),
             (self.format_label, self.format_combo),
             (self.filename_label, self.filename_edit),
             (self.output_directory_label, self.output_path_edit),
+            (self.engine_label, self.engine_combo),
             (self.resolution_label, self.resolution_combo), (self.fps_label, self.fps_combo),
             (self.quality_mode_label, self.quality_mode_combo),
-            (self.codec_label, self.codec_combo), (self.crf_label, self.crf_spin),
-            (self.preset_label, self.preset_combo), (self.audio_label, self.audio_bitrate_combo),
+            (self.audio_label, self.audio_bitrate_combo),
         ):
             label.setBuddy(field)
             field.setAccessibleName(label.text())

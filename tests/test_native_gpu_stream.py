@@ -201,9 +201,12 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                 with self.assertRaises(RenderError):
                     stream_native_canvas_h264([], executable=Path(sys.executable),
                         video_path=root / "video.h264", report_path=root / "report.json",
-                        width=64, height=64, fps=120, duration_seconds=duration, expected_frames=1201)
+                        width=64, height=64, fps=120, duration_seconds=duration, expected_frames=1201,
+                        native_nvenc_preset="p1", native_nvenc_cq=24)
             args = launch.call_args.args[0]
             self.assertEqual(float(args[args.index("--duration-seconds") + 1]), duration)
+            self.assertEqual(args[args.index("--nvenc-preset") + 1], "p1")
+            self.assertEqual(args[args.index("--nvenc-cq") + 1], "24")
 
     def test_streams_over_120_frames_with_one_staged_frame_per_ack(self):
         result = self._run_mock(count=135)
@@ -598,12 +601,15 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                     settings=RenderSettings(
                         fps=30, video_codec="h264_nvenc",
                         output_width=64, output_height=64,
+                        native_nvenc_preset="p5", native_nvenc_cq=17,
                     ),
                 )
             self.assertEqual(result.output_path, root / "result.mp4")
             self.assertIs(result.native_report, stream.return_value)
             self.assertIs(stream.call_args.args[0], passed)
             self.assertEqual(stream.call_args.kwargs["expected_frames"], 30)
+            self.assertEqual(stream.call_args.kwargs["native_nvenc_preset"], "p5")
+            self.assertEqual(stream.call_args.kwargs["native_nvenc_cq"], 17)
             self.assertEqual(finalizer.call_args.kwargs["tracks"], [track])
             self.assertIs(finalizer.call_args.kwargs["progress_callback"], mux_progress)
             self.assertEqual(

@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QCoreApplication, QEvent
+from PySide6.QtCore import QCoreApplication, QEvent, QSettings
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
@@ -20,7 +20,7 @@ from app.dialogs.export_progress_dialog import ExportProgressDialog
 from app.dialogs.export_settings_dialog import ExportSettingsDialog
 from app.models.playlist import PlaylistTrack
 from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderCancelledError, RenderError, RenderSettings
-from app.services.app_settings_service import AppSettings
+from app.services.app_settings_service import AppSettings, AppSettingsService
 from app.services.export_formats import VIDEO_FORMATS, AUDIO_FORMATS
 from app.timeline.compiler import compile_playlist
 from app.preview.canvas_snapshot import CanvasSnapshot
@@ -75,6 +75,10 @@ class ExportDestinationTests(unittest.TestCase):
         self.assertEqual(self.dialog.engine_combo.count(), 2)
         self.assertEqual(self.dialog.engine_combo.itemData(0), "ffmpeg")
         self.assertEqual(self.dialog.engine_combo.itemData(1), "native_gpu")
+        self.assertEqual(
+            [self.dialog.engine_combo.itemText(i) for i in range(2)],
+            ["FFmpeg", "Rust GPU"],
+        )
         self.assertFalse(hasattr(self.dialog, "gpu_speed_combo"))
         self.assertFalse(hasattr(self.dialog, "gpu_speed_label"))
         self.assertFalse(hasattr(self.dialog, "gpu_speed_hint"))
@@ -89,6 +93,51 @@ class ExportDestinationTests(unittest.TestCase):
             self.dialog.engine_combo.findData("ffmpeg"),
         )
         self.assertEqual(self.dialog.engine_combo.currentData(), "ffmpeg")
+
+    def test_rust_gpu_enables_only_supported_encoding_controls(self):
+        dialog = self.dialog
+        dialog.advanced_check.setChecked(True)
+        dialog.format_combo.setCurrentIndex(dialog.format_combo.findData("mkv"))
+        dialog.codec_combo.setCurrentIndex(dialog.codec_combo.findData("libx265"))
+        dialog.crf_spin.setValue(21)
+        dialog.preset_combo.setCurrentText("slow")
+        dialog.engine_combo.setCurrentIndex(dialog.engine_combo.findData("native_gpu"))
+        self.assertEqual(dialog.output_path.suffix, ".mp4")
+        self.assertFalse(dialog.format_combo.isEnabled())
+        self.assertEqual(dialog.native_codec_combo.currentText(), "H.264 (NVENC)")
+        self.assertFalse(dialog.native_codec_combo.isEnabled())
+        for widget in (dialog.codec_combo, dialog.crf_spin, dialog.preset_combo):
+            self.assertFalse(widget.isEnabled())
+        for widget in (dialog.native_cq_spin, dialog.native_preset_combo, dialog.audio_bitrate_combo):
+            self.assertTrue(widget.isEnabled())
+            self.assertFalse(widget.isHidden())
+        dialog.quality_mode_combo.setCurrentIndex(dialog.quality_mode_combo.findData("high"))
+        self.assertEqual((dialog.native_cq_spin.value(), dialog.native_preset_combo.currentData()), (17, "p5"))
+        dialog.native_cq_spin.setValue(19)
+        self.assertEqual(dialog.quality_mode_combo.currentData(), "custom")
+
+        dialog.export_type_combo.setCurrentIndex(dialog.export_type_combo.findData("audio"))
+        self.assertTrue(dialog.format_combo.isEnabled())
+        self.assertFalse(dialog.native_cq_spin.isEnabled())
+        dialog.format_combo.setCurrentIndex(dialog.format_combo.findData("flac"))
+        self.assertFalse(dialog.audio_bitrate_combo.isEnabled())
+        dialog.export_type_combo.setCurrentIndex(dialog.export_type_combo.findData("video"))
+        self.assertTrue(dialog.audio_bitrate_combo.isEnabled())
+        self.assertEqual(dialog.native_cq_spin.value(), 19)
+
+        dialog.engine_combo.setCurrentIndex(dialog.engine_combo.findData("ffmpeg"))
+        self.assertTrue(dialog.format_combo.isEnabled())
+        self.assertFalse(dialog.native_cq_spin.isEnabled())
+        self.assertTrue(dialog.codec_combo.isEnabled())
+        self.assertEqual(dialog.codec_combo.currentData(), "libx265")
+        self.assertEqual((dialog.crf_spin.value(), dialog.preset_combo.currentText()), (21, "slow"))
+
+        stored = QSettings(str(Path(self.directory.name) / "export.ini"), QSettings.Format.IniFormat)
+        with patch("app.services.app_settings_service.QSettings", return_value=stored):
+            AppSettingsService().save(dialog.app_settings)
+            restored = AppSettingsService().current
+        self.assertEqual((restored.native_nvenc_cq, restored.native_nvenc_preset), (19, "p5"))
+        self.assertEqual((restored.crf, restored.preset), (21, "slow"))
 
     def test_invalid_names_do_not_start_export(self):
         for name in ("", "../escape", "a/b", "CON", "LPT1.mp3", "a:b", "bad."):

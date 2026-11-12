@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.ui.design_system import COLORS
 
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import QUrl, Qt, Signal
@@ -87,6 +88,7 @@ class SettingsDialog(QDialog):
         )
         self.setObjectName("appSettingsDialog")
         self.translator = translator
+        self._base_settings = settings
         self.setMinimumSize(720, 520)
         self.resize(820, 600)
         self._ffmpeg_installing = False
@@ -739,7 +741,8 @@ class SettingsDialog(QDialog):
     @property
     def app_settings(self) -> AppSettings:
         """Return validated scalar values collected from dialog controls."""
-        return AppSettings(
+        return replace(
+            self._base_settings,
             ffmpeg_path=self.ffmpeg_edit.text(),
             output_directory=self.output_edit.text(),
             resolution_name=self.resolution_combo.currentText(),
