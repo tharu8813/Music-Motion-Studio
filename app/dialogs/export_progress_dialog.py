@@ -255,6 +255,69 @@ class NativeGpuFrameEtaEstimator:
         return max(0.0, remaining)
 
 
+@dataclass(frozen=True, slots=True)
+class _MediaTimeSample:
+    timestamp: float
+    seconds: float
+
+
+class MediaTimelineEtaEstimator:
+    """Estimate FFmpeg remaining encoding time from measured media throughput.
+
+    Export UI percentages are deliberately weighted. Only the FFmpeg
+    progress timestamps give a real measure of how fast video or audio media
+    seconds are being produced.
+    """
+
+    def __init__(self) -> None:
+        self._samples: deque[_MediaTimeSample] = deque(maxlen=100)
+        self._total = 0.0
+        self._current = 0.0
+        self._last_update = 0.0
+        self._finish_at: float | None = None
+
+    def update(self, current: float, total: float, now: float) -> float | None:
+        now = float(now)
+        if total <= 0 or not 0 <= current <= total:
+            return None
+        if abs(total - self._total) > 0.5 or current < self._current - 0.5:
+            self.__init__()
+        if current >= total:
+            self._total = total
+            self._current = current
+            self._last_update = now
+            return None  # muxing / final file verification remains unmeasured
+        if current <= self._current and self._samples:
+            return self.remaining(now)
+        if self._samples and now - self._last_update > 20:
+            self._samples.clear()
+            self._finish_at = None
+        self._total = total
+        self._current = current
+        self._last_update = now
+        self._samples.append(_MediaTimeSample(now, current))
+        while len(self._samples) > 2 and now - self._samples[1].timestamp > 40:
+            self._samples.popleft()
+        first = self._samples[0]
+        elapsed = now - first.timestamp
+        processed = current - first.seconds
+        if elapsed < 4 or processed < 1:
+            return None
+        rate = processed / elapsed
+        finish_at = now + (total - current) / max(rate, 1e-6)
+        self._finish_at = (
+            finish_at if self._finish_at is None
+            else self._finish_at * 0.55 + finish_at * 0.45
+        )
+        return self.remaining(now)
+
+    def remaining(self, now: float) -> float | None:
+        if self._finish_at is None or float(now) - self._last_update > 20:
+            return None
+        remaining = self._finish_at - float(now)
+        return remaining if remaining > 0 else None
+
+
 class ExportDetailsList(QListWidget):
     """Readable status history presented as UI rows instead of a console."""
 
@@ -295,6 +358,8 @@ class ExportProgressDialog(QDialog):
         self.resize(700, 470)
         self._started_at = monotonic()
         self._eta_estimator = ExportEtaEstimator(self._started_at)
+        self._media_eta: MediaTimelineEtaEstimator | None = None
+        self._media_finalizing = False
         self._gpu_frame_eta: NativeGpuFrameEtaEstimator | None = None
         self._gpu_finalizing = False
         self._native_gpu_export = False
@@ -700,7 +765,7 @@ class ExportProgressDialog(QDialog):
         if display_message and display_message != self._last_log:
             self.log_output.add_detail(display_message)
             self._last_log = display_message
-        matched = re.fullmatch(r"Rust GPU: (\d+)/(\d+) frames", message.strip())
+        matched = re.fullmatch(r"Rust GPU: (\\d+)/(\\d+) frames", message.strip())
         if stage == "Encoding video" and matched:
             if self._gpu_frame_eta is None:
                 self._gpu_frame_eta = NativeGpuFrameEtaEstimator()
@@ -733,12 +798,29 @@ class ExportProgressDialog(QDialog):
             if self._native_gpu_export and self._gpu_finalizing:
                 self.progress_bar.setRange(0, 0)
                 self.percent_label.setText("마무리 중" if self._korean else "Finalizing")
-            # The final audio mux is a separate workload. A 90%-full UI
-            # bar cannot predict its speed from the earlier GPU frame rate.
-            remaining = (
-                None if self._gpu_finalizing
-                else self._eta_estimator.update(stage, fraction, now)
+            # FFmpeg publishes media timeline seconds (different from weighted
+            # UI percentages). Derive throughput from those real timestamps.
+            # Once the last media frame is emitted, muxing/verifying is a
+            # separate workload and we don't invent a remaining duration.
+            media = re.match(
+                r"^(?:Encoding|Capturing and encoding|Saving audio|Muxing) "
+                r"([\\d.]+)s / ([\\d.]+)s", message.strip(),
+                flags=re.IGNORECASE,
             )
+            if not self._native_gpu_export and media:
+                if self._media_eta is None:
+                    self._media_eta = MediaTimelineEtaEstimator()
+                current, total = float(media.group(1)), float(media.group(2))
+                remaining = self._media_eta.update(current, total, now)
+                self._media_finalizing = current >= total
+            elif self._media_eta is not None:
+                self._media_finalizing = stage in {"Finalizing export", "Complete"}
+                remaining = None if self._media_finalizing else self._media_eta.remaining(now)
+            else:
+                remaining = (
+                    None if self._gpu_finalizing
+                    else self._eta_estimator.update(stage, fraction, now)
+                )
             self._update_time_label(remaining, elapsed)
 
     def _active_step(self, stage: str) -> int:
@@ -835,9 +917,11 @@ class ExportProgressDialog(QDialog):
         """Refresh elapsed time and ETA even when FFmpeg is quiet for a second."""
         now = monotonic()
         remaining = (
-            None if self._gpu_finalizing else
+            None if self._gpu_finalizing or self._media_finalizing else
             self._gpu_frame_eta.remaining(now)
             if self._gpu_frame_eta is not None else
+            self._media_eta.remaining(now)
+            if self._media_eta is not None else
             self._eta_estimator.remaining(now)
         )
         self._update_time_label(
@@ -859,11 +943,18 @@ class ExportProgressDialog(QDialog):
             )
             return
         if remaining is None:
-            self.time_label.setText(
-                f"경과 {self._format_time(elapsed)} · 남은 시간 계산 중"
-                if self._korean else
-                f"Elapsed {self._format_time(elapsed)} · Calculating remaining time"
-            )
+            if self._media_finalizing:
+                self.time_label.setText(
+                    f"경과 {self._format_time(elapsed)} · 파일 마무리 중 (남은 시간 예측 불가)"
+                    if self._korean else
+                    f"Elapsed {self._format_time(elapsed)} · Finalizing file (ETA unavailable)"
+                )
+            else:
+                self.time_label.setText(
+                    f"경과 {self._format_time(elapsed)} · 남은 시간 계산 중"
+                    if self._korean else
+                    f"Elapsed {self._format_time(elapsed)} · Calculating remaining time"
+                )
             return
         if native_frames:
             self.time_label.setText(
