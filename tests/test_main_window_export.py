@@ -264,7 +264,8 @@ class MainWindowExportTests(MainWindowTestCase):
             self.assertFalse(dialog.export_type_combo.isVisible())
             self.assertTrue(dialog.quality_group.isHidden())
             self.assertFalse(dialog.advanced_group.isHidden())
-            self.assertGreaterEqual(dialog.width(), 920)
+            # Adaptive dialogs intentionally fit narrower Windows desktops.
+            self.assertGreaterEqual(dialog.width(), 700)
         finally:
             dialog.close()
 
@@ -1959,7 +1960,8 @@ class MainWindowExportTests(MainWindowTestCase):
                 Qt.ToolButtonStyle.ToolButtonIconOnly,
             )
             self.assertTrue(dialog.storage_dialog.isHidden())
-            self.assertTrue(dialog.storage_widget.isHidden())
+            self.assertIs(dialog.storage_widget.parentWidget(), dialog.storage_dialog)
+            self.assertFalse(dialog.storage_widget.isVisible())
             self.assertIn("저장 공간", dialog.storage_button.toolTip())
             with patch.object(dialog.storage_dialog, "exec") as show:
                 dialog.storage_button.click()
