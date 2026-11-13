@@ -150,6 +150,29 @@ class NativeGpuP1BenchmarkTests(unittest.TestCase):
             self.assertEqual(len(media["pts_sha256"]), 64)
 
 
+    def test_preflight_rejects_720p_scale_before_four_gpu_exports(self) -> None:
+        from types import SimpleNamespace
+        canvas = SimpleNamespace(width=1280, height=720)
+        project = SimpleNamespace(canvas=canvas)
+        with patch("app.services.project_service.ProjectService.load", return_value=project) as load:
+            with self.assertRaisesRegex(
+                ValueError, r"produces 1280x720, not the required 1920x1080.*--scale 1\.5",
+            ):
+                benchmark.verify_output_geometry(Path("giggles.pvsproj"), 1.0, 1920, 1080)
+            self.assertEqual(
+                benchmark.verify_output_geometry(Path("giggles.pvsproj"), 1.5, 1920, 1080),
+                (1920, 1080),
+            )
+        self.assertEqual(load.call_count, 2)
+
+    def test_preflight_rejects_aspect_mismatch_without_fabricated_scale(self) -> None:
+        from types import SimpleNamespace
+        project = SimpleNamespace(canvas=SimpleNamespace(width=1280, height=800))
+        with patch("app.services.project_service.ProjectService.load", return_value=project):
+            with self.assertRaisesRegex(ValueError, "aspect ratio differs"):
+                benchmark.verify_output_geometry(Path("mismatched.json"), 1.5, 1920, 1080)
+
+
     def test_native_stages_are_separate_and_not_summed(self) -> None:
         stages = benchmark._native_stages({
             "frame_production_seconds": 20,
