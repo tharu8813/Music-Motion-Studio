@@ -30,7 +30,7 @@ From a clean main containing this PR, use a NEW output directory per run:
 
 ```powershell
 python -m tools.native_gpu_p1_benchmark `
-  --project "C:\Users\wlqor\Desktop\giggles.pvsproj" `
+  --project "$env:USERPROFILE\Desktop\giggles.pvsproj" `
   --native-exe ".\native\gpu_export_core\target\release\d3d11_qt_canvas_stream_export.exe" `
   --output-dir ".\p1-sha-equal-giggles" `
   --scale 1.5 --width 1920 --height 1080 --fps 60 --seconds 30 `
