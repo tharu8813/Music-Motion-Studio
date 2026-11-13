@@ -186,6 +186,35 @@ class TransportTests(unittest.TestCase):
         self.assertNotIn("sha256_equality_checks", stats)
         self.assertEqual(stats["sha256_bytes"], 32)
 
+    def test_exact_equality_never_trusts_user_defined_bytes_equality(self):
+        class LyingBytes(bytes):
+            def __eq__(self, other):
+                return True
+
+        state = FrameReuseState()
+        original = frame()
+        original.layers[0].pixels = LyingBytes(bytes([0] * 16))
+        first = b"".join(frame_chunks(
+            original, 0, reuse_state=state, reuse_equal_pixels=True,
+        ))
+        changed = frame()
+        changed.layers[0].pixels = bytes([1] * 16)
+        stats = {}
+        second = b"".join(frame_chunks(
+            changed, 1, reuse_state=state, reuse_equal_pixels=True,
+            timings=stats,
+        ))
+        self.assertTrue(first)
+        self.assertEqual(HEADER.unpack(second[:28])[-1], 16)
+        self.assertEqual(stats["sha256_bytes"], 16)
+        self.assertNotIn("sha256_equality_checks", stats)
+        descriptor_size = HEADER.unpack(second[:28])[3]
+        descriptor = json.loads(second[28:28 + descriptor_size])
+        self.assertEqual(
+            descriptor["layers"][0]["sha256"],
+            hashlib.sha256(changed.layers[0].pixels).hexdigest(),
+        )
+
     def test_per_layer_wire_accounting_keeps_packets_identical(self):
         def make_frame(top):
             base = NS(
