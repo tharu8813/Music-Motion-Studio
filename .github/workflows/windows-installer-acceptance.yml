@@ -1,0 +1,103 @@
+name: Windows installer acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/windows-installer-acceptance.yml'
+      - 'scripts/verify_installer_smoke.ps1'
+      - 'setup.iss'
+      - 'playlist_canvas.spec'
+      - 'scripts/verify_distribution.py'
+      - 'app/__init__.py'
+      - 'requirements-lock.txt'
+      - 'requirements-packaging.txt'
+      - 'native/**'
+
+permissions:
+  contents: read
+
+# Run on a disposable Windows Actions host. This does not certify a clean
+# consumer Windows 11 session, but does exercise the actual Setup executable.
+jobs:
+  installed-setup-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up release Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: '.python-version'
+          cache: pip
+          cache-dependency-path: requirements-lock.txt
+
+      - name: Install locked dependencies
+        run: python -m pip install -r requirements-lock.txt
+
+      - name: Build required Rust extension and worker
+        shell: pwsh
+        run: |
+          rustup default stable
+          python -m pip install "maturin>=1.9.4,<2"
+          maturin build --release --manifest-path native/export_analysis/Cargo.toml --interpreter python
+          if ($LASTEXITCODE -ne 0) { throw 'Rust wheel build failed.' }
+          $wheel = Get-ChildItem native/export_analysis/target/wheels/*.whl | Select-Object -First 1
+          if (-not $wheel) { throw 'Rust wheel missing.' }
+          python -m pip install $wheel.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Rust wheel installation failed.' }
+          python scripts/rust_prerequisites.py
+          if ($LASTEXITCODE -ne 0) { throw 'Rust prerequisites failed.' }
+          cargo build --release --manifest-path native/gpu_export_core/Cargo.toml --bin d3d11_qt_canvas_stream_export
+          if ($LASTEXITCODE -ne 0) { throw 'Production GPU worker build failed.' }
+
+      - name: Check release and installer static contracts
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest -v tests.test_release_contract tests.test_distribution_verification
+
+      - name: Build packaged distribution
+        run: python -m PyInstaller --noconfirm --clean playlist_canvas.spec
+
+      - name: Verify packaged distribution
+        run: python scripts/verify_distribution.py
+
+      - name: Compile Inno Setup
+        shell: pwsh
+        run: |
+          $paths = @(
+            'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
+            'C:\Program Files\Inno Setup 6\ISCC.exe'
+          )
+          $compiler = $paths | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $compiler) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed.' }
+            $compiler = $paths | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $compiler) { throw 'ISCC.exe not found after installation.' }
+          & $compiler setup.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed.' }
+          $setups = @(Get-ChildItem 'output-setup' -Filter 'Music Motion Studio-*-setup.exe' -File)
+          if ($setups.Count -ne 1) { throw "Expected one Setup executable, found $($setups.Count)." }
+
+      - name: Test clean install, in-place reinstall, smoke and uninstall
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_FFMPEG_DECODING_HW_DEVICE_TYPES: ","
+        run: |
+          $setup = Get-ChildItem 'output-setup' -Filter 'Music Motion Studio-*-setup.exe' -File | Select-Object -First 1
+          & ./scripts/verify_installer_smoke.ps1 -SetupPath $setup.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Installed Setup acceptance failed.' }
+
+      - name: Upload installer verification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-acceptance-logs
+          path: ${{ runner.temp }}/mms-installer-acceptance-logs/**
+          if-no-files-found: ignore
