@@ -70,7 +70,7 @@ class ResponsiveWorkspaceTests(MainWindowTestCase):
         dialog = ExportSettingsDialog(AppSettings(), 1, 60, self.window.translator, "audit.mp4")
         self.addCleanup(dialog.deleteLater)
         self.addCleanup(dialog.close)
-        self.assertTrue(dialog.advanced_group.isHidden())
+        self.assertFalse(dialog.advanced_group.isHidden())
         self.assertTrue(dialog.advanced_check.text())
         dialog.quality_mode_combo.setCurrentIndex(dialog.quality_mode_combo.findData("custom"))
         self.assertFalse(dialog.advanced_group.isHidden())

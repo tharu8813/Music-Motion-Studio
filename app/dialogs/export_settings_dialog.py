@@ -1,12 +1,15 @@
-"""Per-export video quality dialog that does not overwrite defaults by default."""
+"""Project-centered export configuration, with video/audio/subtitle options."""
 
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDialogButtonBox,
@@ -21,11 +24,13 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSpinBox,
+    QStyle,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from app.dialogs.help_dialog import install_help_shortcut
+from app.dialogs.help_dialog import install_help_shortcut, open_help
 from app.dialogs.adaptive_dialog import AdaptiveDialog
 from app.services.app_settings_service import (
     AUDIO_BITRATES,
@@ -63,14 +68,20 @@ class ExportSettingsDialog(AdaptiveDialog):
     def __init__(self, settings: AppSettings, track_count: int, duration_seconds: float,
                  translator: Translator, default_output_path: str | Path,
                  parent: QWidget | None = None,
-                 canvas_size: tuple[int, int] | None = None) -> None:
+                 canvas_size: tuple[int, int] | None = None,
+                 project_info: dict[str, str] | None = None,
+                 project_thumbnail: QImage | None = None,
+                 initial_export: dict[str, str] | None = None) -> None:
         super().__init__(parent)
         install_help_shortcut(self, ("other", "export"), translator)
         self.translator = translator
         self._base_settings = settings
         self.canvas_size = canvas_size
+        self.project_info = project_info or {}
+        self._initial_export = initial_export or {}
         self._applying_quality_profile = False
-        self.setMinimumWidth(760)
+        self._filename_user_edited = False
+        self.setMinimumWidth(920)
         self.setSizeGripEnabled(True)
         self.quality_mode_combo = QComboBox()
         self.quality_mode_label = QLabel()
@@ -113,11 +124,32 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.audio_bitrate_combo.setCurrentText(settings.audio_bitrate)
         self.advanced_check = QCheckBox()
         default_path = Path(default_output_path).expanduser().resolve()
+        self._auto_filename_base = default_path.stem
         self._confirmed_output_path: Path | None = None
         self.export_type_combo = QComboBox()
         self.export_type_combo.addItem("", "video")
         self.export_type_combo.addItem("", "audio")
         self.export_type_combo.addItem("", "subtitles")
+        self.export_type_buttons: list[QToolButton] = []
+        self.export_type_button_group = QButtonGroup(self)
+        self.export_type_button_group.setExclusive(True)
+        for index, icon_name in enumerate((
+            QStyle.StandardPixmap.SP_MediaPlay,
+            QStyle.StandardPixmap.SP_MediaVolume,
+            QStyle.StandardPixmap.SP_FileIcon,
+        )):
+            button = QToolButton(self)
+            button.setCheckable(True)
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            button.setIcon(self.style().standardIcon(icon_name))
+            button.setMinimumHeight(40)
+            button.setChecked(index == 0)
+            button.clicked.connect(
+                lambda _checked=False, selected=index:
+                self.export_type_combo.setCurrentIndex(selected)
+            )
+            self.export_type_button_group.addButton(button, index)
+            self.export_type_buttons.append(button)
         self.format_combo = QComboBox()
         self.filename_edit = QLineEdit(default_path.stem)
         self.output_path_edit = QLineEdit(str(default_path.parent))
@@ -128,12 +160,17 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.output_directory_label = QLabel()
         self.output_filename_label = QLabel()
         self.output_filename_label.setObjectName("mutedLabel")
+        self.filename_warning_label = QLabel()
+        self.filename_warning_label.setObjectName("warningLabel")
+        self.filename_warning_label.setWordWrap(True)
+        self.filename_warning_label.hide()
         self.output_path_edit.setMinimumWidth(330)
         self.output_browse_button = QPushButton()
         self.output_browse_button.clicked.connect(self._browse_output_path)
         self.summary_label = QLabel()
         self.summary_label.setObjectName("infoCallout")
         self.summary_label.setWordWrap(True)
+        # Retained only for backwards-compatible callers; never shown.
         self.save_default_check = QCheckBox()
         self.optimize_button = QPushButton()
         self.optimize_button.clicked.connect(self._apply_balanced_optimization)
@@ -161,7 +198,21 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.engine_combo = QComboBox()
         self.engine_combo.addItem("", "native_gpu")
         self.engine_combo.addItem("", "ffmpeg")
-        render_form.addRow(self.engine_label, self.engine_combo)
+        selected_engine = self.engine_combo.findData(
+            self._initial_export.get("engine", "native_gpu")
+        )
+        self.engine_combo.setCurrentIndex(max(0, selected_engine))
+        self.engine_help_button = QToolButton(self)
+        self.engine_help_button.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxQuestion)
+        )
+        self.engine_help_button.clicked.connect(
+            lambda: open_help(self, self.translator, "other", "export_engines")
+        )
+        engine_row = QHBoxLayout()
+        engine_row.addWidget(self.engine_combo, 1)
+        engine_row.addWidget(self.engine_help_button)
+        render_form.addRow(self.engine_label, engine_row)
         self.resolution_label = QLabel()
         self.fps_label = QLabel()
         self.codec_label = QLabel()
@@ -188,34 +239,76 @@ class ExportSettingsDialog(AdaptiveDialog):
         advanced_grid.setColumnStretch(3, 1)
         output_group = QGroupBox()
         output_layout = QFormLayout(output_group)
-        format_row = QHBoxLayout()
-        format_row.addWidget(self.export_type_combo, 1)
-        format_row.addWidget(self.format_label)
-        format_row.addWidget(self.format_combo, 1)
-        output_layout.addRow(self.export_type_label, format_row)
+        type_row = QHBoxLayout()
+        type_row.setSpacing(7)
+        for button in self.export_type_buttons:
+            type_row.addWidget(button, 1)
+        output_layout.addRow(self.export_type_label, type_row)
+        output_layout.addRow(self.format_label, self.format_combo)
         output_layout.addRow(self.filename_label, self.filename_edit)
         folder_row = QHBoxLayout()
         folder_row.addWidget(self.output_path_edit, 1)
         folder_row.addWidget(self.output_browse_button)
         output_layout.addRow(self.output_directory_label, folder_row)
         output_layout.addRow(self.output_filename_label)
+        output_layout.addRow(self.filename_warning_label)
+
+        # Project identity occupies the left column. The export controls
+        # occupy the right, instead of appearing above unrelated quality cards.
+        project_group = QGroupBox()
+        project_layout = QVBoxLayout(project_group)
+        project_layout.setSpacing(10)
+        self.thumbnail_label = QLabel()
+        self.thumbnail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.thumbnail_label.setMinimumHeight(205)
+        self.thumbnail_label.setObjectName("settingsStatusCard")
+        if project_thumbnail is not None and not project_thumbnail.isNull():
+            picture = project_thumbnail.scaled(
+                350, 205, Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self.thumbnail_label.setPixmap(QPixmap.fromImage(picture))
+        else:
+            self.thumbnail_label.setText(
+                "미리보기 없음" if translator.is_korean else "No canvas thumbnail"
+            )
+        self.project_title_label = QLabel(self.project_info.get("title") or
+                                          ("제목 없는 프로젝트" if translator.is_korean else "Untitled project"))
+        self.project_title_label.setObjectName("panelTitle")
+        self.project_title_label.setWordWrap(True)
+        self.project_metadata_label = QLabel()
+        self.project_metadata_label.setObjectName("mutedLabel")
+        self.project_metadata_label.setWordWrap(True)
+        self.project_metadata_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        project_layout.addWidget(self.thumbnail_label)
+        project_layout.addWidget(self.project_title_label)
+        project_layout.addWidget(self.project_metadata_label)
+        project_layout.addWidget(self.summary_label)
+        project_layout.addStretch(1)
+        self.project_group = project_group
+
+        right_container = QWidget()
+        right_layout = QVBoxLayout(right_container)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.addWidget(output_group)
+        right_layout.addWidget(render_group)
+        right_layout.addWidget(advanced_group)
+        right_layout.addStretch(1)
         layout, outer = self.build_scrollable_body()
-        layout.addWidget(self.summary_label)
-        layout.addWidget(output_group)
         main_columns = QHBoxLayout()
-        main_columns.addWidget(
-            render_group, 1, Qt.AlignmentFlag.AlignTop,
-        )
-        main_columns.addWidget(
-            quality_group, 1, Qt.AlignmentFlag.AlignTop,
-        )
+        main_columns.setSpacing(14)
+        main_columns.addWidget(project_group, 2, Qt.AlignmentFlag.AlignTop)
+        main_columns.addWidget(right_container, 3, Qt.AlignmentFlag.AlignTop)
         layout.addLayout(main_columns)
-        # Keep the quality profile card visible: it is the beginner-facing
-        # entry point and the advanced controls remain available below it.
-        # Both controls already share the same settings update path.
-        layout.addWidget(advanced_group)
+        # 'Purpose' quality profiles are no longer part of the export UI.
+        # Advanced encoding controls remain directly available instead.
+        self.quality_group = quality_group
+        quality_group.hide()
+        quality_actions.removeWidget(self.optimize_button)
+        advanced_grid.addWidget(self.optimize_button, 2, 0, 1, 4)
         footer = QHBoxLayout()
-        footer.addWidget(self.save_default_check)
         footer.addStretch(1)
         footer.addWidget(self.button_box)
         outer.addLayout(footer)
@@ -229,7 +322,6 @@ class ExportSettingsDialog(AdaptiveDialog):
             section.setSizePolicy(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum,
             )
-        self.quality_group = quality_group
         self.render_group = render_group
         self.advanced_group = advanced_group
         self.output_group = output_group
@@ -237,8 +329,8 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.duration_seconds = duration_seconds
         initial_profile = self._current_quality_profile()
         self._populate_quality_modes(initial_profile)
-        self.advanced_group.setVisible(initial_profile == "custom")
-        self.advanced_check.setChecked(initial_profile == "custom")
+        self.advanced_group.setVisible(True)
+        self.advanced_check.setChecked(True)
         self.quality_mode_combo.currentIndexChanged.connect(
             self._quality_mode_changed
         )
@@ -255,12 +347,12 @@ class ExportSettingsDialog(AdaptiveDialog):
             self._update_workload_hint
         )
         self.fps_combo.currentIndexChanged.connect(self._update_workload_hint)
-        self.filename_edit.textChanged.connect(self._update_output_filename)
-        self.output_path_edit.textChanged.connect(self._update_output_filename)
+        self.filename_edit.textChanged.connect(self._filename_changed)
+        self.output_path_edit.textChanged.connect(self._folder_changed)
         self.format_combo.currentIndexChanged.connect(self._format_changed)
         self.export_type_combo.currentIndexChanged.connect(self._export_type_changed)
         self.engine_combo.currentIndexChanged.connect(self._engine_changed)
-        self.setTabOrder(self.export_type_combo, self.format_combo)
+        self.setTabOrder(self.export_type_buttons[-1], self.format_combo)
         self.setTabOrder(self.format_combo, self.filename_edit)
         self.setTabOrder(self.filename_edit, self.output_path_edit)
         self.setTabOrder(self.output_path_edit, self.output_browse_button)
@@ -276,27 +368,25 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.setTabOrder(self.preset_combo, self.native_cq_spin)
         self.setTabOrder(self.native_cq_spin, self.native_preset_combo)
         self.setTabOrder(self.native_preset_combo, self.audio_bitrate_combo)
-        self.setTabOrder(self.audio_bitrate_combo, self.save_default_check)
         self.setTabOrder(
-            self.save_default_check,
+            self.audio_bitrate_combo,
             self.button_box.button(QDialogButtonBox.StandardButton.Ok),
         )
+        initial_kind = self.export_type_combo.findData(self._initial_export.get("kind", "video"))
+        if initial_kind >= 0:
+            self.export_type_combo.setCurrentIndex(initial_kind)
         self.retranslate()
         self._export_type_changed()
-        preferred_width = min(960, max(820, self.sizeHint().width()))
-        self.resize(preferred_width, self.body_scroll.widget().sizeHint().height() + 90)
+        initial_format = self.format_combo.findData(self._initial_export.get("format", "mp4"))
+        if initial_format >= 0:
+            self.format_combo.setCurrentIndex(initial_format)
+        self._folder_changed()
+        self.resize(1060, min(760, self.body_scroll.widget().sizeHint().height() + 95))
 
-    def _advanced_visibility_changed(self, visible: bool) -> None:
-        expanded = not self.subtitle_only and (self.audio_only or visible)
-        self.advanced_group.setVisible(expanded)
-        body = self.body_scroll.widget()
-        body.layout().activate()
-        if expanded and self.isVisible():
-            extra_height = body.sizeHint().height() - self.body_scroll.viewport().height()
-            if extra_height > 0:
-                self.resize(self.width(), self.height() + extra_height)
-                self.fit_to_screen()
-            self.body_scroll.ensureWidgetVisible(self.advanced_group, 0, 4)
+    def _advanced_visibility_changed(self, _visible: bool) -> None:
+        # 'Purpose' and its disclosure are gone; direct encoding controls
+        # remain discoverable without selecting a hidden quality profile.
+        self.advanced_group.setVisible(not self.subtitle_only)
 
     @classmethod
     def _matching_quality_profile(
@@ -543,7 +633,7 @@ class ExportSettingsDialog(AdaptiveDialog):
     @property
     def save_as_default(self) -> bool:
         """Whether the chosen render values should become the next export defaults."""
-        return self.save_default_check.isChecked()
+        return False  # Never overwrite global defaults from a project export.
 
     @property
     def output_path(self) -> Path:
@@ -555,7 +645,7 @@ class ExportSettingsDialog(AdaptiveDialog):
             name = name[:-(len(suffix) + 1)]
         if self._confirmed_output_path is not None:
             return self._confirmed_output_path
-        return available_export_path((folder / f"{name}.{self.output_format}").resolve())
+        return (folder / f"{name}.{self.output_format}").resolve()
 
     @property
     def audio_only(self) -> bool:
@@ -583,9 +673,10 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.format_combo.blockSignals(False)
         video = not (self.audio_only or self.subtitle_only)
         self.render_group.setVisible(video)
-        self.quality_group.setVisible(video)
-        self.advanced_group.setVisible(not self.subtitle_only and (self.audio_only or self.advanced_check.isChecked()))
-        self.save_default_check.setVisible(not self.subtitle_only)
+        self.quality_group.hide()
+        self.advanced_group.setVisible(not self.subtitle_only)
+        for index, button in enumerate(self.export_type_buttons):
+            button.setChecked(index == self.export_type_combo.currentIndex())
         advanced_layout = self.advanced_group.layout()
         advanced_layout.addWidget(self.audio_label, 0 if self.audio_only else 1,
                                   0 if self.audio_only else 2)
@@ -642,10 +733,59 @@ class ExportSettingsDialog(AdaptiveDialog):
         )
         self._update_output_filename()
 
+    def _filename_changed(self, _text: str = "") -> None:
+        self._filename_user_edited = True
+        self._auto_filename_base = self.filename_edit.text().strip()
+        self._confirmed_output_path = None
+        self._update_output_filename()
+
+    def _folder_changed(self, _text: str = "") -> None:
+        """Resolve a conflicting filename immediately when the folder changes."""
+        self._confirmed_output_path = None
+        folder_text = self.output_path_edit.text().strip()
+        name = self._auto_filename_base.strip()
+        if folder_text and name:
+            try:
+                candidate = Path(folder_text).expanduser() / f"{name}.{self.output_format}"
+                available = available_export_path(candidate)
+                if self.filename_edit.text().strip() != available.stem:
+                    blocked = self.filename_edit.blockSignals(True)
+                    self.filename_edit.setText(available.stem)
+                    self.filename_edit.blockSignals(blocked)
+                self._filename_user_edited = False
+            except (OSError, ValueError):
+                pass
+        self._update_output_filename()
+
     def _update_output_filename(self, _text: str = "") -> None:
+        """Keep the displayed filename and actual destination synchronized.
+
+        Automatic output names can be numbered; manual edits are never silently
+        overwritten. A manually entered collision instead displays a warning
+        and is rejected by the Start export validation.
+        """
+        output = self.output_path
+        if not self._filename_user_edited and output.exists():
+            try:
+                base = self._auto_filename_base.strip() or output.stem
+                available = available_export_path(output.with_name(f"{base}.{self.output_format}"))
+                if available.stem != self.filename_edit.text().strip():
+                    blocked = self.filename_edit.blockSignals(True)
+                    self.filename_edit.setText(available.stem)
+                    self.filename_edit.blockSignals(blocked)
+                    output = self.output_path
+            except (OSError, ValueError):
+                pass
+        collision = output.exists()
+        self.filename_warning_label.setText(
+            "같은 이름의 파일이 이미 있습니다. 다른 이름을 입력하세요."
+            if self.translator.is_korean else
+            "A file with this name already exists. Choose a different name."
+        )
+        self.filename_warning_label.setVisible(collision)
         self.output_filename_label.setText(
             ("저장 파일: " if self.translator.is_korean else "File: ")
-            + self.output_path.name
+            + output.name
         )
 
     def _browse_output_path(self) -> None:
@@ -691,8 +831,15 @@ class ExportSettingsDialog(AdaptiveDialog):
             )
             return
         output = self.output_path
-        # Select an unused filename rather than prompting to replace a prior export.
-        # Freeze it at acceptance so later path reads cannot choose another number.
+        if output.exists():
+            QMessageBox.warning(
+                self, "파일 이름 중복" if korean else "Filename already exists",
+                "같은 이름의 파일이 이미 있습니다. 다른 이름을 입력하세요."
+                if korean else "A file with this name already exists. Choose a different name.",
+            )
+            return
+        # Freeze the accepted destination so a later filesystem change cannot
+        # silently redirect the worker to an unrelated filename.
         self._confirmed_output_path = output
         self.output_path_edit.setText(str(output.parent))
         self.accept()
@@ -717,6 +864,35 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.export_type_combo.setItemText(0, "영상 + 오디오" if korean else "Video + audio")
         self.export_type_combo.setItemText(1, "오디오만 내보내기" if korean else "Audio only")
         self.export_type_combo.setItemText(2, "자막 내보내기" if korean else "Subtitles")
+        for button, label in zip(
+            self.export_type_buttons,
+            ("영상 + 오디오", "오디오", "자막")
+            if korean else ("Video + audio", "Audio", "Subtitles"),
+            strict=True,
+        ):
+            button.setText(label)
+        self.project_group.setTitle("프로젝트 정보" if korean else "Project information")
+        info = self.project_info
+        author = info.get("author") or ("미지정" if korean else "Not specified")
+        created = info.get("created_at", "")
+        if created:
+            try:
+                created = datetime.fromisoformat(created.replace("Z", "+00:00")).strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+        version = info.get("created_app_version") or ("알 수 없음" if korean else "Unknown")
+        project_path = info.get("path") or ("저장되지 않은 프로젝트" if korean else "Unsaved project")
+        self.project_metadata_label.setText(
+            (
+                f"생성자: {author}\n생성 날짜: {created or '-'}\n생성 프로그램 버전: {version}\n프로젝트 경로: {project_path}"
+            ) if korean else
+            (
+                f"Creator: {author}\nCreated: {created or '-'}\nCreated in version: {version}\nProject path: {project_path}"
+            )
+        )
+        self.engine_help_button.setToolTip(
+            "Rust GPU와 FFmpeg 엔진의 차이점 보기" if korean else "Compare Rust GPU and FFmpeg engines"
+        )
         self.format_label.setText("파일 형식" if korean else "File format")
         self.filename_label.setText("파일 이름" if korean else "File name")
         self.output_directory_label.setText("저장 폴더" if korean else "Save folder")
@@ -733,7 +909,7 @@ class ExportSettingsDialog(AdaptiveDialog):
             ("오디오 설정" if korean else "Audio settings") if self.audio_only else
             ("고급 인코딩 설정" if korean else "Advanced encoding settings")
         )
-        self.quality_mode_label.setText("용도" if korean else "Purpose")
+        self.quality_mode_label.setText("")
         self.output_browse_button.setText("찾아보기" if korean else "Browse")
         self.resolution_label.setText("해상도" if korean else "Resolution")
         self.fps_label.setText("프레임 레이트" if korean else "Frame rate")
@@ -766,9 +942,7 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.advanced_check.setText(
             "고급 인코딩 설정 표시" if korean else "Show advanced encoding settings"
         )
-        self.save_default_check.setText(
-            "이 값을 다음 내보내기의 기본값으로 저장" if korean else "Save these values as future export defaults"
-        )
+
         self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText(
             "내보내기 시작" if korean else "Start export"
         )
@@ -821,7 +995,6 @@ class ExportSettingsDialog(AdaptiveDialog):
             (self.output_directory_label, self.output_path_edit),
             (self.engine_label, self.engine_combo),
             (self.resolution_label, self.resolution_combo), (self.fps_label, self.fps_combo),
-            (self.quality_mode_label, self.quality_mode_combo),
             (self.audio_label, self.audio_bitrate_combo),
         ):
             label.setBuddy(field)

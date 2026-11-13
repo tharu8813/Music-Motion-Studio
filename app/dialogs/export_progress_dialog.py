@@ -26,6 +26,8 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpacerItem,
     QListWidget,
+    QStyle,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -253,6 +255,69 @@ class NativeGpuFrameEtaEstimator:
         return max(0.0, remaining)
 
 
+@dataclass(frozen=True, slots=True)
+class _MediaTimeSample:
+    timestamp: float
+    seconds: float
+
+
+class MediaTimelineEtaEstimator:
+    """Estimate FFmpeg remaining encoding time from measured media throughput.
+
+    Export UI percentages are deliberately weighted. Only the FFmpeg
+    progress timestamps give a real measure of how fast video or audio media
+    seconds are being produced.
+    """
+
+    def __init__(self) -> None:
+        self._samples: deque[_MediaTimeSample] = deque(maxlen=100)
+        self._total = 0.0
+        self._current = 0.0
+        self._last_update = 0.0
+        self._finish_at: float | None = None
+
+    def update(self, current: float, total: float, now: float) -> float | None:
+        now = float(now)
+        if total <= 0 or not 0 <= current <= total:
+            return None
+        if abs(total - self._total) > 0.5 or current < self._current - 0.5:
+            self.__init__()
+        if current >= total:
+            self._total = total
+            self._current = current
+            self._last_update = now
+            return None  # muxing / final file verification remains unmeasured
+        if current <= self._current and self._samples:
+            return self.remaining(now)
+        if self._samples and now - self._last_update > 20:
+            self._samples.clear()
+            self._finish_at = None
+        self._total = total
+        self._current = current
+        self._last_update = now
+        self._samples.append(_MediaTimeSample(now, current))
+        while len(self._samples) > 2 and now - self._samples[1].timestamp > 40:
+            self._samples.popleft()
+        first = self._samples[0]
+        elapsed = now - first.timestamp
+        processed = current - first.seconds
+        if elapsed < 4 or processed < 1:
+            return None
+        rate = processed / elapsed
+        finish_at = now + (total - current) / max(rate, 1e-6)
+        self._finish_at = (
+            finish_at if self._finish_at is None
+            else self._finish_at * 0.55 + finish_at * 0.45
+        )
+        return self.remaining(now)
+
+    def remaining(self, now: float) -> float | None:
+        if self._finish_at is None or float(now) - self._last_update > 20:
+            return None
+        remaining = self._finish_at - float(now)
+        return remaining if remaining > 0 else None
+
+
 class ExportDetailsList(QListWidget):
     """Readable status history presented as UI rows instead of a console."""
 
@@ -290,9 +355,11 @@ class ExportProgressDialog(QDialog):
         # Grow the window to fit its content instead of letting QVBoxLayout
         # crush word-wrapped labels and cards when a status line wraps to more
         # rows or a collapsible section is shown.
-        self.resize(700, 620)
+        self.resize(700, 470)
         self._started_at = monotonic()
         self._eta_estimator = ExportEtaEstimator(self._started_at)
+        self._media_eta: MediaTimelineEtaEstimator | None = None
+        self._media_finalizing = False
         self._gpu_frame_eta: NativeGpuFrameEtaEstimator | None = None
         self._gpu_finalizing = False
         self._native_gpu_export = False
@@ -422,19 +489,23 @@ class ExportProgressDialog(QDialog):
         self.log_output = ExportDetailsList()
         self.log_heading.hide()
         self.log_output.hide()
-        self.storage_button = QPushButton("Hide storage use")
-        self.storage_button.setCheckable(True)
-        self.storage_button.setChecked(True)
-        self.storage_button.setToolTip(
-            "Show or hide the live storage-use breakdown."
-        )
-        self.storage_button.toggled.connect(self._set_storage_visible)
-        self.details_button = QPushButton("Show detailed status")
-        self.details_button.setCheckable(True)
-        self.details_button.setToolTip(
-            "Show the detailed export status history."
-        )
-        self.details_button.toggled.connect(self._set_details_visible)
+        self.storage_dialog = QDialog(self)
+        self.storage_dialog.setModal(True)
+        self.storage_dialog.resize(490, 370)
+        storage_popup_layout = QVBoxLayout(self.storage_dialog)
+        storage_popup_layout.addWidget(self.storage_heading)
+        storage_popup_layout.addWidget(self.storage_widget)
+        storage_close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        storage_close.rejected.connect(self.storage_dialog.reject)
+        storage_popup_layout.addWidget(storage_close)
+        self.storage_button = QToolButton(self)
+        self.storage_button.setIcon(self.style().standardIcon(
+            QStyle.StandardPixmap.SP_DriveHDIcon
+        ))
+        self.storage_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.storage_button.clicked.connect(self.storage_dialog.exec)
+        self.details_button = QPushButton()  # Deprecated, not added to the dialog.
+        self.details_button.hide()
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         self.minimize_button = self.buttons.addButton(
             "Minimize", QDialogButtonBox.ButtonRole.ActionRole,
@@ -452,18 +523,12 @@ class ExportProgressDialog(QDialog):
         layout.addWidget(self.stage_label)
         layout.addLayout(progress_row)
         layout.addWidget(self.detail_label)
-        layout.addWidget(self.time_label)
-        layout.addWidget(self.storage_button, 0, Qt.AlignmentFlag.AlignLeft)
-        layout.addWidget(self.storage_heading)
-        layout.addWidget(self.storage_widget)
-        layout.addWidget(self.details_button, 0, Qt.AlignmentFlag.AlignLeft)
-        layout.addWidget(self.log_heading)
-        layout.addWidget(self.log_output, 1)
-        # When technical details are collapsed, this spacer alone consumes
-        # additional window height. Without it, QVBoxLayout can distribute the
-        # spare height among ordinary cards and labels, making every control
-        # appear to drift apart as the user resizes the dialog. When details
-        # are shown, the log view becomes the only expanding content instead.
+        status_footer = QHBoxLayout()
+        status_footer.addWidget(self.time_label, 1)
+        status_footer.addWidget(self.storage_button, 0)
+        layout.addLayout(status_footer)
+        # Keep the visible status cards anchored while the spacer absorbs
+        # any extra vertical room. Diagnostic history remains internal.
         self.content_spacer = QSpacerItem(
             0, 0,
             QSizePolicy.Policy.Minimum,
@@ -487,20 +552,9 @@ class ExportProgressDialog(QDialog):
             self.steps_heading.setText("내보내기 단계")
             self.export_settings_heading.setText("내보내기 설정")
             self.log_heading.setText("상세 현황")
-            self.storage_button.setText(
-                "저장 공간 사용량 숨기기" if self.storage_button.isChecked()
-                else "저장 공간 사용량 보기"
-            )
-            self.storage_button.setToolTip(
-                "실시간 저장 공간 사용량 표시를 켜거나 끕니다."
-            )
-            self.details_button.setText(
-                "상세 현황 숨기기" if self.details_button.isChecked()
-                else "상세 현황 보기"
-            )
-            self.details_button.setToolTip(
-                "내보내기 단계별 상세 현황을 표시합니다."
-            )
+            self.storage_button.setToolTip("저장 공간 사용량")
+            self.storage_button.setAccessibleName("저장 공간 사용량")
+            self.storage_dialog.setWindowTitle("저장 공간 사용량")
             self.minimize_button.setText("최소화")
             self.cancel_button.setText("취소")
             self.stage_label.setText("내보내기 준비")
@@ -515,20 +569,9 @@ class ExportProgressDialog(QDialog):
             self.steps_heading.setText("Export steps")
             self.export_settings_heading.setText("Export settings")
             self.log_heading.setText("Detailed status")
-            self.storage_button.setText(
-                "Hide storage use" if self.storage_button.isChecked()
-                else "Show storage use"
-            )
-            self.storage_button.setToolTip(
-                "Show or hide the live storage-use breakdown."
-            )
-            self.details_button.setText(
-                "Hide detailed status" if self.details_button.isChecked()
-                else "Show detailed status"
-            )
-            self.details_button.setToolTip(
-                "Show the detailed export status history."
-            )
+            self.storage_button.setToolTip("Storage usage")
+            self.storage_button.setAccessibleName("Storage usage")
+            self.storage_dialog.setWindowTitle("Storage usage")
             self.minimize_button.setText("Minimize")
             self.cancel_button.setText("Cancel")
             self.stage_label.setText("Preparing export")
@@ -691,7 +734,8 @@ class ExportProgressDialog(QDialog):
         self.detail_label.setText(display_message)
         now = monotonic()
         self._update_time_label(
-            self._eta_estimator.remaining(now), now - self._started_at,
+            (None if self._native_gpu_export else self._eta_estimator.remaining(now)),
+            now - self._started_at,
         )
         if display_message and display_message != self._last_log:
             self.log_output.add_detail(display_message)
@@ -701,6 +745,7 @@ class ExportProgressDialog(QDialog):
         """Explain GPU staging and use a frame-count ETA only for this export."""
         self._native_gpu_export = bool(enabled)
         self._refresh_storage_labels()
+        self._refresh_steps("Preparing visual frames")
 
     def update_progress(self, stage: str, fraction: float, message: str) -> None:
         """Apply worker progress and calculate an approximate time remaining."""
@@ -729,6 +774,10 @@ class ExportProgressDialog(QDialog):
             remaining = self._gpu_frame_eta.update(accepted, total, now)
             if total > 0:
                 frame_fraction = accepted / total * 100.0
+                # For GPU exports the accepted frame count is actual work.
+                # Do not present the unrelated weighted FFmpeg percentage.
+                self.progress_bar.setValue(round(frame_fraction))
+                self.percent_label.setText(f"{frame_fraction:.0f}%")
                 measured = self._gpu_frame_eta.measured_fps
                 suffix = f" · {measured:.1f} FPS" if measured is not None else ""
                 self.detail_label.setText(
@@ -739,60 +788,50 @@ class ExportProgressDialog(QDialog):
             if total > 0 and accepted >= total:
                 self._gpu_frame_eta = None
                 self._gpu_finalizing = True
+                self.progress_bar.setRange(0, 0)
+                self.percent_label.setText("마무리 중" if self._korean else "Finalizing")
             self._update_time_label(remaining, elapsed, native_frames=not self._gpu_finalizing)
         else:
             if self._gpu_frame_eta is not None:
                 self._gpu_frame_eta = None
                 self._gpu_finalizing = True
-            # The final audio mux is a separate workload. A 90%-full UI
-            # bar cannot predict its speed from the earlier GPU frame rate.
-            remaining = (
-                None if self._gpu_finalizing
-                else self._eta_estimator.update(stage, fraction, now)
+            if self._native_gpu_export:
+                # GPU percentage represents accepted frames only. Other
+                # phases use an indeterminate spinner so starting the frame
+                # counter never makes the percentage jump backwards.
+                self.progress_bar.setRange(0, 0)
+                self.percent_label.setText(
+                    ("마무리 중" if self._korean else "Finalizing")
+                    if self._gpu_finalizing else "…"
+                )
+            # FFmpeg publishes media timeline seconds (different from weighted
+            # UI percentages). Derive throughput from those real timestamps.
+            # Once the last media frame is emitted, muxing/verifying is a
+            # separate workload and we don't invent a remaining duration.
+            media = re.match(
+                r"^(?:Encoding|Capturing and encoding|Saving audio|Muxing) "
+                r"([\d.]+)s / ([\d.]+)s", message.strip(),
+                flags=re.IGNORECASE,
             )
+            if not self._native_gpu_export and media:
+                if self._media_eta is None:
+                    self._media_eta = MediaTimelineEtaEstimator()
+                current, total = float(media.group(1)), float(media.group(2))
+                remaining = self._media_eta.update(current, total, now)
+                self._media_finalizing = current >= total
+            elif self._media_eta is not None:
+                self._media_finalizing = stage in {"Finalizing export", "Complete"}
+                remaining = None if self._media_finalizing else self._media_eta.remaining(now)
+            else:
+                remaining = (
+                    None if self._native_gpu_export or self._gpu_finalizing
+                    else self._eta_estimator.update(stage, fraction, now)
+                )
             self._update_time_label(remaining, elapsed)
 
-    def _set_storage_visible(self, visible: bool) -> None:
-        """Let the user collapse the storage-use card when they don't need it."""
-        self.storage_heading.setVisible(visible)
-        self.storage_widget.setVisible(visible)
-        if self.layout() is not None:
-            self.layout().invalidate()
-            self.layout().activate()
-        if self._korean:
-            self.storage_button.setText(
-                "저장 공간 사용량 숨기기" if visible else "저장 공간 사용량 보기"
-            )
-        else:
-            self.storage_button.setText(
-                "Hide storage use" if visible else "Show storage use"
-            )
-
-    def _set_details_visible(self, visible: bool) -> None:
-        """Toggle the structured status history without exposing console output."""
-        self.log_heading.setVisible(visible)
-        self.log_output.setVisible(visible)
-        self.content_spacer.changeSize(
-            0, 0,
-            QSizePolicy.Policy.Minimum,
-            (
-                QSizePolicy.Policy.Fixed
-                if visible else QSizePolicy.Policy.Expanding
-            ),
-        )
-        if self.layout() is not None:
-            self.layout().invalidate()
-            self.layout().activate()
-        if self._korean:
-            self.details_button.setText(
-                "상세 현황 숨기기" if visible else "상세 현황 보기"
-            )
-        else:
-            self.details_button.setText(
-                "Hide detailed status" if visible else "Show detailed status"
-            )
-
     def _active_step(self, stage: str) -> int:
+        if self._native_gpu_export and stage == "Encoding video":
+            return 2  # Accepted GPU frames, not the later MP4 mux.
         try:
             return self._EXPORT_STEPS.index(self._stage_key(stage))
         except ValueError:
@@ -811,6 +850,12 @@ class ExportProgressDialog(QDialog):
         if self._audio_only:
             return (("", "오디오 준비", "", "오디오 저장", "완료") if self._korean else
                     ("", "Audio", "", "Save audio", "Done"))
+        if self._native_gpu_export:
+            return (
+                ("장면 준비", "오디오 준비", "GPU 처리", "MP4 저장", "완료")
+                if self._korean else
+                ("Scenes", "Audio", "GPU frames", "Save MP4", "Done")
+            )
         return (
             ("화면 준비", "오디오 준비", "효과 준비", "영상 만들기", "완료")
             if self._korean else
@@ -878,9 +923,12 @@ class ExportProgressDialog(QDialog):
         """Refresh elapsed time and ETA even when FFmpeg is quiet for a second."""
         now = monotonic()
         remaining = (
-            None if self._gpu_finalizing else
+            None if self._gpu_finalizing or self._media_finalizing else
             self._gpu_frame_eta.remaining(now)
             if self._gpu_frame_eta is not None else
+            None if self._native_gpu_export else
+            self._media_eta.remaining(now)
+            if self._media_eta is not None else
             self._eta_estimator.remaining(now)
         )
         self._update_time_label(
@@ -896,17 +944,24 @@ class ExportProgressDialog(QDialog):
         elapsed = monotonic() - self._started_at if elapsed is None else elapsed
         if self._gpu_finalizing:
             self.time_label.setText(
-                f"경과 {self._format_time(elapsed)} · 영상 프레임 처리 완료"
+                f"경과 {self._format_time(elapsed)} · 영상 처리 완료, MP4 마무리 중 (남은 시간 예측 불가)"
                 if self._korean else
-                f"Elapsed {self._format_time(elapsed)} · Video frames submitted"
+                f"Elapsed {self._format_time(elapsed)} · Frames finished, finalizing MP4 (ETA unavailable)"
             )
             return
         if remaining is None:
-            self.time_label.setText(
-                f"경과 {self._format_time(elapsed)} · 남은 시간 계산 중"
-                if self._korean else
-                f"Elapsed {self._format_time(elapsed)} · Calculating remaining time"
-            )
+            if self._media_finalizing:
+                self.time_label.setText(
+                    f"경과 {self._format_time(elapsed)} · 파일 마무리 중 (남은 시간 예측 불가)"
+                    if self._korean else
+                    f"Elapsed {self._format_time(elapsed)} · Finalizing file (ETA unavailable)"
+                )
+            else:
+                self.time_label.setText(
+                    f"경과 {self._format_time(elapsed)} · 남은 시간 계산 중"
+                    if self._korean else
+                    f"Elapsed {self._format_time(elapsed)} · Calculating remaining time"
+                )
             return
         if native_frames:
             self.time_label.setText(
