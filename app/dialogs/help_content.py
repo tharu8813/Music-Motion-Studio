@@ -1689,7 +1689,7 @@ _OTHER = (
        """<p><b>프로젝트 → 프로젝트 설정</b>에서 현재 프로젝트의 화면, 곡 전환, 저장 방식을 바꿉니다.</p>
 [[img:project_settings]]
 <ul>
-<li><b>프로젝트 정보</b>: 이름, 작성자, 설명, <b>프로젝트 썸네일</b>(현재 캔버스 자동 사용 또는 사용자 이미지)</li>
+<li><b>프로젝트 정보</b>: 이름, 작성자, 설명, <b>프로젝트 썸네일</b>(프로젝트 저장 시 캔버스 직접 캡처)</li>
 <li><b>캔버스</b>: 화면 비율과 너비·높이. <b>요소 위치와 크기도 함께 조정(권장)</b> 또는 <b>캔버스만 변경</b>. 바꾸기 전에 확인하며 <code>Ctrl+Z</code>로 되돌릴 수 있습니다.</li>
 <li><b>곡 전환</b>
 <ul><li><b>없음</b>(즉시 전환, 기본값): 앞 곡이 끝나면 다음 곡을 겹침 없이 재생</li>
@@ -1702,7 +1702,7 @@ _OTHER = (
        """<p><b>Project → Project settings</b> changes the current project's screen, transitions and storage.</p>
 [[img:project_settings]]
 <ul>
-<li><b>Project information</b>: name, author, description and the <b>project thumbnail</b> (the current canvas automatically, or your own image)</li>
+<li><b>Project information</b>: name, author, description and the <b>project thumbnail</b> (captured directly from the canvas on save)</li>
 <li><b>Canvas</b>: aspect ratio, width and height. <b>Also adjust source positions and sizes (recommended)</b> or <b>change only the canvas</b>. You confirm first, and <code>Ctrl+Z</code> undoes it.</li>
 <li><b>Transitions</b>
 <ul><li><b>None</b> (cut, default): the next track starts when the previous ends, no overlap</li>
