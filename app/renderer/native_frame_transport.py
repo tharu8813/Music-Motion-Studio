@@ -150,6 +150,7 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
             if prior_pixel[0] is layer.pixels:
                 digest = prior_pixel[1]
             elif (reuse_equal_pixels
+                  and type(prior_pixel[0]) is bytes and type(layer.pixels) is bytes
                   and len(prior_pixel[0]) == len(layer.pixels)):
                 # Developer A/B: only exact equality of TWO immutable byte
                 # sequences may reuse the previous SHA-256. No fingerprints,
