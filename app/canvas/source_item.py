@@ -182,6 +182,7 @@ class SourceItem(QGraphicsObject):
         self._lyric_resource_key: tuple[object, ...] | None = None
         self._text_outline_path_key: tuple[object, ...] | None = None
         self._text_outline_path = QPainterPath()
+        self._text_stroke_cache: tuple[float, QPainterPath] | None = None
         self._text_shadow_cache: dict[tuple[object, ...], tuple[QPixmap, float]] = {}
         # Preview/export assigns this transient value while a timed lyric cue
         # enters. Keeping it on the graphics item avoids serializing render state.
@@ -1695,13 +1696,18 @@ class SourceItem(QGraphicsObject):
             return 0.0
         return float(self.source.text_line_gap)
 
-    @staticmethod
-    def _glyph_stroke(path: QPainterPath, width: float) -> QPainterPath:
+    def _glyph_stroke(self, path: QPainterPath, width: float) -> QPainterPath:
+        """Reuse the stroke of the most recently laid out text path."""
+        cached = self._text_stroke_cache
+        if cached is not None and cached[0] == width:
+            return cached[1]
         stroker = QPainterPathStroker()
         stroker.setWidth(width * 2.0)
         stroker.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         stroker.setCapStyle(Qt.PenCapStyle.RoundCap)
-        return stroker.createStroke(path)
+        stroke = stroker.createStroke(path)
+        self._text_stroke_cache = (width, stroke)
+        return stroke
 
     def _draw_glyph_shadow(
         self, painter: QPainter, rect: QRectF, flags: int, text: str, stroke: float,
@@ -1815,6 +1821,7 @@ class SourceItem(QGraphicsObject):
                 path.addPath(glyph_path)
         self._text_outline_path_key = cache_key
         self._text_outline_path = QPainterPath(path)
+        self._text_stroke_cache = None
         return path
 
     @contextmanager

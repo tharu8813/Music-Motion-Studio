@@ -235,11 +235,18 @@ class FunctionalRegressionTests(unittest.TestCase):
         rect = item.content_rect()
         flags = Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine
         first = item._text_layout_path(painter, rect, flags, "Smooth g곡")
+        stroke = item._glyph_stroke(first, 2.0)
         second = item._text_layout_path(painter, rect, flags, "Smooth g곡")
+        self.assertIs(item._glyph_stroke(second, 2.0), stroke)
+        wider = item._glyph_stroke(second, 4.0)
+        self.assertGreater(wider.boundingRect().width(), stroke.boundingRect().width())
+        third = item._text_layout_path(painter, rect, flags, "New 한글")
+        changed = item._glyph_stroke(third, 4.0)
         painter.end()
 
         self.assertFalse(first.isEmpty())
         self.assertEqual(first.boundingRect(), second.boundingRect())
+        self.assertNotEqual(changed.boundingRect(), wider.boundingRect())
         self.assertIsNotNone(item._text_outline_path_key)
 
     def test_text_stroke_width_is_validated(self) -> None:
