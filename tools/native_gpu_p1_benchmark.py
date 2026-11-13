@@ -75,7 +75,7 @@ def _video_pts(ffprobe: str, path: Path) -> tuple[int, str]:
     if not values or any(not value.lstrip("-").isdigit() for value in values):
         raise ValueError("Cannot verify every presentation timestamp")
     # Preserve the entire ordered sequence, not only the first/last PTS.
-    digest = sha256(("\\n".join(values) + "\\n").encode("ascii")).hexdigest()
+    digest = sha256(("\n".join(values) + "\n").encode("ascii")).hexdigest()
     return len(values), digest
 
 
