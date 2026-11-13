@@ -1,4 +1,5 @@
 """Protocol units require no Qt, GPU or frame spool."""
+import hashlib
 import io
 import json
 import mmap
@@ -133,6 +134,86 @@ class TransportTests(unittest.TestCase):
         header, *_ = frame_chunks(sample, 2, reuse_state=state, timings=timings)
         self.assertEqual(HEADER.unpack(header)[-1], 0)
         self.assertEqual(timings["sha256_bytes"], 32)
+
+    def test_exact_byte_equality_experiment_preserves_wire_and_receiver_hash(self):
+        source = bytes(range(16))
+        same_content_new_object = bytes(bytearray(source))
+        changed_final_byte = source[:-1] + bytes((source[-1] ^ 1,))
+        self.assertIsNot(source, same_content_new_object)
+
+        def make(pixels):
+            return NS(width=2, height=2, schema=1, layers=(
+                NS(stream_key="base", width=2, height=2, opacity=1.0,
+                   pixels=pixels),
+            ))
+
+        samples = [make(p) for p in (source, same_content_new_object,
+                                     changed_final_byte)]
+        regular_state, optimized_state, stats = FrameReuseState(), FrameReuseState(), {}
+        reference = [b"".join(frame_chunks(f, i, reuse_state=regular_state, v3_wire=True))
+                     for i, f in enumerate(samples)]
+        actual = [b"".join(frame_chunks(
+            f, i, reuse_state=optimized_state, v3_wire=True,
+            reuse_equal_pixels=True, timings=stats,
+        )) for i, f in enumerate(samples)]
+        self.assertEqual(actual, reference)
+        self.assertEqual(stats["sha256_bytes"], 32)
+        self.assertEqual(stats["sha256_reused_bytes"], 16)
+        self.assertEqual(stats["sha256_equality_checks"], 2)
+        self.assertEqual(stats["sha256_equality_checked_bytes"], 32)
+        self.assertEqual(stats["sha256_equality_reused_bytes"], 16)
+        self.assertGreaterEqual(stats["sha256_equality_seconds"], 0)
+        for packet, frame_index in zip(actual, range(3)):
+            magic, version, index, size, wire_size = HEADER.unpack(packet[:28])
+            self.assertEqual((magic, version, index), (b"MMSB", 3, frame_index))
+            manifest = json.loads(packet[28:28 + size])
+            self.assertEqual(manifest["layers"][0]["sha256"],
+                             hashlib.sha256(samples[frame_index].layers[0].pixels).hexdigest())
+            if frame_index == 1:
+                self.assertEqual(wire_size, 0)
+        self.assertEqual(optimized_state.reused_planes, regular_state.reused_planes)
+
+    def test_exact_equality_requires_reuse_state_and_does_not_change_defaults(self):
+        with self.assertRaisesRegex(ValueError, "previous-frame state"):
+            list(frame_chunks(frame(), 0, reuse_equal_pixels=True))
+        data = frame().layers[0].pixels
+        cloned = bytes(bytearray(data))
+        state, stats = FrameReuseState(), {}
+        list(frame_chunks(frame(), 0, reuse_state=state, timings=stats))
+        sample = frame()
+        sample.layers[0].pixels = cloned
+        list(frame_chunks(sample, 1, reuse_state=state, timings=stats))
+        self.assertNotIn("sha256_equality_checks", stats)
+        self.assertEqual(stats["sha256_bytes"], 32)
+
+    def test_exact_equality_never_trusts_user_defined_bytes_equality(self):
+        class LyingBytes(bytes):
+            def __eq__(self, other):
+                return True
+
+        state = FrameReuseState()
+        original = frame()
+        original.layers[0].pixels = LyingBytes(bytes([0] * 16))
+        first = b"".join(frame_chunks(
+            original, 0, reuse_state=state, reuse_equal_pixels=True,
+        ))
+        changed = frame()
+        changed.layers[0].pixels = bytes([1] * 16)
+        stats = {}
+        second = b"".join(frame_chunks(
+            changed, 1, reuse_state=state, reuse_equal_pixels=True,
+            timings=stats,
+        ))
+        self.assertTrue(first)
+        self.assertEqual(HEADER.unpack(second[:28])[-1], 16)
+        self.assertEqual(stats["sha256_bytes"], 16)
+        self.assertNotIn("sha256_equality_checks", stats)
+        descriptor_size = HEADER.unpack(second[:28])[3]
+        descriptor = json.loads(second[28:28 + descriptor_size])
+        self.assertEqual(
+            descriptor["layers"][0]["sha256"],
+            hashlib.sha256(changed.layers[0].pixels).hexdigest(),
+        )
 
     def test_per_layer_wire_accounting_keeps_packets_identical(self):
         def make_frame(top):

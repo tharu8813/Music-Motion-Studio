@@ -295,6 +295,7 @@ def stream_native_canvas_h264(
                 timings=frame_write_timings, compress_planes=compress,
                 v3_wire=compressed_transport, executor=packet_executor,
                 shared_packet=shared_packet,
+                reuse_equal_pixels=bool(optimizations is not None and optimizations.reuse_equal_pixels),
             )
             if compression_budget is not None:
                 compression_budget.record(
@@ -524,6 +525,10 @@ def stream_native_canvas_h264(
                 frame_sha256_wall_seconds=frame_write_timings.get("sha256_wall_seconds", 0.0),
                 frame_sha256_bytes=frame_write_timings.get("sha256_bytes", 0),
                 frame_sha256_reused_bytes=frame_write_timings.get("sha256_reused_bytes", 0),
+                frame_sha256_equality_checks=frame_write_timings.get("sha256_equality_checks", 0),
+                frame_sha256_equality_checked_bytes=frame_write_timings.get("sha256_equality_checked_bytes", 0),
+                frame_sha256_equality_reused_bytes=frame_write_timings.get("sha256_equality_reused_bytes", 0),
+                frame_sha256_equality_seconds=frame_write_timings.get("sha256_equality_seconds", 0.0),
                 frame_pipe_syswrite_seconds=frame_write_timings.get("pipe_syswrite_seconds", 0.0),
                 frame_pipe_syswrite_calls=frame_write_timings.get("pipe_syswrite_calls", 0),
                 frame_shared_packet_enabled=shared_packet is not None,

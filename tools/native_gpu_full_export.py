@@ -77,6 +77,7 @@ def export_complete_project(
     gpu_text: bool = False,
     gpu_video: bool | None = None,
     gpu_trim_transparent_bands: bool = False,
+    gpu_reuse_equal_pixels: bool = False,
 ) -> Path:
     """Run actual complete GPU encoding + MP4 mux with the existing soundtrack."""
     source = Path(project_path)
@@ -123,6 +124,11 @@ def export_complete_project(
             raise ValueError("--gpu-trim-transparent-bands requires --gpu-profile automatic")
         # Developer A/B only. No user preference; production stays unchanged.
         optimizations = replace(optimizations, trim_transparent_bands=True)
+    if gpu_reuse_equal_pixels:
+        if gpu_profile != "automatic":
+            raise ValueError("--gpu-reuse-equal-pixels requires --gpu-profile automatic")
+        # Preserve the sender and receiver SHA-256 protocol, and gate on RTX wall time.
+        optimizations = replace(optimizations, reuse_equal_pixels=True)
     started = monotonic()
     project = ProjectService.load(source)
     if smoke_seconds is not None:
@@ -203,6 +209,10 @@ def main(argv: list[str] | None = None) -> int:
         "--gpu-trim-transparent-bands", action="store_true",
         help="Developer A/B only: crop proven transparent Qt layer pixels; never enabled by the GUI",
     )
+    parser.add_argument(
+        "--gpu-reuse-equal-pixels", action="store_true",
+        help="Developer A/B only: reuse SHA-256 for exactly identical immutable BGRA layers",
+    )
     parser.add_argument("--report", type=Path, default=None, help="Preserve developer diagnostics outside temporary staging")
     parser.add_argument(
         "--smoke-seconds", type=float, default=None,
@@ -224,6 +234,7 @@ def main(argv: list[str] | None = None) -> int:
             gpu_text=args.gpu_text,
             gpu_video=args.gpu_video,
             gpu_trim_transparent_bands=args.gpu_trim_transparent_bands,
+            gpu_reuse_equal_pixels=args.gpu_reuse_equal_pixels,
         )
     except Exception as exc:
         if args.report is not None and not args.report.exists():
