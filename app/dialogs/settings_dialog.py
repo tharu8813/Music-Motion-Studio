@@ -695,21 +695,44 @@ class SettingsDialog(QDialog):
         self._refresh_ffmpeg_status()
 
     def _rebuild_settings_search(self) -> None:
-        """Index only real controls and section names, not explanatory copy."""
+        """Index actual form labels, choices and sections, not helper paragraphs."""
         targets: dict[str, tuple[int, QWidget]] = {}
         for tab_index in range(self.tabs.count()):
             page = self.tabs.widget(tab_index)
             prefix = self.tabs.tabText(tab_index)
-            for widget in page.findChildren(QWidget):
-                label = ""
-                focus_target: QWidget = widget
-                if isinstance(widget, QLabel) and widget.buddy() is not None:
-                    label = widget.text()
-                    focus_target = widget.buddy()
-                elif isinstance(widget, (QCheckBox, QGroupBox)):
-                    label = widget.text() if isinstance(widget, QCheckBox) else widget.title()
-                if label and "<" not in label and "\n" not in label:
+            # QFormLayout labels are not automatically buddies when callers
+            # supply QLabel objects. Read the layout itself to find them.
+            for form in page.findChildren(QFormLayout):
+                for row in range(form.rowCount()):
+                    label_item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
+                    if label_item is None or not isinstance(label_item.widget(), QLabel):
+                        continue
+                    label_widget = label_item.widget()
+                    label = label_widget.text().strip()
+                    if not label or "<" in label or "\n" in label:
+                        continue
+                    focus_target: QWidget = label_widget
+                    field_item = form.itemAt(row, QFormLayout.ItemRole.FieldRole)
+                    if field_item is not None:
+                        field = field_item.widget()
+                        if field is None and field_item.layout() is not None:
+                            inner = field_item.layout()
+                            for child_index in range(inner.count()):
+                                candidate = inner.itemAt(child_index).widget()
+                                if candidate is not None and candidate.focusPolicy() != Qt.FocusPolicy.NoFocus:
+                                    field = candidate
+                                    break
+                        if field is not None:
+                            focus_target = field
                     targets.setdefault(f"{prefix} · {label}", (tab_index, focus_target))
+            for widget in page.findChildren(QWidget):
+                if isinstance(widget, (QCheckBox, QRadioButton, QGroupBox)):
+                    label = (
+                        widget.title() if isinstance(widget, QGroupBox)
+                        else widget.text()
+                    ).strip()
+                    if label and "<" not in label and "\n" not in label:
+                        targets.setdefault(f"{prefix} · {label}", (tab_index, widget))
         self._settings_search_targets = targets
         self._settings_search_model.setStringList(sorted(targets, key=str.casefold))
 
