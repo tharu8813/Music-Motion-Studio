@@ -266,58 +266,6 @@ def produce_complete_project_frames(
                     output_scale=scale, gpu_affine=True,
                     raster_cache=raster_cache,
                 )
-                if raster_counters is not None:
-                    if profile_paint:
-                        raster_counters["qt_canvas_source_type_paint"] = {
-                            category: dict(costs)
-                            for category, costs in paint_costs.items()
-                        }
-                        raster_counters["qt_canvas_text_stage_costs"] = {
-                            category: {stage: dict(cost)
-                                       for stage, cost in stages.items()}
-                            for category, stages in text_stage_costs.items()
-                        }
-                    raster_counters.update(
-                        rasterizations=raster_cache.rasterizations,
-                        reuse_hits=raster_cache.hits,
-                        sample_reuse_hits=raster_cache.sample_reuse_hits,
-                        gpu_canvas_translation_frames=raster_cache.translation_frames,
-                        gpu_canvas_translation_textures=len(raster_cache.translation_textures),
-                        gpu_canvas_translation_texture_bytes=raster_cache.translation_texture_bytes,
-                        gpu_album_cover_frames=raster_cache.cover_motion_frames,
-                        gpu_album_cover_texture_captures=raster_cache.cover_texture_captures,
-                        gpu_album_cover_texture_bytes=raster_cache.cover_texture_bytes,
-                        gpu_text_frames=raster_cache.text.frames,
-                        gpu_text_fallbacks=raster_cache.text.fallbacks,
-                        gpu_text_tile_renders=raster_cache.text.tile_renders,
-                        gpu_text_atlases_built=raster_cache.text.atlas_uploads,
-                        cpu_parallel_bgra_enabled=raster_cache.parallel_bgra_enabled,
-                        cpu_parallel_bgra_submissions=raster_cache.parallel_bgra_submissions,
-                        cpu_parallel_bgra_peak_workers=raster_cache.parallel_bgra_peak_workers,
-                        cpu_parallel_bgra_work_seconds=raster_cache.parallel_bgra_work_seconds,
-                        adaptive_bgra_enabled=raster_cache.adaptive_bgra_enabled,
-                        parallel_bgra_inline_small=raster_cache.parallel_bgra_inline_small,
-                        parallel_bgra_inline_busy=raster_cache.parallel_bgra_inline_busy,
-                        qt_canvas_capture_seconds=raster_cache.qt_canvas_capture_seconds,
-                        qt_canvas_state_setup_seconds=raster_cache.qt_canvas_state_setup_seconds,
-                        qt_canvas_paint_stage_seconds=raster_cache.qt_canvas_paint_stage_seconds,
-                        qt_canvas_state_restore_seconds=raster_cache.qt_canvas_state_restore_seconds,
-                        qt_canvas_inline_bgra_seconds=raster_cache.qt_canvas_inline_bgra_seconds,
-                    qt_canvas_band_timing={
-                        key: dict(costs)
-                        for key, costs in raster_cache.qt_canvas_band_timing.items()
-                    },
-                        retained_bytes=raster_cache.retained_bytes,
-                        peak_retained_bytes=raster_cache.peak_retained_bytes,
-                        advanced_lyric_cache_entries=len(raster_cache.frozen_lyric_settings_cache),
-                        partial_band_enabled=raster_cache.partial_band_enabled,
-                        partial_band_captures=raster_cache.partial_band_captures,
-                        compact_band_enabled=raster_cache.compact_band_enabled,
-                        compact_band_captures=raster_cache.compact_band_captures,
-                        compact_canvas_bytes_saved=raster_cache.compact_canvas_bytes_saved,
-                        scene_render_source_pixels=raster_cache.scene_render_source_pixels,
-                        full_frame_source_pixels=raster_cache.full_frame_source_pixels,
-                    )
                 yield frame_packet
             if project.to_dict() != before:
                 raise TimelineValidationError("Native export unexpectedly modified project sources")
@@ -326,7 +274,9 @@ def produce_complete_project_frames(
         raise
     finally:
         if raster_cache is not None:
-            raster_cache.clear()
+            # Final report only: do not reconstruct 40+ diagnostic fields or
+            # nested per-layer paint dictionaries for *every* exported frame.
+            # Record resident bytes before clear() drops cache allocations.
             if raster_counters is not None:
                 if profile_paint:
                     raster_counters["qt_canvas_source_type_paint"] = {
@@ -338,6 +288,49 @@ def produce_complete_project_frames(
                                    for stage, cost in stages.items()}
                         for category, stages in text_stage_costs.items()
                     }
+                raster_counters.update(
+                    rasterizations=raster_cache.rasterizations,
+                    reuse_hits=raster_cache.hits,
+                    sample_reuse_hits=raster_cache.sample_reuse_hits,
+                    gpu_canvas_translation_frames=raster_cache.translation_frames,
+                    gpu_canvas_translation_textures=len(raster_cache.translation_textures),
+                    gpu_canvas_translation_texture_bytes=raster_cache.translation_texture_bytes,
+                    gpu_album_cover_frames=raster_cache.cover_motion_frames,
+                    gpu_album_cover_texture_captures=raster_cache.cover_texture_captures,
+                    gpu_album_cover_texture_bytes=raster_cache.cover_texture_bytes,
+                    gpu_text_frames=raster_cache.text.frames,
+                    gpu_text_fallbacks=raster_cache.text.fallbacks,
+                    gpu_text_tile_renders=raster_cache.text.tile_renders,
+                    gpu_text_atlases_built=raster_cache.text.atlas_uploads,
+                    cpu_parallel_bgra_enabled=raster_cache.parallel_bgra_enabled,
+                    cpu_parallel_bgra_submissions=raster_cache.parallel_bgra_submissions,
+                    cpu_parallel_bgra_peak_workers=raster_cache.parallel_bgra_peak_workers,
+                    cpu_parallel_bgra_work_seconds=raster_cache.parallel_bgra_work_seconds,
+                    adaptive_bgra_enabled=raster_cache.adaptive_bgra_enabled,
+                    parallel_bgra_inline_small=raster_cache.parallel_bgra_inline_small,
+                    parallel_bgra_inline_busy=raster_cache.parallel_bgra_inline_busy,
+                    qt_canvas_capture_seconds=raster_cache.qt_canvas_capture_seconds,
+                    qt_canvas_state_setup_seconds=raster_cache.qt_canvas_state_setup_seconds,
+                    qt_canvas_paint_stage_seconds=raster_cache.qt_canvas_paint_stage_seconds,
+                    qt_canvas_state_restore_seconds=raster_cache.qt_canvas_state_restore_seconds,
+                    qt_canvas_inline_bgra_seconds=raster_cache.qt_canvas_inline_bgra_seconds,
+                qt_canvas_band_timing={
+                    key: dict(costs)
+                    for key, costs in raster_cache.qt_canvas_band_timing.items()
+                },
+                    retained_bytes=raster_cache.retained_bytes,
+                    peak_retained_bytes=raster_cache.peak_retained_bytes,
+                    advanced_lyric_cache_entries=len(raster_cache.frozen_lyric_settings_cache),
+                    partial_band_enabled=raster_cache.partial_band_enabled,
+                    partial_band_captures=raster_cache.partial_band_captures,
+                    compact_band_enabled=raster_cache.compact_band_enabled,
+                    compact_band_captures=raster_cache.compact_band_captures,
+                    compact_canvas_bytes_saved=raster_cache.compact_canvas_bytes_saved,
+                    scene_render_source_pixels=raster_cache.scene_render_source_pixels,
+                    full_frame_source_pixels=raster_cache.full_frame_source_pixels,
+                )
+            raster_cache.clear()
+            if raster_counters is not None:
                 # After the converter pool joins, report final worker totals
                 # instead of a snapshot with the final BGRA packet pending.
                 raster_counters.update(
