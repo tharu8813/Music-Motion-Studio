@@ -124,6 +124,7 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.audio_bitrate_combo.setCurrentText(settings.audio_bitrate)
         self.advanced_check = QCheckBox()
         default_path = Path(default_output_path).expanduser().resolve()
+        self._auto_filename_base = default_path.stem
         self._confirmed_output_path: Path | None = None
         self.export_type_combo = QComboBox()
         self.export_type_combo.addItem("", "video")
@@ -734,29 +735,47 @@ class ExportSettingsDialog(AdaptiveDialog):
 
     def _filename_changed(self, _text: str = "") -> None:
         self._filename_user_edited = True
+        self._auto_filename_base = self.filename_edit.text().strip()
         self._confirmed_output_path = None
         self._update_output_filename()
 
     def _folder_changed(self, _text: str = "") -> None:
-        """Choose a new numbered name when a destination folder changes."""
+        """Resolve a conflicting filename immediately when the folder changes."""
         self._confirmed_output_path = None
         folder_text = self.output_path_edit.text().strip()
-        name = self.filename_edit.text().strip()
+        name = self._auto_filename_base.strip()
         if folder_text and name:
             try:
                 candidate = Path(folder_text).expanduser() / f"{name}.{self.output_format}"
                 available = available_export_path(candidate)
-                if available.stem != name:
+                if self.filename_edit.text().strip() != available.stem:
                     blocked = self.filename_edit.blockSignals(True)
                     self.filename_edit.setText(available.stem)
                     self.filename_edit.blockSignals(blocked)
-                    self._filename_user_edited = False
+                self._filename_user_edited = False
             except (OSError, ValueError):
                 pass
         self._update_output_filename()
 
     def _update_output_filename(self, _text: str = "") -> None:
+        """Keep the displayed filename and actual destination synchronized.
+
+        Automatic output names can be numbered; manual edits are never silently
+        overwritten. A manually entered collision instead displays a warning
+        and is rejected by the Start export validation.
+        """
         output = self.output_path
+        if not self._filename_user_edited and output.exists():
+            try:
+                base = self._auto_filename_base.strip() or output.stem
+                available = available_export_path(output.with_name(f"{base}.{self.output_format}"))
+                if available.stem != self.filename_edit.text().strip():
+                    blocked = self.filename_edit.blockSignals(True)
+                    self.filename_edit.setText(available.stem)
+                    self.filename_edit.blockSignals(blocked)
+                    output = self.output_path
+            except (OSError, ValueError):
+                pass
         collision = output.exists()
         self.filename_warning_label.setText(
             "같은 이름의 파일이 이미 있습니다. 다른 이름을 입력하세요."
