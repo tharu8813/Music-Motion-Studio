@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.dialogs.help_dialog import install_help_shortcut
+from app.ui.form_layout import style_form, style_dialog_actions
 from app.services.app_settings_service import (
     ENCODING_PRESETS,
     RESOLUTIONS,
@@ -569,15 +570,12 @@ class SettingsDialog(QDialog):
         self.settings_search_edit.returnPressed.connect(self._search_first_setting)
         layout.addWidget(self.settings_search_edit)
         layout.addWidget(self.tabs, 1)
+        style_dialog_actions(self.button_box)
         self.button_box.button(QDialogButtonBox.StandardButton.Save).setObjectName("primaryButton")
         layout.addWidget(self.button_box)
         for form in (app_form, content_form, render_form, output_form, ffmpeg_form, notification_form,
                      maintenance_form):
-            form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-            form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-            form.setHorizontalSpacing(24)
-            form.setVerticalSpacing(14)
-            form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            style_form(form)
         self.ffmpeg_group = ffmpeg_group
         self.output_group = output_group
         self.render_group = render_group
