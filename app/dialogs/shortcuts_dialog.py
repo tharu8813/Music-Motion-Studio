@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -26,6 +28,18 @@ class ShortcutsDialog(QDialog):
         self.intro = QLabel()
         self.intro.setObjectName("mutedLabel")
         self.intro.setWordWrap(True)
+        self.intro.hide()
+        self.search_edit = QLineEdit()
+        self.search_edit.setObjectName("shortcutSearch")
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.textChanged.connect(self._filter_shortcuts)
+        find_shortcut = QShortcut(QKeySequence(QKeySequence.StandardKey.Find), self)
+        find_shortcut.activated.connect(self.search_edit.setFocus)
+        self.empty_results = QLabel()
+        self.empty_results.setObjectName("mutedLabel")
+        self.empty_results.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_results.hide()
+        self._sections: list[tuple[int, list[int], str]] = []
         self.table = QTableWidget(0, 2)
         self.table.setObjectName("shortcutTable")
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -42,8 +56,9 @@ class ShortcutsDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 16)
         layout.setSpacing(12)
-        layout.addWidget(self.intro)
+        layout.addWidget(self.search_edit)
         layout.addWidget(self.table, 1)
+        layout.addWidget(self.empty_results)
         layout.addWidget(buttons)
         translator.language_changed.connect(self.retranslate)
         self.retranslate()
@@ -55,6 +70,9 @@ class ShortcutsDialog(QDialog):
         self.buttons.button(QDialogButtonBox.StandardButton.Close).setText(
             "닫기" if korean else "Close"
         )
+        self.search_edit.setPlaceholderText("단축키 또는 동작 검색" if korean else "Find a shortcut or action")
+        self.search_edit.setAccessibleName("단축키 검색" if korean else "Find shortcuts")
+        self.empty_results.setText("일치하는 단축키가 없습니다." if korean else "No matching shortcuts.")
         self.intro.setText(
             "패널 단축키는 메인 창 전체에서 동작합니다. 캔버스 편집 단축키는 캔버스에 포커스가 있을 때 적용되며, 텍스트 입력 중에는 일반 입력을 우선합니다."
             if korean else
@@ -118,8 +136,11 @@ class ShortcutsDialog(QDialog):
             ]),
         ]
         self.table.setRowCount(0)
+        self._sections.clear()
         row = 0
         for group, entries in groups:
+            group_row = row
+            entry_rows: list[int] = []
             self.table.insertRow(row)
             heading = QTableWidgetItem(group)
             heading.setFlags(Qt.ItemFlag.NoItemFlags)
@@ -129,6 +150,7 @@ class ShortcutsDialog(QDialog):
             self.table.setRowHeight(row, 28)
             row += 1
             for shortcut, description in entries:
+                entry_rows.append(row)
                 self.table.insertRow(row)
                 key = QTableWidgetItem(shortcut)
                 key.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -137,3 +159,27 @@ class ShortcutsDialog(QDialog):
                 self.table.setItem(row, 1, description_item)
                 self.table.setRowHeight(row, 34)
                 row += 1
+
+            self._sections.append((group_row, entry_rows, group))
+        self._filter_shortcuts(self.search_edit.text())
+
+    def _filter_shortcuts(self, query: str) -> None:
+        """Keep matching actions and their section header; never alter the shortcuts."""
+        needle = query.strip().casefold()
+        matches = 0
+        for group_row, entry_rows, group in self._sections:
+            show_section = bool(needle and needle in group.casefold())
+            visible_in_section = 0
+            for row in entry_rows:
+                key = self.table.item(row, 0)
+                action = self.table.item(row, 1)
+                matched = (
+                    not needle or show_section
+                    or (key is not None and needle in key.text().casefold())
+                    or (action is not None and needle in action.text().casefold())
+                )
+                self.table.setRowHidden(row, not matched)
+                visible_in_section += bool(matched)
+            self.table.setRowHidden(group_row, visible_in_section == 0)
+            matches += visible_in_section
+        self.empty_results.setVisible(bool(needle) and matches == 0)
