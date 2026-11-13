@@ -4,14 +4,17 @@ Qt multimedia and worker-thread state can outlive a unittest module. Running
 each module in a fresh process prevents that state from affecting later
 modules and gives every module an explicit timeout.
 
-Modules run one at a time on purpose: main-window tests share the Qt test-mode
-data folder (recovery files) and their registry-backed QSettings, so parallel
-processes would race on them.
+Modules run one at a time on each worker. Parallel CI shards run on separate
+Windows runners, because main-window tests share Qt recovery files and
+registry-backed QSettings. Do not run those modules concurrently on one host.
+The default command remains a full serial run for local reproducibility.
 
     python scripts/run_tests.py                      # everything
     python scripts/run_tests.py automix project      # modules whose name contains a filter
     python scripts/run_tests.py test_x --repeat 20   # hunt an order/race-dependent failure
     python scripts/run_tests.py --report times.json  # per-module timing for CI artifacts
+    python scripts/run_tests.py main_window           # CI shard: main-window GUI
+    python scripts/run_tests.py --exclude main_window # CI shard: remaining modules
 """
 
 from __future__ import annotations
@@ -32,6 +35,16 @@ def _text(value: str | bytes | None) -> str:
     return value or ""
 
 
+def discover_modules(tests_directory: Path, filters: list[str], excluded: list[str]) -> list[str]:
+    """Deterministic partition with no imports or test execution at discovery time."""
+    return sorted(
+        f"tests.{path.stem}"
+        for path in tests_directory.glob("test_*.py")
+        if (not filters or any(name in path.stem for name in filters))
+        and not any(name in path.stem for name in excluded)
+    )
+
+
 def main() -> int:
     # This process prints captured Unicode too, not just the child processes.
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -41,6 +54,8 @@ def main() -> int:
     parser.add_argument("filters", nargs="*", help="only run modules whose name contains one of these")
     parser.add_argument("--timeout", type=float, default=180.0)
     parser.add_argument("--repeat", type=int, default=1, help="run each selected module this many times")
+    parser.add_argument("--exclude", action="append", default=[], metavar="NAME",
+                        help="exclude modules whose filename contains NAME (repeatable)")
     parser.add_argument("--verbose", action="store_true",
                         help="include the active test name in captured timeout diagnostics")
     parser.add_argument("--report", type=Path, help="write per-run status and seconds as JSON")
@@ -59,11 +74,7 @@ def main() -> int:
     except RustPrerequisiteError as error:
         print(f"[Rust prerequisite] {error}", file=sys.stderr)
         return 2
-    modules = sorted(
-        f"tests.{path.stem}"
-        for path in (root / "tests").glob("test_*.py")
-        if not args.filters or any(name in path.stem for name in args.filters)
-    )
+    modules = discover_modules(root / "tests", args.filters, args.exclude)
     if not modules:
         print("No test modules match the given filters.")
         return 1
