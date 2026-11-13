@@ -357,6 +357,11 @@ def produce_complete_project_frames(
                     key: dict(costs)
                     for key, costs in raster_cache.qt_canvas_band_timing.items()
                 },
+                alpha_trim_enabled=raster_cache.trim_transparent_bands,
+                alpha_trim_band_timing={
+                    key: dict(costs)
+                    for key, costs in raster_cache.alpha_trim_band_timing.items()
+                },
                     retained_bytes=raster_cache.retained_bytes,
                     peak_retained_bytes=raster_cache.peak_retained_bytes,
                     advanced_lyric_cache_entries=len(raster_cache.frozen_lyric_settings_cache),

@@ -65,6 +65,24 @@ class NativeGpuP1BenchmarkTests(unittest.TestCase):
             i, j = before.index(flag), after.index(flag)
             self.assertEqual(before[i + 1], after[j + 1])
 
+    def test_alpha_trim_abba_preserves_all_other_gpu_settings(self) -> None:
+        args = Namespace(project=Path("giggles.pvsproj"),
+                         native_exe=Path("native.exe"), output_dir=Path("fresh"),
+                         fps=60, seconds=30, scale=1.5,
+                         ffmpeg="ffmpeg", experiment="alpha_trim")
+        before = benchmark.build_command(args, "a1")
+        after = benchmark.build_command(args, "b1")
+        expected = [part.replace("a1.mp4", "b1.mp4").replace("a1.json", "b1.json")
+                    for part in before] + ["--gpu-trim-transparent-bands"]
+        self.assertEqual(after, expected)
+        self.assertNotIn("--no-gpu-shared-packet-transport", before)
+        self.assertNotIn("--no-gpu-parallel-packet-validation", before)
+        self.assertNotIn("--gpu-trim-transparent-bands", before)
+        with self.assertRaisesRegex(ValueError, "Unknown P1 experiment"):
+            benchmark.build_command(
+                Namespace(**{**vars(args), "experiment": "unsupported"}), "b1",
+            )
+
     def test_raw_media_hash_never_reads_uncompressed_stream_into_python(self) -> None:
         digest = "c" * 64
         with patch.object(benchmark, "_execute", return_value=f"SHA256={digest}\n") as run:

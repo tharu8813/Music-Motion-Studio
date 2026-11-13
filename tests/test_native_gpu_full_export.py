@@ -470,6 +470,22 @@ class NativeGpuFullProjectTests(unittest.TestCase):
                         gpu_profile_qt_paint=True,
                     )
 
+    def test_alpha_trim_flag_is_developer_only(self):
+        self.assertFalse(NativeGpuOptimizations.for_profile("automatic").trim_transparent_bands)
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "project.json"
+            source.write_text("{}", encoding="utf8")
+            for profile in (None, "standard", "accelerated", "cpu_parallel"):
+                with self.subTest(profile=profile), self.assertRaisesRegex(
+                    ValueError,
+                    "--gpu-trim-transparent-bands requires --gpu-profile automatic",
+                ):
+                    export_complete_project(
+                        source, root / "out.mp4", gpu_profile=profile,
+                        gpu_trim_transparent_bands=True,
+                    )
+
     def test_native_qt_source_paint_report_counts_real_rendered_types(self):
         ffmpeg = os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG") or shutil.which("ffmpeg")
         if not ffmpeg or not Path(ffmpeg).is_file():
