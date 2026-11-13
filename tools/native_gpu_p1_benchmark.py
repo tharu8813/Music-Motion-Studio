@@ -65,14 +65,21 @@ def _hash_stream(ffmpeg: str, path: Path, stream: str) -> str:
 
 
 def _video_pts(ffprobe: str, path: Path) -> tuple[int, str]:
-    payload = _execute(
+    # ffprobe's CSV can emit e.g. "0," for H.264 SEI side-data even
+    # when selecting only PTS. Read structured frames to avoid false failures.
+    payload = json.loads(_execute(
         [ffprobe, "-v", "error", "-select_streams", "v:0",
          "-show_entries", "frame=best_effort_timestamp",
-         "-of", "csv=p=0", str(path)],
+         "-of", "json", str(path)],
         timeout=120,
-    )
-    values = [line.strip() for line in payload.splitlines() if line.strip()]
-    if not values or any(not value.lstrip("-").isdigit() for value in values):
+    ))
+    frames = payload.get("frames")
+    if not isinstance(frames, list) or not frames:
+        raise ValueError("Cannot verify every presentation timestamp")
+    values = [str(frame.get("best_effort_timestamp", ""))
+              for frame in frames if isinstance(frame, dict)]
+    if (len(values) != len(frames)
+            or any(not value.lstrip("-").isdigit() for value in values)):
         raise ValueError("Cannot verify every presentation timestamp")
     # Preserve the entire ordered sequence, not only the first/last PTS.
     digest = sha256(("\n".join(values) + "\n").encode("ascii")).hexdigest()
