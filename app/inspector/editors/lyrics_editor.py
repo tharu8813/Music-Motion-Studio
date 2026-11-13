@@ -59,6 +59,11 @@ class LyricsSection(FieldSection):
         ("subtitle_karaoke_pending_color", "sub_karaoke"),
         ("subtitle_karaoke_pending_brightness", "sub_karaoke"),
         ("subtitle_karaoke_offset", "sub_karaoke"),
+        ("subtitle_karaoke_glow_enabled", "sub_karaoke_effects"),
+        ("subtitle_karaoke_glow_strength", "sub_karaoke_effects"),
+        ("subtitle_karaoke_edge_blur", "sub_karaoke_effects"),
+        ("subtitle_karaoke_lift", "sub_karaoke_effects"),
+        ("subtitle_karaoke_lift_unit", "sub_karaoke_effects"),
         ("subtitle_timing_offset", None),
     )
 
@@ -85,6 +90,11 @@ class LyricsSection(FieldSection):
         "subtitle_karaoke_pending_mode": ("부르기 전 표시", "Pending lyric appearance"),
         "subtitle_karaoke_pending_color": ("부르기 전 색", "Pending lyric color"),
         "subtitle_karaoke_pending_brightness": ("부르기 전 밝기", "Pending brightness"),
+        "subtitle_karaoke_glow_enabled": ("글자 글로우", "Character glow"),
+        "subtitle_karaoke_glow_strength": ("글로우 강도", "Glow strength"),
+        "subtitle_karaoke_edge_blur": ("채움 경계 흐림", "Fill edge blur"),
+        "subtitle_karaoke_lift": ("위로 뜨는 높이", "Lift height"),
+        "subtitle_karaoke_lift_unit": ("움직임 단위", "Lift unit"),
         "subtitle_line_styles": ("줄별 스타일", "Per-line styles"),
         "subtitle_translation_style": ("번역 가사 스타일", "Translation lyric style"),
     }
@@ -95,6 +105,7 @@ class LyricsSection(FieldSection):
         "sub_prev": ("이전 줄 · 기본", "Previous lines · Basic"),
         "sub_current": ("현재 줄 · 기본", "Current line · Basic"),
         "sub_karaoke": ("실시간 가사 · 색상과 타이밍", "Real-time lyrics · Colors and timing"),
+        "sub_karaoke_effects": ("실시간 가사 · 글자 효과", "Real-time lyrics · Character effects"),
     }
 
     HELP = {
@@ -120,6 +131,11 @@ class LyricsSection(FieldSection):
         "karaoke_pending_mode": ("아직 부르지 않은 가사를 별도 색상으로 표시하거나, 도달한 가사 색의 밝기만 낮춥니다.", "Use a separate color for pending lyrics, or dim the reached lyric color."),
         "karaoke_pending_color": ("별도 색상 방식에서 아직 도달하지 않은 단어와 다음 가사에 사용할 색입니다.", "Separate color for unreached words and upcoming lyrics."),
         "karaoke_pending_brightness": ("도달한 가사 색 대비 밝기입니다. 0은 검정, 1은 도달한 가사와 같은 밝기입니다. 불투명도는 유지합니다.", "Brightness relative to the reached lyric color: 0 is black, 1 is unchanged. Opacity is preserved."),
+        "karaoke_glow_enabled": ("TTML에서 현재 채워지는 글자에 빛을 더합니다. 글자가 채워질수록 빛이 강해집니다.", "Add a halo to the character filling in timed TTML lyrics. The halo grows brighter as the character fills."),
+        "karaoke_glow_strength": ("글자가 거의 다 채워졌을 때의 최대 밝기입니다.", "Maximum halo brightness as a character approaches full fill."),
+        "karaoke_edge_blur": ("부른 가사 색과 아직 부르지 않은 가사 색 사이를 부드럽게 섞습니다. 0이면 경계가 선명합니다.", "Feather the boundary between sung and pending colors. Zero keeps the boundary sharp."),
+        "karaoke_lift": ("부르는 중에 글자나 단어가 살짝 올라갔다 내려오는 높이입니다. 0이면 움직임을 끕니다.", "How far the active character or word rises before returning to its baseline. Zero turns the motion off."),
+        "karaoke_lift_unit": ("글자마다 움직이거나 TTML에 기록된 단어·음절 단위로 함께 움직입니다.", "Lift individual characters or move each timed TTML word or syllable together."),
         "line_styles": ("다중행 가사 큐의 2번째 줄부터 줄 위치별 색상과 글꼴을 설정합니다.", "Sets color and typography from the second physical line inside each multi-line lyric cue."),
     }
 
@@ -141,6 +157,9 @@ class LyricsSection(FieldSection):
         pending_mode = QComboBox()
         pending_mode.addItem("Separate color", "custom")
         pending_mode.addItem("Dim reached color", "dim")
+        lift_unit = QComboBox()
+        lift_unit.addItem("Character", "character")
+        lift_unit.addItem("Timed word", "word")
         wrap_basis = QComboBox()
         wrap_basis.addItem("Element width", True)
         wrap_basis.addItem("Custom width", False)
@@ -173,6 +192,11 @@ class LyricsSection(FieldSection):
             "subtitle_karaoke_pending_color": color_button(),
             "subtitle_karaoke_pending_brightness": spin(0, 1, 0.05),
             "subtitle_karaoke_offset": spin(-5, 5, 0.01),
+            "subtitle_karaoke_glow_enabled": QCheckBox(),
+            "subtitle_karaoke_glow_strength": spin(0, 1, 0.05),
+            "subtitle_karaoke_edge_blur": spin(0, 16, 0.5),
+            "subtitle_karaoke_lift": spin(0, 16, 0.5),
+            "subtitle_karaoke_lift_unit": lift_unit,
             "subtitle_timing_offset": spin(-5.0, 5.0, 0.01),
         }
 
@@ -217,6 +241,11 @@ class LyricsSection(FieldSection):
             "subtitle_karaoke_pending_mode": source.subtitle_karaoke_enabled,
             "subtitle_karaoke_pending_color": source.subtitle_karaoke_enabled and source.subtitle_karaoke_pending_mode == "custom",
             "subtitle_karaoke_pending_brightness": source.subtitle_karaoke_enabled and source.subtitle_karaoke_pending_mode == "dim",
+            "subtitle_karaoke_glow_enabled": source.subtitle_karaoke_enabled,
+            "subtitle_karaoke_glow_strength": source.subtitle_karaoke_enabled and source.subtitle_karaoke_glow_enabled,
+            "subtitle_karaoke_edge_blur": source.subtitle_karaoke_enabled,
+            "subtitle_karaoke_lift": source.subtitle_karaoke_enabled,
+            "subtitle_karaoke_lift_unit": source.subtitle_karaoke_enabled and source.subtitle_karaoke_lift > 0,
         }
 
     def retranslate(self, korean: bool) -> None:
@@ -231,6 +260,12 @@ class LyricsSection(FieldSection):
         self.widgets["subtitle_animation_duration"].setSuffix(" 초" if korean else " s")
         self.widgets["subtitle_accent_enabled"].setText("사용" if korean else "Enabled")
         self.widgets["subtitle_karaoke_enabled"].setText("사용" if korean else "Enabled")
+        self.widgets["subtitle_karaoke_glow_enabled"].setText("사용" if korean else "Enabled")
+        self.widgets["subtitle_karaoke_edge_blur"].setSuffix(" px")
+        self.widgets["subtitle_karaoke_lift"].setSuffix(" px")
+        lift_unit = self.widgets["subtitle_karaoke_lift_unit"]
+        lift_unit.setItemText(0, "글자" if korean else "Character")
+        lift_unit.setItemText(1, "단어·음절" if korean else "Timed word or syllable")
         self.widgets["subtitle_karaoke_lines"].setPlaceholderText("모든 줄 (예: 1, 3)" if korean else "All lines (e.g. 1, 3)")
         mode = self.widgets["subtitle_karaoke_pending_mode"]
         mode.setItemText(0, "별도 색상" if korean else "Separate color")

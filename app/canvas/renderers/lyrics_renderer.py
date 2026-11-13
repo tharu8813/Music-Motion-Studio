@@ -1,12 +1,13 @@
 """Cue motion and typography shared by Canvas preview and video export."""
 
+from bisect import bisect_right
 from functools import lru_cache
 from math import cos, pi, sin
 import re
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPen, QTextLayout, QTextOption
+from PySide6.QtCore import QPointF, QRectF, QSizeF, QTextBoundaryFinder, Qt
+from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QTextLayout, QTextOption
 
 from app.animation.lyrics import context_style_at_distance, cue_effect_pose, intro_exit_pose, role_style, stagger_progress
 from app.animation.curves import music_reactive_pose
@@ -598,43 +599,176 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         painter.translate(pivot)
         painter.scale(scale, scale)
         painter.translate(-pivot)
+        revealed, highlights, active_words = 0.0, None, ()
+        if karaoke_alpha > _VISIBLE:
+            revealed = max(0.0, item._subtitle_word_reveal[original_inner] - offsets[index])
+            highlights = (item._subtitle_word_highlight_ranges[original_inner]
+                          if original_inner < len(item._subtitle_word_highlight_ranges) else None)
+            if highlights is not None:
+                # A wrapped row covers only part of its original lyric line.
+                # Intersect every independently active word with that slice.
+                highlights = tuple(
+                    (max(0.0, a - offsets[index]), min(float(len(line)), b - offsets[index]))
+                    for a, b in highlights
+                    if b > offsets[index] and a < offsets[index] + len(line)
+                )
+            if original_inner < len(item._subtitle_active_words):
+                active_words = item._subtitle_active_words[original_inner]
+
+        row_blurs = []
         for radius, opacity in (
             (source.subtitle_glow_radius, alpha * (reveal + glow)),
             (blur, alpha * (1.0 - reveal)),
         ):
             if opacity > _VISIBLE and radius > 0:
-                pixmap, margin = item._lyric_blur_pixmap(line, color, radius, glyph_width, height, pixel_ratio, flags, font)
-                painter.setOpacity(base_opacity * min(1.0, opacity))
+                pixmap, margin = item._lyric_blur_pixmap(
+                    line, color, radius, glyph_width, height, pixel_ratio, flags, font,
+                )
                 origin = QPointF(row.left() - margin, row.top() - margin)
+                row_blurs.append((origin, pixmap, base_opacity * min(1.0, opacity)))
+        sharp = alpha * (1.0 - reveal) if blur <= 0.0 else 0.0
+
+        def paint_row(soft_edges=()):
+            for origin, pixmap, opacity in row_blurs:
+                painter.setOpacity(opacity)
                 if recorder is None:
                     painter.drawPixmap(origin, pixmap)
                 else:
                     recorder.pixmap(painter, origin, pixmap)
-        sharp = alpha * (1.0 - reveal) if blur <= 0.0 else 0.0
-        if sharp > _VISIBLE:
-            painter.setOpacity(base_opacity * sharp)
-            painter.setPen(color)
-            item._draw_text(painter, row, flags, line)
-        # Sung words follow the audio clock even while their row fades or unblurs.
-        if karaoke_alpha > _VISIBLE:
-            painter.setOpacity(base_opacity * karaoke_alpha)
-            revealed = max(0.0, item._subtitle_word_reveal[original_inner] - offsets[index])
-            highlights = (item._subtitle_word_highlight_ranges[original_inner]
-                          if original_inner < len(item._subtitle_word_highlight_ranges) else None)
-            if highlights is None:
-                paint_word_reveal(item, painter, row, flags, line, revealed)
-            else:
-                # A wrapped row covers only part of its original lyric line.
-                # Intersect every independently active word with that slice.
-                local_ranges = tuple(
-                    (max(0.0, a - offsets[index]), min(float(len(line)), b - offsets[index]))
-                    for a, b in highlights
-                    if b > offsets[index] and a < offsets[index] + len(line)
-                )
-                paint_word_reveal(item, painter, row, flags, line, revealed,
-                                  highlight_ranges=local_ranges)
+            if sharp > _VISIBLE:
+                painter.setOpacity(base_opacity * sharp)
+                painter.setPen(color)
+                item._draw_text(painter, row, flags, line)
+            # Sung words follow the audio clock even while the row fades or unblurs.
+            if karaoke_alpha > _VISIBLE:
+                painter.setOpacity(base_opacity * karaoke_alpha)
+                if soft_edges:
+                    paint_word_reveal(item, painter, row, flags, line, revealed,
+                                      highlight_ranges=highlights, soft_edges=soft_edges)
+                elif highlights is None:
+                    paint_word_reveal(item, painter, row, flags, line, revealed)
+                else:
+                    paint_word_reveal(item, painter, row, flags, line, revealed, highlight_ranges=highlights)
+
+        row_offset = offsets[index]
+        if any(b > row_offset and a < row_offset + len(line) for a, b, _ in active_words):
+            _paint_karaoke_effects(item, painter, row, flags, line, row_offset, active_words,
+                                   base_opacity * karaoke_alpha, paint_row)
+        else:
+            paint_row()
         painter.restore()
     painter.restore()
+
+
+@lru_cache(maxsize=512)
+def _grapheme_boundaries(text: str) -> tuple[int, ...]:
+    """Convert Qt's UTF-16 grapheme boundaries to the lyric file's character offsets."""
+    offsets = {0: 0}
+    cursor = 0
+    for index, character in enumerate(text, 1):
+        cursor += 2 if ord(character) > 0xFFFF else 1
+        offsets[cursor] = index
+    finder = QTextBoundaryFinder(QTextBoundaryFinder.BoundaryType.Grapheme, text)
+    boundaries = [0]
+    while (cursor := finder.toNextBoundary()) >= 0:
+        boundaries.append(offsets[cursor])
+    return tuple(boundaries)
+
+
+def _paint_karaoke_effects(item, painter, row, flags, text, offset, active_words, opacity, paint_row):
+    source = item.source
+    key, (positions, path) = _word_geometry(item, painter, row, flags, text)
+    graphemes = _grapheme_boundaries(text)
+    accent = QColor(source.subtitle_accent_color)
+    glow_strength = source.subtitle_karaoke_glow_strength if source.subtitle_karaoke_glow_enabled else 0.0
+    edge_width = source.subtitle_karaoke_edge_blur
+    lift_height = source.subtitle_karaoke_lift
+    glows, lifts, soft_edges = [], [], []
+    for a, b, progress in active_words:
+        start, end = a - offset, b - offset
+        if end <= 0 or start >= len(text):
+            continue
+        fill = start + (end - start) * progress
+        char = None
+        if 0 <= fill < len(text):
+            index = bisect_right(graphemes, fill) - 1
+            first, last = graphemes[index:index + 2]
+            if text[first:last].strip():
+                first, last = max(start, first), min(end, last)
+                char = first, last, (fill - first) / (last - first)
+        lift = 0.0
+        if lift_height > 0:
+            unit = (start, end, progress) if source.subtitle_karaoke_lift_unit == "word" else char
+            if unit is not None:
+                first, last, phase = unit
+                x1, x2 = _cursor_x(positions, first), _cursor_x(positions, last)
+                if abs(x2 - x1) > 0.01:
+                    lift = lift_height * sin(pi * phase)
+                    lifts.append((min(x1, x2), max(x1, x2), lift))
+        if char is not None and glow_strength > 0 and char[2] > 0:
+            first, last, phase = char
+            x1, x2 = _cursor_x(positions, first), _cursor_x(positions, last)
+            if abs(x2 - x1) > 0.01:
+                glows.append((min(x1, x2), max(x1, x2), phase, lift))
+        if edge_width > 0 and 0 < fill < len(text):
+            x = _cursor_x(positions, fill)
+            # Follow the local writing direction (which may change within a span).
+            first, last = graphemes[index:index + 2]
+            glyph_start, glyph_end = _cursor_x(positions, first), _cursor_x(positions, last)
+            direction = 1 if glyph_end >= glyph_start else -1
+            word_start, word_end = _cursor_x(positions, start), _cursor_x(positions, end)
+            before = min(edge_width / 2, max(0.0, direction * (x - word_start)))
+            after = min(edge_width / 2, max(0.0, direction * (word_end - x)))
+            if before > 0.01 and after > 0.01:
+                soft_edges.append((x - direction * before, x + direction * after,
+                                   before / (before + after)))
+
+    if glows:
+        radius = max(1.0, min(6.0, painter.font().pixelSize() * 0.075))
+        ratio = device_pixel_ratio(painter)
+        for left, right, phase, lift in glows:
+            glow_key = ("karaoke glow", key, left, right, accent.rgba(), radius, ratio)
+            cached = item._lyric_ghost_cache.pop(glow_key, None)
+            if cached is None:
+                if len(item._lyric_ghost_cache) >= 96:
+                    item._lyric_ghost_cache.pop(next(iter(item._lyric_ghost_cache)))
+
+                def paint_glyph(raster):
+                    raster.translate(-left, 0)
+                    raster.setClipRect(QRectF(left, 0, right - left, row.height()))
+                    raster.fillPath(path, accent)
+
+                cached = item._blurred_raster(
+                    paint_glyph, QSizeF(right - left, row.height()), radius, ratio, solid_color=accent,
+                )
+            item._lyric_ghost_cache[glow_key] = cached
+            pixmap, margin = cached
+            painter.setOpacity(opacity * glow_strength * phase)
+            painter.drawPixmap(QPointF(row.left() + left - margin, row.top() - margin - lift), pixmap)
+    if not lifts:
+        paint_row(soft_edges)
+        return
+
+    bounds = path.boundingRect().translated(row.topLeft()).united(row)
+    margin = max(source.text_stroke_width, source.subtitle_glow_radius, 12.0) * 3 + lift_height + 2
+    bounds.adjust(-margin, -margin, margin, margin)
+    rest = QPainterPath()
+    rest.addRect(bounds)
+    for left, right, _lift in lifts:
+        band = QPainterPath()
+        band.addRect(QRectF(row.left() + left, bounds.top(), right - left, bounds.height()))
+        rest = rest.subtracted(band)
+    painter.save()
+    painter.setClipPath(rest, Qt.ClipOperation.IntersectClip)
+    paint_row(soft_edges)
+    painter.restore()
+    for left, right, lift in lifts:
+        painter.save()
+        painter.setClipRect(QRectF(row.left() + left, bounds.top(), right - left, bounds.height()),
+                            Qt.ClipOperation.IntersectClip)
+        painter.translate(0, -lift)
+        paint_row(soft_edges)
+        painter.restore()
 
 
 def _qtextline_cursor_x(line, cursor: int) -> float:
@@ -647,11 +781,7 @@ def _qtextline_cursor_x(line, cursor: int) -> float:
     return float(result[0] if isinstance(result, tuple) else result)
 
 
-def paint_word_reveal(item, painter: QPainter, row: QRectF, flags, text: str, revealed: float,
-                      *, highlight_ranges: tuple[tuple[float, float], ...] | None = None) -> None:
-    """Reuse shaped glyphs while supporting multiple simultaneously sung words."""
-    if revealed <= 0 and not highlight_ranges:
-        return
+def _word_geometry(item, painter, row, flags, text):
     key = (painter.font().key(), text, row.width(), row.height(), str(flags), item._line_spacing(flags))
     cached = item._lyric_reveal_cache.get(key)
     if cached is None:
@@ -674,7 +804,23 @@ def paint_word_reveal(item, painter: QPainter, row: QRectF, flags, text: str, re
         path = item._text_layout_path(painter, QRectF(0, 0, row.width(), row.height()), flags, text)
         cached = (tuple(positions), path)
         item._lyric_reveal_cache[key] = cached
-    positions, path = cached
+    return key, cached
+
+
+def _cursor_x(positions, position):
+    position = max(0.0, min(float(len(positions) - 1), position))
+    index = int(position)
+    x = positions[index]
+    return x + (positions[index + 1] - x) * (position - index) if index + 1 < len(positions) else x
+
+
+def paint_word_reveal(item, painter: QPainter, row: QRectF, flags, text: str, revealed: float,
+                      *, highlight_ranges: tuple[tuple[float, float], ...] | None = None,
+                      soft_edges=()) -> None:
+    """Reuse shaped glyphs while supporting multiple simultaneously sung words."""
+    if revealed <= 0 and not highlight_ranges:
+        return
+    key, (positions, path) = _word_geometry(item, painter, row, flags, text)
     accent = QColor(item.source.subtitle_accent_color)
     recorder = getattr(item, "_export_text_quads", None)
 
@@ -684,14 +830,17 @@ def paint_word_reveal(item, painter: QPainter, row: QRectF, flags, text: str, re
         else:
             recorder.accent(painter, path, accent, key)
 
-    def cursor_x(position: float) -> float:
-        position = max(0.0, min(float(len(text)), position))
-        whole = int(position)
-        x = positions[whole]
-        return x + (positions[whole + 1] - x) * (position - whole) if whole < len(text) else x
-
     painter.save()
     painter.translate(row.topLeft())
+    if soft_edges:
+        painter.save()
+        clip = QPainterPath()
+        clip.addRect(path.boundingRect().adjusted(-1, -1, 1, 1))
+        for start, end, _stop in soft_edges:
+            band = QPainterPath()
+            band.addRect(QRectF(min(start, end), 0, abs(end - start), row.height()))
+            clip = clip.subtracted(band)
+        painter.setClipPath(clip, Qt.ClipOperation.IntersectClip)
     if highlight_ranges is None:
         # Preserve the established prefix renderer exactly for ordinary lyrics,
         # including bidi text whose cursor endpoints do not bound the glyphs.
@@ -699,18 +848,37 @@ def paint_word_reveal(item, painter: QPainter, row: QRectF, flags, text: str, re
         left, boundary = positions[0], positions[whole]
         if whole < len(text):
             boundary += (positions[whole + 1] - boundary) * (revealed - whole)
+            painter.save()
             painter.setClipRect(QRectF(min(left, boundary), 0, abs(boundary - left), row.height()),
                                 Qt.ClipOperation.IntersectClip)
         draw_accent()
+        if whole < len(text):
+            painter.restore()
     else:
         for start, end in highlight_ranges:
             if end <= start:
                 continue
-            left, right = cursor_x(start), cursor_x(end)
+            left, right = _cursor_x(positions, start), _cursor_x(positions, end)
             painter.save()
             painter.setClipRect(QRectF(min(left, right), 0, abs(right - left), row.height()),
                                 Qt.ClipOperation.IntersectClip)
             draw_accent()
+            painter.restore()
+    if soft_edges:
+        painter.restore()
+        transparent = QColor(accent)
+        transparent.setAlpha(0)
+        for start, end, stop in soft_edges:
+            painter.save()
+            painter.setClipRect(QRectF(min(start, end), 0, abs(end - start), row.height()),
+                                Qt.ClipOperation.IntersectClip)
+            gradient = QLinearGradient(start, 0.0, end, 0.0)
+            gradient.setColorAt(0.0, accent)
+            middle = QColor(accent)
+            middle.setAlphaF(accent.alphaF() * 0.5)
+            gradient.setColorAt(stop, middle)
+            gradient.setColorAt(1.0, transparent)
+            painter.fillPath(path, gradient)
             painter.restore()
     painter.restore()
 

@@ -46,7 +46,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.animation.curves import motion_padding
+from app.animation.curves import TrackTempo, motion_padding
 from app.canvas.live_canvas import CanvasScene
 from app.canvas.source_item import SourceItem
 from app.models.playlist import PlaylistTrack
@@ -525,6 +525,7 @@ class ExportPreviewDialog(QDialog):
             and item.source.uses_bass_reaction
             for item in self.scene.items()
         )
+        self._tempo_sync = False
         self.visualizer_renderer = (
             PythonVisualizerRenderer(ffmpeg_executable)
             if ffmpeg_executable and (self.overlays or self._bass_reactive) else None
@@ -1513,6 +1514,9 @@ class ExportPreviewDialog(QDialog):
             track, elapsed, junction,
         )
         self._refresh_source_partitions()
+        if self._tempo_sync:
+            bands = max((overlay.bar_count for overlay in self.overlays), default=24)
+            self._ensure_track_analysis(track, max(4, bands))
         bass_level = self._bass_level(track, elapsed)
         audio_dynamic_ids = self._cached_audio_dynamic_ids
         canvas_dynamic_ids = self._canvas_dynamic_source_ids(
@@ -1650,6 +1654,7 @@ class ExportPreviewDialog(QDialog):
                         junction=junction,
                         bass_level=bass_level,
                         music_levels=self._music_reaction_levels(track, elapsed),
+                        track_tempo=self._track_tempo(track),
                     )
                     self._dynamic_region_buffers[buffer_key] = buffer
                     target = QRectF(
@@ -1758,6 +1763,7 @@ class ExportPreviewDialog(QDialog):
             compiled_plan=getattr(self, "_compiled_plan", None),
             animation_phase_duration=phase_duration, junction=junction,
             bass_level=bass_level, music_levels=self._music_reaction_levels(track, elapsed),
+            track_tempo=self._track_tempo(track),
         )
         self._canvas_render_last_ms = (perf_counter() - started) * 1000
         return image
@@ -2092,7 +2098,10 @@ class ExportPreviewDialog(QDialog):
         else:
             bar.update(
                 AUDIO_ANALYSIS_ACTIVITY, None,
-                label="오디오 반응 효과 분석" if korean else "Analyzing audio for visualizers",
+                label=(
+                    ("음악 템포 분석" if korean else "Analyzing music tempo") if analysis.needs_tempo
+                    else ("오디오 반응 효과 분석" if korean else "Analyzing audio for visualizers")
+                ),
                 detail=track.title or Path(track.file_path).name,
             )
 
@@ -2180,8 +2189,10 @@ class ExportPreviewDialog(QDialog):
                 animated_source_ids.add(source.id)
         self._cached_audio_dynamic_ids = frozenset(audio_dynamic_ids)
         self._bass_reactive = bass_reactive
+        self._tempo_sync = any(item.source.uses_tempo_sync and item.source.loop_motion_amount > 0
+                               for item in source_items)
         if (
-            bass_reactive and self.visualizer_renderer is None
+            (bass_reactive or self._tempo_sync) and self.visualizer_renderer is None
             and self._visualizer_ffmpeg_executable is not None
         ):
             self.visualizer_renderer = PythonVisualizerRenderer(
@@ -2742,6 +2753,7 @@ class ExportPreviewDialog(QDialog):
             junction=junction,
             bass_level=self._bass_level(track, elapsed),
             music_levels=self._music_reaction_levels(track, elapsed),
+            track_tempo=self._track_tempo(track),
         )
         result = []
         scratch = self._gpu_ordered_scratch
@@ -3126,6 +3138,7 @@ class ExportPreviewDialog(QDialog):
             junction=getattr(self, "_frame_junction", None),
             bass_level=self._bass_level(track, elapsed),
             music_levels=self._music_reaction_levels(track, elapsed),
+            track_tempo=self._track_tempo(track),
         )
 
         def capture_band(index: int, z_min, z_max) -> QImage:
@@ -3275,6 +3288,7 @@ class ExportPreviewDialog(QDialog):
             junction=junction,
             bass_level=self._bass_level(track, elapsed),
             music_levels=self._music_reaction_levels(track, elapsed),
+            track_tempo=self._track_tempo(track),
         )
         base = CanvasSnapshot.capture_track(
             self.scene, track, track_index + 1, len(self.tracks), start,
@@ -3493,14 +3507,18 @@ class ExportPreviewDialog(QDialog):
             self._overlay_worker.cancel()
 
     def _ensure_track_analysis(self, track: PlaylistTrack, bands: int) -> None:
-        """Analyze each selected track once, then reuse its moving FFT frames."""
+        """Resolve the visualizer, reaction and tempo data the scene uses."""
         profiles = tuple({item.source.music_reaction_profile for item in self._cached_source_items
                           if item.source.source_type in {SourceType.TEXT, SourceType.LYRICS}
                           and item.source.uses_bass_reaction})
         cached = self._track_levels.get(track.id)
-        if self.visualizer_renderer is None or (
-            isinstance(cached, dict) and all(profile in cached.get("music_envelopes", {}) for profile in profiles)
-        ):
+        needs_levels = bool(self.overlays or self._bass_reactive)
+        needs_tempo = self._tempo_sync
+        if self.visualizer_renderer is None or (not needs_levels and not needs_tempo):
+            return
+        if (isinstance(cached, dict) and (not needs_levels or "levels" in cached)
+                and (not needs_tempo or "tempo" in cached)
+                and all(profile in cached.get("music_envelopes", {}) for profile in profiles)):
             return
         if self._closing or self._analysis_worker is not None:
             return
@@ -3510,12 +3528,17 @@ class ExportPreviewDialog(QDialog):
             needs_waveform=any(overlay.kind == "waveform" for overlay in self.overlays),
             overlays=tuple(self.overlays),
             parent=self, music_profiles=profiles, cached_analysis=cached,
+            needs_tempo=needs_tempo, needs_levels=needs_levels,
         )
         self._analysis_worker.ready.connect(self._store_track_levels)
         self._analysis_worker.failed.connect(self._preview_worker_failed)
         self._analysis_worker.finished.connect(self._analysis_finished)
         self._analysis_worker.start()
         self._sync_background_activity()
+
+    def _track_tempo(self, track: PlaylistTrack) -> TrackTempo | None:
+        analysis = self._track_levels.get(track.id)
+        return analysis.get("tempo") if isinstance(analysis, dict) else None
 
     def _music_reaction_levels(self, track: PlaylistTrack, elapsed: float) -> dict[str, float]:
         if not self._bass_reactive:

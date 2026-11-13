@@ -12,6 +12,7 @@ effects, and texture-backed video layers is NOT implemented by this module.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from concurrent.futures import Future
 from time import monotonic
@@ -27,6 +28,7 @@ import numpy as np
 from PySide6.QtCore import QRect
 from PySide6.QtGui import QImage
 
+from app.animation.curves import TrackTempo
 from app.canvas.live_canvas import CanvasScene
 from app.preview.canvas_snapshot import CanvasSnapshot
 
@@ -432,6 +434,7 @@ def capture_native_canvas_track_frame(
     keyframe_active: bool = True,
     bass_level: float = 0.0,
     music_levels: dict[str, float] | None = None,
+    track_tempos: Mapping[str, TrackTempo] | None = None,
     lyric_instrumental_spans_by_source: dict[str, tuple] | None = None,
     raster_cache: object | None = None,
     band_states: Sequence[tuple] | None = None,
@@ -477,8 +480,10 @@ def capture_native_canvas_track_frame(
             layers.append(cached)
             continue
         if index and raster_cache is not None and band_state is not None and raster_cache.cover_items:
+            sample = band_state[0]
             cover = raster_cache.cover_motion_layer(
-                scene, key, band_state[0], output_scale, layers[0].width, layers[0].height,
+                scene, key, sample, output_scale, layers[0].width, layers[0].height,
+                track_tempos.get(sample.track.id) if track_tempos else None,
             )
             if cover is not None:
                 layers.append(cover)
@@ -513,6 +518,7 @@ def capture_native_canvas_track_frame(
             keyframe_active=keyframe_active,
             bass_level=bass_level,
             music_levels=music_levels,
+            track_tempo=track_tempos.get(track.id) if track_tempos else None,
             lyric_instrumental_spans_by_source=lyric_instrumental_spans_by_source,
         )
         if band_state is not None:
@@ -525,6 +531,7 @@ def capture_native_canvas_track_frame(
                 animation_phase_duration=sample.animation_phase_duration,
                 keyframe_active=sample.keyframe_active, junction=sample.junction,
                 bass_level=band_bass, music_levels=band_music,
+                track_tempo=track_tempos.get(sample.track.id) if track_tempos else None,
                 lyric_instrumental_spans_by_source=band_instrumental,
             )
         render_prepared_band = None

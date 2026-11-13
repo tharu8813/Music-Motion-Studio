@@ -107,19 +107,22 @@ class LyricsService:
         return tuple(result)
 
     @classmethod
-    def word_reveal(cls, cue: dict[str, object], elapsed: float, *,
-                    line_positions: tuple[int, ...] | None = None) -> tuple[float, ...]:
-        """Revealed characters using explicit word times or whole-line display."""
+    def _cue_reveal_spans(cls, cue, line_positions):
         raw_text = cls.decode_line_breaks(cue.get("text", ""))
         text = raw_text.strip()
         leading = len(raw_text) - len(raw_text.lstrip())
         words = tuple((int(word["offset"]) - leading,
                        int(word["offset"]) + len(word["text"]) - leading,
                        float(word["start"]), float(word["end"])) for word in cue.get("words", []))
-        lines = cls._reveal_spans(text, float(cue.get("start", 0)), float(cue.get("end", 0)),
-                                  words, line_positions)
+        return cls._reveal_spans(text, float(cue.get("start", 0)), float(cue.get("end", 0)),
+                                 words, line_positions)
+
+    @classmethod
+    def word_reveal(cls, cue: dict[str, object], elapsed: float, *,
+                    line_positions: tuple[int, ...] | None = None) -> tuple[float, ...]:
+        """Revealed characters using explicit word times or whole-line display."""
         result = []
-        for spans in lines:
+        for spans in cls._cue_reveal_spans(cue, line_positions):
             revealed = 0.0
             for a, b, start, end in spans:
                 if elapsed < start:
@@ -138,16 +141,8 @@ class LyricsService:
         Unlike a single left-to-right reveal position, these ranges do not
         prematurely complete an earlier word when a later word starts.
         """
-        raw_text = cls.decode_line_breaks(cue.get("text", ""))
-        text = raw_text.strip()
-        leading = len(raw_text) - len(raw_text.lstrip())
-        words = tuple((int(word["offset"]) - leading,
-                       int(word["offset"]) + len(word["text"]) - leading,
-                       float(word["start"]), float(word["end"])) for word in cue.get("words", []))
-        spans_by_line = cls._reveal_spans(text, float(cue.get("start", 0)),
-                                           float(cue.get("end", 0)), words, line_positions)
         result = []
-        for spans in spans_by_line:
+        for spans in cls._cue_reveal_spans(cue, line_positions):
             ranges = []
             for a, b, start, end in spans:
                 if elapsed < start:
@@ -158,6 +153,17 @@ class LyricsService:
                     ranges.append((float(a), float(right)))
             result.append(tuple(ranges))
         return tuple(result)
+
+    @classmethod
+    def active_word_spans(
+        cls, cue: dict[str, object], elapsed: float, *, line_positions: tuple[int, ...] | None = None,
+    ) -> tuple[tuple[tuple[int, int, float], ...], ...]:
+        """Per-line (start character, end character, progress) for timed spans filling now."""
+        return tuple(
+            tuple((a, b, (elapsed - start) / (end - start))
+                  for a, b, start, end in spans if start < elapsed < end)
+            for spans in cls._cue_reveal_spans(cue, line_positions)
+        )
 
     @staticmethod
     def decode_line_breaks(value: object) -> str:

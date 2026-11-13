@@ -373,6 +373,31 @@ def resolve_lyrics_overlapping_word_ranges(
     return tuple(result)
 
 
+def resolve_lyrics_active_words(
+    track: PlaylistTrack, source: Source, elapsed: float,
+    cue_state: LyricsCueState, intro_state: LyricsIntroState | None,
+) -> tuple[tuple[tuple[int, int, float], ...], ...]:
+    """Align active TTML spans with the displayed rows, including grouped translations."""
+    if (not source.uses_karaoke_character_effects or cue_state.cue_index is None or cue_state.before_first
+            or (intro_state is not None and not intro_state.exiting)):
+        return ()
+    clock = max(0.0, elapsed + track.lyrics_timing_offset_seconds
+                + source.subtitle_timing_offset + source.subtitle_karaoke_offset)
+    rows = []
+    for index in (cue_state.active_cue_indices or cue_state.held_cue_indices or (cue_state.cue_index,)):
+        cue = track.lyrics[index]
+        if cue.get("format") == "ttml" and cue.get("words"):
+            rows.extend(LyricsService.active_word_spans(
+                cue, clock, line_positions=tuple(source.subtitle_karaoke_lines),
+            ))
+        else:
+            rows.extend(() for line in LyricsService.decode_line_breaks(cue.get("text", "")).splitlines()
+                        if line.strip())
+        if source.subtitle_translation_enabled:
+            rows.extend(() for line in approved_translation(cue).splitlines() if line.strip())
+    return tuple(rows)
+
+
 @dataclass(slots=True, frozen=True)
 class NowPlayingExitState:
     """Whether a NOW_PLAYING card is visible at all, and how far its exit

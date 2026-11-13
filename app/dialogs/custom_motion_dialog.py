@@ -1148,6 +1148,9 @@ class CustomMotionDialog(AdaptiveDialog):
             messages.append(video_notice)
         if reaction_notice:
             messages.append(reaction_notice)
+        if any(getattr(item, "source", None) is not None and item.source.visible and item.source.uses_tempo_sync
+               for item in self.canvas.project_scene.items()):
+            messages.append("템포 동기화 예시 (120 BPM)" if self.korean else "Tempo sync example (120 BPM)")
         text = " · ".join(messages)
         if self.limitations.text() != text:
             self.limitations.setText(text)

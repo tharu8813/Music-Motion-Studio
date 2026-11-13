@@ -29,7 +29,8 @@ from PySide6.QtWidgets import (
 
 from app.models.source import (
     LOOP_MOTIONS, MASK_SHAPES, MUSIC_REACTIVE_EFFECTS, MUSIC_REACTIVE_BANDS,
-    MUSIC_REACTIVE_CURVES, TEXT_CASES, TEXT_SOURCE_TYPES, Source, SourceType,
+    MUSIC_REACTIVE_CURVES, TEMPO_SYNC_BEATS, TEMPO_SYNC_OFFSET_LIMIT,
+    TEXT_CASES, TEXT_SOURCE_TYPES, Source, SourceType,
 )
 
 if TYPE_CHECKING:
@@ -233,7 +234,8 @@ class MotionSection(FieldSection):
     """
 
     FAMILY = ("모션", "motion")
-    LOOP_KEYS = ("loop_motion", "loop_motion_period", "loop_motion_amount")
+    LOOP_KEYS = ("loop_motion", "loop_motion_period", "loop_motion_amount",
+                 "loop_tempo_sync", "loop_tempo_beats", "loop_tempo_offset")
     APPEARANCE_KEYS = ("flip_horizontal", "flip_vertical", "frame_width", "frame_color", "frame_inset")
     REACTIVE_KEYS = ("music_reactive_enabled", "music_reactive_effect", "music_reactive_band",
                      "music_reactive_strength", "music_reactive_attack", "music_reactive_release",
@@ -243,6 +245,9 @@ class MotionSection(FieldSection):
         ("loop_motion", None),
         ("loop_motion_period", None),
         ("loop_motion_amount", None),
+        ("loop_tempo_sync", None),
+        ("loop_tempo_beats", None),
+        ("loop_tempo_offset", None),
         ("mask_shape", None),
         ("flip_horizontal", None),
         ("flip_vertical", None),
@@ -264,6 +269,9 @@ class MotionSection(FieldSection):
         "loop_motion": ("반복 모션", "Loop motion"),
         "loop_motion_period": ("반복 주기 (초)", "Loop period (s)"),
         "loop_motion_amount": ("모션 세기", "Motion strength"),
+        "loop_tempo_sync": ("템포 동기화", "Sync to tempo"),
+        "loop_tempo_beats": ("반복당 박 수", "Beats per cycle"),
+        "loop_tempo_offset": ("박자 보정 (초)", "Beat offset (s)"),
         "mask_shape": ("마스크 모양", "Mask shape"),
         "flip_horizontal": ("좌우 반전", "Flip horizontally"),
         "flip_vertical": ("상하 반전", "Flip vertically"),
@@ -293,6 +301,12 @@ class MotionSection(FieldSection):
         "loop_motion": ("요소가 화면에 있는 동안 계속 반복되는 움직임입니다. 등장·퇴장 애니메이션과 함께 적용됩니다.", "Movement repeated for as long as the source is on screen, on top of its entrance and exit."),
         "loop_motion_period": ("움직임 한 번에 걸리는 시간입니다. 회전은 이 시간마다 한 바퀴 돕니다.", "Seconds per cycle. Spin turns once per period."),
         "loop_motion_amount": ("움직임의 크기입니다. 0이면 멈추고, 1이 기본입니다.", "Size of the movement. 0 stops it; 1 is the default."),
+        "loop_tempo_sync": (
+            "숨쉬기, 맥박, 흔들림, 회전, 끄덕이기를 음악의 박자에 맞춥니다. 영상과 오디오 시각화 요소는 제외됩니다. 박자를 찾지 못하면 기존 반복 주기(초)를 사용합니다.",
+            "Match Breathe, Pulse, Sway, Spin or Nod to the track's beat. Video and audio visualization sources are excluded. If no tempo is found, the loop uses its saved period in seconds.",
+        ),
+        "loop_tempo_beats": ("1은 한 박에 한 번, 4는 네 박에 한 번 반복합니다.", "One repeats once per beat; four repeats once every four beats."),
+        "loop_tempo_offset": ("양수는 모션을 늦추고 음수는 앞당깁니다.", "Positive delays the motion; negative advances it."),
         "mask_shape": ("요소 전체를 원·별·하트 같은 모양으로 잘라 냅니다. 그림자도 이 모양을 따릅니다.", "Cuts the whole source to a shape such as a circle, star or heart. Its shadow follows the shape."),
         "music_reactive_enabled": ("실제 음악에 맞춰 움직입니다. 자막은 현재 가사 묶음에만 적용되며 이전·다음 가사와 인트로는 영향을 받지 않습니다. 전체 재생 미리보기와 내보내기에 적용됩니다.", "React to music. Subtitles affect only the current cue, leaving previous/next cues and intro indicators unchanged. Applies to Full Preview and export."),
         "music_reactive_effect": ("확대·복귀, 위로 튀기, 가로 늘리기, 기울이기 중 선택합니다. 선택한 음역에 반응하며 등장·퇴장 및 반복 모션과 함께 적용됩니다.", "Choose scale pulse, upward bounce, horizontal stretch or tilt. Follows the selected frequency range and combines with entrance, exit and loop motion."),
@@ -334,6 +348,9 @@ class MotionSection(FieldSection):
         loop = QComboBox()
         for value in LOOP_MOTIONS:
             loop.addItem(value, value)
+        beats = QComboBox()
+        for value in TEMPO_SYNC_BEATS:
+            beats.addItem({0.25: "¼", 0.5: "½"}.get(value, f"{value:g}"), value)
         mask = QComboBox()
         for value in MASK_SHAPES:
             mask.addItem(value, value)
@@ -349,6 +366,9 @@ class MotionSection(FieldSection):
             "loop_motion": loop,
             "loop_motion_period": spin(0.2, 60.0, 0.25),
             "loop_motion_amount": spin(0.0, 5.0, 0.1),
+            "loop_tempo_sync": QCheckBox(),
+            "loop_tempo_beats": beats,
+            "loop_tempo_offset": spin(-TEMPO_SYNC_OFFSET_LIMIT, TEMPO_SYNC_OFFSET_LIMIT, 0.01),
             "mask_shape": mask,
             "flip_horizontal": QCheckBox(),
             "flip_vertical": QCheckBox(),
@@ -369,9 +389,17 @@ class MotionSection(FieldSection):
 
     def hidden_when_off(self, source: Source) -> dict[str, bool]:
         moving = source.loop_motion != "none"
-        return {"loop_motion_period": moving, "loop_motion_amount": moving,
+        return {"loop_motion_period": moving and not source.uses_tempo_sync,
+                "loop_motion_amount": moving,
+                "loop_tempo_beats": source.uses_tempo_sync,
+                "loop_tempo_offset": source.uses_tempo_sync,
                 "frame_color": source.frame_width > 0, "frame_inset": source.frame_width > 0,
                 **{key: source.music_reactive_enabled for key in self.REACTIVE_KEYS[1:]}}
+
+    def displayed_value(self, source: Source, key: str) -> object:
+        if key == "loop_tempo_sync":
+            return source.uses_tempo_sync
+        return super().displayed_value(source, key)
 
     def retranslate(self, korean: bool) -> None:
         for key, labels in (("loop_motion", self.LOOP_LABELS), ("mask_shape", self.MASK_LABELS),
@@ -381,7 +409,7 @@ class MotionSection(FieldSection):
             combo = self.widgets[key]
             for index in range(combo.count()):
                 combo.setItemText(index, labels[combo.itemData(index)][0 if korean else 1])
-        for key in ("flip_horizontal", "flip_vertical"):
+        for key in ("flip_horizontal", "flip_vertical", "loop_tempo_sync"):
             self.widgets[key].setText("사용" if korean else "Enabled")
 
 
@@ -431,6 +459,8 @@ TYPE_SPECIFIC_FIELD_KEYS: tuple[str, ...] = (
     "subtitle_karaoke_enabled", "subtitle_karaoke_pending_mode",
     "subtitle_karaoke_offset", "subtitle_karaoke_lines",
     "subtitle_karaoke_pending_color", "subtitle_karaoke_pending_brightness",
+    "subtitle_karaoke_glow_enabled", "subtitle_karaoke_glow_strength",
+    "subtitle_karaoke_edge_blur", "subtitle_karaoke_lift", "subtitle_karaoke_lift_unit",
     "waveform_style",
     "level_meter_mode", "level_meter_style", "level_meter_orientation",
     "level_meter_sensitivity", "level_meter_attack", "level_meter_release",

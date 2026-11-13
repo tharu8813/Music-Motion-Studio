@@ -26,7 +26,8 @@ from app.animation.canvas_keyframes import keyframe_source
 from app.canvas.source_item import SourceItem
 from app.canvas.renderers.lyrics_renderer import lyric_cue_extent, lyric_display_lines, lyric_wrapped_rows
 from app.animation.curves import (
-    AnimationPose, animation_pose, ease_in_out_cubic, loop_pose, motion_padding, music_reactive_pose,
+    AnimationPose, TrackTempo, animation_pose, ease_in_out_cubic, motion_padding,
+    music_reactive_pose, source_loop_pose,
 )
 from app.models.playlist import PlaylistTrack
 from app.models.source import Source, SourceType
@@ -39,7 +40,7 @@ from app.preview.album_art import (
 )
 from app.preview.frame_state import (
     MixJunction, resolve_edge_animation, resolve_lyrics_cue_state, resolve_lyrics_intro_state,
-    resolve_lyrics_word_reveal, resolve_lyrics_overlapping_word_ranges,
+    resolve_lyrics_word_reveal, resolve_lyrics_overlapping_word_ranges, resolve_lyrics_active_words,
     lyrics_display_groups,
     resolve_now_playing_exit_state, resolve_timeline_window_phase,
 )
@@ -871,6 +872,7 @@ class CanvasSnapshot:
                       junction: MixJunction | None = None,
                       bass_level: float = 0.0,
                       music_levels: dict[str, float] | None = None,
+                      track_tempo: TrackTempo | None = None,
                       motion_pose_overrides: dict[str, AnimationPose] | None = None,
                       compact_preview_band: bool = False,
                       lyric_instrumental_spans: tuple | None = None,
@@ -1048,6 +1050,7 @@ class CanvasSnapshot:
                     graphics_item._subtitle_intro_state,
                     graphics_item._subtitle_word_reveal,
                     graphics_item._subtitle_word_highlight_ranges,
+                    graphics_item._subtitle_active_words,
                     graphics_item._subtitle_overlap_prior_rows,
                     graphics_item._subtitle_gap_unblurred,
                     graphics_item._subtitle_before_first,
@@ -1107,6 +1110,9 @@ class CanvasSnapshot:
                 graphics_item._subtitle_word_highlight_ranges = resolve_lyrics_overlapping_word_ranges(
                     track, source, elapsed_seconds, cue_state, graphics_item._subtitle_intro_state,
                     word_reveal=graphics_item._subtitle_word_reveal,
+                )
+                graphics_item._subtitle_active_words = resolve_lyrics_active_words(
+                    track, source, elapsed_seconds, cue_state, graphics_item._subtitle_intro_state,
                 )
                 # The newest overlapping phrase owns the normal current-line
                 # position. Older active phrases remain visible and highlighted
@@ -1545,10 +1551,7 @@ class CanvasSnapshot:
                     track_duration=track.duration_seconds, phase_progress=animation_progress,
                     phase_duration=animation_phase_duration, junction=junction,
                 )
-            pose = loop_pose(
-                source.loop_motion, global_seconds, source.loop_motion_period,
-                source.loop_motion_amount, source.width, source.height,
-            )
+            pose = source_loop_pose(source, global_seconds, elapsed_seconds, track_tempo)
             if (source.source_type is SourceType.BACKGROUND
                     and source.background_bass_reactive):
                 level = max(0.0, min(1.0, float(bass_level)))
@@ -1710,7 +1713,8 @@ class CanvasSnapshot:
             for graphics_item, indices in original_subtitle_style_indices:
                 graphics_item._subtitle_line_style_indices = indices
                 graphics_item.update()
-            for (graphics_item, raw, layout, intro_state, word_reveal, word_highlight_ranges, overlap_prior_rows, gap_unblurred, before_first,
+            for (graphics_item, raw, layout, intro_state, word_reveal, word_highlight_ranges, active_words,
+                 overlap_prior_rows, gap_unblurred, before_first,
                  blur_restore_lines, blur_restore_progress, prefetch_line_count, prefetch_progress,
                  prefetch_entry_line_count, strip_window) in original_subtitle_motion:
                 graphics_item._subtitle_transition_raw = raw
@@ -1718,6 +1722,7 @@ class CanvasSnapshot:
                 graphics_item._subtitle_intro_state = intro_state
                 graphics_item._subtitle_word_reveal = word_reveal
                 graphics_item._subtitle_word_highlight_ranges = word_highlight_ranges
+                graphics_item._subtitle_active_words = active_words
                 graphics_item._subtitle_overlap_prior_rows = overlap_prior_rows
                 graphics_item._subtitle_gap_unblurred = gap_unblurred
                 graphics_item._subtitle_before_first = before_first

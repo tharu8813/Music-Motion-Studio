@@ -14,6 +14,7 @@ from threading import Event, Lock
 from time import monotonic
 from PySide6.QtCore import QObject, QThread, Signal, Slot, Qt
 from PySide6.QtWidgets import QApplication
+from app.animation.curves import TrackTempo
 from app.canvas.live_canvas import CanvasScene
 from app.canvas.source_item import SourceItem
 from app.models.project import ProjectDocument
@@ -33,6 +34,7 @@ from app.renderer.native_project_support import (
 )
 from app.timeline.compiler import compile_playlist
 from app.services.lyrics_intro_service import prepare_instrumental_spans
+from app.services.track_tempo_service import prepare_track_tempos
 from app.renderer.native_layer_cache import NativeRasterCache, split_gpu_cover_bands, split_resident_bands
 from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
 from app.renderer.native_text_layers import split_gpu_text_bands
@@ -147,6 +149,7 @@ def produce_complete_project_frames(
     prepared_audio: Path, ffmpeg: str, cancel_event: Event | None = None,
     analysis: PreparedProjectFrameAudio | None = None,
     instrumental_by_track: dict[str, dict[str, tuple]] | None = None,
+    track_tempos: dict[str, TrackTempo] | None = None,
     raster_counters: dict | None = None,
     optimizations: NativeGpuOptimizations | None = None,
     video_sources: dict[str, NativeVideoSource] | None = None,
@@ -178,6 +181,8 @@ def produce_complete_project_frames(
         if s.visible and s.source_type not in DYNAMIC_TYPES
         and (not gpu_video or s.source_type is not SourceType.VIDEO)
     ]
+    if track_tempos is None:
+        track_tempos = prepare_track_tempos(tracks, included, ffmpeg, cancel)
     reactive = [s for s in included if s.uses_bass_reaction]
     scene = CanvasScene()
     raster_cache = None
@@ -278,6 +283,7 @@ def produce_complete_project_frames(
                     compiled_plan=plan,
                     bass_level=bass,
                     music_levels=music,
+                    track_tempos=track_tempos,
                     lyric_instrumental_spans_by_source=instrumental_by_track[state["track"].id],
                     raster_cache=raster_cache,
                     band_states=[band_states[owner] for owner in schedule_owners],
@@ -439,6 +445,7 @@ class GuiProjectFrameSource(QObject):
         self._analysis = None
         self.video_sources = None
         self._instrumental_by_track = None
+        self._track_tempos = None
         self.raster_counters = {}
         self._result = None
         self._error = None
@@ -453,8 +460,12 @@ class GuiProjectFrameSource(QObject):
         self._audio, self._ffmpeg = Path(prepared_audio), str(ffmpeg)
         _check_cancel(self.cancel_event)
         try:
+            tracks = [t for t in self.project.playlist if t.enabled and t.duration_seconds > 0]
+            self._track_tempos = prepare_track_tempos(
+                tracks, self.project.sources, self._ffmpeg, self.cancel_event,
+            )
             self._instrumental_by_track = prepare_instrumental_spans(
-                [t for t in self.project.playlist if t.enabled and t.duration_seconds > 0],
+                tracks,
                 (s for s in self.project.sources if s.visible and s.source_type is SourceType.LYRICS),
                 lambda: _check_cancel(self.cancel_event),
             )
@@ -514,6 +525,7 @@ class GuiProjectFrameSource(QObject):
                     cancel_event=self.cancel_event,
                     analysis=self._analysis,
                     instrumental_by_track=self._instrumental_by_track,
+                    track_tempos=self._track_tempos,
                     raster_counters=self.raster_counters,
                     optimizations=self.optimizations,
                     video_sources=self.video_sources,
@@ -547,5 +559,6 @@ class GuiProjectFrameSource(QObject):
             self._result = None
             self._analysis = None
             self._instrumental_by_track = None
+            self._track_tempos = None
             self._ready.set()
             self.closed.emit()

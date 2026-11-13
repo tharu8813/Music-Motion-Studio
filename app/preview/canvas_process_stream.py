@@ -148,6 +148,7 @@ def _render_band(jobs, replies, stop, status) -> None:
             output_scale=config['scale'], bass_envelopes=config['bass'],
             bass_fps=config['bass_fps'], output_fps=config['fps'],
             instrumental_spans_by_track=config['instrumental'],
+            track_tempos=config['tempos'],
             compiled_plan=config.get('compiled_plan'),
             # The worker owns an isolated serialized snapshot. There are no
             # mutable inspector edits while its export frames are rendered.
@@ -267,6 +268,7 @@ class CanvasProcessStream:
             compiled_plan=getattr(capturer, 'compiled_plan', None),
             dynamic=capturer.dynamic_source_ids, bands=capturer.z_bands,
             scale=capturer.output_scale, bass=capturer.bass_envelopes, bass_fps=capturer.bass_fps,
+            tempos=capturer.track_tempos,
             instrumental=(capturer.instrumental_spans_by_track
                           if capturer.instrumental_spans_by_track is not None else {
                 track.id: {item.source.id: instrumental_spans(track, item.source)

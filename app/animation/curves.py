@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from dataclasses import dataclass
-from math import cos, exp, pi, sin
+from math import cos, exp, isclose, pi, sin
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.source import Source
 
 
 def clamp_progress(value: float) -> float:
@@ -223,6 +228,46 @@ def loop_pose(
     if motion == "none" or amount <= 0.0:
         return AnimationPose()
     cycles = float(seconds) / max(0.1, float(period))
+    return _loop_pose_at_cycle(motion, cycles, amount, width, height)
+
+
+@dataclass(frozen=True, slots=True)
+class TrackTempo:
+    period: float
+    beats: tuple[float, ...] = ()
+
+    def beat_at(self, seconds: float) -> float:
+        """Interpolate between detected beats, extending the tempo past either end."""
+        if not self.beats:
+            return seconds / self.period
+        index = bisect_right(self.beats, seconds) - 1
+        if index < 0:
+            return (seconds - self.beats[0]) / self.period
+        start = self.beats[index]
+        interval = self.beats[index + 1] - start if index + 1 < len(self.beats) else self.period
+        return index + (seconds - start) / interval
+
+
+SAMPLE_TEMPO = TrackTempo(0.5)
+
+
+def source_loop_pose(
+    source: Source, timeline_seconds: float, track_seconds: float, tempo: TrackTempo | None,
+) -> AnimationPose:
+    if tempo is not None and source.uses_tempo_sync and source.loop_motion_amount > 0.0:
+        cycles = tempo.beat_at(track_seconds - source.loop_tempo_offset) / source.loop_tempo_beats
+        boundary = round(cycles)
+        if isclose(cycles, boundary, rel_tol=0.0, abs_tol=1e-9):
+            cycles = boundary
+        return _loop_pose_at_cycle(source.loop_motion, cycles, source.loop_motion_amount,
+                                   source.width, source.height)
+    return loop_pose(source.loop_motion, timeline_seconds, source.loop_motion_period,
+                     source.loop_motion_amount, source.width, source.height)
+
+
+def _loop_pose_at_cycle(
+    motion: str, cycles: float, amount: float, width: float, height: float,
+) -> AnimationPose:
     phase = 2.0 * pi * cycles
     if motion == "float":
         return AnimationPose(dy=-amount * max(4.0, height * 0.04) * sin(phase))

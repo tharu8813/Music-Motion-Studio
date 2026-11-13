@@ -68,6 +68,8 @@ class LyricsSectionTests(unittest.TestCase):
         self.assertEqual(kinds.pop("subtitle_karaoke_lines"), "line")
         self.assertEqual(kinds.pop("subtitle_accent_color"), "color")
         self.assertEqual(kinds.pop("subtitle_karaoke_pending_mode"), "combo")
+        self.assertEqual(kinds.pop("subtitle_karaoke_glow_enabled"), "check")
+        self.assertEqual(kinds.pop("subtitle_karaoke_lift_unit"), "combo")
         self.assertEqual(kinds.pop("subtitle_karaoke_pending_color"), "color")
         self.assertEqual(kinds.pop("subtitle_auto_shrink"), "check")
         self.assertEqual(kinds.pop("subtitle_auto_wrap"), "check")
@@ -85,6 +87,9 @@ class LyricsSectionTests(unittest.TestCase):
             "subtitle_karaoke_offset": False,
             "subtitle_karaoke_pending_mode": False, "subtitle_karaoke_pending_color": False,
             "subtitle_karaoke_pending_brightness": False,
+            "subtitle_karaoke_glow_enabled": False, "subtitle_karaoke_glow_strength": False,
+            "subtitle_karaoke_edge_blur": False, "subtitle_karaoke_lift": False,
+            "subtitle_karaoke_lift_unit": False,
         })
 
     def test_highlight_lines_are_one_based_in_ui_and_preserve_legacy_masks(self) -> None:
@@ -192,9 +197,17 @@ class LyricsSectionTests(unittest.TestCase):
         self.assertEqual(lyrics.subtitle_karaoke_pending_mode, "custom")
         self.assertTrue(inspector._field_visibility["subtitle_karaoke_pending_color"])
         self.assertFalse(inspector._field_visibility["subtitle_karaoke_pending_brightness"])
+        self.assertTrue(inspector._field_visibility["subtitle_karaoke_glow_enabled"])
+        self.assertFalse(inspector._field_visibility["subtitle_karaoke_glow_strength"])
+        inspector.lyrics.widgets["subtitle_karaoke_glow_enabled"].click()
+        self.assertTrue(inspector._field_visibility["subtitle_karaoke_glow_strength"])
+        self.assertFalse(inspector._field_visibility["subtitle_karaoke_lift_unit"])
+        inspector.lyrics.widgets["subtitle_karaoke_lift"].setValue(4)
+        self.assertTrue(inspector._field_visibility["subtitle_karaoke_lift_unit"])
         effect.setCurrentIndex(effect.findData("none"))
         store.add(Source(SourceType.TEXT, "Text"))
         self.assertFalse(inspector._field_visibility["subtitle_karaoke_enabled"])
+        self.assertFalse(inspector._field_visibility["subtitle_karaoke_glow_enabled"])
         self.assertFalse(inspector._field_visibility["subtitle_karaoke_pending_mode"])
         self.assertFalse(inspector._field_visibility["subtitle_karaoke_lines"])
         self.assertTrue(inspector.lyrics_transition_button.isHidden())

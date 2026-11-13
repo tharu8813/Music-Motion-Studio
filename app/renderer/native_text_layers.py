@@ -26,6 +26,7 @@ def supports_gpu_text(source):
         and not (source.shadow.enabled and not source.text_shadow_glyph)
         and not (source.flip_horizontal or source.flip_vertical or source.keyframes.animated)
         and not source.uses_personal_color
+        and not source.uses_karaoke_character_effects
     )
 
 

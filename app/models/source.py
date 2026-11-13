@@ -76,6 +76,9 @@ TEXT_CASES = ("none", "upper", "lower", "capitalize", "small_caps")
 PROGRESS_KNOBS = ("auto", "none", "circle", "bar")
 LOOP_MOTIONS = ("none", "float", "breathe", "pulse", "sway", "spin", "drift", "wobble",
                 "orbit", "shake", "nod", "blink")
+TEMPO_SYNC_MOTIONS = frozenset({"breathe", "pulse", "sway", "spin", "nod"})
+TEMPO_SYNC_BEATS = (0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0)
+TEMPO_SYNC_OFFSET_LIMIT = 2.0
 SHAPE_KINDS = ("rectangle", "circle", "triangle", "diamond", "hexagon", "star", "heart", "arch", "pill")
 MUSIC_REACTIVE_EFFECTS = ("bass_scale", "bass_bounce", "bass_stretch", "bass_tilt")
 MUSIC_REACTIVE_BANDS = ("bass", "mid", "treble", "full")
@@ -258,6 +261,11 @@ class Source:
     subtitle_karaoke_pending_color: str = "#FFFFFF"
     subtitle_karaoke_pending_brightness: float = 0.35
     subtitle_karaoke_lines: list[int] = field(default_factory=list)
+    subtitle_karaoke_glow_enabled: bool = False
+    subtitle_karaoke_glow_strength: float = 0.8
+    subtitle_karaoke_edge_blur: float = 0.0
+    subtitle_karaoke_lift: float = 0.0
+    subtitle_karaoke_lift_unit: str = "character"
     # Optional overrides by physical line position inside each multi-line cue.
     # Empty entries inherit the source's shared typography.
     subtitle_line_styles: list[dict[str, object]] = field(default_factory=list)
@@ -335,6 +343,9 @@ class Source:
     loop_motion: str = "none"
     loop_motion_period: float = 4.0
     loop_motion_amount: float = 1.0
+    loop_tempo_sync: bool = False
+    loop_tempo_beats: float = 1.0
+    loop_tempo_offset: float = 0.0
     music_reactive_enabled: bool = False
     music_reactive_effect: str = "bass_scale"
     music_reactive_strength: float = 0.25
@@ -408,6 +419,24 @@ class Source:
         if self.source_type is SourceType.PARTICLE_OVERLAY:
             return ("fill_color", "particle_secondary_color")
         return ("fill_color",)
+
+    @property
+    def uses_karaoke_character_effects(self) -> bool:
+        return self.source_type is SourceType.LYRICS and self.subtitle_karaoke_enabled and (
+            (self.subtitle_karaoke_glow_enabled and self.subtitle_karaoke_glow_strength > 0)
+            or self.subtitle_karaoke_edge_blur > 0 or self.subtitle_karaoke_lift > 0
+        )
+
+    @property
+    def supports_tempo_sync(self) -> bool:
+        return self.loop_motion in TEMPO_SYNC_MOTIONS and self.source_type not in {
+            SourceType.VIDEO, SourceType.AUDIO_VISUALIZER, SourceType.AUDIO_WAVEFORM,
+            SourceType.AUDIO_LEVEL_METER, SourceType.PARTICLE_OVERLAY,
+        }
+
+    @property
+    def uses_tempo_sync(self) -> bool:
+        return self.loop_tempo_sync and self.supports_tempo_sync
 
     @property
     def uses_bass_reaction(self) -> bool:
@@ -518,6 +547,10 @@ class Source:
             raise ValueError(f"Source '{source.name}' has an invalid frame color.")
         if not isinstance(source.music_reactive_enabled, bool):
             raise ValueError("Music reaction flag must be true or false.")
+        if not isinstance(source.loop_tempo_sync, bool):
+            raise ValueError("Tempo sync flag must be true or false.")
+        if source.loop_tempo_beats not in TEMPO_SYNC_BEATS:
+            raise ValueError("Invalid tempo sync beats per cycle.")
         personal_color_ranges = {
             "personal_color_brightness": (-100.0, 100.0),
             "personal_color_saturation": (-100.0, 100.0),
@@ -570,6 +603,7 @@ class Source:
             ("subtitle_intro_style", ("dots", "breathing", "wave", "bars", "ring", "orbit", "ripple", "comet")),
             ("subtitle_intro_exit", ("shrink", "fade", "drift", "spread", "wipe")),
             ("subtitle_karaoke_pending_mode", ("custom", "dim")),
+            ("subtitle_karaoke_lift_unit", ("character", "word")),
         ):
             if getattr(source, name) not in allowed:
                 raise ValueError(f"Source '{source.name}' has an invalid {name}.")
@@ -583,6 +617,7 @@ class Source:
                        for index in source.subtitle_karaoke_lines)):
             raise ValueError(f"Source '{source.name}' has invalid karaoke line positions.")
         for name in ("subtitle_intro_enabled", "subtitle_intro_midtrack", "subtitle_karaoke_enabled",
+                     "subtitle_karaoke_glow_enabled",
                      "subtitle_auto_shrink", "subtitle_auto_wrap", "subtitle_wrap_to_source"):
             if not isinstance(getattr(source, name), bool):
                 raise ValueError(f"Source '{source.name}' has an invalid {name}.")
@@ -599,6 +634,9 @@ class Source:
             "subtitle_wrap_width": (16.0, 100_000.0),
             "subtitle_karaoke_pending_brightness": (0.0, 1.0),
             "subtitle_karaoke_offset": (-5.0, 5.0),
+            "subtitle_karaoke_glow_strength": (0.0, 1.0),
+            "subtitle_karaoke_edge_blur": (0.0, 16.0),
+            "subtitle_karaoke_lift": (0.0, 16.0),
             "subtitle_animation_duration": (0.05, 3.0),
             "subtitle_motion_distance": (0.0, 200.0),
             "subtitle_stagger": (0.0, 0.8),
@@ -617,6 +655,7 @@ class Source:
             "background_bass_strength": (0.0, 0.2),
             "loop_motion_period": (0.2, 60.0),
             "loop_motion_amount": (0.0, 5.0),
+            "loop_tempo_offset": (-TEMPO_SYNC_OFFSET_LIMIT, TEMPO_SYNC_OFFSET_LIMIT),
             "music_reactive_strength": (0.0, 1.0),
             "music_reactive_attack": (0.0, 3.0),
             "music_reactive_release": (0.0, 5.0),

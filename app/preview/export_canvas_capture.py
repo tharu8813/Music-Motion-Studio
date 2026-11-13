@@ -11,7 +11,7 @@ from math import floor
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QImage
 
-from app.animation.curves import ease_in_out_cubic
+from app.animation.curves import TrackTempo, ease_in_out_cubic
 from app.animation.keyframes import evaluate as evaluate_keyframes
 from app.canvas.live_canvas import CanvasScene
 from app.canvas.source_item import SourceItem
@@ -21,6 +21,7 @@ from app.preview.album_art import AMBIENT_FLOW_HZ
 from app.preview.canvas_snapshot import CanvasSnapshot
 from app.preview.frame_state import (
     resolve_edge_animation, resolve_lyrics_cue_state, resolve_lyrics_intro_state, resolve_now_playing_exit_state,
+    resolve_lyrics_active_words, resolve_lyrics_overlapping_word_ranges,
     resolve_lyrics_word_reveal, resolve_timeline_window_phase,
 )
 from app.preview.text_template import expand_track_template
@@ -50,6 +51,7 @@ class ExportCanvasCapturer:
         bass_fps: int = 30,
         output_fps: int | None = None,
         instrumental_spans_by_track: dict[str, dict[str, tuple]] | None = None,
+        track_tempos: dict[str, TrackTempo] | None = None,
         compiled_plan=None,
         frozen_worker_scene: bool = False,
     ) -> None:
@@ -75,6 +77,7 @@ class ExportCanvasCapturer:
         self.bass_fps = max(1, int(bass_fps))
         self.output_fps = output_fps
         self.instrumental_spans_by_track = instrumental_spans_by_track
+        self.track_tempos = track_tempos or {}
         self._stream_seconds: dict[str, float] = {}
         self._last_stream_images: dict[str, QImage] = {}
         self.skipped_cfr_captures = 0
@@ -251,6 +254,9 @@ class ExportCanvasCapturer:
             intro_state = resolve_lyrics_intro_state(sample.track, source, sample.elapsed_seconds,
                 instrumental_spans(sample.track, source) if self.instrumental_spans_by_track is None
                 else self.instrumental_spans_by_track[sample.track.id][source.id])
+            word_reveal = resolve_lyrics_word_reveal(
+                sample.track, source, sample.elapsed_seconds, cue_state, intro_state,
+            )
             content_state = (
                 "lyrics", id(sample.track), cue_state.cue_index, cue_state.active_cue_index,
                 cue_state.active_cue_indices, cue_state.held_cue_indices,
@@ -259,7 +265,11 @@ class ExportCanvasCapturer:
                 transition, cue_state.release_progress,
                 cue_state.blur_restore_cue_indices, cue_state.blur_restore_progress,
                 intro_state,
-                resolve_lyrics_word_reveal(sample.track, source, sample.elapsed_seconds, cue_state, intro_state),
+                word_reveal,
+                resolve_lyrics_overlapping_word_ranges(
+                    sample.track, source, sample.elapsed_seconds, cue_state, intro_state, word_reveal=word_reveal,
+                ) if source.uses_karaoke_character_effects else (),
+                resolve_lyrics_active_words(sample.track, source, sample.elapsed_seconds, cue_state, intro_state),
             )
         elif source.source_type is SourceType.TRACK_LIST:
             content_state = ("track_list", sample.track_number)
@@ -461,6 +471,7 @@ class ExportCanvasCapturer:
             "junction": sample.junction,
             "bass_level": self._bass_level(sample),
             "music_levels": self._music_reaction_levels(sample, stream_key),
+            "track_tempo": self.track_tempos.get(sample.track.id),
         }
         if sample.animation_phase is not None:
             common.update({

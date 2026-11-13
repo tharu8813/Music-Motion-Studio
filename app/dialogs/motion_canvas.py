@@ -7,7 +7,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsView
 
-from app.animation.curves import AnimationPose, loop_pose, music_reactive_pose
+from app.animation.curves import AnimationPose, SAMPLE_TEMPO, music_reactive_pose, source_loop_pose
 from app.canvas.live_canvas import CanvasScene
 from app.canvas.source_item import SourceItem
 from app.models.source import SourceType
@@ -228,12 +228,12 @@ class MotionCanvas(QGraphicsView):
             elapsed_seconds=local, timeline_seconds=global_time, animation_phase=phase,
             animation_progress=progress, output_scale=scale, bass_level=bass_level, music_levels=music_levels,
             playlist_tracks=playlist_tracks, compiled_plan=compiled_plan, animation_phase_duration=phase_duration, junction=junction,
+            track_tempo=SAMPLE_TEMPO,
             motion_pose_overrides={target.id: AnimationPose() if original else pose})
         if not full_size:
             self.background.setPixmap(QPixmap.fromImage(image))
             self.background.setScale(1 / scale)
-            loop = loop_pose(target.loop_motion, global_time, target.loop_motion_period,
-                             target.loop_motion_amount, target.width, target.height)
+            loop = source_loop_pose(target, global_time, local, SAMPLE_TEMPO)
             total = pose.combined(loop)
             if target.source_type is SourceType.BACKGROUND and target.background_bass_reactive:
                 bass_scale = 1 + max(0, min(1, bass_level))*target.background_bass_strength

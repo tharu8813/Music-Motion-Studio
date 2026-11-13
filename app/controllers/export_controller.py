@@ -88,6 +88,7 @@ from app.services.project_export_preferences import (
 from app.services.subtitle_export_service import SubtitleExportService
 from app.services.lyrics_service import LyricsError
 from app.services.playlist_service import PlaylistService
+from app.services.track_tempo_service import prepare_track_tempos
 from app.timeline.compiler import compile_playlist
 from app.controllers.preview_audio_controller import prepare_audio_for_ui
 from app.services.video_encoder_service import (
@@ -1221,6 +1222,13 @@ class ExportOrchestrator:
             )
             window._export_dialog.set_storage_estimate(actual_storage_estimate)
             self.start_storage_monitor(output)
+            track_tempos = prepare_track_tempos(
+                active_tracks, window.store.sources(), renderer.executable, preparation_cancel,
+                pump_ui=QApplication.processEvents,
+                on_start=lambda: self.report_preparation_progress(
+                    0, "음악 템포 분석 중" if korean else "Analyzing music tempo",
+                ),
+            )
             stream_root = (
                 Path(self.frames.staging.name)
                 if (plan.use_streamed_visuals or plan.use_piped_visuals)
@@ -1257,6 +1265,7 @@ class ExportOrchestrator:
                     report_progress=self.report_preparation_progress,
                     pump_ui=QApplication.processEvents,
                     bass_envelopes=bass_envelopes,
+                    track_tempos=track_tempos,
                 )
 
             export_session = make_session(plan)

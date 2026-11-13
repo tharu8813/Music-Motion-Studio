@@ -13,7 +13,7 @@ from PySide6.QtGui import QTransform
 
 from app.canvas.source_item import SourceItem
 from app.models.source import Source, SourceType
-from app.animation.curves import AnimationPose, animation_pose, loop_pose, music_reactive_pose
+from app.animation.curves import AnimationPose, SAMPLE_TEMPO, music_reactive_pose, source_loop_pose
 from app.animation.custom_motion import source_motion
 from app.renderer.python_visualizer import PythonVisualizerRenderer
 
@@ -54,7 +54,6 @@ class CanvasAnimationPreviewController(QObject):
         def milliseconds(seconds: float) -> int:
             return max(100, min(10000, round(seconds * 1000)))
 
-        width, height = source.width, source.height
         rest = source_motion(source, 1, True) if source.animation_in == "custom" else AnimationPose()
         sequence = QSequentialAnimationGroup(self)
         if source.animation_in != "none":
@@ -64,12 +63,13 @@ class CanvasAnimationPreviewController(QObject):
                 lambda progress: source_motion(source, progress, True),
             ))
         if source.loop_motion != "none":
-            loop_seconds = max(1.5, min(6.0, source.loop_motion_period * 2.0))
+            tempo = SAMPLE_TEMPO if source.uses_tempo_sync else None
+            period = tempo.period * source.loop_tempo_beats if tempo else source.loop_motion_period
+            loop_seconds = max(1.5, min(8.0 if tempo else 6.0, period * 2.0))
             sequence.addAnimation(self._phase(
                 item, source, round(loop_seconds * 1000),
-                lambda progress: rest.combined(loop_pose(
-                    source.loop_motion, progress * loop_seconds, source.loop_motion_period,
-                    source.loop_motion_amount, width, height,
+                lambda progress: rest.combined(source_loop_pose(
+                    source, progress * loop_seconds, progress * loop_seconds, tempo,
                 )),
             ))
         if music_reactive:

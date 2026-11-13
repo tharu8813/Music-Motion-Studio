@@ -17,6 +17,7 @@ import threading
 
 from PySide6.QtGui import QImage
 
+from app.animation.curves import TrackTempo
 from app.models.playlist import PlaylistTrack
 from app.models.source import SourceType
 from app.services.lyrics_intro_service import prepare_instrumental_spans
@@ -112,6 +113,7 @@ class ExportSession:
         report_progress: Callable[[float, str], None],
         pump_ui: Callable[[], None],
         bass_envelopes: dict[object, object] | None = None,
+        track_tempos: dict[str, TrackTempo] | None = None,
     ) -> None:
         self._scene = scene
         self._renderer = renderer
@@ -141,6 +143,7 @@ class ExportSession:
         self._encoder_reached_at: float | None = None
         self._final_render_stopped: Callable[[], str | None] = lambda: None
         self._bass_envelopes = bass_envelopes
+        self._track_tempos = track_tempos
 
     @property
     def capture_count(self) -> int:
@@ -222,6 +225,7 @@ class ExportSession:
             output_scale=plan.canvas_render_scale,
             bass_envelopes=self._prepare_bass_envelopes(),
             bass_fps=self._settings.fps,
+            track_tempos=self._track_tempos,
             output_fps=self._settings.fps if plan.use_streamed_visuals or piped else None,
             instrumental_spans_by_track=instrumental_by_track,
             compiled_plan=getattr(plan, "compiled_plan", None),

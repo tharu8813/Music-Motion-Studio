@@ -19,6 +19,7 @@ from app.models.playlist import PlaylistTrack
 from app.models.source import Source, SourceType
 from app.preview.canvas_snapshot import CanvasSnapshot
 from app.preview.export_canvas_capture import ExportCanvasCapturer
+from app.preview.native_canvas_layer_packets import capture_native_canvas_track_frame, straight_bgra_bytes
 from app.renderer.export_timeline import ExportFrameSample, ExportTimelinePlanner
 from app.renderer.ffmpeg_renderer import RenderFrame
 from app.services.lyrics_service import LyricsError, LyricsService
@@ -336,6 +337,87 @@ class KaraokeTests(unittest.TestCase):
                            ("subtitle_karaoke_pending_brightness", float("nan"))):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 Source.from_dict(saved.to_dict() | {key: value})
+
+    def test_character_glow_strength_rises_without_lighting_other_characters(self):
+        scene, item, track = self.scene("HH", subtitle_karaoke_glow_enabled=True)
+        masses = []
+        for seconds in (1.4, 2.6, 3.4, 5.0):
+            item.source.subtitle_karaoke_glow_enabled = True
+            glow = CanvasSnapshot.capture_track(scene, track, 1, 1, 0, elapsed_seconds=seconds, transparent=True)
+            item.source.subtitle_karaoke_glow_enabled = False
+            base = CanvasSnapshot.capture_track(scene, track, 1, 1, 0, elapsed_seconds=seconds, transparent=True)
+            added = [(x, glow.pixelColor(x, y).alpha() - base.pixelColor(x, y).alpha())
+                     for y in range(65, 175) for x in range(230, 370)
+                     if glow.pixelColor(x, y).alpha() > base.pixelColor(x, y).alpha()]
+            masses.append(sum(alpha for _x, alpha in added))
+            if added:
+                center = sum(x * alpha for x, alpha in added) / masses[-1]
+                self.assertEqual(center < 300, seconds < 3)
+        self.assertGreater(masses[1], masses[0] * 2)
+        self.assertGreater(masses[2], 0)
+        self.assertEqual(masses[3], 0)
+        self.assertEqual(item._subtitle_active_words, ())
+
+    def test_edge_blur_lift_and_export_match_at_same_playhead(self):
+        scene, item, track = self.scene("HH", subtitle_karaoke_pending_mode="custom",
+                                        subtitle_karaoke_pending_color="#00FF00")
+        source = item.source
+        seconds = 2.0
+        def capture():
+            return CanvasSnapshot.capture_track(scene, track, 1, 1, 0, elapsed_seconds=seconds)
+
+        sharp = capture()
+        source.subtitle_karaoke_edge_blur = 12.0
+        soft = capture()
+        self.assertNotEqual(soft, sharp)
+        mixed_pixels = [soft.pixelColor(x, y) for y in range(75, 165) for x in range(250, 350)]
+        self.assertTrue(any(color.red() > 40 and color.green() > 40 for color in mixed_pixels))
+        source.subtitle_karaoke_lift = 8.0
+        character = capture()
+        self.assertNotEqual(character, soft)
+        for unit in ("character", "word"):
+            source.subtitle_karaoke_lift_unit = unit
+            expected = capture()
+            capturer = ExportCanvasCapturer(
+                scene, [track], 8, set(), [(None, None)],
+                lambda image, duration, _key: RenderFrame(image, duration),
+                lambda: None, lambda *_: None,
+            )
+            sample = ExportFrameSample(track, 1, 0, 0.1, seconds, seconds)
+            self.assertEqual(capturer.capture(sample).image, expected)
+            native = capture_native_canvas_track_frame(scene, track, [(None, None)], elapsed_seconds=seconds)
+            self.assertEqual(native.layers[0].pixels, straight_bgra_bytes(expected))
+        self.assertNotEqual(capture(), character)
+        self.assertTrue(Source.from_dict(source.to_dict()).uses_karaoke_character_effects)
+        track.lyrics[0]["format"] = "lrc"
+        untimed = capture()
+        source.subtitle_karaoke_lift = source.subtitle_karaoke_edge_blur = 0
+        self.assertEqual(capture(), untimed)
+        source.subtitle_karaoke_lift = 8
+        source.subtitle_karaoke_enabled = False
+        no_karaoke = capture()
+        source.subtitle_karaoke_lift = source.subtitle_karaoke_edge_blur = 0
+        self.assertEqual(capture(), no_karaoke)
+
+    def test_character_effects_keep_wrapped_rows_and_overlapping_words_independent(self):
+        scene, item, track = self.scene(
+            "한글 🎵 e\u0301 테스트", subtitle_auto_wrap=True, subtitle_wrap_to_source=False,
+            subtitle_wrap_width=110, subtitle_karaoke_glow_enabled=True, subtitle_karaoke_lift=3,
+        )
+        cue = track.lyrics[0]
+        cue["words"] = [
+            {"start": 1, "end": 4, "text": "한글 🎵", "offset": 0},
+            {"start": 2, "end": 5, "text": "e\u0301 테스트", "offset": 5},
+        ]
+        self.assertEqual(lyrics_renderer._grapheme_boundaries("한🎵e\u0301"), (0, 1, 2, 4))
+        self.assertEqual(len(LyricsService.active_word_spans(cue, 2.5)[0]), 2)
+        with patch.object(lyrics_renderer, "_paint_karaoke_effects",
+                          wraps=lyrics_renderer._paint_karaoke_effects) as effects:
+            enabled = CanvasSnapshot.capture_track(scene, track, 1, 1, 0, elapsed_seconds=2.5)
+            self.assertGreater(effects.call_count, 1)
+        item.source.subtitle_karaoke_glow_enabled = False
+        item.source.subtitle_karaoke_lift = 0
+        self.assertNotEqual(enabled, CanvasSnapshot.capture_track(scene, track, 1, 1, 0, elapsed_seconds=2.5))
 
     def test_unselected_translation_never_gets_estimated_word_highlights(self):
         scene, item, track = self.scene("Hello\nWorld", subtitle_karaoke_lines=[0])

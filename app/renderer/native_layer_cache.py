@@ -7,7 +7,7 @@ from PySide6.QtGui import QImage, QTransform
 from time import monotonic
 import os
 
-from app.animation.curves import loop_pose
+from app.animation.curves import source_loop_pose
 from app.animation.custom_motion import source_motion
 from app.animation.keyframes import evaluate as evaluate_keyframes
 from app.canvas.source_item import SourceItem
@@ -374,16 +374,13 @@ class NativeRasterCache:
         self.translation_frames += 1
         return replace(texture, inverse_transform=(1, 0, 0, 1, -x, -y), clip=(x, y, r, b))
 
-    def cover_motion_layer(self, scene, key, sample, output_scale, width, height):
+    def cover_motion_layer(self, scene, key, sample, output_scale, width, height, track_tempo=None):
         item = self.cover_items.get(key)
         if item is None:
             return None
         source = item.source
         seconds = max(0.0, sample.timeline_seconds)
-        pose = loop_pose(
-            source.loop_motion, seconds, source.loop_motion_period,
-            source.loop_motion_amount, source.width, source.height,
-        )
+        pose = source_loop_pose(source, seconds, sample.elapsed_seconds, track_tempo)
         edge = resolve_edge_animation(
             source, sample.animation_phase, elapsed_seconds=sample.elapsed_seconds,
             track_duration=sample.track.duration_seconds,

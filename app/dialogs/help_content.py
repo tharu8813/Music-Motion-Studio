@@ -426,6 +426,7 @@ _CANVAS = (
 <ul>
 <li><b>시작 효과 / 종료 효과</b>: 없음, 페이드, 왼쪽·오른쪽·위쪽·아래쪽 슬라이드, 줌, 줌 아웃, 팝, 통통 튀기, 떠오르기, 떨어지기, 회전, 스핀, 흔들며 등장, 뒤집기</li>
 <li><b>반복 모션</b>: 둥실 떠다니기·숨쉬기·맥박·흔들림·회전·떠돌기·출렁임·타원 궤도·좌우 떨림·끄덕이기·깜빡임. 반복 주기와 강도를 조절합니다. 영상 요소에서는 반복 모션을 지원하지 않습니다.</li>
+<li><b>템포 동기화</b>는 숨쉬기·맥박·흔들림·회전·끄덕이기를 곡의 박자에 맞춥니다. <b>반복당 박 수</b>가 4이면 네 박마다 한 번 반복합니다. <b>박자 보정 (초)</b>은 양수로 늦추고 음수로 앞당깁니다. 전체 미리보기와 내보내기에 적용되며 박자를 찾지 못한 곡은 기존 반복 주기를 사용합니다. 영상과 오디오 시각화 요소에서는 사용할 수 없습니다.</li>
 <li><b>시작 / 종료 시간</b>: 각 효과가 재생되는 길이(초)</li>
 <li><b>키프레임으로 만들기...</b>를 선택하고 <b>키프레임 편집...</b>으로 <a href='topic:custom_motion'>시각적 편집기</a>를 엽니다. 시작과 끝은 따로 저장합니다.</li>
 <li>크로스페이드나 AutoMix에서는 두 곡이 겹치는 구간의 가운데에서 화면이 다음 곡으로 넘어갑니다. 관련 옵션으로 종료 효과가 겹침 구간에 맞춰 재생되도록 할 수 있습니다.</li>
@@ -437,6 +438,7 @@ _CANVAS = (
 <ul>
 <li><b>Entrance / exit effect</b>: none, fade, slide left/right/up/down, zoom, zoom out, pop, bounce, float up, drop, rotate, spin, wobble in, flip</li>
 <li><b>Loop motion</b>: Float, Breathe, Pulse, Sway, Spin, Drift, Wobble, Orbit, Shake, Nod or Blink. Adjust the period and amount. Video sources do not support loop motion.</li>
+<li><b>Sync to tempo</b> matches Breathe, Pulse, Sway, Spin or Nod to the track's beat. Set <b>Beats per cycle</b> to 4 to repeat every four beats. A positive <b>Beat offset (s)</b> delays the motion and a negative value advances it. This applies to Full Preview and export. Tracks without a detected tempo use the saved loop period. Available for sources other than video and audio visualizations.</li>
 <li><b>Entrance / exit duration</b>: how long each effect plays (seconds)</li>
 <li>Choose <b>Create with keyframes...</b>, then <b>Edit keyframes...</b> to open the <a href='topic:custom_motion'>visual editor</a>. Entrance and exit are stored independently.</li>
 <li>With crossfade or AutoMix the screen switches to the next track in the middle of the overlap; an option lets the exit effect line up with that overlap.</li>
@@ -1134,6 +1136,7 @@ _LYRICS = (
 <li>검색 결과를 선택해 내용을 확인하고 <b>가사 텍스트 복사</b>로 시간 정보를 제외한 글자만 복사하거나 <b>파일로 저장</b>으로 원본 TTML/LRC 파일을 저장할 수 있습니다. <b>곡에 적용</b>으로 선택한 곡에 연결하며 기존 가사가 있으면 비교 후 교체합니다. 시간 정보 없는 가사는 TXT로 저장하거나 텍스트를 복사할 수 있습니다. 결과 내 검색은 Ctrl+Shift+F로 이용할 수 있습니다.</li>
 <li><b>실시간 가사 설정</b>: 캔버스의 <b>가사/자막 요소 → 속성 → 실시간 가사</b>에서 사용 여부, 강조할 줄, 색상과 단어 강조 보정을 설정합니다. 해당 요소에 표시되는 모든 곡에 공통으로 적용되며, 곡별 파일 연결과 타이밍 보정은 <b>곡 정보/설정 → 가사 설정</b>에서 관리합니다.</li>
 <li><b>실시간 가사</b>: LRC·SRT·VTT는 각 가사 시작 시간에 줄 전체를 활성화하고 다음 가사 시간에 전환합니다. 첫 가사 시작 전에는 다음 가사 스타일로 대기하며, 대기 표시를 켜면 인트로 임시 줄이 표시됩니다. TTML은 파일의 줄·단어·음절 시간을 사용합니다. 음악을 분석하거나 단어 시간을 추정하지 않습니다.</li>
+<li><b>실시간 가사 · 글자 효과</b>: 단어·음절 시간이 들어 있는 TTML에서 <b>글자 글로우</b>를 켜면 채워지는 글자가 점점 밝게 빛납니다. <b>채움 경계 흐림</b>으로 부른 부분과 대기 중인 부분을 부드럽게 연결하고, <b>위로 뜨는 높이</b>와 <b>움직임 단위</b>로 글자 또는 단어·음절이 살짝 올라갔다 내려오게 할 수 있습니다. 흐림과 높이는 0이면 꺼집니다.</li>
 <li>TTML 가사는 종료 시간까지 현재 상태를 유지합니다. 동시에 진행되는 가사는 한 묶음으로 중앙에 표시합니다. 가사 사이 공백에서는 마지막에 끝난 줄의 블러만 해제하고, 다음 가사가 시작하면 전환 시간에 맞춰 블러를 복원합니다. 전체 가사가 끝난 뒤에는 마지막 줄에도 이전 가사 블러를 적용합니다.</li>
 <li>같은 곡의 가사 파일이 여러 개면 자동 연결 설정이 '항상 함께 추가'여도 파일 선택창이 나타납니다. 취소하면 가사를 연결하지 않습니다.</li>
 <li><b>자동 연결</b>: 음악을 추가할 때 같은 폴더에 이름이 같은 가사 파일이 있으면 함께 연결합니다. <b>도구 → 설정 → 콘텐츠 → 가사·자막 파일 자동 연결</b>에서 항상 함께 추가(권장) · 물어보기 · 추가하지 않음을 고릅니다. 이름이 비슷한 파일은 설정과 관계없이 물어봅니다.</li>
@@ -1147,6 +1150,7 @@ _LYRICS = (
 <li>Choose a result to preview, use <b>Copy lyrics text</b> for words without timestamps, or <b>Save file</b> for the original TTML/LRC file. <b>Attach to track</b> connects it to the chosen song, comparing existing lyrics before replacement. Untimed lyrics can be copied or saved as TXT. Ctrl+Shift+F filters the existing results.</li>
 <li><b>Real-time lyric settings</b>: select the canvas <b>Lyrics/Subtitles element → Properties → Real-time lyrics</b> to set enabled state, highlighted lines, colors and word highlight offset. These settings apply to every track displayed by that element. Manage individual lyric attachments and timing offsets in <b>Track information/settings → Lyrics settings</b>.</li>
 <li><b>Real-time lyrics</b>: LRC, SRT and VTT activate each complete line at its start time and switch at the next cue. Before the first cue, lyrics use the upcoming style; enabling the wait indicator displays a temporary intro row. TTML uses the file's line, word and syllable timings. No audio analysis or word timing estimation is used.</li>
+<li><b>Real-time lyrics · Character effects</b>: With word- or syllable-timed TTML, <b>Character glow</b> brightens as each character fills. <b>Fill edge blur</b> softens the transition between sung and pending colors. <b>Lift height</b> and <b>Lift unit</b> make a character or a timed word/syllable rise and settle as it is sung. Set edge blur or lift height to 0 to turn that effect off.</li>
 <li>TTML lyrics stay current until their end times. Overlapping lyrics form one centered group. In gaps, only the last completed group's blur is disabled; it returns over the transition duration when the next cue starts. After all lyrics end, the final group also uses the previous-lyric blur.</li>
 <li>Multiple lyric files for one song always open a file chooser, even when automatic attachment is set to Always. Cancel leaves lyrics unattached.</li>
 <li><b>Automatic</b>: when you add music, a lyric file with the same name in the same folder is attached. Choose always (recommended), ask, or never in <b>Tools → Settings → Content → Attach lyric and subtitle files</b>. Similarly named files are always asked about.</li>

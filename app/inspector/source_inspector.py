@@ -1674,6 +1674,10 @@ class SourceInspector(QScrollArea):
 
     def _update_animation_preview_button(self, _value: object = None) -> None:
         source = self.store.get(self._source_id)
+        sources = self._selected_sources()
+        self.motion.widgets["loop_tempo_sync"].setEnabled(
+            bool(sources) and all(entry.supports_tempo_sync for entry in sources)
+        )
         for edge, combo, button in (("in", self.animation_in_combo, self.animation_in_edit_button),
                                      ("out", self.animation_out_combo, self.animation_out_edit_button)):
             button.setText("키프레임 편집..." if self.translator.is_korean else "Edit keyframes...")
@@ -1948,9 +1952,9 @@ class SourceInspector(QScrollArea):
             "애니메이션 미리보기" if korean else "Preview animation"
         )
         self.animation_preview_button.setToolTip(
-            "등장·종료·반복 모션을 캔버스에서 재생합니다. 음악 반응은 예시 박자로 보여 주며, 실제 음악 반응은 메인 재생 미리보기에서 확인하세요."
+            "등장·종료·반복 모션을 캔버스에서 재생합니다. 음악 반응과 템포 동기화는 예시로 재생합니다. 실제 곡에 맞춘 움직임은 전체 미리보기에서 확인할 수 있습니다."
             if korean else
-            "Play entrance, exit and loop motion. Music reaction uses sample hits here; use Full Preview to see the actual track response."
+            "Play entrance, exit and loop motion. Music reaction and tempo sync use sample beats here. Use Full Preview to see the motion with the actual track."
         )
         self.text_edit.setPlaceholderText(
             "%title% · %artist% · %album%"
