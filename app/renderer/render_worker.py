@@ -27,6 +27,7 @@ from app.renderer.ffmpeg_renderer import (
     VisualizerOverlay,
     VideoClipOverlay,
 )
+from app.renderer.native_gpu_stream import NativeGpuPreflightError
 from app.utils.logging_setup import report_unexpected_error
 
 
@@ -39,6 +40,7 @@ class RenderWorker(QThread):
     progress = Signal(str, float, str)
     succeeded = Signal(object)
     failed = Signal(str)
+    native_preflight_failed = Signal(str)
     cancelled = Signal()
     storage_path_changed = Signal(str, object)
 
@@ -118,7 +120,6 @@ class RenderWorker(QThread):
         try:
             if self.native_project is not None:
                 from app.renderer.native_project_export import export_project_document
-                self.progress.emit("Preparing audio", 0.0, "Preparing GPU export audio and analysis")
                 result = export_project_document(
                     self.native_project, self.output_path, fps=self.settings.fps,
                     scale=self.native_scale, ffmpeg=str(self.renderer.executable),
@@ -151,6 +152,8 @@ class RenderWorker(QThread):
                 )
         except RenderCancelledError:
             self.cancelled.emit()
+        except NativeGpuPreflightError as error:
+            self.native_preflight_failed.emit(str(error))
         except RenderError as error:
             self.failed.emit(str(error))
         except Exception as error:

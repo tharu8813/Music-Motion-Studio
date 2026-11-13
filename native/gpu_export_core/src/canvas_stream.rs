@@ -1,7 +1,7 @@
 //! MMSB v1: little-endian <4sI Q I Q>, JSON metadata then ordered BGRA planes.
 //! One frame in flight; ACK follows upload/submission, never just pipe receipt.
 use std::io::Read;
-use crate::qt_canvas_packet::{parse_qt_canvas_packet, parse_qt_canvas_packet_value, CanvasPacketFrame, MAX_FRAME_BYTES, MAX_LAYERS};
+use crate::qt_canvas_packet::{parse_qt_canvas_packet, parse_qt_canvas_packet_with_refs, CanvasPacketFrame, MAX_FRAME_BYTES, MAX_LAYERS};
 
 pub fn read_frame(reader: &mut impl Read, index: u64) -> Result<Option<CanvasPacketFrame>, String> {
     let mut header = [0u8; 28];
@@ -105,7 +105,7 @@ fn read_frame_with_refs(
     let mut remaining = payload;
     let mut previous = previous;
     let mut layer_index = 0usize;
-    let frame = parse_qt_canvas_packet_value(&root, parallel, |_, size| {
+    let frame = parse_qt_canvas_packet_with_refs(&root, parallel, |_, size| {
         let i = layer_index;
         layer_index += 1;
         // v3 checks encoded lengths, algorithms and the total payload before
@@ -129,6 +129,7 @@ fn read_frame_with_refs(
             // Same key/order, dimensions and pixels. Opacity and transform may
             // change independently, and must come from the new manifest.
             if old.stream_key != layers[i]["stream_key"].as_str().unwrap_or("")
+                || old.kind() != layers[i]["kind"].as_str()
                 || old.geometry.width as u64 !=
                     layers[i]["width"].as_u64().unwrap_or(root["width"].as_u64().unwrap_or(0))
                 || old.geometry.height as u64 !=
@@ -138,9 +139,10 @@ fn read_frame_with_refs(
             }
             // The preceding frame has already been fully submitted to the
             // GPU before the worker reads this frame. Ownership transfer
-            // avoids allocating and copying a second BGRA plane (up to
-            // 31.6 MiB at 4K); the shared parser still checks its SHA-256.
-            Ok(std::mem::take(&mut old.pixels))
+            // avoids a second BGRA allocation and hash; the shared parser
+            // compares the incoming hash with the original validated one.
+            let (pixels, digest) = old.take_validated_pixels();
+            Ok((pixels, Some(digest)))
         } else {
             if expected_version == 3 && !matches!(algorithm, "lz4" | "raw") {
                 return Err("Binary-v3 unknown compression algorithm".into());
@@ -172,7 +174,7 @@ fn read_frame_with_refs(
                 pixels
             };
             remaining -= encoded_size as u64;
-            Ok(pixels)
+            Ok((pixels, None))
         }
     })?;
     if remaining != 0 || layer_index != layers.len() {

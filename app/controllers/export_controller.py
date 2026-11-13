@@ -999,7 +999,7 @@ class ExportOrchestrator:
             renderer.prevent_output_overwrite = True
             if self.start_gpu_export(renderer, active_tracks, output, export_options):
                 return
-            export_options.engine_combo.setCurrentIndex(0)
+            export_options.engine_combo.setCurrentIndex(export_options.engine_combo.findData("ffmpeg"))
             quality_profile_name = export_options.quality_mode_combo.currentText()
         resolved = self.resolve_render_settings(
             renderer, requested_app_settings, output,
@@ -1373,6 +1373,7 @@ class ExportOrchestrator:
         window = self.window
         settings = replace(options.app_settings, video_codec="h264_nvenc").render_settings()
         project = deepcopy(window._project_document())
+        optimization_profile = NativeGpuOptimizations.for_profile("automatic")
         width, height = project.canvas.width, project.canvas.height
         scale = settings.output_width / width
         try:
@@ -1382,8 +1383,9 @@ class ExportOrchestrator:
                 raise RenderError("Rust GPU requires a new MP4 filename; existing output will not be overwritten.")
             if round(height * scale) != settings.output_height:
                 raise RenderError("GPU output must preserve the project Canvas aspect ratio.")
-            validate_project_for_gpu_capture(project, scale=scale, source_policy="dynamic-audio")
-            build_dynamic_stack(project, scale)
+            validate_project_for_gpu_capture(project, scale=scale, source_policy="dynamic-audio",
+                                             gpu_video=optimization_profile.gpu_video)
+            build_dynamic_stack(project, scale, gpu_video=optimization_profile.gpu_video)
             resolve_native_executable()
         except (RenderError, ValueError) as error:
             # Show only the selected language, not a mixed Korean/English
@@ -1416,6 +1418,7 @@ class ExportOrchestrator:
                 detail_ko = "내보낼 수 있는 활성 재생 목록이 없습니다."
                 detail_en = "There are no enabled playlist tracks to export."
             elif ("unsupported project sources" in reason
+                  or "native_video_frame_provider_unavailable" in reason
                   or "requires_separate_export_overlay" in reason
                   or "contains separately-rendered dynamic sources" in reason):
                 detail_ko = "현재 프로젝트에 GPU 내보내기에서 지원하지 않는 영상 또는 효과가 있습니다."
@@ -1454,7 +1457,6 @@ class ExportOrchestrator:
         # The Rust GPU engine automatically enables its proven pipeline/ROI
         # optimizations and adaptively offloads large BGRA conversion jobs.
         # No per-export GUI speed selector or global environment mutation.
-        optimization_profile = NativeGpuOptimizations.for_profile("automatic")
         cancel = threading.Event()
         source = GuiProjectFrameSource(
             project, fps=settings.fps, scale=scale, cancel_event=cancel,
@@ -1486,7 +1488,8 @@ class ExportOrchestrator:
         )
         dialog.set_export_details(len(tracks), window._playlist_duration(tracks),
                                   gpu_label, output)
-        dialog.set_busy("Preparing audio", "Preparing GPU export")
+        checking_gpu = "선택한 내보내기 설정 확인 중" if korean else "Checking selected export settings"
+        dialog.set_busy("Checking GPU", checking_gpu)
         dialog.setWindowModality(Qt.WindowModality.WindowModal)
         dialog.cancel_requested.connect(worker.cancel)
         dialog.minimize_requested.connect(window._minimize_during_export)
@@ -1494,7 +1497,7 @@ class ExportOrchestrator:
             dialog, stage, fraction, message, 0.0,
         ))
         worker.storage_path_changed.connect(window._handle_export_storage_path)
-        state = {"closed": False, "finished": False, "error": None}
+        state = {"closed": False, "finished": False, "error": None, "gpu_unavailable": False}
 
         def finish_when_closed():
             if not state["closed"] or not state["finished"]:
@@ -1505,13 +1508,26 @@ class ExportOrchestrator:
                 if cancel.is_set():
                     self.cancelled()
                 elif not Path(output).exists():
-                    retry = QMessageBox.question(
-                        window, "GPU → FFmpeg",
-                        f"GPU 내보내기 오류 / GPU export failed:\n{state['error']}\n\n"
-                        "기존 FFmpeg로 다시 내보낼까요? / Retry with FFmpeg?",
-                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                        QMessageBox.StandardButton.Yes,
-                    ) == QMessageBox.StandardButton.Yes
+                    if state["gpu_unavailable"]:
+                        QMessageBox.information(
+                            window, "GPU 내보내기를 사용할 수 없음" if korean else "GPU export unavailable",
+                            (
+                                "선택한 설정이나 영상 소스로 Rust GPU 내보내기를 시작할 수 없습니다.\n\n"
+                                "FFmpeg 방식으로 내보내기를 계속합니다."
+                            ) if korean else (
+                                "Rust GPU export could not start with the selected settings or video sources.\n\n"
+                                "Continuing with FFmpeg export."
+                            ),
+                        )
+                        retry = True
+                    else:
+                        retry = QMessageBox.question(
+                            window, "GPU → FFmpeg",
+                            f"GPU 내보내기 오류 / GPU export failed:\n{state['error']}\n\n"
+                            "기존 FFmpeg로 다시 내보낼까요? / Retry with FFmpeg?",
+                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                            QMessageBox.StandardButton.Yes,
+                        ) == QMessageBox.StandardButton.Yes
                     if retry:
                         if window._export_dialog:
                             window._export_dialog.complete(False)
@@ -1523,7 +1539,7 @@ class ExportOrchestrator:
             self.finished()
             source.deleteLater()
             if retry:
-                options.engine_combo.setCurrentIndex(0)
+                options.engine_combo.setCurrentIndex(options.engine_combo.findData("ffmpeg"))
                 # Keep the editor snapshot unchanged until FFmpeg preparation starts.
                 window._lock_main_form_for_export()
 
@@ -1547,14 +1563,20 @@ class ExportOrchestrator:
         def record_error(message):
             state["error"] = message
 
+        def record_probe_error(message):
+            logging.warning("Native GPU hardware preflight rejected: %s", message)
+            state["gpu_unavailable"] = True
+            record_error(message)
+
         source.closed.connect(mark_closed)
         worker.finished.connect(mark_finished)
         worker.failed.connect(record_error)
+        worker.native_preflight_failed.connect(record_probe_error)
         worker.succeeded.connect(self.succeeded)
         worker.cancelled.connect(self.cancelled)
         window._lock_main_form_for_export()
         self._video_export_started_at = monotonic()
-        window.activity_progress.begin("export", "GPU export", detail="Preparing audio")
+        window.activity_progress.begin("export", "GPU export", detail=checking_gpu)
         try:
             if options.save_as_default:
                 window.settings_service.save(options.app_settings)

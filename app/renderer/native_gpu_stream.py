@@ -10,7 +10,7 @@ remain ordered, and Qt methods never run on that sender thread.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import CancelledError, ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import replace
 import json
@@ -37,6 +37,70 @@ from app.renderer.ffmpeg_renderer import (
 from app.renderer.native_gpu_export import finalize_native_gpu_mp4
 from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
 from app.services.video_encoder_service import DEFAULT_NATIVE_NVENC_PRESET, NATIVE_NVENC_PRESETS
+from app.utils.cancellable_subprocess import run_probe
+
+
+_DEFAULT_FRAME_SLOTS = 2
+
+
+class NativeGpuPreflightError(RenderError):
+    """The native worker cannot start an encoder with the selected settings."""
+
+
+def _encoding_arguments(width, height, fps, slots, preset, cq) -> list[str]:
+    if preset not in NATIVE_NVENC_PRESETS or type(cq) is not int or not 0 <= cq <= 51:
+        raise NativeGpuPreflightError("Invalid Rust GPU NVENC preset or quality value.")
+    args = ["--width", str(width), "--height", str(height), "--fps", str(fps), "--slots", str(slots)]
+    if preset != DEFAULT_NATIVE_NVENC_PRESET:
+        args.extend(("--nvenc-preset", preset))
+    if cq:
+        args.extend(("--nvenc-cq", str(cq)))
+    return args
+
+
+def probe_native_gpu(executable: Path, settings: RenderSettings, *, cancel_event: Event,
+                     required_canvas_schema: int = 2, capabilities: dict | None = None,
+                     video_sources=(), query_radial: bool = False) -> int:
+    """Open the requested GPU pipeline and return its Windows adapter identity."""
+    arguments = [str(executable), "--probe", "1", *_encoding_arguments(
+        settings.output_width, settings.output_height, settings.fps, _DEFAULT_FRAME_SLOTS,
+        settings.native_nvenc_preset, settings.native_nvenc_cq,
+    )]
+    for source in video_sources:
+        arguments.extend(("--video-source", str(source.path)))
+    try:
+        result = run_probe(arguments, cancel_event=cancel_event, timeout=10, output_limit=8192)
+    except CancelledError as exc:
+        raise RenderCancelledError("Native GPU export was cancelled.") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise NativeGpuPreflightError("Native GPU compatibility check timed out.") from exc
+    except OSError as exc:
+        raise NativeGpuPreflightError(f"Could not launch the native GPU compatibility check: {exc}") from exc
+    if result.returncode:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise NativeGpuPreflightError(detail or f"GPU compatibility check exited with code {result.returncode}.")
+    try:
+        report = json.loads(result.stdout)
+        adapter = report["adapter_luid"]
+        if report["status"] == "ready" and type(adapter) is int and 0 <= adapter < 2**64:
+            if required_canvas_schema not in report.get("canvas_packet_schemas", (1, 2)):
+                if required_canvas_schema == 5:
+                    raise NativeGpuPreflightError("Native GPU worker needs an update for video decoding.")
+                if required_canvas_schema == 4:
+                    raise NativeGpuPreflightError("Native GPU worker needs an update for text drawing.")
+                raise NativeGpuPreflightError("Native GPU worker needs an update for particle drawing.")
+            if capabilities is not None:
+                limit = report.get("canvas_layer_limit")
+                if type(limit) is int and limit > 0:
+                    capabilities["canvas_layer_limit"] = limit
+                elif not query_radial or required_canvas_schema >= 4:
+                    raise NativeGpuPreflightError("Native GPU worker did not report its Canvas layer limit.")
+                if query_radial:
+                    capabilities["gpu_radial"] = 6 in report.get("canvas_packet_schemas", ())
+            return adapter
+    except (ValueError, KeyError, TypeError):
+        pass
+    raise NativeGpuPreflightError("Native GPU worker returned an invalid compatibility result.")
 
 
 def _abort_worker(worker: subprocess.Popen) -> None:
@@ -81,12 +145,15 @@ def stream_native_canvas_h264(
     frames: Iterable[NativeCanvasFrame | DeferredNativeCanvasFrame], *,
     executable: Path, video_path: Path, report_path: Path,
     width: int, height: int, fps: int, duration_seconds: float,
-    expected_frames: int, slots: int = 2, cancel_event: Event | None = None,
+    expected_frames: int, slots: int = _DEFAULT_FRAME_SLOTS, cancel_event: Event | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
     acknowledgement_timeout: float = 90.0,
     optimizations: NativeGpuOptimizations | None = None,
     native_nvenc_preset: str = DEFAULT_NATIVE_NVENC_PRESET,
     native_nvenc_cq: int = 0,
+    adapter_luid: int | None = None,
+    video_sources=(),
+    encoder_flush_callback: Callable[[], None] | None = None,
 ) -> dict:
     """Stream CFR frames with bounded memory and an upload/submission ACK.
 
@@ -103,9 +170,7 @@ def stream_native_canvas_h264(
         raise RenderError("The installed native D3D11 NVENC export executable is missing.")
     if os.name != "nt":
         raise RenderError("Native D3D11 GPU export requires Windows.")
-    if (native_nvenc_preset not in NATIVE_NVENC_PRESETS
-            or type(native_nvenc_cq) is not int or not 0 <= native_nvenc_cq <= 51):
-        raise RenderError("Invalid Rust GPU NVENC preset or quality value.")
+    encoding_args = _encoding_arguments(width, height, fps, slots, native_nvenc_preset, native_nvenc_cq)
     if not (1 <= fps <= 240 and 64 <= width <= 3840 and 64 <= height <= 2160
             and width % 2 == 0 and height % 2 == 0 and 2 <= slots <= 8
             and isinstance(expected_frames, int)
@@ -134,17 +199,16 @@ def stream_native_canvas_h264(
         input_format = ("binary-v3" if compressed_transport
                         else "binary-v2" if reuse_enabled else "binary-v1")
         args = [
-            str(exe), "--width", str(width), "--height", str(height),
-            "--fps", str(fps), "--expected-frames", str(expected_frames),
+            str(exe), *encoding_args, "--expected-frames", str(expected_frames),
             "--duration-seconds", format(duration_seconds, ".17g"),
-            "--slots", str(slots), "--video-output", str(video),
+            "--video-output", str(video),
             "--output", str(report), "--input-format",
             input_format,
         ]
-        if native_nvenc_preset != DEFAULT_NATIVE_NVENC_PRESET:
-            args.extend(("--nvenc-preset", native_nvenc_preset))
-        if native_nvenc_cq:
-            args.extend(("--nvenc-cq", str(native_nvenc_cq)))
+        if adapter_luid is not None:
+            args.extend(("--adapter-luid", str(adapter_luid)))
+        for source in video_sources:
+            args.extend(("--video-source", str(source.path)))
         shared_packet = None
         if reuse_enabled and optimizations is not None and optimizations.parallel_packet_validation:
             args.extend(("--parallel-packet-validation", "1"))
@@ -398,6 +462,8 @@ def stream_native_canvas_h264(
                     progress_callback(index + 1, expected_frames)
             if overlap_enabled:
                 finish_pending()
+            if encoder_flush_callback is not None:
+                encoder_flush_callback()
             try:
                 next(source)
             except StopIteration:
@@ -429,6 +495,8 @@ def stream_native_canvas_h264(
                     or result.get("production_export_scope") != "production_complete_playlist"
                     or result.get("frames_encoded") != expected_frames):
                 raise RenderError("Native GPU producer did not complete the entire timeline.")
+            if adapter_luid is not None and result.get("adapter_luid") != adapter_luid:
+                raise RenderError("Native GPU worker used a different adapter than the compatibility check.")
             if cancel.is_set():
                 raise RenderCancelledError("Native GPU export was cancelled.")
             # Phase counters measure wall-clock time, not hardware load.
@@ -455,6 +523,7 @@ def stream_native_canvas_h264(
                 frame_sha256_seconds=frame_write_timings.get("sha256_seconds", 0.0),
                 frame_sha256_wall_seconds=frame_write_timings.get("sha256_wall_seconds", 0.0),
                 frame_sha256_bytes=frame_write_timings.get("sha256_bytes", 0),
+                frame_sha256_reused_bytes=frame_write_timings.get("sha256_reused_bytes", 0),
                 frame_pipe_syswrite_seconds=frame_write_timings.get("pipe_syswrite_seconds", 0.0),
                 frame_pipe_syswrite_calls=frame_write_timings.get("pipe_syswrite_calls", 0),
                 frame_shared_packet_enabled=shared_packet is not None,
@@ -546,6 +615,8 @@ def render_native_gpu_playlist(
     mux_progress_callback: Callable[[str, float, str], None] | None = None,
     storage_path_callback=None,
     optimizations: NativeGpuOptimizations | None = None,
+    adapter_luid: int | None = None,
+    video_sources=(),
 ) -> RenderResult:
     """Full native production hand-off: lazy frames -> H264 -> final AAC MP4.
 
@@ -553,6 +624,12 @@ def render_native_gpu_playlist(
     has supplied full-timeline frames in original Z order.
     """
     count = math.ceil(compiled_plan.duration_seconds * settings.fps - 1e-9)
+
+    def report_encoder_flush():
+        if mux_progress_callback is not None:
+            mux_progress_callback("Finishing GPU encoding", 0.0,
+                                  "Writing the last encoded frames to H.264")
+
     with tempfile.TemporaryDirectory(prefix="mms-native-complete-") as staging:
         root = Path(staging)
         if storage_path_callback is not None:
@@ -568,6 +645,9 @@ def render_native_gpu_playlist(
             optimizations=optimizations,
             native_nvenc_preset=settings.native_nvenc_preset,
             native_nvenc_cq=settings.native_nvenc_cq,
+            adapter_luid=adapter_luid,
+            encoder_flush_callback=report_encoder_flush,
+            **({"video_sources": video_sources} if video_sources else {}),
         )
         ffprobe = Path(renderer.executable).with_name(
             "ffprobe.exe" if os.name == "nt" else "ffprobe",

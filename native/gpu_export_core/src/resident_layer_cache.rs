@@ -59,6 +59,9 @@ impl<T> ResidentLayerCache<T> {
         }
         let mut keys = HashSet::new();
         for layer in &frame.layers {
+            if layer.video.is_some() {
+                continue;
+            }
             if !keys.insert(layer.stream_key.as_str()) || layer.geometry.width == 0 || layer.geometry.height == 0
                 || layer.geometry.width > 3840 || layer.geometry.height > 2160
                 || layer.pixels.len() != layer.geometry.width as usize * layer.geometry.height as usize * 4 {
@@ -69,6 +72,9 @@ impl<T> ResidentLayerCache<T> {
         self.entries.retain(|key, _| keys.contains(key.as_str()));
         self.counters.releases += (before - self.entries.len()) as u64;
         for layer in &frame.layers {
+            if layer.video.is_some() {
+                continue;
+            }
             let plane = layer.pixels.len();
             let dimensions = (layer.geometry.width, layer.geometry.height);
             if self.entries.get(&layer.stream_key).is_some_and(|e| e.dimensions != dimensions) {
@@ -122,7 +128,7 @@ mod tests {
             let validated_sha256 = Sha256::digest(&pixels).into();
             CanvasPacketLayer {
                 stream_key: key.to_string(), opacity: 1.0, pixels,
-                geometry: LayerGeometry::identity(2, 2), validated_sha256,
+                geometry: LayerGeometry::identity(2, 2), particle_sprites: false, radial_segments: false, text_quads: Vec::new(), video: None, validated_sha256,
             }
         }).collect() }
     }
@@ -217,7 +223,7 @@ mod tests {
             let validated_sha256 = Sha256::digest(&pixels).into();
             CanvasPacketLayer {
                 stream_key: key.into(), opacity, pixels,
-                geometry: LayerGeometry::identity(128, 128), validated_sha256,
+                geometry: LayerGeometry::identity(128, 128), particle_sprites: false, radial_segments: false, text_quads: Vec::new(), video: None, validated_sha256,
             }
         };
         let mut packet = CanvasPacketFrame { width: 128, height: 128, layers: vec![

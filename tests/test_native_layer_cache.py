@@ -45,6 +45,19 @@ class RasterCacheTests(unittest.TestCase):
         return capture_native_canvas_track_frame(self.scene, self.track, bands,
             elapsed_seconds=t, playlist_duration_seconds=2, raster_cache=cache)
 
+    def assert_compact_layer_pixels(self, compact, original):
+        self.assertLess(len(compact.pixels), len(original.pixels))
+        x, y, right, bottom = compact.clip
+        self.assertEqual((right - x, bottom - y), (compact.width, compact.height))
+        self.assertEqual(compact.inverse_transform, (1, 0, 0, 1, -x, -y))
+        restored = bytearray(len(original.pixels))
+        stride = compact.width * 4
+        for row in range(compact.height):
+            dest = ((y + row) * original.width + x) * 4
+            start = row * stride
+            restored[dest:dest + stride] = compact.pixels[start:start + stride]
+        self.assertEqual(bytes(restored), original.pixels)
+
     def test_personal_color_is_shared_by_bands_and_keyed_by_track_artwork(self):
         for z_index in (0, 1):
             self.add(Source(SourceType.SHAPE, f"Color {z_index}",
@@ -83,13 +96,15 @@ class RasterCacheTests(unittest.TestCase):
         ))
         bands = ((None, 0), (1, None))
         cache = NativeRasterCache(self.scene, bands, 2, optimizations=NativeGpuOptimizations(
-            partial_bands=True, compact_bands=True,
+            partial_bands=True, compact_bands=True, trim_transparent_bands=True,
         ))
         self.addCleanup(cache.clear)
         reference = self.capture(bands, 0)
         actual = self.capture(bands, 0, cache)
-        self.assertEqual(actual, reference)
+        self.assertEqual(actual.layers[0], reference.layers[0])
+        self.assert_compact_layer_pixels(actual.layers[1], reference.layers[1])
         self.assertEqual(cache.partial_band_captures, 0)
+        self.assertEqual(cache.compact_band_captures, 1)
         self.assertIsNone(CanvasSnapshot.band_capture_envelope(self.scene, 1, None))
 
     def test_identical_static_pixels_repaint_once_including_alpha_rotation_effects_clip(self):
@@ -793,6 +808,43 @@ class RasterCacheTests(unittest.TestCase):
             self.assertEqual(cache.compact_band_captures, 0)
             self.assertEqual(cache.compact_canvas_bytes_saved, 0)
             self.assertFalse(any(layer.inverse_transform for layer in frame.layers))
+
+    def test_lyric_band_trims_only_transparent_pixels_after_paint(self):
+        self.add(Source(SourceType.SHAPE, "Base", width=128, height=128, z_index=0))
+        lyrics = Source(
+            SourceType.LYRICS, "Lyrics", x=40, y=24, width=60, height=76,
+            rotation=7, font_size=16, z_index=2, text_stroke_width=2,
+            subtitle_karaoke_enabled=True, subtitle_previous_blur=3.5,
+        )
+        lyrics.shadow.enabled = True
+        self.add(lyrics)
+        self.track.lyrics = [
+            {"start": 0.0, "end": 0.7, "text": "첫 줄"},
+            {"start": 0.7, "end": 2.0, "text": "둘째 줄",
+             "words": [{"start": 0.7, "end": 1.7, "text": "둘째 줄"}]},
+        ]
+        bands = ((None, 0), (2, None))
+        automatic = NativeRasterCache(self.scene, bands, 2,
+                                      optimizations=NativeGpuOptimizations.for_profile("automatic"))
+        self.addCleanup(automatic.clear)
+        optimizations = NativeGpuOptimizations(
+            partial_bands=True, compact_bands=True, trim_transparent_bands=True,
+        )
+        cache = NativeRasterCache(self.scene, bands, 2, optimizations=optimizations)
+        self.addCleanup(cache.clear)
+
+        for elapsed in (0.4, 0.75, 1.4):
+            with self.subTest(elapsed=elapsed):
+                original = self.capture(bands, elapsed).layers[1]
+                automatic_frame = self.capture(bands, elapsed, automatic)
+                if isinstance(automatic_frame, DeferredNativeCanvasFrame):
+                    automatic_frame = automatic_frame.resolve()
+                self.assertEqual(automatic_frame.layers[1], original)
+                compact = self.capture(bands, elapsed, cache).layers[1]
+                self.assert_compact_layer_pixels(compact, original)
+        self.assertEqual(cache.partial_band_captures, 0)
+        self.assertEqual(cache.compact_band_captures, 3)
+        self.assertGreater(cache.compact_canvas_bytes_saved, 0)
 
     def test_opt_in_partial_band_does_not_crop_full_screen_or_opaque_base(self):
         self.add(Source(SourceType.SHAPE, "Base", width=128, height=128, z_index=0))

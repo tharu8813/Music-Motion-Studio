@@ -9,6 +9,7 @@ import struct
 from itertools import chain
 from time import monotonic
 from statistics import median
+from app.preview.native_canvas_layer_packets import NativeCanvasTextLayer, NativeCanvasVideoLayer
 
 try:
     from lz4 import block as _lz4
@@ -17,10 +18,11 @@ except ImportError:  # Installed releases pin lz4; older source environments use
 
 
 class FrameReuseState:
-    """Sender-local previous frame identities; never holds QImage pixels."""
+    """Sender-local previous frame identities and bounded immutable byte references."""
 
     def __init__(self):
         self.previous = {}
+        self.pixel_refs = {}
         self.reused_planes = 0
         self.saved_bytes = 0
 
@@ -120,7 +122,7 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
     if v3_wire and reuse_state is None:
         raise ValueError("Native v3 transport requires a previous-frame state")
     version = 3 if (v3_wire or compress_planes) else 2 if reuse_state is not None else 1
-    sizes = [layer.width * layer.height * 4 for layer in frame.layers]
+    sizes = [getattr(layer, "payload_bytes", layer.width * layer.height * 4) for layer in frame.layers]
     total_size = sum(sizes)
     if (not 2 <= frame.width <= 3840 or not 2 <= frame.height <= 2160
             or frame.width % 2 or frame.height % 2
@@ -136,32 +138,37 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
 
     parallel = executor is not None and len(frame.layers) >= 2 and total_size >= 1 << 20
     started_hash = monotonic() if timings is not None else 0.0
-    if parallel:
-        digests = list(executor.map(_hash_pixels, (layer.pixels for layer in frame.layers)))
-    else:
-        digests = [_hash_pixels(layer.pixels) for layer in frame.layers]
+    refs = reuse_state.pixel_refs if reuse_state is not None else {}
+    cached = []
+    for layer in frame.layers:
+        prior_pixel = refs.get(layer.stream_key)
+        cached.append(prior_pixel[1] if prior_pixel is not None and prior_pixel[0] is layer.pixels else None)
+    pending = [layer.pixels for layer, digest in zip(frame.layers, cached) if digest is None]
+    computed = iter(executor.map(_hash_pixels, pending) if parallel and len(pending) > 1
+                    else map(_hash_pixels, pending))
+    digests = [next(computed) if digest is None else (digest, 0.0) for digest in cached]
     if timings is not None:
         _metric(timings, "sha256_wall_seconds", monotonic() - started_hash)
 
     prior = reuse_state.previous if reuse_state is not None else {}
     reused = [
         prior.get("base" if i == 0 else f"layer:{i-1}")
-        == (layer.width, layer.height, digests[i][0])
+        == (layer.width, layer.height, digests[i][0], getattr(layer, "packet_kind", None))
         for i, layer in enumerate(frame.layers)
     ]
     next_digests = {
         "base" if i == 0 else f"layer:{i-1}":
-        (layer.width, layer.height, digests[i][0])
+        (layer.width, layer.height, digests[i][0], getattr(layer, "packet_kind", None))
         for i, layer in enumerate(frame.layers)
     }
 
-    for i, (digest, elapsed) in enumerate(digests):
+    for i, (_digest, elapsed) in enumerate(digests):
         _metric(timings, "sha256_seconds", elapsed)
-        _metric(timings, "sha256_bytes", sizes[i])
+        _metric(timings, "sha256_bytes" if cached[i] is None else "sha256_reused_bytes", sizes[i])
 
     encoded = {}
     if compress_planes:
-        candidates = [i for i, reuse in enumerate(reused) if not reuse]
+        candidates = [i for i, reuse in enumerate(reused) if not reuse and sizes[i]]
         started_lz4 = monotonic() if timings is not None else 0.0
         if parallel and len(candidates) >= 2:
             results = list(executor.map(_encode_pixels,
@@ -203,8 +210,17 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
         layer_lz4 = False
         info = dict(file=f"layer-{i}.bgra", stream_key=key, z_order=i,
                     opacity=layer.opacity, bytes=size, sha256=digests[i][0])
-        if frame.schema == 2:
+        if frame.schema >= 2:
             info.update(width=layer.width, height=layer.height)
+            if (kind := getattr(layer, "packet_kind", None)) is not None:
+                info["kind"] = kind
+            if isinstance(layer, NativeCanvasTextLayer):
+                info["quads"] = layer.quads
+            if isinstance(layer, NativeCanvasVideoLayer):
+                info.update(asset=layer.asset, media_time=layer.media_time, media_limit=layer.media_limit,
+                            crop=layer.crop,
+                            flip_horizontal=layer.flip_horizontal, flip_vertical=layer.flip_vertical,
+                            border_radius=layer.border_radius, saturation=layer.saturation)
             if layer.inverse_transform is not None:
                 info["inverse_transform"] = layer.inverse_transform
             if layer.clip is not None:
@@ -250,6 +266,12 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
         raise ValueError("Binary frame metadata exceeds limit")
     if reuse_state is not None:
         reuse_state.previous = next_digests
+        # One strong reference per stream is enough to prove object identity
+        # across frames. This owns no additional copy of any BGRA data.
+        reuse_state.pixel_refs = {
+            layer.stream_key: (layer.pixels, digest[0]) for layer, digest in zip(frame.layers, digests)
+            if isinstance(layer.pixels, bytes)
+        }
         reuse_state.reused_planes += sum(reused)
         reuse_state.saved_bytes += sum(size for size, reused_flag in zip(sizes, reused)
                                        if reused_flag)

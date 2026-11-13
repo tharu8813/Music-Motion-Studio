@@ -17,6 +17,7 @@ from app.preview.native_canvas_layer_packets import NativeCanvasFrame, NativeCan
 from app.renderer.ffmpeg_renderer import RenderCancelledError, RenderError, RenderResult
 from app.renderer.native_project_frames import GuiProjectFrameSource, produce_complete_project_frames
 from app.renderer.native_project_export import export_project_document, resolve_native_executable, NATIVE_EXECUTABLE
+from app.renderer.native_gpu_stream import NativeGpuPreflightError
 from app.renderer.native_project_support import TimelineValidationError, validate_project_for_gpu_capture
 from app.renderer.native_project_support import resolve_project_frame
 from app.renderer.native_dynamic_layers import build_dynamic_stack
@@ -202,18 +203,14 @@ class RuntimeContracts(unittest.TestCase):
         self.assertIsInstance(errors[0], RenderCancelledError)
 
     def test_unsupported_features_fail_before_audio(self):
-        for kind in ("video", "transition", "equal_z", "missing_image"):
+        for kind in ("video", "transition", "missing_image"):
             project = project_fixture()
             if kind == "video":
                 project.sources.append(Source(SourceType.VIDEO, "Video"))
             elif kind == "transition":
                 project.settings.transition_mode = "crossfade"
-            elif kind == "missing_image":
-                project.sources.append(Source(SourceType.IMAGE, "Missing image"))
             else:
-                project.sources.append(Source(SourceType.AUDIO_VISUALIZER, "Spectrum",
-                    z_index=3 if kind == "equal_z" else 8,
-                    rotation=10 if kind == "rotation" else 0))
+                project.sources.append(Source(SourceType.IMAGE, "Missing image"))
             with self.subTest(kind=kind), patch("app.renderer.native_project_export.FFmpegRenderer") as renderer:
                 with self.assertRaises(ValueError):
                     export_project_document(project, "new.mp4", native_exe="mock.exe")
@@ -324,20 +321,51 @@ class RuntimeContracts(unittest.TestCase):
             source.cancel_event = cancel
             result = RenderResult(root / "new.mp4", 1)
             progress = MagicMock()
+            calls = MagicMock()
             with patch("app.renderer.native_project_export.FFmpegRenderer") as renderer, \
+                 patch("app.renderer.native_project_export.probe_native_gpu", return_value=42) as probe, \
                  patch("app.renderer.native_project_export.render_native_gpu_playlist", return_value=result) as render:
+                calls.attach_mock(probe, "probe")
+                calls.attach_mock(renderer.return_value.prepare_playlist_audio, "audio")
                 renderer.return_value.prepare_playlist_audio.return_value = root / "audio.wav"
                 actual = export_project_document(project, result.output_path, native_exe=exe,
-                    fps=60, scale=.25, cancel_event=cancel, progress_callback=progress, frame_source=source)
+                    fps=60, scale=.25, cancel_event=cancel, progress_callback=progress, frame_source=source,
+                    native_nvenc_preset="p5", native_nvenc_cq=19)
             self.assertEqual(actual.output_path, result.output_path)
             self.assertEqual(actual.track_count, result.track_count)
             self.assertIn("completed_wall_seconds", actual.native_report)
             self.assertIs(render.call_args.kwargs["cancel_event"], cancel)
             self.assertIs(render.call_args.kwargs["progress_callback"], progress)
             self.assertEqual(render.call_args.kwargs["compiled_plan"].duration_seconds, 1)
+            self.assertEqual(render.call_args.kwargs["adapter_luid"], 42)
+            self.assertEqual([call[0] for call in calls.mock_calls], ["probe", "audio"])
+            settings = probe.call_args.args[1]
+            self.assertEqual((settings.output_width, settings.output_height, settings.fps), (320, 180, 60))
+            self.assertEqual((settings.native_nvenc_preset, settings.native_nvenc_cq), ("p5", 19))
             source.prepare.assert_called_once()
             source.close.assert_called()
 
+    def test_failed_hardware_preflight_skips_audio_and_closes_frame_source(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            exe = root / "native.exe"
+            exe.touch()
+            target = root / "new.mp4"
+            project, cancel, source = project_fixture(), Event(), MagicMock()
+            source.project, source.fps, source.scale = project, 60, .25
+            source.cancel_event = cancel
+            with patch("app.renderer.native_project_export.FFmpegRenderer") as renderer, \
+                 patch("app.renderer.native_project_export.probe_native_gpu",
+                       side_effect=NativeGpuPreflightError("no encoder")), \
+                 patch("app.renderer.native_project_export.render_native_gpu_playlist") as render:
+                with self.assertRaisesRegex(NativeGpuPreflightError, "no encoder"):
+                    export_project_document(project, target, native_exe=exe,
+                                            frame_source=source, cancel_event=cancel, scale=.25)
+            renderer.return_value.prepare_playlist_audio.assert_not_called()
+            render.assert_not_called()
+            source.prepare.assert_not_called()
+            source.close.assert_called_once()
+            self.assertFalse(target.exists())
 
 if __name__ == "__main__":
     unittest.main()

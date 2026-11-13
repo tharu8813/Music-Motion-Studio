@@ -47,7 +47,6 @@ from app.renderer.ffmpeg_renderer import (
     WORK_MODE_STABLE,
 )
 from app.services.video_encoder_service import (
-    AUTO_VIDEO_ENCODER,
     CPU_H264_ENCODER,
     NVIDIA_H264_ENCODER,
     VideoEncoderAdvisor,
@@ -57,6 +56,11 @@ from tests.main_window_base import MainWindowTestCase
 
 
 class MainWindowExportTests(MainWindowTestCase):
+    @staticmethod
+    def _accept_legacy_export(dialog):
+        dialog.engine_combo.setCurrentIndex(dialog.engine_combo.findData("ffmpeg"))
+        return QDialog.DialogCode.Accepted
+
     def test_close_during_export_preparation_cancels_then_resumes_close(self) -> None:
         preparation_cancel = threading.Event()
         dialog = MagicMock()
@@ -209,16 +213,16 @@ class MainWindowExportTests(MainWindowTestCase):
             Path("beginner-export.mp4"), canvas_size=(1920, 1080),
         )
         try:
+            self.assertEqual(dialog.engine_combo.currentData(), "native_gpu")
             self.assertEqual(dialog.quality_mode_combo.currentData(), "balanced")
             self.assertTrue(dialog.advanced_group.isHidden())
             self.assertIn("권장", dialog.quality_mode_combo.currentText())
             self.assertIn("예상 작업량", dialog.workload_label.text())
             self.assertIn("권장", dialog.quality_description_label.text())
             settings = dialog.app_settings
-            self.assertEqual(settings.video_codec, AUTO_VIDEO_ENCODER)
             self.assertEqual(
-                (settings.crf, settings.preset, settings.audio_bitrate),
-                ExportSettingsDialog.QUALITY_PROFILES["balanced"],
+                (settings.native_nvenc_cq, settings.native_nvenc_preset),
+                ExportSettingsDialog.NATIVE_QUALITY_PROFILES["balanced"],
             )
         finally:
             dialog.close()
@@ -263,9 +267,8 @@ class MainWindowExportTests(MainWindowTestCase):
                 dialog.quality_mode_combo.findData("fast")
             )
             self.assertEqual(
-                (dialog.crf_spin.value(), dialog.preset_combo.currentText(),
-                 dialog.audio_bitrate_combo.currentText()),
-                ExportSettingsDialog.QUALITY_PROFILES["fast"],
+                (dialog.native_cq_spin.value(), dialog.native_preset_combo.currentData()),
+                ExportSettingsDialog.NATIVE_QUALITY_PROFILES["fast"],
             )
             self.assertIn("빠르게", dialog.quality_description_label.text())
 
@@ -273,14 +276,13 @@ class MainWindowExportTests(MainWindowTestCase):
                 dialog.quality_mode_combo.findData("high")
             )
             self.assertEqual(
-                (dialog.crf_spin.value(), dialog.preset_combo.currentText(),
-                 dialog.audio_bitrate_combo.currentText()),
-                ExportSettingsDialog.QUALITY_PROFILES["high"],
+                (dialog.native_cq_spin.value(), dialog.native_preset_combo.currentData()),
+                ExportSettingsDialog.NATIVE_QUALITY_PROFILES["high"],
             )
             self.assertIn("파일이 커", dialog.quality_description_label.text())
 
             dialog.advanced_check.setChecked(True)
-            dialog.crf_spin.setValue(17)
+            dialog.native_cq_spin.setValue(19)
             self.assertEqual(dialog.quality_mode_combo.currentData(), "custom")
             self.assertFalse(dialog.advanced_group.isHidden())
         finally:
@@ -970,10 +972,7 @@ class MainWindowExportTests(MainWindowTestCase):
         with (
             patch("app.controllers.export_controller.FFmpegRenderer") as renderer_type,
             patch("app.controllers.export_controller.RenderWorker") as worker_type,
-            patch(
-                "app.controllers.export_controller.ExportSettingsDialog.exec",
-                return_value=QDialog.DialogCode.Accepted,
-            ),
+            patch.object(ExportSettingsDialog, "exec", self._accept_legacy_export),
             patch.object(CanvasSnapshot, "capture_track") as capture,
             patch.object(QMessageBox, "critical") as critical_message,
         ):
@@ -1070,8 +1069,7 @@ class MainWindowExportTests(MainWindowTestCase):
                 # This test covers the intermediate-file path.
                 patch("app.preview.export_plan.piped_export_supported",
                       return_value=False),
-                patch("app.controllers.export_controller.ExportSettingsDialog.exec",
-                      return_value=QDialog.DialogCode.Accepted),
+                patch.object(ExportSettingsDialog, "exec", self._accept_legacy_export),
                 patch.object(CanvasSnapshot, "z_bands",
                              return_value=[(None, 1.0), (1.0, None)]),
                 patch.object(
@@ -1214,8 +1212,7 @@ class MainWindowExportTests(MainWindowTestCase):
                 # This test covers the intermediate-file path.
                 patch("app.preview.export_plan.piped_export_supported",
                       return_value=False),
-                patch("app.controllers.export_controller.ExportSettingsDialog.exec",
-                      return_value=QDialog.DialogCode.Accepted),
+                patch.object(ExportSettingsDialog, "exec", self._accept_legacy_export),
                 patch.object(CanvasSnapshot, "z_bands", return_value=[(None, None)]),
                 patch.object(CanvasSnapshot, "capture_track", side_effect=capture_static),
                 patch.object(self.window, "_stage_export_frame") as png_stage,
@@ -1292,8 +1289,7 @@ class MainWindowExportTests(MainWindowTestCase):
         with (
             patch("app.controllers.export_controller.FFmpegRenderer") as renderer_type,
             patch("app.preview.export_session.StaticVideoStreamEncoder", EncoderStub),
-            patch("app.controllers.export_controller.ExportSettingsDialog.exec",
-                  return_value=QDialog.DialogCode.Accepted),
+            patch.object(ExportSettingsDialog, "exec", self._accept_legacy_export),
             patch.object(CanvasSnapshot, "z_bands", return_value=[(None, None)]),
             patch.object(CanvasSnapshot, "invariant_stream_keys", return_value=set()),
             patch.object(CanvasSnapshot, "split_mixed_capture_bands", return_value=[(None, None)]),
@@ -1738,10 +1734,24 @@ class MainWindowExportTests(MainWindowTestCase):
             self.assertIn("마무리 별도", dialog.time_label.text())
             self.assertIn("프레임 진행 22.0%", dialog.detail_label.text())
             self.assertIn("10.0 FPS", dialog.detail_label.text())
-            with patch("app.dialogs.export_progress_dialog.monotonic", return_value=40.0):
-                dialog.update_progress("Finalizing export", .86, "Muxing audio")
-            self.assertIn("남은 시간 계산 중", dialog.time_label.text())
-            self.assertNotIn("영상 처리 약", dialog.time_label.text())
+            dialog.update_progress("Encoding video", .85, "Rust GPU: 1000/1000 frames")
+            self.assertIn("영상 프레임 처리 완료", dialog.time_label.text())
+            for stage, title, progress, detail in (
+                ("Finishing GPU encoding", "GPU 인코딩 마무리", .85,
+                 "Writing the last encoded frames to H.264"),
+                ("Checking H.264 video", "H.264 영상 검사", .865,
+                 "Reading the encoded video and checking its frame count"),
+                ("Saving MP4", "MP4 저장", .88, "Muxing prepared video and audio"),
+                ("Checking MP4", "MP4 최종 검사", .985,
+                 "Checking video and audio timing before publishing the file"),
+            ):
+                with self.subTest(stage=stage):
+                    dialog.update_progress(stage, progress, detail)
+                    self.assertEqual(dialog.stage_label.text(), title)
+                    self.assertNotEqual(dialog.detail_label.text(), detail)
+                    self.assertIn("영상 프레임 처리 완료", dialog.time_label.text())
+                    self.assertNotIn("영상 처리 약", dialog.time_label.text())
+                    self.assertEqual(dialog.step_labels[3].property("stepState"), "active")
         finally:
             dialog.complete(False)
 

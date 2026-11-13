@@ -122,6 +122,18 @@ class TransportTests(unittest.TestCase):
         self.assertGreater(measurements["pipe_syswrite_calls"], 0)
         self.assertGreaterEqual(measurements["pipe_syswrite_seconds"], 0)
 
+    def test_immutable_previous_plane_reuses_digest_without_changing_wire(self):
+        state, timings = FrameReuseState(), {}
+        sample = frame()
+        list(frame_chunks(sample, 0, reuse_state=state, timings=timings))
+        list(frame_chunks(sample, 1, reuse_state=state, timings=timings))
+        self.assertEqual(timings["sha256_bytes"], 16)
+        self.assertEqual(timings["sha256_reused_bytes"], 16)
+        sample.layers[0].pixels = bytes(bytearray(sample.layers[0].pixels))
+        header, *_ = frame_chunks(sample, 2, reuse_state=state, timings=timings)
+        self.assertEqual(HEADER.unpack(header)[-1], 0)
+        self.assertEqual(timings["sha256_bytes"], 32)
+
     def test_per_layer_wire_accounting_keeps_packets_identical(self):
         def make_frame(top):
             base = NS(

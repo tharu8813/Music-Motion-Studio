@@ -159,8 +159,8 @@ class ExportSettingsDialog(AdaptiveDialog):
         render_form = QFormLayout(render_group)
         self.engine_label = QLabel()
         self.engine_combo = QComboBox()
-        self.engine_combo.addItem("FFmpeg", "ffmpeg")
-        self.engine_combo.addItem("Rust GPU", "native_gpu")
+        self.engine_combo.addItem("", "native_gpu")
+        self.engine_combo.addItem("", "ffmpeg")
         render_form.addRow(self.engine_label, self.engine_combo)
         self.resolution_label = QLabel()
         self.fps_label = QLabel()
@@ -235,10 +235,7 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.output_group = output_group
         self.track_count = track_count
         self.duration_seconds = duration_seconds
-        initial_profile = self._matching_quality_profile(
-            settings.crf, settings.preset, settings.audio_bitrate,
-            settings.video_codec,
-        )
+        initial_profile = self._current_quality_profile()
         self._populate_quality_modes(initial_profile)
         self.advanced_group.setVisible(initial_profile == "custom")
         self.advanced_check.setChecked(initial_profile == "custom")
@@ -367,23 +364,25 @@ class ExportSettingsDialog(AdaptiveDialog):
             self._applying_quality_profile = False
         self._update_quality_description()
 
-    def _advanced_value_changed(self, _value: object = None) -> None:
-        if self._applying_quality_profile:
-            return
+    def _current_quality_profile(self) -> str:
         audio_bitrate = self.audio_bitrate_combo.currentText()
         if self._uses_native_encoder:
             values = (self.native_cq_spin.value(), self.native_preset_combo.currentData())
-            matching = next((
+            return next((
                 name for name, profile in self.NATIVE_QUALITY_PROFILES.items()
                 if profile == values and self.QUALITY_PROFILES[name][2] == audio_bitrate
             ), "custom")
-        else:
-            matching = self._matching_quality_profile(
-                self.crf_spin.value(), self.preset_combo.currentText(),
-                audio_bitrate, str(self.codec_combo.currentData()),
-            )
-            if self.sender() is self.codec_combo:
-                matching = "custom"
+        return self._matching_quality_profile(
+            self.crf_spin.value(), self.preset_combo.currentText(),
+            audio_bitrate, str(self.codec_combo.currentData()),
+        )
+
+    def _advanced_value_changed(self, _value: object = None) -> None:
+        if self._applying_quality_profile:
+            return
+        matching = self._current_quality_profile()
+        if not self._uses_native_encoder and self.sender() is self.codec_combo:
+            matching = "custom"
         index = self.quality_mode_combo.findData(matching)
         if index >= 0 and index != self.quality_mode_combo.currentIndex():
             blocked = self.quality_mode_combo.blockSignals(True)
@@ -418,8 +417,8 @@ class ExportSettingsDialog(AdaptiveDialog):
         }
         if self._uses_native_encoder:
             descriptions["balanced"] = (
-                "화질은 NVENC에 맡기고 균형 잡힌 인코딩 속도를 사용합니다.",
-                "Uses automatic NVENC quality and a balanced encoding speed.",
+                "권장 설정입니다. 화질은 NVENC에 맡기고 균형 잡힌 인코딩 속도를 사용합니다.",
+                "Recommended default. Uses automatic NVENC quality and a balanced encoding speed.",
             )
             descriptions["custom"] = (
                 "고급 인코딩 설정에서 Rust GPU의 화질, 속도, 오디오 비트레이트를 조절할 수 있습니다.",
@@ -722,6 +721,14 @@ class ExportSettingsDialog(AdaptiveDialog):
         self.filename_label.setText("파일 이름" if korean else "File name")
         self.output_directory_label.setText("저장 폴더" if korean else "Save folder")
         self.engine_label.setText("엔진" if korean else "Engine")
+        self.engine_combo.setItemText(
+            self.engine_combo.findData("native_gpu"),
+            "Rust GPU (베타)" if korean else "Rust GPU (Beta)",
+        )
+        self.engine_combo.setItemText(
+            self.engine_combo.findData("ffmpeg"),
+            "FFmpeg (레거시)" if korean else "FFmpeg (Legacy)",
+        )
         self.advanced_group.setTitle(
             ("오디오 설정" if korean else "Audio settings") if self.audio_only else
             ("고급 인코딩 설정" if korean else "Advanced encoding settings")

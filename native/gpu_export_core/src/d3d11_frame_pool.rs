@@ -18,6 +18,7 @@ use windows::Win32::Graphics::Direct3D11::{
 };
 use crate::d3d11_bgra_video::{NativeBgraNv12VideoProcessor, NativeCanvasBgraLayer};
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_NV12;
+use windows::Win32::Graphics::Dxgi::IDXGIAdapter;
 use crate::d3d11_nv12::{nv12_size, NativeD3d11Nv12Surface};
 
 pub const MIN_SLOTS: usize = 2;
@@ -96,10 +97,16 @@ impl NativeNv12FramePool {
     /// Allocate a bounded ring of NV12 textures on exactly one hardware
     /// D3D11 device, without allocating another D3D11 device per frame.
     pub fn new(width: u32, height: u32, slots: usize) -> Result<Self, String> {
+        Self::new_for_adapter(width, height, slots, None)
+    }
+
+    pub fn new_for_adapter(
+        width: u32, height: u32, slots: usize, adapter: Option<&IDXGIAdapter>,
+    ) -> Result<Self, String> {
         if !(MIN_SLOTS..=MAX_SLOTS).contains(&slots) {
             return Err(format!("D3D11 pool capacity must be {MIN_SLOTS}..={MAX_SLOTS}"));
         }
-        let source = NativeD3d11Nv12Surface::new(width, height)?;
+        let source = NativeD3d11Nv12Surface::new_for_adapter(width, height, adapter)?;
         let mut entries = Vec::with_capacity(slots);
         for _ in 0..slots {
             let query_desc = D3D11_QUERY_DESC {

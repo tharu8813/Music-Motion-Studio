@@ -15,9 +15,11 @@ import json
 from concurrent.futures import CancelledError
 from dataclasses import replace
 from fractions import Fraction
+from hashlib import sha256
 import math
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 from threading import Event
@@ -82,42 +84,42 @@ def _load_native_production_report(
 def _probe_complete_h264(
     ffprobe: str | Path, path: Path, *,
     width: int, height: int, fps: int, frame_count: int,
-    cancel_event: Event | None,
+    cancel_event: Event, count_packets: bool,
 ) -> None:
-    if cancel_event is not None and cancel_event.is_set():
+    if cancel_event.is_set():
         raise RenderCancelledError("Native GPU export was cancelled.")
+    counter = "nb_read_packets" if count_packets else "nb_read_frames"
     try:
         arguments = [
-            str(ffprobe), "-v", "error", "-f", "h264", "-count_frames",
-            "-show_entries", "stream=codec_name,width,height,nb_read_frames,has_b_frames",
+            str(ffprobe), "-v", "error", "-f", "h264",
+            "-count_packets" if count_packets else "-count_frames",
+            "-show_entries", f"stream=codec_name,width,height,{counter},has_b_frames",
             "-of", "json", str(path),
         ]
-        # Full frame counting is retained for correctness. A fixed 180s cap
-        # incorrectly rejects long timelines even when decoding is progressing.
-        process = run_probe(arguments, cancel_event=cancel_event or Event(),
+        # Keep the duration-scaled timeout for older workers that need decoding.
+        process = run_probe(arguments, cancel_event=cancel_event,
                             timeout=max(180, 2 * frame_count / fps))
     except CancelledError as exc:
         raise RenderCancelledError("Native GPU export was cancelled.") from exc
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise RenderError(f"Cannot probe the native GPU H264 stream: {exc}") from exc
-    if process.returncode != 0:
+    if process.returncode != 0 or process.stderr.strip():
         raise RenderError(
-            "The native GPU H264 stream could not be decoded by FFprobe: "
+            "FFprobe could not verify the native GPU H264 stream: "
             + process.stderr.decode("utf-8", "replace")[-500:]
         )
     try:
         stream, = json.loads(process.stdout)["streams"]
         if not isinstance(stream, dict):
             raise ValueError("stream must be an object")
-        counted = int(stream["nb_read_frames"])
+        counted = int(stream[counter])
     except (ValueError, KeyError, TypeError) as exc:
         raise RenderError("Native H264 stream metadata is invalid.") from exc
-    # An Annex-B stream is NOT timestamped. ffprobe may report a doubled
-    # r_frame_rate for true CFR H264, so the native report is the FPS
-    # authority. Our synchronous NVENC encoder is configured with
-    # frameIntervalP=1 (no B-frames), guaranteeing reorder-free GOPs for
-    # elementary-stream PTS stamping. Require zero B-frames here before
-    # FFmpegRenderer sets -r fps on input and validates the final MP4.
+    # The worker verifies one synchronous NVENC output per submitted PTS.
+    # With its write-time hash verified, ffprobe only needs to confirm the
+    # number of parsed access units and reject reordered (B-frame) output.
+    # Annex-B carries no timestamps. The muxer assigns CFR PTS at the
+    # requested FPS, and the final MP4 check verifies the resulting timeline.
     if (stream.get("codec_name") != "h264"
             or stream.get("width") != width
             or stream.get("height") != height
@@ -128,6 +130,30 @@ def _probe_complete_h264(
             f"{counted}/{frame_count} frames, "
             f"{stream.get('width')}x{stream.get('height')}."
         )
+
+
+def _verify_h264_bytes(path: Path, report: dict, cancel_event: Event) -> bool:
+    """Check the complete on-disk stream against the encoder's write-time hash."""
+    if "h264_sha256" not in report:
+        return False  # Older workers keep the full decode check.
+    expected = report["h264_sha256"]
+    size = report.get("compressed_h264_bytes")
+    if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+        raise RenderError("The native GPU production report has an invalid H264 checksum.")
+    try:
+        if type(size) is not int or size <= 0 or path.stat().st_size != size:
+            raise RenderError("Native GPU H264 size differs from the encoder report.")
+        digest = sha256()
+        with path.open("rb") as stream:
+            while not cancel_event.is_set() and (chunk := stream.read(4 * 1024 * 1024)):
+                digest.update(chunk)
+    except OSError as exc:
+        raise RenderError(f"Cannot verify native GPU H264 bytes: {exc}") from exc
+    if cancel_event.is_set():
+        raise RenderCancelledError("Native GPU export was cancelled.")
+    if digest.hexdigest() != expected:
+        raise RenderError("Native GPU H264 checksum differs from the encoder report.")
+    return True
 
 
 def finalize_native_gpu_mp4(
@@ -163,16 +189,24 @@ def finalize_native_gpu_mp4(
     if not audio.is_file() or audio.is_symlink():
         raise RenderError("The prepared export soundtrack is missing.")
     duration = compiled_plan.duration_seconds
+    # Include every frame whose start is inside the playlist, even when the
+    # audio ends partway through that frame. The audio keeps its exact length.
     expected_frames = math.ceil(duration * settings.fps - 1e-9)
-    _load_native_production_report(
+    report = _load_native_production_report(
         Path(gpu_report_path), video_path=video,
         width=settings.output_width, height=settings.output_height,
         fps=settings.fps, total_frames=expected_frames, duration_seconds=duration,
     )
+    if progress_callback is not None:
+        progress_callback("Checking H.264 video", 0.10,
+                          "Checking encoded video integrity and packet count" if "h264_sha256" in report
+                          else "Reading the encoded video and checking its frame count")
+    count_packets = _verify_h264_bytes(video, report, cancel_event)
     _probe_complete_h264(
         ffprobe, video,
         width=settings.output_width, height=settings.output_height,
         fps=settings.fps, frame_count=expected_frames, cancel_event=cancel_event,
+        count_packets=count_packets,
     )
     if cancel_event.is_set():
         raise RenderCancelledError("Native GPU export was cancelled.")
@@ -182,9 +216,9 @@ def finalize_native_gpu_mp4(
     target.parent.mkdir(parents=True, exist_ok=True)
 
     def mux_progress(stage: str, fraction: float, message: str) -> None:
-        if progress_callback is not None:
-            progress_callback("Finalizing export" if stage == "Complete" else stage,
-                              min(0.99, fraction), message)
+        if progress_callback is not None and stage == "Finalizing export":
+            progress_callback("Saving MP4", 0.20 + 0.65 * fraction,
+                              "Writing the MP4 file" if message == "Finishing the MP4 file" else message)
 
     # Same filesystem: preserve an existing destination until all checks pass.
     with tempfile.TemporaryDirectory(prefix=".mms-native-mux-", dir=target.parent) as staging:
@@ -192,6 +226,8 @@ def finalize_native_gpu_mp4(
             storage_path_callback("output", Path(staging))
         staged = Path(staging) / "complete.mp4"
         try:
+            if progress_callback is not None:
+                progress_callback("Saving MP4", 0.20, "Muxing prepared video and audio")
             result = renderer.render(
                 PreparedVideoInput(
                     path=video, duration_seconds=duration,
@@ -204,6 +240,9 @@ def finalize_native_gpu_mp4(
                 metadata=metadata, compiled_plan=compiled_plan,
                 prepared_audio_path=audio,
             )
+            if progress_callback is not None:
+                progress_callback("Checking MP4", 0.90,
+                                  "Checking video and audio timing before publishing the file")
             probe = run_probe([
                 str(ffprobe), "-v", "error", "-show_entries",
                 "stream=codec_type,codec_name,width,height,nb_frames,avg_frame_rate,start_time,duration",

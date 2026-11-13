@@ -24,7 +24,7 @@ from app.services.app_settings_service import AppSettings, AppSettingsService
 from app.services.export_formats import VIDEO_FORMATS, AUDIO_FORMATS
 from app.timeline.compiler import compile_playlist
 from app.preview.canvas_snapshot import CanvasSnapshot
-from app.utils.i18n import Translator
+from app.utils.i18n import Language, Translator
 from app.utils.subprocess_utils import hidden_process_kwargs
 from tests.main_window_base import MainWindowTestCase
 
@@ -49,6 +49,7 @@ class ExportDestinationTests(unittest.TestCase):
         self.directory.cleanup()
 
     def test_filename_folder_and_extension_are_independent(self):
+        self.dialog.engine_combo.setCurrentIndex(self.dialog.engine_combo.findData("ffmpeg"))
         self.dialog.filename_edit.setText("여름.mix.mp4")
         for extension in VIDEO_FORMATS:
             self.dialog.format_combo.setCurrentIndex(self.dialog.format_combo.findData(extension))
@@ -72,13 +73,18 @@ class ExportDestinationTests(unittest.TestCase):
         self.assertTrue(self.dialog.audio_bitrate_combo.isEnabled())
 
     def test_video_export_keeps_exactly_two_render_engines_and_no_speed_chooser(self):
-        self.assertEqual(self.dialog.engine_combo.count(), 2)
-        self.assertEqual(self.dialog.engine_combo.itemData(0), "ffmpeg")
-        self.assertEqual(self.dialog.engine_combo.itemData(1), "native_gpu")
-        self.assertEqual(
-            [self.dialog.engine_combo.itemText(i) for i in range(2)],
-            ["FFmpeg", "Rust GPU"],
-        )
+        engine = self.dialog.engine_combo
+        self.assertEqual(engine.count(), 2)
+        self.assertEqual(engine.currentData(), "native_gpu")
+        self.assertEqual([engine.itemData(i) for i in range(2)], ["native_gpu", "ffmpeg"])
+        for language, labels in (
+            (Language.KOREAN, ["Rust GPU (베타)", "FFmpeg (레거시)"]),
+            (Language.ENGLISH, ["Rust GPU (Beta)", "FFmpeg (Legacy)"]),
+        ):
+            with patch.object(self.dialog.translator, "_language", language):
+                self.dialog.retranslate()
+                self.assertEqual([engine.itemText(i) for i in range(2)], labels)
+        self.dialog.retranslate()
         self.assertFalse(hasattr(self.dialog, "gpu_speed_combo"))
         self.assertFalse(hasattr(self.dialog, "gpu_speed_label"))
         self.assertFalse(hasattr(self.dialog, "gpu_speed_hint"))
@@ -97,6 +103,7 @@ class ExportDestinationTests(unittest.TestCase):
     def test_rust_gpu_enables_only_supported_encoding_controls(self):
         dialog = self.dialog
         dialog.advanced_check.setChecked(True)
+        dialog.engine_combo.setCurrentIndex(dialog.engine_combo.findData("ffmpeg"))
         dialog.format_combo.setCurrentIndex(dialog.format_combo.findData("mkv"))
         dialog.codec_combo.setCurrentIndex(dialog.codec_combo.findData("libx265"))
         dialog.crf_spin.setValue(21)

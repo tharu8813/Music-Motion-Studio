@@ -875,7 +875,8 @@ class CanvasSnapshot:
                       compact_preview_band: bool = False,
                       lyric_instrumental_spans: tuple | None = None,
                       lyric_instrumental_spans_by_source: dict[str, tuple] | None = None,
-                      personal_color_cache: dict[tuple[str, str], QColor] | None = None) -> QImage:
+                      personal_color_cache: dict[tuple[str, str], QColor] | None = None,
+                      render_prepared_band=None) -> QImage:
         """Capture one track state with metadata, cover art, and an optional Z band.
 
         ``junction``: the frame sits at a crossfade/AutoMix handover of the
@@ -1611,6 +1612,12 @@ class CanvasSnapshot:
             render_metrics["state_setup_seconds"] = monotonic() - phase_started
             phase_started = monotonic()
         try:
+            if render_prepared_band is not None:
+                layer = render_prepared_band()
+                if layer is not None:
+                    if render_metrics is not None:
+                        render_metrics["paint_stage_seconds"] = monotonic() - phase_started
+                    return layer
             effective_capture_rect = capture_rect
             used_partial_render = False
             if compact_preview_band and transparent and capture_rect is None:

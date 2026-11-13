@@ -7,7 +7,7 @@ from app.renderer.export_timeline import ExportTimelinePlanner
 from app.timeline.compiler import compile_playlist
 from app.renderer.native_dynamic_layers import DYNAMIC_TYPES
 from app.renderer.native_project_transitions import frame_window, transition_preflight_reason
-from app.renderer.native_project_video import video_preflight_reason
+from app.renderer.native_project_video import native_video_rect, supports_native_video, video_preflight_reason
 
 class TimelineValidationError(ValueError):
     """Project cannot be represented faithfully by native GPU capture."""
@@ -48,7 +48,7 @@ def unsupported_visible_sources(project: ProjectDocument) -> list[dict[str, str]
 
 
 def validate_project_for_gpu_capture(
-    project: ProjectDocument, *, scale: float, source_policy: str = "strict",
+    project: ProjectDocument, *, scale: float, source_policy: str = "strict", gpu_video: bool = False,
 ) -> list[dict[str, str]]:
     """Validate the frame capture and return any explicitly excluded sources.
 
@@ -68,7 +68,8 @@ def validate_project_for_gpu_capture(
     omitted = unsupported_visible_sources(project)
     if source_policy == "dynamic-audio":
         unsupported = [s for s in visible if s.source_type in UNSUPPORTED_SOURCES
-                       and s.source_type not in DYNAMIC_TYPES]
+                       and s.source_type not in DYNAMIC_TYPES
+                       and not (s.source_type is SourceType.VIDEO and gpu_video and supports_native_video(s))]
         reactive = [
             s for s in visible
             if s.source_type not in DYNAMIC_TYPES and s.uses_bass_reaction
@@ -88,8 +89,7 @@ def validate_project_for_gpu_capture(
             raise TimelineValidationError(
                 "dynamic-audio has unsupported project sources: "
                 + ", ".join(details)
-                + ". Video and unknown music-reactive source types require dedicated capture. "
-                "Use --inspect-sources to list all project sources; "
+                + " Use --inspect-sources to list all project sources; "
                 "--source-policy canvas-only is explicitly PARTIAL."
             )
         omitted = []
@@ -123,6 +123,14 @@ def validate_project_for_gpu_capture(
         raise TimelineValidationError(
             "Scaled project Canvas must be even and between 64x64 and 3840x2160"
         )
+    if gpu_video and source_policy == "dynamic-audio":
+        for source in visible:
+            if source.source_type is SourceType.VIDEO:
+                x, y, w, h = native_video_rect(source, scale)
+                # FFmpeg's YUV 4:2:0 overlay aligns positions to a two-pixel grid.
+                if not (0 <= x <= width - w and 0 <= y <= height - h
+                        and all(value % 2 == 0 for value in (x, y, w, h))):
+                    raise TimelineValidationError(video_preflight_reason(source))
     if not any(track.enabled and track.duration_seconds > 0 for track in project.playlist):
         raise TimelineValidationError("Project has no enabled tracks with positive duration")
     return omitted

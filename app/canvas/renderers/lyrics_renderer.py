@@ -358,6 +358,7 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         paint_intro(item, painter, intro_rect, intro_y)
         painter.restore()
 
+    recorder = getattr(item, "_export_text_quads", None)
     for index, line in enumerate(lines):
         slot, inner, total = layout[index]
         p = stagger_progress(source, item._subtitle_transition_raw, slot, anchor_slot + 1, last_slot) if (
@@ -588,7 +589,11 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
             if opacity > _VISIBLE and radius > 0:
                 pixmap, margin = item._lyric_blur_pixmap(line, color, radius, glyph_width, height, pixel_ratio, flags, font)
                 painter.setOpacity(base_opacity * min(1.0, opacity))
-                painter.drawPixmap(QPointF(row.left() - margin, row.top() - margin), pixmap)
+                origin = QPointF(row.left() - margin, row.top() - margin)
+                if recorder is None:
+                    painter.drawPixmap(origin, pixmap)
+                else:
+                    recorder.pixmap(painter, origin, pixmap)
         sharp = alpha * (1.0 - reveal) if blur <= 0.0 else 0.0
         if sharp > _VISIBLE:
             painter.setOpacity(base_opacity * sharp)
@@ -654,6 +659,15 @@ def paint_word_reveal(item, painter: QPainter, row: QRectF, flags, text: str, re
         cached = (tuple(positions), path)
         item._lyric_reveal_cache[key] = cached
     positions, path = cached
+    accent = QColor(item.source.subtitle_accent_color)
+    recorder = getattr(item, "_export_text_quads", None)
+
+    def draw_accent():
+        if recorder is None:
+            painter.fillPath(path, accent)
+        else:
+            recorder.accent(painter, path, accent, key)
+
     def cursor_x(position: float) -> float:
         position = max(0.0, min(float(len(text)), position))
         whole = int(position)
@@ -671,7 +685,7 @@ def paint_word_reveal(item, painter: QPainter, row: QRectF, flags, text: str, re
             boundary += (positions[whole + 1] - boundary) * (revealed - whole)
             painter.setClipRect(QRectF(min(left, boundary), 0, abs(boundary - left), row.height()),
                                 Qt.ClipOperation.IntersectClip)
-        painter.fillPath(path, QColor(item.source.subtitle_accent_color))
+        draw_accent()
     else:
         for start, end in highlight_ranges:
             if end <= start:
@@ -680,7 +694,7 @@ def paint_word_reveal(item, painter: QPainter, row: QRectF, flags, text: str, re
             painter.save()
             painter.setClipRect(QRectF(min(left, right), 0, abs(right - left), row.height()),
                                 Qt.ClipOperation.IntersectClip)
-            painter.fillPath(path, QColor(item.source.subtitle_accent_color))
+            draw_accent()
             painter.restore()
     painter.restore()
 

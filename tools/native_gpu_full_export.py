@@ -74,6 +74,8 @@ def export_complete_project(
     gpu_profile_qt_paint: bool = False,
     gpu_shared_packet_transport: bool | None = None,
     gpu_parallel_packet_validation: bool | None = None,
+    gpu_text: bool = False,
+    gpu_video: bool | None = None,
 ) -> Path:
     """Run actual complete GPU encoding + MP4 mux with the existing soundtrack."""
     source = Path(project_path)
@@ -107,6 +109,14 @@ def export_complete_project(
         if gpu_profile != "automatic":
             raise ValueError("--gpu-parallel-packet-validation requires --gpu-profile automatic")
         optimizations = replace(optimizations, parallel_packet_validation=gpu_parallel_packet_validation)
+    if gpu_text:
+        if gpu_profile != "automatic":
+            raise ValueError("--gpu-text requires --gpu-profile automatic")
+        optimizations = replace(optimizations, gpu_text=True)
+    if gpu_video is not None:
+        if gpu_profile != "automatic":
+            raise ValueError("--gpu-video requires --gpu-profile automatic")
+        optimizations = replace(optimizations, gpu_video=gpu_video)
     started = monotonic()
     project = ProjectService.load(source)
     if smoke_seconds is not None:
@@ -175,6 +185,14 @@ def main(argv: list[str] | None = None) -> int:
         "--gpu-parallel-packet-validation", action=argparse.BooleanOptionalAction,
         help="Developer A/B: verify independent large BGRA planes on two CPU threads",
     )
+    parser.add_argument(
+        "--gpu-text", action="store_true",
+        help="Developer A/B: draw eligible resident text and lyric tiles on the GPU",
+    )
+    parser.add_argument(
+        "--gpu-video", action=argparse.BooleanOptionalAction,
+        help="Developer A/B: toggle H.264 MP4 video sources in the automatic GPU profile",
+    )
     parser.add_argument("--report", type=Path, default=None, help="Preserve developer diagnostics outside temporary staging")
     parser.add_argument(
         "--smoke-seconds", type=float, default=None,
@@ -193,6 +211,8 @@ def main(argv: list[str] | None = None) -> int:
             gpu_profile=args.gpu_profile, gpu_profile_qt_paint=args.gpu_profile_qt_paint,
             gpu_shared_packet_transport=args.gpu_shared_packet_transport,
             gpu_parallel_packet_validation=args.gpu_parallel_packet_validation,
+            gpu_text=args.gpu_text,
+            gpu_video=args.gpu_video,
         )
     except Exception as exc:
         if args.report is not None and not args.report.exists():

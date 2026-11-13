@@ -12,13 +12,16 @@ import sys
 from tempfile import TemporaryDirectory
 from threading import Event
 
+from app.models.source import SourceType
 from app.renderer.ffmpeg_renderer import (
-    FFmpegRenderer, ExportMetadata, RenderSettings, RenderError,
+    FFmpegRenderer, ExportMetadata, RenderSettings, RenderError, RenderCancelledError,
 )
-from app.renderer.native_gpu_stream import render_native_gpu_playlist
+from app.renderer.native_gpu_stream import NativeGpuPreflightError, probe_native_gpu, render_native_gpu_playlist
 from app.renderer.native_project_frames import produce_complete_project_frames, _check_cancel
 from app.renderer.native_dynamic_layers import build_dynamic_stack
 from app.renderer.native_project_support import validate_project_for_gpu_capture
+from app.renderer.native_text_layers import supports_gpu_text
+from app.renderer.native_project_video import prepare_native_video_sources
 from app.services.video_encoder_service import DEFAULT_NATIVE_NVENC_PRESET
 from app.timeline.compiler import compile_playlist
 
@@ -104,8 +107,10 @@ def _export_project_document(
     if not isinstance(fps, int) or isinstance(fps, bool) or not 1 <= fps <= 120:
         raise ValueError("Full native export FPS must be 1..120")
     project = deepcopy(project)
-    validate_project_for_gpu_capture(project, scale=scale, source_policy="dynamic-audio")
-    build_dynamic_stack(project, scale)
+    gpu_video = bool(optimizations and optimizations.gpu_video)
+    validate_project_for_gpu_capture(project, scale=scale, source_policy="dynamic-audio", gpu_video=gpu_video)
+    has_video = gpu_video and any(s.visible and s.source_type is SourceType.VIDEO for s in project.sources)
+    stack = build_dynamic_stack(project, scale, gpu_video=has_video)
     if frame_source is not None and (
         frame_source.project.to_dict() != project.to_dict()
         or frame_source.fps != fps or frame_source.scale != scale
@@ -117,6 +122,12 @@ def _export_project_document(
     renderer = FFmpegRenderer(ffmpeg)
     tracks = [t for t in project.playlist if t.enabled and t.duration_seconds > 0]
     plan = compile_playlist(project.playlist, enabled_only=True)
+    try:
+        video_sources = prepare_native_video_sources(project, plan, scale, renderer.executable, cancel) if has_video else {}
+    except RenderCancelledError:
+        raise
+    except RenderError as error:
+        raise NativeGpuPreflightError(str(error)) from error
     settings = RenderSettings(
         fps=fps, video_codec="h264_nvenc",
         audio_bitrate=audio_bitrate,
@@ -124,6 +135,45 @@ def _export_project_document(
         output_width=round(project.canvas.width * scale),
         output_height=round(project.canvas.height * scale),
     )
+    required_schema = 2
+    if optimizations is not None:
+        if optimizations.gpu_particles and any(
+            source.visible and source.source_type is SourceType.PARTICLE_OVERLAY
+            and source.particle_style == "neon" for source in project.sources
+        ):
+            required_schema = 3
+        if optimizations.gpu_text and any(
+            source.visible and supports_gpu_text(source) for source in project.sources
+        ):
+            required_schema = 4
+    if video_sources:
+        required_schema = 5
+    query_radial = bool(
+        optimizations is not None and optimizations.gpu_radial and any(
+            source.visible and source.source_type is SourceType.AUDIO_VISUALIZER
+            and source.visualizer_style == "radial" for source in project.sources
+        )
+    )
+    capabilities = {} if required_schema >= 4 or query_radial else None
+    adapter_luid = probe_native_gpu(
+        executable, settings, cancel_event=cancel, required_canvas_schema=required_schema,
+        **({"capabilities": capabilities} if capabilities is not None else {}),
+        **({"video_sources": tuple(video_sources.values())} if video_sources else {}),
+        **({"query_radial": True} if query_radial else {}),
+    )
+    if capabilities is not None:
+        layer_limit = (capabilities["canvas_layer_limit"] if required_schema >= 4
+                       else optimizations.canvas_layer_limit)
+        optimizations = replace(
+            optimizations, canvas_layer_limit=layer_limit,
+            gpu_radial=query_radial and capabilities.get("gpu_radial", False),
+        )
+        if video_sources and len(stack.order) > optimizations.canvas_layer_limit:
+            raise NativeGpuPreflightError("This GPU has too few Canvas layers for the project's video and effect order.")
+        if frame_source is not None:
+            frame_source.optimizations = optimizations
+            frame_source.video_sources = video_sources
+    _check_cancel(cancel)
     output.parent.mkdir(parents=True, exist_ok=True)
     frames = frame_source
     raster_counters = frame_source.raster_counters if frame_source is not None else {}
@@ -131,6 +181,8 @@ def _export_project_document(
         with TemporaryDirectory(prefix="mms-native-audio-") as directory:
             if storage_path_callback is not None:
                 storage_path_callback("audio", Path(directory))
+            if preparation_progress_callback is not None:
+                preparation_progress_callback("Preparing audio", 0.0, "Preparing GPU export audio and analysis")
             audio_started = monotonic()
             audio = renderer.prepare_playlist_audio(
                 tracks, Path(directory), settings, transition_mode="none", cancel_event=cancel,
@@ -146,6 +198,7 @@ def _export_project_document(
                     ffmpeg=str(renderer.executable), cancel_event=cancel,
                     raster_counters=raster_counters,
                     optimizations=optimizations,
+                    video_sources=video_sources,
                 )
             else:
                 frames.prepare(audio, str(renderer.executable))
@@ -156,6 +209,8 @@ def _export_project_document(
                 progress_callback=progress_callback,
                 mux_progress_callback=mux_progress_callback,
                 optimizations=optimizations,
+                adapter_luid=adapter_luid,
+                **({"video_sources": tuple(video_sources.values())} if video_sources else {}),
                 storage_path_callback=storage_path_callback,
                 metadata=ExportMetadata(title=project.settings.title,
                     artist=project.settings.author, comment=project.settings.description),

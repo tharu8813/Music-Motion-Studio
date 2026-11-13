@@ -8,14 +8,40 @@ use std::fs;
 use std::path::{Component, Path};
 
 pub const MAX_LAYERS: usize = 8;
+pub(crate) const MAX_TEXT_QUADS: usize = 64;
 pub const MAX_FRAME_BYTES: usize = 3840 * 2160 * 4;
+pub const CANVAS_PACKET_SCHEMAS: [u64; 6] = [1, 2, 3, 4, 5, 6];
+
+#[derive(Clone, Copy, Debug)]
+pub struct VideoRequest {
+    pub asset: usize,
+    pub media_time: Option<i64>,
+    pub media_limit: Option<i64>,
+    pub crop: bool,
+    pub flip_horizontal: bool,
+    pub flip_vertical: bool,
+    pub border_radius: f32,
+    pub saturation: f32,
+}
+
+#[derive(Debug)]
+pub struct TextQuad {
+    pub source: [f32; 4],
+    pub target: [f32; 4],
+    pub clip: [f32; 4],
+    pub opacity: f32,
+}
 
 #[derive(Debug)]
 pub struct CanvasPacketLayer {
     pub stream_key: String,
     pub opacity: f32,
-    pub pixels: Vec<u8>,
+    pub(crate) pixels: Vec<u8>,
     pub geometry: LayerGeometry,
+    pub particle_sprites: bool,
+    pub radial_segments: bool,
+    pub text_quads: Vec<TextQuad>,
+    pub video: Option<VideoRequest>,
     // SHA-256 computed by the strictly validated packet parser. Never
     // recompute it in the GPU resident cache: 1080p exports previously
     // hashed every received BGRA plane twice on the Rust CPU.
@@ -23,6 +49,71 @@ pub struct CanvasPacketLayer {
     // crate-visible only: downstream callers must not manufacture a
     // "verified" checksum for bytes that have not passed validation.
     pub(crate) validated_sha256: [u8; 32],
+}
+
+impl CanvasPacketLayer {
+    pub fn pixels(&self) -> &[u8] {
+        &self.pixels
+    }
+
+    pub(crate) fn take_validated_pixels(&mut self) -> (Vec<u8>, [u8; 32]) {
+        (std::mem::take(&mut self.pixels), self.validated_sha256)
+    }
+
+    pub fn composition_opacity(&self) -> f32 {
+        if self.particle_sprites || self.radial_segments { 1.0 } else { self.opacity }
+    }
+
+    pub fn uses_resident_texture(&self, width: u32, height: u32) -> bool {
+        self.kind().is_none() && self.geometry.is_identity(width, height)
+    }
+
+    pub fn kind(&self) -> Option<&'static str> {
+        if self.video.is_some() {
+            Some("video_source")
+        } else if self.particle_sprites {
+            Some("particle_sprites")
+        } else if self.radial_segments {
+            Some("radial_segments")
+        } else if !self.text_quads.is_empty() {
+            Some("text_quads")
+        } else {
+            None
+        }
+    }
+}
+
+fn text_quads(value: &Value, g: LayerGeometry, width: u32, height: u32) -> Result<Vec<TextQuad>, String> {
+    let entries = value.as_array().filter(|items| (1..=MAX_TEXT_QUADS).contains(&items.len()))
+        .ok_or("Text atlas requires 1..64 quads")?;
+    let read_rect = |value: &Value, bounds: Option<(u32, u32)>| -> Result<[f32; 4], String> {
+        let values = value.as_array().filter(|values| values.len() == 4)
+            .ok_or("Text quad requires four rectangle coordinates")?;
+        let mut rect = [0.0; 4];
+        for (out, value) in rect.iter_mut().zip(values) {
+            *out = value.as_f64().filter(|n| n.is_finite() && n.abs() <= 1e6)
+                .ok_or("Text quad coordinates must be finite and bounded")? as f32;
+            if bounds.is_some() && value.as_u64().is_none() {
+                return Err("Text quad atlas and clip coordinates must be integers".into());
+            }
+        }
+        let [l, t, r, b] = rect;
+        if l >= r || t >= b || bounds.is_some_and(|(w, h)| r > w as f32 || b > h as f32) {
+            return Err("Text quad rectangle outside bounds".into());
+        }
+        Ok(rect)
+    };
+    entries.iter().map(|entry| {
+        let values = entry.as_array().filter(|values| values.len() == 4)
+            .ok_or("Invalid text quad")?;
+        Ok(TextQuad {
+            source: read_rect(&values[0], Some((g.width, g.height)))?,
+            target: read_rect(&values[1], None)?,
+            clip: read_rect(&values[2], Some((width, height)))?,
+            opacity: values[3].as_f64().filter(|n| (0.0..=1.0).contains(n))
+                .ok_or("Invalid text quad opacity")? as f32,
+        })
+    }).collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -132,7 +223,9 @@ fn verify_layer_batch(
 ) -> Result<(), String> {
     for (offset, (layer, item)) in layers.iter_mut().zip(items).enumerate() {
         let digest = item["sha256"].as_str().ok_or("Layer SHA-256 missing")?;
-        layer.validated_sha256 = verify_layer(&layer.pixels, digest, first + offset)?;
+        if layer.validated_sha256 == [0; 32] {
+            layer.validated_sha256 = verify_layer(&layer.pixels, digest, first + offset)?;
+        }
     }
     Ok(())
 }
@@ -170,8 +263,15 @@ fn verify_layers_in_parallel(layers: &mut [CanvasPacketLayer], items: &[Value]) 
 pub(crate) fn parse_qt_canvas_packet_value(
     root: &Value, parallel: bool, mut plane: impl FnMut(&str, usize) -> Result<Vec<u8>, String>,
 ) -> Result<CanvasPacketFrame, String> {
+    parse_qt_canvas_packet_with_refs(root, parallel, |name, size| Ok((plane(name, size)?, None)))
+}
+
+pub(crate) fn parse_qt_canvas_packet_with_refs(
+    root: &Value, parallel: bool,
+    mut plane: impl FnMut(&str, usize) -> Result<(Vec<u8>, Option<[u8; 32]>), String>,
+) -> Result<CanvasPacketFrame, String> {
     let schema = root["schema"].as_u64().ok_or("Canvas schema missing")?;
-    if !matches!(schema, 1 | 2) || root["format"] != format!("mms_canvas_bgra_layers_v{schema}")
+    if !CANVAS_PACKET_SCHEMAS.contains(&schema) || root["format"] != format!("mms_canvas_bgra_layers_v{schema}")
         || root["pixel_format"] != "BGRA8_STRAIGHT"
         || root["coordinate_origin"] != "top_left"
         || root["qt_canvas_rasterized_on_cpu"] != true
@@ -225,7 +325,55 @@ pub(crate) fn parse_qt_canvas_packet_value(
             return Err("Canvas layer opacity is invalid".into());
         }
         let geometry = geometry(entry, schema, width, height, i == 0)?;
-        let plane_bytes = geometry.width as usize * geometry.height as usize * 4;
+        let kind = entry.get("kind");
+        let radial_segments = kind.is_some_and(|kind| kind == "radial_segments");
+        let (particle_sprites, text_quads, video) = match kind {
+            None => (false, Vec::new(), None),
+            Some(kind) if kind == "particle_sprites" && schema >= 3 && i != 0 => (true, Vec::new(), None),
+            Some(kind) if kind == "radial_segments" && schema >= 6 && i != 0
+                && geometry.width == 6 && (8..=192).contains(&geometry.height)
+                && geometry.height % 2 == 0 && entry.get("inverse_transform").is_none()
+                && entry.get("clip").is_some() => (false, Vec::new(), None),
+            Some(kind) if kind == "text_quads" && schema >= 4 && i != 0 && opacity == 1.0
+                && entry.get("inverse_transform").is_none() && entry.get("clip").is_none() =>
+                (false, text_quads(&entry["quads"], geometry, width, height)?, None),
+            Some(kind) if kind == "video_source" && schema >= 5 && i != 0
+                && geometry.width == 1 && geometry.height == 1
+                && entry.get("inverse_transform").is_none() && entry.get("clip").is_some() => {
+                let [l, t, r, b] = geometry.clip;
+                if r - l < 8 || b - t < 8 || [l, t, r, b].iter().any(|v| v % 2 != 0) {
+                    return Err("Native video requires even, nonempty placement".into());
+                }
+                let asset = entry["asset"].as_u64().filter(|i| *i < MAX_LAYERS as u64)
+                    .ok_or("Invalid native video asset index")? as usize;
+                let media_time = match entry.get("media_time") {
+                    Some(Value::Null) => None,
+                    Some(value) => Some(value.as_i64().filter(|v| (0..=864_000_000_000).contains(v))
+                        .ok_or("Invalid native video timestamp")?),
+                    None => return Err("Missing native video timestamp".into()),
+                };
+                let crop = entry["crop"].as_bool().ok_or("Missing native video fit mode")?;
+                let media_limit = if entry["media_limit"].is_null() { None } else {
+                    Some(entry["media_limit"].as_i64().filter(|v| (1..=864_000_000_000).contains(v))
+                        .ok_or("Invalid native video trim")?)
+                };
+                let flip_horizontal = entry["flip_horizontal"].as_bool().ok_or("Missing video flip")?;
+                let flip_vertical = entry["flip_vertical"].as_bool().ok_or("Missing video flip")?;
+                let border_radius = entry["border_radius"].as_f64()
+                    .filter(|value| (0.0..=f64::from((r - l).min(b - t)) / 2.0).contains(value))
+                    .ok_or("Invalid native video corner radius")? as f32;
+                let saturation = entry["saturation"].as_f64().filter(|value| (0.0..=3.0).contains(value))
+                    .ok_or("Invalid native video saturation")? as f32;
+                (false, Vec::new(), Some(VideoRequest { asset, media_time, media_limit, crop,
+                    flip_horizontal, flip_vertical, border_radius, saturation }))
+            }
+            _ => return Err("Unsupported Canvas layer kind".into()),
+        };
+        if particle_sprites && (geometry.width != 4 || geometry.height > 1000
+            || entry.get("inverse_transform").is_some() || entry.get("clip").is_none()) {
+            return Err("Invalid particle sprite layout".into());
+        }
+        let plane_bytes = if video.is_some() { 0 } else { geometry.width as usize * geometry.height as usize * 4 };
         if entry["bytes"].as_u64() != Some(plane_bytes as u64) {
             return Err(format!("Layer {i} declared byte count mismatch"));
         }
@@ -233,16 +381,55 @@ pub(crate) fn parse_qt_canvas_packet_value(
         if digest.len() != 64 || !digest.bytes().all(|ch| ch.is_ascii_hexdigit()) {
             return Err("Canvas layer SHA-256 has invalid syntax".into());
         }
-        let pixels = plane(name, plane_bytes)?;
+        let (pixels, previous_digest) = plane(name, plane_bytes)?;
         if pixels.len() != plane_bytes {
             return Err(format!("Canvas layer {i} has unexpected byte count"));
         }
-        let validated_sha256 = if parallel { [0; 32] } else { verify_layer(&pixels, digest, i)? };
+        if particle_sprites {
+            let [left, top, right, bottom] = geometry.clip.map(|v| v as f32);
+            for sprite in pixels.chunks_exact(16) {
+                let x = f32::from_le_bytes(sprite[0..4].try_into().unwrap());
+                let y = f32::from_le_bytes(sprite[4..8].try_into().unwrap());
+                let radius = f32::from_le_bytes(sprite[8..12].try_into().unwrap());
+                if !(left..=right).contains(&x) || !(top..=bottom).contains(&y)
+                    || !(radius > 0.0 && radius <= 160.0) {
+                    return Err("Invalid particle sprite position or radius".into());
+                }
+            }
+        }
+        if radial_segments {
+            let [left, top, right, bottom] = geometry.clip.map(|v| v as f32);
+            if left >= right || top >= bottom {
+                return Err("Radial segments require a nonempty output clip".into());
+            }
+            for segment in pixels.chunks_exact(24) {
+                let word = |i: usize| f32::from_le_bytes(segment[i..i + 4].try_into().unwrap());
+                if ![word(0), word(8)].iter().all(|x| (left - 3840.0..=right + 3840.0).contains(x))
+                    || ![word(4), word(12)].iter().all(|y| (top - 2160.0..=bottom + 2160.0).contains(y))
+                    || !(0.5..=160.0).contains(&word(16)) {
+                    return Err("Invalid radial segment position or radius".into());
+                }
+            }
+        }
+        let validated_sha256 = if let Some(previous_digest) = previous_digest {
+            if !digest.eq_ignore_ascii_case(&format!("{:x}", sha2::digest::Output::<Sha256>::from(previous_digest))) {
+                return Err(format!("Canvas layer {i} checksum mismatch"));
+            }
+            previous_digest
+        } else if parallel {
+            [0; 32]
+        } else {
+            verify_layer(&pixels, digest, i)?
+        };
         layers.push(CanvasPacketLayer {
             stream_key: expected_key,
             opacity: opacity as f32,
             pixels,
             geometry,
+            particle_sprites,
+            radial_segments,
+            text_quads,
+            video,
             validated_sha256,
         });
     }
@@ -349,6 +536,96 @@ mod tests {
             bad["layers"][index]["sha256"] = "0".repeat(64).into();
             assert_eq!(parse_qt_canvas_packet_value(&bad, true, read).unwrap_err(),
                        format!("Canvas layer {index} checksum mismatch"));
+        }
+    }
+
+    #[test]
+    fn particle_rows_require_typed_schema_and_finite_geometry() {
+        let base = [0, 0, 0, 255].repeat(4 * 4);
+        let parse = |schema, x: f32, radius: f32| {
+            let mut sprite = Vec::new();
+            for value in [x, 1.0, radius] {
+                sprite.extend_from_slice(&value.to_le_bytes());
+            }
+            sprite.extend_from_slice(&0x80c06132u32.to_le_bytes());
+            let root = serde_json::json!({
+                "schema": schema, "format": format!("mms_canvas_bgra_layers_v{schema}"),
+                "pixel_format": "BGRA8_STRAIGHT", "coordinate_origin": "top_left",
+                "width": 4, "height": 4,
+                "qt_canvas_rasterized_on_cpu": true, "production_export_changed": false,
+                "native_gpu_alpha_composition_required": true,
+                "layers": [
+                    {"file":"base.bgra", "stream_key":"base", "z_order":0, "opacity":1,
+                     "bytes":base.len(), "sha256":format!("{:x}", Sha256::digest(&base))},
+                    {"file":"sprites.bgra", "stream_key":"layer:0", "z_order":1, "opacity":0.5,
+                     "kind":"particle_sprites", "width":4, "height":1, "clip":[0,0,4,4],
+                     "bytes":sprite.len(), "sha256":format!("{:x}", Sha256::digest(&sprite))},
+                ],
+            });
+            parse_qt_canvas_packet_value(&root, false, |name, _| {
+                Ok(if name == "base.bgra" { base.clone() } else { sprite.clone() })
+            })
+        };
+        let frame = parse(3, 1.5, 2.0).unwrap();
+        assert!(frame.layers[1].particle_sprites);
+        assert!(!frame.layers[1].uses_resident_texture(4, 1));
+        assert_eq!(frame.layers[1].composition_opacity(), 1.0);
+        assert!(parse(2, 1.5, 2.0).is_err());
+        for (x, radius) in [(f32::NAN, 1.0), (4.5, 1.0), (1.0, 0.0), (1.0, 160.5)] {
+            assert!(parse(3, x, radius).unwrap_err().contains("Invalid particle sprite"));
+        }
+    }
+
+    #[test]
+    fn radial_segments_require_schema_six_and_finite_endpoints() {
+        let base = [255u8; 64];
+        let parse = |schema, x: f32, radius: f32| {
+            let segment: Vec<_> = [x, 0.5, 2.0, 2.0, radius].into_iter()
+                .flat_map(f32::to_le_bytes).chain(0xffabcdefu32.to_le_bytes()).collect();
+            let bars = segment.repeat(8);
+            let manifest = serde_json::json!({
+                "schema": schema, "format": format!("mms_canvas_bgra_layers_v{schema}"),
+                "pixel_format": "BGRA8_STRAIGHT", "coordinate_origin": "top_left", "width": 4, "height": 4,
+                "qt_canvas_rasterized_on_cpu": true, "production_export_changed": false,
+                "native_gpu_alpha_composition_required": true,
+                "layers": [
+                    {"file":"base.bgra", "stream_key":"base", "z_order":0, "opacity":1.0,
+                     "bytes":base.len(), "sha256":format!("{:x}", Sha256::digest(base))},
+                    {"file":"radial.bgra", "stream_key":"layer:0", "z_order":1, "opacity":0.5,
+                     "kind":"radial_segments", "width":6, "height":8, "clip":[0,0,4,4],
+                     "bytes":bars.len(), "sha256":format!("{:x}", Sha256::digest(&bars))}
+                ]
+            });
+            parse_qt_canvas_packet_value(&manifest, false, |name, _| {
+                Ok(if name == "base.bgra" { base.to_vec() } else { bars.clone() })
+            })
+        };
+        let frame = parse(6, -1.0, 1.0).unwrap();
+        assert_eq!(frame.layers[1].kind(), Some("radial_segments"));
+        assert_eq!(frame.layers[1].composition_opacity(), 1.0);
+        assert!(parse(5, 0.0, 1.0).is_err());
+        assert!(parse(6, f32::NAN, 1.0).is_err());
+        assert!(parse(6, 0.0, 0.0).is_err());
+    }
+
+    #[test]
+    fn text_quads_validate_atlas_clip_transform_and_opacity() {
+        use serde_json::json;
+        let atlas = LayerGeometry::identity(128, 64);
+        let valid = json!([[[0, 0, 64, 32], [-3.5, 5.0, 40.0, 25.5], [0, 5, 40, 26], 0.5]]);
+        let quads = text_quads(&valid, atlas, 64, 64).unwrap();
+        assert_eq!(quads[0].target[0], -3.5);
+        assert_eq!(quads[0].opacity, 0.5);
+        for (field, invalid) in [
+            (0, json!([0, 0, 129, 32])),
+            (1, json!([0.0, 0.0, 1e9, 20.0])),
+            (2, json!([0, 0, 65, 32])),
+            (2, json!([0, 0, 10.5, 32])),
+            (3, json!(1.01)),
+        ] {
+            let mut bad = valid.clone();
+            bad[0][field] = invalid;
+            assert!(text_quads(&bad, atlas, 64, 64).is_err());
         }
     }
 

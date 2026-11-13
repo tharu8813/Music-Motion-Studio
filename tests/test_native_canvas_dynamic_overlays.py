@@ -5,6 +5,7 @@ import json
 from contextlib import redirect_stdout
 from io import StringIO
 import math
+from math import inf, nextafter
 import os
 from threading import Event
 from pathlib import Path
@@ -76,19 +77,23 @@ class NativeDynamicOverlayTests(unittest.TestCase):
         self.assertEqual(plan.order, (
             ("canvas", 0), ("dynamic", 0), ("canvas", 1), ("dynamic", 1),
         ))
-        self.assertEqual(plan.bands, ((None, 1.5), (2.5, 5.5)))
+        self.assertEqual(plan.bands, ((None, nextafter(2, -inf)), (2, nextafter(6, -inf))))
         self.assertEqual(validate_project_for_gpu_capture(
             project, scale=0.25, source_policy="dynamic-audio",
         ), [])
         with self.assertRaisesRegex(TimelineValidationError, "dynamic sources"):
             validate_project_for_gpu_capture(project, scale=0.25)
 
-    def test_equal_z_and_unsupported_effects_fail_closed(self):
+    def test_equal_z_static_layers_follow_all_effects_at_that_z(self):
         project = dynamic_project(Path("not-needed.wav"))
-        project.sources[-2].z_index = 3
-        with self.assertRaisesRegex(ValueError, "equal-Z"):
-            build_dynamic_stack(project, 0.25)
-        project.sources[-2].z_index = 2
+        project.sources[-1].z_index = project.sources[-2].z_index = 3
+        stack = build_dynamic_stack(project, 0.25)
+        self.assertEqual(stack.bands, ((None, nextafter(3, -inf)), (3, None)))
+        self.assertEqual(stack.order, (("canvas", 0), ("dynamic", 0), ("dynamic", 1), ("canvas", 1)))
+        self.assertEqual(stack.source_ids, (project.sources[-2].id, project.sources[-1].id))
+
+    def test_unsupported_effects_fail_closed(self):
+        project = dynamic_project(Path("not-needed.wav"))
         project.sources.append(Source(SourceType.VIDEO, "Unsupported video", z_index=8))
         with self.assertRaisesRegex(TimelineValidationError, "unsupported project sources"):
             validate_project_for_gpu_capture(project, scale=0.25, source_policy="dynamic-audio")

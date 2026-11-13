@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from math import inf, nextafter
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event
@@ -14,13 +15,16 @@ from PySide6.QtGui import QImage, QPainter
 from app.models.source import SourceType
 from app.preview.native_canvas_layer_packets import (
     MAX_NATIVE_CANVAS_LAYERS, NativeCanvasBgraLayer, NativeCanvasFrame,
-    DeferredNativeCanvasLayer, DeferredNativeCanvasFrame, straight_bgra_bytes,
+    DeferredNativeCanvasLayer, DeferredNativeCanvasFrame, NativeCanvasParticleLayer, straight_bgra_bytes,
+    NativeCanvasVideoLayer, NativeCanvasRadialLayer,
 )
 from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderSettings
 from app.renderer.python_visualizer import PythonVisualizerRenderer
 from app.timeline.render_plan import reactive_layer_windows
 from app.utils.visualizer_geometry import visualizer_export_rect
 from app.renderer.native_dynamic_motion import dynamic_layer_frame, dynamic_gpu_layer
+from app.renderer.native_particle_layers import particle_layers, supports_native_particles
+from app.renderer.native_radial_layers import radial_layers, supports_native_radial
 
 
 DYNAMIC_TYPES = frozenset({
@@ -64,13 +68,10 @@ def prepare_project_frame_audio(project, plan, *, fps, scale, prepared_audio, ff
     return PreparedProjectFrameAudio(overlays, levels, waveform, stereo, envelopes)
 
 
-def build_dynamic_stack(project, scale: float) -> DynamicStack:
-    """Split static Canvas at each reactive Z position, preserving interleaving.
-
-    Same-Z static/dynamic ordering is intentionally unsupported until it can
-    match FFmpeg's tie-breaks exactly. The opaque Canvas base always comes first.
-    """
-    dynamic = [s for s in project.sources if s.visible and s.source_type in DYNAMIC_TYPES]
+def build_dynamic_stack(project, scale: float, *, gpu_video: bool = False) -> DynamicStack:
+    """Match FFmpeg's dynamic-before-static tie order at every Z boundary."""
+    dynamic_types = DYNAMIC_TYPES | {SourceType.VIDEO} if gpu_video else DYNAMIC_TYPES
+    dynamic = [s for s in project.sources if s.visible and s.source_type in dynamic_types]
     if not dynamic:
         return DynamicStack(((None, None),), (("canvas", 0),), ())
     geometry = {source.id: visualizer_export_rect(source, scale) for source in dynamic}
@@ -81,18 +82,23 @@ def build_dynamic_stack(project, scale: float) -> DynamicStack:
     dynamic.sort(key=lambda s: (
         s.z_index, geometry[s.id][1], geometry[s.id][0],
     ))
-    static = [s for s in project.sources if s.visible and s.source_type not in DYNAMIC_TYPES]
-    if any(s.z_index == d.z_index for s in static for d in dynamic):
-        raise ValueError("Dynamic GPU diagnostic does not support static/dynamic equal-Z layers")
-
-    bands: list[tuple[float | None, float | None]] = [(None, dynamic[0].z_index - 0.5)]
+    if gpu_video and any(
+        first.z_index == second.z_index
+        and SourceType.VIDEO in (first.source_type, second.source_type)
+        for first, second in zip(dynamic, dynamic[1:])
+    ):
+        raise ValueError("Native video requires a distinct Z position from other effects.")
+    static = [s for s in project.sources if s.visible and s.source_type not in dynamic_types]
+    bands: list[tuple[float | None, float | None]] = [
+        (None, nextafter(dynamic[0].z_index, -inf)),
+    ]
     order: list[tuple[str, int]] = [("canvas", 0)]
     for index, source in enumerate(dynamic):
         order.append(("dynamic", index))
         next_z = dynamic[index + 1].z_index if index + 1 < len(dynamic) else None
-        if any(s.z_index > source.z_index and
+        if any(s.z_index >= source.z_index and
                (next_z is None or s.z_index < next_z) for s in static):
-            bands.append((source.z_index + 0.5, None if next_z is None else next_z - 0.5))
+            bands.append((source.z_index, None if next_z is None else nextafter(next_z, -inf)))
             order.append(("canvas", len(bands) - 1))
     if len(order) > MAX_NATIVE_CANVAS_LAYERS:
         raise ValueError("Dynamic GPU diagnostic exceeds the eight-layer NVENC packet limit")
@@ -113,46 +119,48 @@ def place_dynamic_overlay(image: QImage, x: int, y: int, width: int, height: int
 
 def interleave_dynamic_layers(
     static_frame: NativeCanvasFrame | DeferredNativeCanvasFrame, stack: DynamicStack,
-    rendered: list[tuple[object, QImage]],
+    rendered: list[tuple[object, QImage | NativeCanvasParticleLayer | NativeCanvasVideoLayer | NativeCanvasRadialLayer]],
     *, seconds: float = 0.0, output_scale: float = 1.0, gpu_affine: bool = False,
     raster_cache=None,
 ) -> NativeCanvasFrame | DeferredNativeCanvasFrame:
-    """Keep native packet key convention while interleaving QPainter layers."""
+    """Keep native packet key convention when interleaving effect layers."""
     if len(rendered) != len(stack.source_ids):
         raise ValueError("Missing dynamic layers at a presentation timestamp")
     layers = []
+    schema = max(static_frame.schema, 2 if gpu_affine else 1)
     for kind, index in stack.order:
         if kind == "canvas":
             entry = static_frame.layers[index]
         else:
             overlay, image = rendered[index]
-            entry = (dynamic_gpu_layer if gpu_affine else dynamic_layer_frame)(
-                image, overlay,
-                static_frame.width, static_frame.height,
-                seconds=seconds, output_scale=output_scale,
-                **({
-                    "submit_bgra": (
-                        raster_cache.maybe_submit_bgra
-                        if raster_cache.adaptive_bgra_enabled
-                        else raster_cache.submit_bgra
-                    ),
-                } if gpu_affine and raster_cache is not None
-                     and raster_cache.parallel_bgra_enabled else {}),
-            )
+            if isinstance(image, NativeCanvasVideoLayer):
+                entry = image
+                schema = max(schema, 5)
+            elif isinstance(image, NativeCanvasRadialLayer):
+                entry = image
+                schema = 6
+            elif isinstance(image, NativeCanvasParticleLayer):
+                entry = image
+                schema = max(schema, 3)
+            else:
+                entry = (dynamic_gpu_layer if gpu_affine else dynamic_layer_frame)(
+                    image, overlay,
+                    static_frame.width, static_frame.height,
+                    seconds=seconds, output_scale=output_scale,
+                    **({
+                        "submit_bgra": (
+                            raster_cache.maybe_submit_bgra
+                            if raster_cache.adaptive_bgra_enabled
+                            else raster_cache.submit_bgra
+                        ),
+                    } if gpu_affine and raster_cache is not None
+                         and raster_cache.parallel_bgra_enabled else {}),
+                )
         key = "base" if not layers else f"layer:{len(layers) - 1}"
-        if isinstance(entry, DeferredNativeCanvasLayer):
-            layers.append(DeferredNativeCanvasLayer(
-                key, entry.width, entry.height, entry.pixels_future, entry.opacity,
-                entry.inverse_transform, entry.clip,
-            ))
-        else:
-            layers.append(NativeCanvasBgraLayer(
-                key, entry.width, entry.height, entry.pixels, entry.opacity,
-                entry.inverse_transform, entry.clip,
-            ))
+        layers.append(replace(entry, stream_key=key))
     output = dict(
         width=static_frame.width, height=static_frame.height,
-        layers=tuple(layers), schema=2 if gpu_affine else 1,
+        layers=tuple(layers), schema=schema,
     )
     if any(isinstance(layer, DeferredNativeCanvasLayer) for layer in layers):
         return DeferredNativeCanvasFrame(**output)
@@ -240,7 +248,9 @@ def real_audio_dynamic_frames(
     prepared_audio: Path | None = None, ffmpeg: str | None = None,
     cancel_event: Event | None = None,
     analysis: PreparedProjectFrameAudio | None = None,
-) -> Iterator[tuple[list[object], list[Iterator[QImage]], str]]:
+    gpu_particles: bool = False,
+    gpu_radial: bool = False,
+) -> Iterator[tuple[list[object], list[Iterator[QImage | NativeCanvasParticleLayer | NativeCanvasRadialLayer]], str]]:
     """Decode the *real* normalized playlist mix and create export painter streams.
 
     This retains the producer's temporal attack/release history: seeking by
@@ -281,12 +291,23 @@ def real_audio_dynamic_frames(
             levels, waveform, stereo = analysis.levels, analysis.waveform, analysis.stereo
         windows = reactive_layer_windows(plan)
         streams = []
+        start_frame = round(start_seconds * fps)
+        width = round(project.canvas.width * scale)
+        height = round(project.canvas.height * scale)
         for overlay in overlays:
             source_levels = waveform if overlay.kind == "waveform" else levels
+            source_levels = source_levels if source_levels is not None else levels
+            if gpu_particles and supports_native_particles(overlay, width, height):
+                streams.append(particle_layers(overlay, start_frame, len(source_levels), fps, cancel))
+                continue
+            if gpu_radial and supports_native_radial(overlay, width, height):
+                streams.append(radial_layers(overlay, source_levels, start_frame, fps, windows, cancel,
+                                             output_size=(width, height)))
+                continue
             stream = analyzer._layer_frames(
-                overlay, source_levels if source_levels is not None else levels,
+                overlay, source_levels,
                 fps, cancel, None, stereo, windows,
-                start_frame=round(start_seconds * fps),
+                start_frame=start_frame,
             )
             streams.append(stream)
         try:

@@ -116,6 +116,16 @@ pub struct NativeBgraNv12VideoProcessor {
 }
 
 impl NativeBgraNv12VideoProcessor {
+    pub fn canvas_layer_limit(&self) -> Result<u32, String> {
+        let mut caps = D3D11_VIDEO_PROCESSOR_CAPS::default();
+        unsafe { self.enumerator.GetVideoProcessorCaps(&mut caps) }
+            .map_err(|e| format!("Cannot query D3D11 multi-stream composition: {e}"))?;
+        if (caps.FeatureCaps & D3D11_VIDEO_PROCESSOR_FEATURE_CAPS_ALPHA_STREAM.0 as u32) == 0 {
+            return Ok(1);
+        }
+        Ok(caps.MaxInputStreams.min(caps.MaxStreamStates))
+    }
+
     /// Construct on the same D3D11 device as the NV12 frame pool. This
     /// completely avoids comparing just PCI vendor/device IDs for access.
     pub fn new_for_pool(pool: &NativeNv12FramePool) -> Result<Self, String> {

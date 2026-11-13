@@ -21,8 +21,10 @@ import math
 from pathlib import Path
 import re
 import sys
-from typing import Sequence
+from typing import ClassVar, Sequence
 
+import numpy as np
+from PySide6.QtCore import QRect
 from PySide6.QtGui import QImage
 
 from app.canvas.live_canvas import CanvasScene
@@ -30,6 +32,7 @@ from app.preview.canvas_snapshot import CanvasSnapshot
 
 
 MAX_NATIVE_CANVAS_LAYERS = 8
+MAX_NATIVE_TEXT_QUADS = 64  # Keep all eight layers inside the 64 KiB wire header.
 _MAX_DIMENSION = (3840, 2160)
 _SAFE_STEM = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,80}$")
 
@@ -45,11 +48,12 @@ class NativeCanvasBgraLayer:
     opacity: float = 1.0
     inverse_transform: tuple[float, ...] | None = None
     clip: tuple[int, ...] | None = None
+    packet_kind: ClassVar[str | None] = None
 
     def __post_init__(self) -> None:
         if not 0 < self.width <= 3840 or not 0 < self.height <= 2160:
             raise ValueError("Native Canvas layer dimensions must be positive")
-        if len(self.pixels) != self.width * self.height * 4:
+        if len(self.pixels) != self.payload_bytes:
             raise ValueError("Native Canvas layer BGRA bytes do not match dimensions")
         if not 0.0 <= self.opacity <= 1.0:
             raise ValueError("Native Canvas layer opacity must be in [0, 1]")
@@ -60,6 +64,76 @@ class NativeCanvasBgraLayer:
                 raise ValueError("Native inverse transform must be finite, bounded and invertible")
         if self.clip is not None and (len(self.clip) != 4 or any(type(x) is not int for x in self.clip)):
             raise ValueError("Native clip must contain four integer bounds")
+
+    @property
+    def payload_bytes(self) -> int:
+        return self.width * self.height * 4
+
+
+@dataclass(frozen=True, slots=True)
+class NativeCanvasParticleLayer(NativeCanvasBgraLayer):
+    """Schema 3 sprite rows, each carrying three f32 values and packed RGBA."""
+    packet_kind: ClassVar[str] = "particle_sprites"
+
+    def __post_init__(self) -> None:
+        NativeCanvasBgraLayer.__post_init__(self)
+        if (self.width != 4 or not 1 <= self.height <= 1000
+                or self.inverse_transform is not None or self.clip is None):
+            raise ValueError("Native particle sprites require 4×N data and an output clip")
+
+
+@dataclass(frozen=True, slots=True)
+class NativeCanvasRadialLayer(NativeCanvasBgraLayer):
+    """Schema 6 rows of round-capped line segments and packed color."""
+    packet_kind: ClassVar[str] = "radial_segments"
+
+    def __post_init__(self) -> None:
+        NativeCanvasBgraLayer.__post_init__(self)
+        if (self.width != 6 or not 8 <= self.height <= 192 or self.height % 2
+                or self.inverse_transform is not None or self.clip is None):
+            raise ValueError("Native radial bars require 6×N data and an output clip")
+
+
+@dataclass(frozen=True, slots=True)
+class NativeCanvasTextLayer(NativeCanvasBgraLayer):
+    """Premultiplied BGRA glyph tiles and ordered source/target/clip/opacity quads."""
+    packet_kind: ClassVar[str] = "text_quads"
+    quads: tuple[tuple, ...] = ()
+
+    def __post_init__(self) -> None:
+        NativeCanvasBgraLayer.__post_init__(self)
+        if (not 1 <= len(self.quads) <= MAX_NATIVE_TEXT_QUADS or self.opacity != 1.0
+                or self.inverse_transform is not None or self.clip is not None):
+            raise ValueError("Native text layers require an atlas and 1..64 ordered quads")
+
+
+@dataclass(frozen=True, slots=True)
+class NativeCanvasVideoLayer(NativeCanvasBgraLayer):
+    """A GPU decoder request with no CPU pixel plane."""
+    packet_kind: ClassVar[str] = "video_source"
+    asset: int = 0
+    media_time: int | None = None
+    media_limit: int | None = None
+    crop: bool = False
+    flip_horizontal: bool = False
+    flip_vertical: bool = False
+    border_radius: float = 0.0
+    saturation: float = 1.0
+
+    @property
+    def payload_bytes(self) -> int:
+        return 0
+
+    def __post_init__(self) -> None:
+        NativeCanvasBgraLayer.__post_init__(self)
+        if ((self.width, self.height) != (1, 1) or self.inverse_transform is not None
+                or self.clip is None or not 0 <= self.asset < MAX_NATIVE_CANVAS_LAYERS
+                or not math.isfinite(self.border_radius) or self.border_radius < 0
+                or not 0.0 <= self.saturation <= 3.0
+                or (self.media_limit is not None and not 0 < self.media_limit <= 86400 * 10_000_000)
+                or (self.media_time is not None and not 0 <= self.media_time <= 86400 * 10_000_000)):
+            raise ValueError("Invalid native video decoder request")
+
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,10 +152,18 @@ class NativeCanvasFrame:
             raise ValueError("Native Canvas export requires even dimensions >=2")
         if self.width > _MAX_DIMENSION[0] or self.height > _MAX_DIMENSION[1]:
             raise ValueError("Native Canvas export resolution exceeds 3840x2160")
-        if type(self.schema) is not int or self.schema not in (1, 2):
-            raise ValueError("Native Canvas schema must be 1 or 2")
+        if type(self.schema) is not int or self.schema not in (1, 2, 3, 4, 5, 6):
+            raise ValueError("Native Canvas schema must be 1..6")
         full_clip = (0, 0, self.width, self.height)
         for index, layer in enumerate(self.layers):
+            if isinstance(layer, NativeCanvasParticleLayer) and (self.schema < 3 or index == 0):
+                raise ValueError("Native particle sprites require a schema 3 overlay layer")
+            if isinstance(layer, NativeCanvasTextLayer) and (self.schema < 4 or index == 0):
+                raise ValueError("Native text quads require a schema 4 overlay layer")
+            if isinstance(layer, NativeCanvasVideoLayer) and (self.schema < 5 or index == 0):
+                raise ValueError("Native video requires a schema 5 overlay layer")
+            if isinstance(layer, NativeCanvasRadialLayer) and (self.schema < 6 or index == 0):
+                raise ValueError("Native radial bars require a schema 6 overlay layer")
             identity = layer.inverse_transform is None or layer.inverse_transform == (1, 0, 0, 1, 0, 0)
             if (self.schema == 1 or index == 0) and (
                     (layer.width, layer.height) != (self.width, self.height) or not identity
@@ -172,6 +254,39 @@ def straight_bgra_bytes(image: QImage) -> bytes:
     return b"".join(raw[y * stride:y * stride + width * 4] for y in range(height))
 
 
+def _nontransparent_crop(image: QImage) -> QRect | None:
+    """Find an exact output-pixel crop when Qt needs to paint the entire band."""
+    width, height = image.width(), image.height()
+    if (sys.byteorder != "little" or image.format() not in (
+            QImage.Format.Format_ARGB32_Premultiplied, QImage.Format.Format_ARGB32)):
+        return None
+    rows = np.frombuffer(image.constBits(), dtype=np.uint8).reshape(height, image.bytesPerLine())
+    alpha = rows[:, 3:width * 4:4]
+    # Skip only tiles proven empty, and stop scanning once a painted edge
+    # is found. Tile-aligned bounds also help reuse GPU allocations.
+    top, bottom = _painted_extent(alpha)
+    if top == bottom:
+        return QRect(0, 0, 1, 1)
+    left, right = _painted_extent(alpha[top:bottom].T)
+    if (right - left) * (bottom - top) * 10 >= width * height * 9:
+        return None
+    return QRect(left, top, right - left, bottom - top)
+
+
+def _painted_extent(alpha: np.ndarray) -> tuple[int, int]:
+    tile = 32
+    size = len(alpha)
+    for start in range(0, size, tile):
+        if alpha[start:start + tile].any():
+            break
+    else:
+        return 0, 0
+    for end in range((size - 1) // tile * tile, start, -tile):
+        if alpha[end:end + tile].any():
+            return start, min(size, end + tile)
+    return start, min(size, start + tile)
+
+
 def _validate_bands(
     bands: Sequence[tuple[float | None, float | None]],
 ) -> None:
@@ -259,9 +374,18 @@ def save_native_canvas_frame(
                 "sha256": hashlib.sha256(layer.pixels).hexdigest(),
                 "z_order": index,
             })
-        if frame.schema == 2:
+        if frame.schema >= 2:
             for info, layer in zip(layer_info, frame.layers):
                 info.update(width=layer.width, height=layer.height)
+                if layer.packet_kind is not None:
+                    info["kind"] = layer.packet_kind
+                if isinstance(layer, NativeCanvasTextLayer):
+                    info["quads"] = layer.quads
+                if isinstance(layer, NativeCanvasVideoLayer):
+                    info.update(asset=layer.asset, media_time=layer.media_time, media_limit=layer.media_limit,
+                                crop=layer.crop,
+                                flip_horizontal=layer.flip_horizontal, flip_vertical=layer.flip_vertical,
+                                border_radius=layer.border_radius, saturation=layer.saturation)
                 if layer.inverse_transform is not None:
                     info["inverse_transform"] = layer.inverse_transform
                 if layer.clip is not None:
@@ -314,11 +438,9 @@ def capture_native_canvas_track_frame(
 ) -> NativeCanvasFrame | DeferredNativeCanvasFrame:
     """Capture a REAL track/lyrics state through the established export painter.
 
-    This is a diagnostics-only counterpart of capture_native_canvas_frame().
-    Unlike that static helper, each Z band calls CanvasSnapshot.capture_track,
-    which resolves TTML overlap, cue timing, lyric animations, keyframes and
-    track-dependent text with the SAME state logic as the normal exporter.
-    It still rasterizes the resulting Qt pixels on the CPU.
+    CanvasSnapshot.capture_track resolves lyrics, keyframes and track-dependent
+    text with the shared export painter. A held band_state from the detached
+    export schedule can reuse its already painted layer.
     """
     from math import isfinite
 
@@ -346,13 +468,31 @@ def capture_native_canvas_track_frame(
     layers: list[NativeCanvasBgraLayer | DeferredNativeCanvasLayer] = []
     for index, (z_min, z_max) in enumerate(z_bands):
         key = "base" if index == 0 else f"layer:{index - 1}"
-        cached = raster_cache.get(key) if raster_cache is not None else None
+        band_state = band_states[index] if band_states is not None else None
+        cache_state = (
+            band_state if raster_cache is not None and raster_cache.reuse_canvas_samples else None
+        )
+        cached = raster_cache.get(key, cache_state) if raster_cache is not None else None
         if cached is not None:
             layers.append(cached)
             continue
-        # Leave the base opaque artboard untouched. Dynamic transparent Z
-        # bands can paint a smaller rectangle but MUST expand back to the
-        # exact original BGRA plane before entering the D3D11 protocol.
+        if index and raster_cache is not None and band_state is not None and raster_cache.cover_items:
+            cover = raster_cache.cover_motion_layer(
+                scene, key, band_state[0], output_scale, layers[0].width, layers[0].height,
+            )
+            if cover is not None:
+                layers.append(cover)
+                continue
+        if index and raster_cache is not None and band_state is not None and raster_cache.translation_items:
+            translated = raster_cache.translated_layer(
+                scene, key, band_state[0], z_min, z_max, output_scale,
+                layers[0].width, layers[0].height,
+            )
+            if translated is not None:
+                layers.append(translated)
+                continue
+        # The base stays opaque and full size. Transparent bands may paint
+        # a smaller rectangle aligned to the full-frame pixel grid.
         partial = bool(raster_cache is not None
                        and raster_cache.partial_band_enabled and index != 0)
         compact = bool(partial and raster_cache.compact_band_enabled)
@@ -375,8 +515,8 @@ def capture_native_canvas_track_frame(
             music_levels=music_levels,
             lyric_instrumental_spans_by_source=lyric_instrumental_spans_by_source,
         )
-        if band_states is not None:
-            sample, band_bass, band_music, band_instrumental = band_states[index]
+        if band_state is not None:
+            sample, band_bass, band_music, band_instrumental = band_state
             capture_state.update(
                 track=sample.track, track_number=sample.track_number,
                 start_seconds=sample.track_start_seconds, elapsed_seconds=sample.elapsed_seconds,
@@ -387,6 +527,10 @@ def capture_native_canvas_track_frame(
                 bass_level=band_bass, music_levels=band_music,
                 lyric_instrumental_spans_by_source=band_instrumental,
             )
+        render_prepared_band = None
+        if index and raster_cache is not None and key in raster_cache.text.bands:
+            def render_prepared_band():
+                return raster_cache.text.capture(key, scene.artboard_rect, layers[0].width, layers[0].height)
         image = CanvasSnapshot.capture_track(
             scene, **capture_state,
             output_scale=output_scale,
@@ -396,6 +540,7 @@ def capture_native_canvas_track_frame(
             partial_render_pixel_aligned=partial,
             partial_render_keep_cropped=compact,
             render_metrics=capture_metrics,
+            render_prepared_band=render_prepared_band,
             # Immutable export scene: shared worker-only lyric settings and
             # preselected source items avoid repeated per-frame Qt traversal.
             **({
@@ -411,10 +556,13 @@ def capture_native_canvas_track_frame(
             raster_cache.qt_canvas_paint_stage_seconds += capture_metrics["paint_stage_seconds"]
             raster_cache.qt_canvas_state_restore_seconds += capture_metrics["state_restore_seconds"]
             raster_cache.record_band_capture(key, capture_metrics, capture_elapsed)
+        if isinstance(image, NativeCanvasBgraLayer):
+            layers.append(image)
+            continue
         inverse = None
         clip = None
-        is_compact = bool(compact and capture_metrics.get("partial_render"))
-        if is_compact:
+        pixel_rect = None
+        if compact and capture_metrics.get("partial_render"):
             rect = capture_metrics["capture_rect"]
             artboard = scene.artboard_rect
             # Match CanvasSnapshot._expand_partial_capture exactly: no scaling
@@ -431,13 +579,19 @@ def capture_native_canvas_track_frame(
                 image = CanvasSnapshot._expand_partial_capture(
                     image, rect, artboard, output_scale,
                 )
-                is_compact = False
             else:
-                inverse = (1, 0, 0, 1, -origin_x, -origin_y)
-                clip = (
-                    origin_x, origin_y,
-                    origin_x + image.width(), origin_y + image.height(),
-                )
+                pixel_rect = QRect(origin_x, origin_y, image.width(), image.height())
+        elif compact and raster_cache.trim_transparent_bands:
+            # Animated lyrics and glyph shadows may need the full Qt raster.
+            # Trim only pixels with zero alpha after painting, preserving even
+            # the faintest edge or shadow without estimating its extent.
+            pixel_rect = _nontransparent_crop(image)
+            if pixel_rect is not None:
+                image = image.copy(pixel_rect)
+        if pixel_rect is not None:
+            x, y, width, height = pixel_rect.getRect()
+            inverse = (1, 0, 0, 1, -x, -y)
+            clip = (x, y, x + width, y + height)
         # A finished QImage can be converted on a CPU worker while the GUI
         # paints the next frame. Invariant layers stay synchronous so their
         # export-local cache is never modified off the owner thread.
@@ -454,11 +608,10 @@ def capture_native_canvas_track_frame(
                 else raster_cache.submit_bgra(QImage(image), straight_bgra_bytes)
             )
         if future is not None:
-            layers.append(DeferredNativeCanvasLayer(
+            layer = DeferredNativeCanvasLayer(
                 stream_key=key, width=image.width(), height=image.height(),
                 pixels_future=future, inverse_transform=inverse, clip=clip,
-            ))
-            raster_cache.record_uncached_raster()
+            )
         else:
             inline_started = monotonic() if raster_cache is not None else 0.0
             layer = NativeCanvasBgraLayer(
@@ -470,19 +623,20 @@ def capture_native_canvas_track_frame(
                 raster_cache.qt_canvas_inline_bgra_seconds += (
                     monotonic() - inline_started
                 )
-            layers.append(layer)
-            if raster_cache is not None:
-                raster_cache.record(layer)
+        layers.append(layer)
         if raster_cache is not None:
+            raster_cache.record(layer, cache_state)
             raster_cache.record_capture_region(
                 layers[0].width, layers[0].height,
                 index != 0, capture_metrics,
-                compact_bytes=(image.width() * image.height() * 4 if is_compact else None),
+                compact_bytes=(image.width() * image.height() * 4 if pixel_rect is not None else None),
             )
     packet = dict(
         width=layers[0].width, height=layers[0].height,
         layers=tuple(layers),
-        schema=2 if any(layer.inverse_transform is not None for layer in layers) else 1,
+        schema=(4 if any(isinstance(layer, NativeCanvasTextLayer) for layer in layers)
+                else 2 if any(layer.inverse_transform is not None or layer.clip is not None for layer in layers)
+                else 1),
     )
     if any(isinstance(layer, DeferredNativeCanvasLayer) for layer in layers):
         return DeferredNativeCanvasFrame(**packet)

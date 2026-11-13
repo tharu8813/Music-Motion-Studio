@@ -1626,6 +1626,10 @@ class SourceItem(QGraphicsObject):
         especially on diagonals and rounded Hangul/Latin glyphs.
         """
         source = self.source
+        recorder = getattr(self, "_export_text_quads", None)
+        if recorder is not None and painter is recorder.painter:
+            recorder.glyphs(self, painter, rect, flags, text)
+            return
         is_text = source.source_type in TEXT_SOURCE_TYPES
         width = float(source.text_stroke_width)
         if source.shadow.enabled and source.text_shadow_glyph and is_text:

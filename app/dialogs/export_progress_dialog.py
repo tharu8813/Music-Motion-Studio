@@ -704,6 +704,8 @@ class ExportProgressDialog(QDialog):
 
     def update_progress(self, stage: str, fraction: float, message: str) -> None:
         """Apply worker progress and calculate an approximate time remaining."""
+        if self._cancelling:
+            return
         percent = round(max(0.0, min(1.0, fraction)) * 100)
         now = monotonic()
         elapsed = now - self._started_at
@@ -734,7 +736,10 @@ class ExportProgressDialog(QDialog):
                     if self._korean else
                     f"{display_message} · Video frames {frame_fraction:.1f}%{suffix}"
                 )
-            self._update_time_label(remaining, elapsed, native_frames=True)
+            if total > 0 and accepted >= total:
+                self._gpu_frame_eta = None
+                self._gpu_finalizing = True
+            self._update_time_label(remaining, elapsed, native_frames=not self._gpu_finalizing)
         else:
             if self._gpu_frame_eta is not None:
                 self._gpu_frame_eta = None
@@ -862,6 +867,10 @@ class ExportProgressDialog(QDialog):
             "Encoding audio": "encode",
             "Capturing and encoding": "encode",
             "Finalizing export": "encode",
+            "Finishing GPU encoding": "encode",
+            "Checking H.264 video": "encode",
+            "Saving MP4": "encode",
+            "Checking MP4": "encode",
             "Complete": "complete",
         }.get(stage, "visuals")
 
@@ -885,6 +894,13 @@ class ExportProgressDialog(QDialog):
     ) -> None:
         """Keep the export ETA in its single dedicated label."""
         elapsed = monotonic() - self._started_at if elapsed is None else elapsed
+        if self._gpu_finalizing:
+            self.time_label.setText(
+                f"경과 {self._format_time(elapsed)} · 영상 프레임 처리 완료"
+                if self._korean else
+                f"Elapsed {self._format_time(elapsed)} · Video frames submitted"
+            )
+            return
         if remaining is None:
             self.time_label.setText(
                 f"경과 {self._format_time(elapsed)} · 남은 시간 계산 중"
@@ -963,6 +979,7 @@ class ExportProgressDialog(QDialog):
         return {
             "Preparing visual frames": "화면 준비",
             "Preparing export": "내보내기 준비",
+            "Checking GPU": "GPU 호환성 확인",
             "Preparing audio": "오디오 준비",
             "Combining audio": "오디오 결합",
             "Preparing visualizers": "음악 반응 효과 준비",
@@ -971,6 +988,10 @@ class ExportProgressDialog(QDialog):
             "Encoding audio": "오디오 저장",
             "Capturing and encoding": "화면 캡처와 영상 만들기",
             "Finalizing export": "내보내기 마무리",
+            "Finishing GPU encoding": "GPU 인코딩 마무리",
+            "Checking H.264 video": "H.264 영상 검사",
+            "Saving MP4": "MP4 저장",
+            "Checking MP4": "MP4 최종 검사",
             "Preparing download": "다운로드 준비",
             "Downloading FFmpeg": "FFmpeg 다운로드",
             "Extracting": "압축 해제 및 설치",
@@ -979,6 +1000,8 @@ class ExportProgressDialog(QDialog):
 
     def _detail_text(self, message: str) -> str:
         """Translate visualizer progress details while retaining their live numbers."""
+        if self._korean and message == "Preparing GPU export audio and analysis":
+            return "GPU 내보내기용 오디오 준비 중"
         if self._korean and message.startswith("Saving audio"):
             return message.replace("Saving audio", "오디오 저장 중", 1)
         # Visualizer workers can provide a stage-local ETA, while this dialog
@@ -1051,7 +1074,12 @@ class ExportProgressDialog(QDialog):
             "Capturing the Canvas into the final video":
                 "화면을 캡처하면서 바로 최종 영상으로 만드는 중",
             "Muxing prepared video and audio": "준비된 영상과 오디오를 결합하는 중",
+            "Writing the last encoded frames to H.264": "마지막 인코딩 프레임을 H.264에 기록하는 중",
+            "Reading the encoded video and checking its frame count": "인코딩된 영상을 읽어 전체 프레임 수를 검사하는 중",
+            "Checking encoded video integrity and packet count": "인코딩된 영상의 무결성과 패킷 수를 검사하는 중",
+            "Checking video and audio timing before publishing the file": "파일을 저장하기 전에 영상과 오디오 타이밍을 검사하는 중",
             "Finishing the MP4 file": "마지막 프레임을 정리하고 MP4 파일을 마무리하는 중",
+            "Writing the MP4 file": "MP4 파일을 기록하는 중",
             "Audio normalization complete": "오디오 정규화 완료",
             "Export completed": "내보내기 완료",
             "Moving the completed video to the selected location":

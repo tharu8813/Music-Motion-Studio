@@ -27,6 +27,16 @@ class NativeGpuOptimizations:
     profile_canvas_source_paint: bool = False
     shared_packet_transport: bool = False
     parallel_packet_validation: bool = False
+    reuse_canvas_samples: bool = False
+    gpu_canvas_translation: bool = False
+    gpu_album_cover_motion: bool = False
+    gpu_particles: bool = False
+    gpu_text: bool = False
+    canvas_layer_limit: int = 8
+    gpu_video: bool = False
+    # Developer diagnostics until trimming improves total export time.
+    trim_transparent_bands: bool = False
+    gpu_radial: bool = False
 
     @classmethod
     def for_profile(cls, profile: str) -> "NativeGpuOptimizations":
@@ -45,5 +55,11 @@ class NativeGpuOptimizations:
                 adaptive_bgra=automatic,
                 shared_packet_transport=automatic,
                 parallel_packet_validation=automatic,
+                reuse_canvas_samples=automatic,
+                gpu_canvas_translation=automatic,
+                gpu_album_cover_motion=automatic,
+                gpu_particles=automatic,
+                gpu_radial=automatic,
+                gpu_video=automatic,
             )
         raise ValueError(f"Unknown native GPU optimization profile: {profile!r}")

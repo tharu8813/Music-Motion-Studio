@@ -7,7 +7,7 @@ Windows Rust CI separately compiles the actual D3D11 NVENC worker.
 from __future__ import annotations
 
 from pathlib import Path
-from concurrent.futures import Future
+from concurrent.futures import CancelledError, Future
 import os
 import json
 import subprocess
@@ -23,12 +23,64 @@ from app.preview.native_canvas_layer_packets import (
 )
 from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderCancelledError, RenderError, RenderSettings, RenderResult
 from app.renderer.native_gpu_stream import (
-    render_native_gpu_playlist, stream_native_canvas_h264,
+    NativeGpuPreflightError, probe_native_gpu, render_native_gpu_playlist, stream_native_canvas_h264,
 )
 from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
 from app.renderer.native_frame_transport import supports_lz4_transport
 from app.timeline.compiler import compile_playlist
 from app.models.playlist import PlaylistTrack
+
+
+class NativeGpuPreflightTests(unittest.TestCase):
+    def test_probe_uses_selected_settings_and_requires_an_adapter_identity(self):
+        cancel = Event()
+        settings = RenderSettings(output_width=1920, output_height=1080, fps=60,
+                                  native_nvenc_preset="p5", native_nvenc_cq=19)
+        with patch("app.renderer.native_gpu_stream.run_probe") as run:
+            run.return_value = subprocess.CompletedProcess(
+                [], 0, b'{"status":"ready","adapter_luid":4294967297}', b"",
+            )
+            self.assertEqual(probe_native_gpu(Path("worker.exe"), settings, cancel_event=cancel), 4294967297)
+            self.assertEqual(run.call_args.args[0], [
+                "worker.exe", "--probe", "1", "--width", "1920", "--height", "1080",
+                "--fps", "60", "--slots", "2", "--nvenc-preset", "p5", "--nvenc-cq", "19",
+            ])
+            self.assertIs(run.call_args.kwargs["cancel_event"], cancel)
+            with self.assertRaisesRegex(NativeGpuPreflightError, "particle drawing"):
+                probe_native_gpu(Path("worker.exe"), settings, cancel_event=cancel, required_canvas_schema=3)
+            run.return_value.stdout = b'{"status":"ready","adapter_luid":42,"canvas_packet_schemas":[1,2,3]}'
+            self.assertEqual(probe_native_gpu(Path("worker.exe"), settings, cancel_event=cancel,
+                                             required_canvas_schema=3), 42)
+            run.return_value.stdout = (
+                b'{"status":"ready","adapter_luid":42,"canvas_packet_schemas":[1,2,3,4],"canvas_layer_limit":5}'
+            )
+            capabilities = {}
+            self.assertEqual(probe_native_gpu(Path("worker.exe"), settings, cancel_event=cancel,
+                                             required_canvas_schema=4, capabilities=capabilities), 42)
+            self.assertEqual(capabilities, {"canvas_layer_limit": 5})
+            run.return_value.stdout = b'{"status":"ready","adapter_luid":true}'
+            with self.assertRaises(NativeGpuPreflightError):
+                probe_native_gpu(Path("worker.exe"), settings, cancel_event=cancel)
+
+    def test_probe_timeout_fails_and_cancellation_stays_cancellation(self):
+        for cause, error in (
+            (subprocess.TimeoutExpired(["worker.exe"], 10), NativeGpuPreflightError),
+            (CancelledError(), RenderCancelledError),
+        ):
+            with self.subTest(cause=type(cause).__name__), \
+                 patch("app.renderer.native_gpu_stream.run_probe", side_effect=cause):
+                with self.assertRaises(error):
+                    probe_native_gpu(Path("worker.exe"), RenderSettings(), cancel_event=Event())
+
+    def test_radial_capability_is_optional_on_older_workers(self):
+        for schemas, expected in (([1, 2, 3], False), ([1, 2, 3, 4, 5, 6], True)):
+            report = {"status": "ready", "adapter_luid": 42, "canvas_packet_schemas": schemas}
+            capabilities = {}
+            completed = subprocess.CompletedProcess([], 0, json.dumps(report).encode(), b"")
+            with patch("app.renderer.native_gpu_stream.run_probe", return_value=completed):
+                self.assertEqual(probe_native_gpu(Path("worker.exe"), RenderSettings(), cancel_event=Event(),
+                                                 capabilities=capabilities, query_radial=True), 42)
+            self.assertEqual(capabilities["gpu_radial"], expected)
 
 
 MOCK_NATIVE_SOURCE = '''
@@ -202,11 +254,12 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
                     stream_native_canvas_h264([], executable=Path(sys.executable),
                         video_path=root / "video.h264", report_path=root / "report.json",
                         width=64, height=64, fps=120, duration_seconds=duration, expected_frames=1201,
-                        native_nvenc_preset="p1", native_nvenc_cq=24)
+                        native_nvenc_preset="p1", native_nvenc_cq=24, adapter_luid=42)
             args = launch.call_args.args[0]
             self.assertEqual(float(args[args.index("--duration-seconds") + 1]), duration)
             self.assertEqual(args[args.index("--nvenc-preset") + 1], "p1")
             self.assertEqual(args[args.index("--nvenc-cq") + 1], "24")
+            self.assertEqual(args[args.index("--adapter-luid") + 1], "42")
 
     def test_streams_over_120_frames_with_one_staged_frame_per_ack(self):
         result = self._run_mock(count=135)
@@ -610,6 +663,10 @@ class NativeGpuStreamTransportTests(unittest.TestCase):
             self.assertEqual(stream.call_args.kwargs["expected_frames"], 30)
             self.assertEqual(stream.call_args.kwargs["native_nvenc_preset"], "p5")
             self.assertEqual(stream.call_args.kwargs["native_nvenc_cq"], 17)
+            stream.call_args.kwargs["encoder_flush_callback"]()
+            mux_progress.assert_called_once_with(
+                "Finishing GPU encoding", 0.0, "Writing the last encoded frames to H.264",
+            )
             self.assertEqual(finalizer.call_args.kwargs["tracks"], [track])
             self.assertIs(finalizer.call_args.kwargs["progress_callback"], mux_progress)
             self.assertEqual(

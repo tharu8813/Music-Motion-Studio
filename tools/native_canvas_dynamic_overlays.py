@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event
@@ -20,59 +20,24 @@ from PySide6.QtGui import QImage, QPainter
 
 from app.models.source import SourceType
 from app.preview.native_canvas_layer_packets import (
-    MAX_NATIVE_CANVAS_LAYERS, NativeCanvasBgraLayer, NativeCanvasFrame,
+    NativeCanvasBgraLayer, NativeCanvasFrame,
     straight_bgra_bytes,
 )
 from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderSettings
+from app.renderer.native_dynamic_layers import (
+    DYNAMIC_TYPES, DynamicStack, build_dynamic_stack as build_export_stack,
+)
 from app.renderer.python_visualizer import PythonVisualizerRenderer
 from app.timeline.render_plan import reactive_layer_windows
 from app.utils.visualizer_geometry import visualizer_export_rect
 
 
-DYNAMIC_TYPES = frozenset({
-    SourceType.AUDIO_VISUALIZER, SourceType.AUDIO_WAVEFORM,
-    SourceType.AUDIO_LEVEL_METER, SourceType.PARTICLE_OVERLAY,
-})
-
-
-@dataclass(frozen=True)
-class DynamicStack:
-    """Canvas bands, and the actual bottom-to-top native packet order."""
-
-    bands: tuple[tuple[float | None, float | None], ...]
-    order: tuple[tuple[str, int], ...]
-    source_ids: tuple[str, ...]
-
-
 def build_dynamic_stack(project, scale: float) -> DynamicStack:
-    """Split static Canvas at each reactive Z position, preserving interleaving.
-
-    Same-Z static/dynamic ordering is intentionally unsupported until it can
-    match FFmpeg's tie-breaks exactly. The opaque Canvas base always comes first.
-    """
-    dynamic = [s for s in project.sources if s.visible and s.source_type in DYNAMIC_TYPES]
-    if not dynamic:
+    """Use the production Z order for diagnostic packets as well."""
+    stack = build_export_stack(project, scale)
+    if not stack.source_ids:
         raise ValueError("Dynamic GPU diagnostic requires a visible audio overlay")
-    dynamic.sort(key=lambda s: (
-        s.z_index, visualizer_export_rect(s, scale)[1],
-        visualizer_export_rect(s, scale)[0],
-    ))
-    static = [s for s in project.sources if s.visible and s.source_type not in DYNAMIC_TYPES]
-    if any(s.z_index == d.z_index for s in static for d in dynamic):
-        raise ValueError("Dynamic GPU diagnostic does not support static/dynamic equal-Z layers")
-
-    bands: list[tuple[float | None, float | None]] = [(None, dynamic[0].z_index - 0.5)]
-    order: list[tuple[str, int]] = [("canvas", 0)]
-    for index, source in enumerate(dynamic):
-        order.append(("dynamic", index))
-        next_z = dynamic[index + 1].z_index if index + 1 < len(dynamic) else None
-        if any(s.z_index > source.z_index and
-               (next_z is None or s.z_index < next_z) for s in static):
-            bands.append((source.z_index + 0.5, None if next_z is None else next_z - 0.5))
-            order.append(("canvas", len(bands) - 1))
-    if len(order) > MAX_NATIVE_CANVAS_LAYERS:
-        raise ValueError("Dynamic GPU diagnostic exceeds the eight-layer NVENC packet limit")
-    return DynamicStack(tuple(bands), tuple(order), tuple(s.id for s in dynamic))
+    return stack
 
 
 def place_dynamic_overlay(image: QImage, x: int, y: int, width: int, height: int) -> NativeCanvasBgraLayer:

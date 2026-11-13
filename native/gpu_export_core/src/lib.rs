@@ -24,6 +24,12 @@ pub mod d3d11_bgra_video;
 pub mod d3d11_affine;
 
 #[cfg(windows)]
+mod d3d11_sprites;
+
+#[cfg(windows)]
+pub mod d3d11_video_source;
+
+#[cfg(windows)]
 pub mod d3d11_nvenc_registration;
 
 pub mod canvas_layer_manifest;

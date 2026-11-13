@@ -10,6 +10,7 @@ from pathlib import Path
 from concurrent.futures import CancelledError
 import json
 from fractions import Fraction
+from hashlib import sha256
 import math
 import os
 import subprocess
@@ -70,11 +71,11 @@ def fixture(root: Path, *, duration: float = 1.0, fps: int = 30):
     return video, prepared, report_path, report, track, plan, settings
 
 
-def fake_ffprobe(fps: int = 30, frames: int = 30):
+def fake_ffprobe(fps: int = 30, frames: int = 30, *, packets: bool = False):
     return SimpleNamespace(returncode=0, stdout=json.dumps({
         "streams": [{
             "codec_name": "h264", "width": 64, "height": 64,
-            "has_b_frames": 0, "nb_read_frames": str(frames),
+            "has_b_frames": 0, "nb_read_packets" if packets else "nb_read_frames": str(frames),
         }],
     }).encode(), stderr=b"")
 
@@ -88,26 +89,47 @@ def fake_mp4_probe():
 
 
 class NativeGpuProductionFinalizerTests(unittest.TestCase):
-    def _call(self, root, *, report_update=None, probe=None, mux_probe=None):
-        params = fixture(root)
+    def _call(self, root, *, report_update=None, probe=None, mux_probe=None, progress=None,
+              integrity=False, corrupt=None, duration=1.0):
+        params = fixture(root, duration=duration)
         video, prepared, report_file, report, track, plan, settings = params
+        if integrity:
+            original = video.read_bytes()
+            report.update(h264_sha256=sha256(original).hexdigest(), compressed_h264_bytes=len(original))
+        if corrupt is not None:
+            video.write_bytes(corrupt)
         if report_update:
             report.update(report_update)
+        if integrity or report_update:
             report_file.write_text(json.dumps(report), encoding="utf8")
         renderer = MagicMock(spec=FFmpegRenderer)
         def mux(video, tracks, output, settings, **kwargs):
+            kwargs["progress_callback"]("Preparing export", .005, "Validating lossless Canvas stream")
+            kwargs["progress_callback"]("Finalizing export", .99, "Finishing the MP4 file")
+            kwargs["progress_callback"]("Complete", 1.0, "Export completed")
             output.write_bytes(b"TEST-MP4")
             return RenderResult(output, 1)
         renderer.render.side_effect = mux
-        with patch("app.renderer.native_gpu_export.run_probe", side_effect=[
-            probe if probe is not None else fake_ffprobe(),
+        probes = iter([
+            probe if probe is not None else fake_ffprobe(packets=integrity),
             fake_mp4_probe() if mux_probe is None else mux_probe,
-        ]):
+        ])
+        def run_probe(args, **kwargs):
+            if "-f" in args:
+                self.assertIn("-count_packets" if integrity else "-count_frames", args)
+            if progress is not None:
+                progress("probe", None, "H.264" if "-f" in args else "MP4")
+            result = next(probes)
+            if isinstance(result, BaseException):
+                raise result
+            return result
+        with patch("app.renderer.native_gpu_export.run_probe", side_effect=run_probe):
             result = finalize_native_gpu_mp4(
                 renderer, h264_path=video, gpu_report_path=report_file,
                 prepared_audio_path=prepared, tracks=[track],
                 compiled_plan=plan, output_path=root / "final.mp4",
                 settings=settings, metadata=ExportMetadata(title="My Playlist"),
+                progress_callback=progress,
             )
         return result, renderer, params
 
@@ -129,6 +151,18 @@ class NativeGpuProductionFinalizerTests(unittest.TestCase):
             self.assertEqual(kwargs["static_layers"], [])
             self.assertEqual(kwargs["video_clips"], [])
 
+    def test_finalization_reports_checks_before_running_them(self):
+        with TemporaryDirectory() as temp:
+            events = []
+            self._call(Path(temp), progress=lambda *event: events.append(event))
+        self.assertEqual([stage for stage, _, _ in events], [
+            "Checking H.264 video", "probe", "Saving MP4", "Saving MP4",
+            "Checking MP4", "probe", "Complete",
+        ])
+        self.assertEqual([message for stage, _, message in events if stage == "probe"], ["H.264", "MP4"])
+        fractions = [fraction for _, fraction, _ in events if fraction is not None]
+        self.assertEqual(fractions, sorted(fractions))
+
     def test_diagnostic_report_is_strictly_rejected(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)
@@ -143,6 +177,33 @@ class NativeGpuProductionFinalizerTests(unittest.TestCase):
                 with self.subTest(diff=diff), self.assertRaises(RenderError):
                     self._call(root, report_update=diff)
                 # _call rewrites the report with a clean fixture each time.
+
+    def test_verified_h264_uses_packet_count_and_rejects_damage(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            noisy = fake_ffprobe(packets=True)
+            noisy.stderr = b"invalid NAL unit"
+            for expected, options in (
+                ("size differs", {"corrupt": b"TEST"}),
+                ("checksum differs", {"corrupt": b"TEST-BITSTREAX"}),
+                ("invalid H264 checksum", {"report_update": {"h264_sha256": None}}),
+                ("complete playlist", {"probe": fake_ffprobe(frames=29, packets=True)}),
+                ("invalid NAL unit", {"probe": noisy}),
+            ):
+                with self.subTest(expected=expected), self.assertRaisesRegex(RenderError, expected):
+                    self._call(root, integrity=True, **options)
+                self.assertFalse((root / "final.mp4").exists())
+            self._call(root, integrity=True)
+
+    def test_fractional_final_frame_covers_audio_end(self):
+        with TemporaryDirectory() as temp:
+            mp4 = fake_mp4_probe()
+            payload = json.loads(mp4.stdout)
+            payload["streams"][0].update(nb_frames="31", duration="1.033333")
+            payload["streams"][1]["duration"] = "1.015"
+            mp4.stdout = json.dumps(payload).encode()
+            self._call(Path(temp), integrity=True, duration=1.015,
+                       probe=fake_ffprobe(frames=31, packets=True), mux_probe=mp4)
 
     def test_valid_mux_never_overwrites_a_destination_created_during_export(self):
         with TemporaryDirectory() as temp:
@@ -280,6 +341,9 @@ class NativeGpuProductionFinalizerTests(unittest.TestCase):
                 "-t", "1", "-c:a", "aac", "-b:a", "192k", str(prepared),
             ], check=True, timeout=40)
             renderer = FFmpegRenderer(ffmpeg)
+            contents = video.read_bytes()
+            report.update(h264_sha256=sha256(contents).hexdigest(), compressed_h264_bytes=len(contents))
+            report_file.write_text(json.dumps(report), encoding="utf8")
             output = root / "complete.mp4"
             result = finalize_native_gpu_mp4(
                 renderer, h264_path=video, gpu_report_path=report_file,

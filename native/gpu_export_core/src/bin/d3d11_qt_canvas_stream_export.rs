@@ -107,25 +107,32 @@ fn main() {
 
 #[cfg(windows)]
 mod windows_export {
-    use super::{read_manifest_line, FrameClock};
+    use super::{read_manifest_line, FrameClock, MAX_EXPORT_FPS};
     use music_motion_gpu_core::d3d11_bgra_video::{
         NativeBgraNv12VideoProcessor, NativeCanvasBgraLayer,
     };
     use music_motion_gpu_core::d3d11_frame_pool::NativeNv12FramePool;
     use music_motion_gpu_core::d3d11_nvenc_registration::NativeNvencRegistrationSession;
-    use music_motion_gpu_core::qt_canvas_packet::{load_qt_canvas_packet, CanvasPacketFrame};
+    use music_motion_gpu_core::qt_canvas_packet::{load_qt_canvas_packet, CanvasPacketFrame, VideoRequest, CANVAS_PACKET_SCHEMAS};
     use music_motion_gpu_core::canvas_stream::{read_frame, read_frame_reuse, read_frame_adaptive, read_frame_parallel};
     use music_motion_gpu_core::resident_layer_cache::ResidentLayerCache;
     use music_motion_gpu_core::d3d11_affine::AffineLayerRenderer;
+    use music_motion_gpu_core::d3d11_video_source::{GpuVideoSource, VideoDecodeRuntime};
+    use std::collections::HashMap;
     use serde_json::{json, Value};
+    use sha2::{Digest, Sha256};
     use std::collections::VecDeque;
     use std::env;
     use std::fs::{self, File, OpenOptions};
     use std::io::{self, BufWriter, Read, Write};
     use std::path::{Path, PathBuf};
     use std::time::{Duration, Instant};
-    use windows::core::HSTRING;
+    use windows::core::{HSTRING, Interface};
     use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::Graphics::Direct3D11::{ID3D11Texture2D, ID3D11RenderTargetView};
+    use windows::Win32::Graphics::Dxgi::{
+        CreateDXGIFactory1, IDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_ERROR_NOT_FOUND,
+    };
     use windows::Win32::System::Memory::{
         MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FILE_MAP_READ,
         MEMORY_MAPPED_VIEW_ADDRESS,
@@ -155,13 +162,21 @@ mod windows_export {
         }
     }
 
-    struct Options {
+    #[derive(Clone, Copy)]
+    struct EncoderOptions {
         width: u32,
         height: u32,
         fps: u32,
+        slots: usize,
+        nvenc_preset: u8,
+        nvenc_cq: u8,
+        adapter_luid: Option<u64>,
+    }
+
+    struct Options {
+        encoding: EncoderOptions,
         frames: u64,
         seconds: f64,
-        slots: usize,
         video: PathBuf,
         report: PathBuf,
         binary: bool,
@@ -169,11 +184,15 @@ mod windows_export {
         binary_v3: bool,
         shared_packet_map: Option<String>,
         parallel_packet_validation: bool,
-        nvenc_preset: u8,
-        nvenc_cq: u8,
+        video_sources: Vec<PathBuf>,
     }
 
-    fn parse_options() -> Result<Options, String> {
+    enum Command {
+        Probe(EncoderOptions, Vec<PathBuf>),
+        Export(Options),
+    }
+
+    fn parse_options(mut arguments: impl Iterator<Item = String>) -> Result<Command, String> {
         let mut width = None;
         let mut height = None;
         let mut fps = None;
@@ -189,7 +208,9 @@ mod windows_export {
         let mut parallel_packet_validation = false;
         let mut nvenc_preset = 3;
         let mut nvenc_cq = 0;
-        let mut arguments = env::args().skip(1);
+        let mut adapter_luid = None;
+        let mut probe = false;
+        let mut video_sources = Vec::new();
         while let Some(option) = arguments.next() {
             let value = arguments.next()
                 .ok_or_else(|| format!("Missing value for {option}"))?;
@@ -200,6 +221,10 @@ mod windows_export {
                     .map_err(|_| "Invalid height")?),
                 "--fps" => fps = Some(value.parse::<u32>()
                     .map_err(|_| "Invalid FPS")?),
+                "--probe" if value == "1" => probe = true,
+                "--video-source" if video_sources.len() < 7 => video_sources.push(PathBuf::from(value)),
+                "--adapter-luid" => adapter_luid = Some(value.parse::<u64>()
+                    .map_err(|_| "Invalid GPU adapter LUID")?),
                 "--expected-frames" => frames = Some(value.parse::<u64>()
                     .map_err(|_| "Invalid expected frame count")?),
                 "--duration-seconds" => seconds = Some(value.parse::<f64>()
@@ -228,13 +253,32 @@ mod windows_export {
                 _ => return Err(format!("Unknown native export option: {option}")),
             }
         }
-        let options = Options {
+        let encoding = EncoderOptions {
             width: width.ok_or("Missing --width")?,
             height: height.ok_or("Missing --height")?,
             fps: fps.ok_or("Missing --fps")?,
+            slots,
+            nvenc_preset,
+            nvenc_cq,
+            adapter_luid,
+        };
+        if encoding.width < 64 || encoding.width > 3840
+            || encoding.height < 64 || encoding.height > 2160
+            || encoding.width % 2 != 0 || encoding.height % 2 != 0
+            || !(2..=8).contains(&encoding.slots)
+        {
+            return Err("Production D3D11 needs even 64..3840x64..2160 dimensions and 2..8 slots".into());
+        }
+        if !(1..=MAX_EXPORT_FPS).contains(&encoding.fps) {
+            return Err("Invalid native export FPS".into());
+        }
+        if probe {
+            return Ok(Command::Probe(encoding, video_sources));
+        }
+        let options = Options {
+            encoding,
             frames: frames.ok_or("Missing --expected-frames")?,
             seconds: seconds.ok_or("Missing --duration-seconds")?,
-            slots,
             video: video.ok_or("Missing --video-output")?,
             report: report.ok_or("Missing --output")?,
             binary,
@@ -242,17 +286,9 @@ mod windows_export {
             binary_v3,
             shared_packet_map,
             parallel_packet_validation,
-            nvenc_preset,
-            nvenc_cq,
+            video_sources,
         };
-        if options.width < 64 || options.width > 3840
-            || options.height < 64 || options.height > 2160
-            || options.width % 2 != 0 || options.height % 2 != 0
-            || !(2..=8).contains(&options.slots)
-        {
-            return Err("Production D3D11 needs even 64..3840x64..2160 dimensions and 2..8 slots".into());
-        }
-        FrameClock::new(options.frames, options.fps, options.seconds)?;
+        FrameClock::new(options.frames, encoding.fps, options.seconds)?;
         if options.shared_packet_map.is_some() && !options.binary {
             return Err("Shared Canvas packets require a binary input format".into());
         }
@@ -268,7 +304,67 @@ mod windows_export {
         if options.video.exists() || options.report.exists() {
             return Err("Native export refuses to overwrite an existing video or report".into());
         }
-        Ok(options)
+        Ok(Command::Export(options))
+    }
+
+    struct EncoderResources {
+        encoder: NativeNvencRegistrationSession,
+        affine: AffineLayerRenderer,
+        processor: NativeBgraNv12VideoProcessor,
+        pool: NativeNv12FramePool,
+        adapter_luid: u64,
+    }
+
+    struct VideoLayer<'runtime> {
+        decoder: GpuVideoSource<'runtime>,
+        texture: ID3D11Texture2D,
+        view: ID3D11RenderTargetView,
+        clip: [u32; 4],
+        placement: VideoRequest,
+        last_pts: Option<i64>,
+    }
+
+    fn open_encoder(options: EncoderOptions) -> Result<EncoderResources, String> {
+        let factory: IDXGIFactory1 = unsafe { CreateDXGIFactory1() }
+            .map_err(|e| format!("Cannot enumerate DXGI adapters: {e}"))?;
+        let mut last_error = if options.adapter_luid.is_some() {
+            "The selected NVIDIA GPU is no longer available".to_owned()
+        } else {
+            "No hardware NVIDIA GPU was found".to_owned()
+        };
+        for index in 0.. {
+            let adapter = match unsafe { factory.EnumAdapters1(index) } {
+                Ok(adapter) => adapter,
+                Err(error) if error.code() == DXGI_ERROR_NOT_FOUND => break,
+                Err(error) => return Err(format!("DXGI adapter enumeration failed: {error}")),
+            };
+            let desc = unsafe { adapter.GetDesc1() }
+                .map_err(|e| format!("Cannot identify DXGI adapter {index}: {e}"))?;
+            let luid = (u64::from(desc.AdapterLuid.HighPart as u32) << 32)
+                | u64::from(desc.AdapterLuid.LowPart);
+            if desc.VendorId != 0x10de || desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32 != 0
+                || options.adapter_luid.is_some_and(|selected| selected != luid)
+            {
+                continue;
+            }
+            let opened: Result<EncoderResources, String> = (|| {
+                let adapter = adapter.cast().map_err(|e| format!("Cannot open DXGI adapter: {e}"))?;
+                let pool = NativeNv12FramePool::new_for_adapter(
+                    options.width, options.height, options.slots, Some(&adapter),
+                )?;
+                let encoder = NativeNvencRegistrationSession::new_for_pool_with_encoding(
+                    &pool, options.fps, options.nvenc_preset, options.nvenc_cq,
+                )?;
+                let processor = NativeBgraNv12VideoProcessor::new_for_pool(&pool)?;
+                let affine = AffineLayerRenderer::new(&pool)?;
+                Ok(EncoderResources { encoder, affine, processor, pool, adapter_luid: luid })
+            })();
+            match opened {
+                Ok(resources) => return Ok(resources),
+                Err(error) => last_error = format!("NVIDIA adapter {luid} could not start: {error}"),
+            }
+        }
+        Err(last_error)
     }
 
     /// Retains only a small buffered writer, never all NVENC packets in RAM.
@@ -277,6 +373,7 @@ mod windows_export {
         partial: PathBuf,
         writer: Option<BufWriter<File>>,
         bytes_written: u64,
+        digest: Sha256,
     }
     impl StagedVideo {
         fn open(video: &Path) -> Result<Self, String> {
@@ -291,6 +388,7 @@ mod windows_export {
             Ok(Self {
                 partial, writer: Some(BufWriter::with_capacity(256 * 1024, file)),
                 bytes_written: 0,
+                digest: Sha256::new(),
             })
         }
         fn write_packet(&mut self, packet: &[u8]) -> Result<(), String> {
@@ -298,9 +396,11 @@ mod windows_export {
             self.bytes_written = self.bytes_written.checked_add(packet.len() as u64)
                 .ok_or("Native H264 output size overflow")?;
             self.writer.as_mut().ok_or("Native H264 writer closed")?
-                .write_all(packet).map_err(|e| format!("Cannot write H264: {e}"))
+                .write_all(packet).map_err(|e| format!("Cannot write H264: {e}"))?;
+            self.digest.update(packet);
+            Ok(())
         }
-        fn publish(&mut self, video: &Path) -> Result<(), String> {
+        fn publish(&mut self, video: &Path) -> Result<String, String> {
             let mut writer = self.writer.take().ok_or("Native H264 writer missing")?;
             writer.flush().map_err(|e| format!("H264 flush failed: {e}"))?;
             writer.get_ref().sync_all().map_err(|e| format!("H264 sync failed: {e}"))?;
@@ -310,7 +410,7 @@ mod windows_export {
             }
             fs::rename(&self.partial, video)
                 .map_err(|e| format!("Cannot publish completed H264 video: {e}"))?;
-            Ok(())
+            Ok(format!("{:x}", std::mem::take(&mut self.digest).finalize()))
         }
     }
     impl Drop for StagedVideo {
@@ -425,7 +525,10 @@ mod windows_export {
 
     fn export(options: Options) -> Result<Value, String> {
         let started = Instant::now();
-        let mut clock = FrameClock::new(options.frames, options.fps, options.seconds)?;
+        let EncoderOptions { width, height, fps, slots, nvenc_preset, nvenc_cq, .. } = options.encoding;
+        let mut clock = FrameClock::new(options.frames, fps, options.seconds)?;
+        let EncoderResources { mut pool, processor, mut affine, mut encoder, adapter_luid } =
+            open_encoder(options.encoding)?;
         let stdin = io::stdin();
         let mut input = stdin.lock();
         let mut writer = StagedVideo::open(&options.video)?;
@@ -440,24 +543,22 @@ mod windows_export {
         let frame = next_input_frame(&mut input, 0, None, &options, mapping, &mut timings)?
             .ok_or("Native producer closed without any Canvas frames")?;
         transfer_seconds += transfer_started.elapsed().as_secs_f64();
-        if (frame.width, frame.height) != (options.width, options.height) {
+        if (frame.width, frame.height) != (width, height) {
             return Err("First Canvas packet dimensions differ from export settings".into());
         }
-        let mut pool = NativeNv12FramePool::new(options.width, options.height, options.slots)?;
-        let processor = NativeBgraNv12VideoProcessor::new_for_pool(&pool)?;
-        let mut resident = ResidentLayerCache::new(options.width, options.height);
-        let mut affine = AffineLayerRenderer::new(&pool)?;
-        let mut encoder = NativeNvencRegistrationSession::new_for_pool_with_encoding(
-            &pool, options.fps, options.nvenc_preset, options.nvenc_cq,
-        )?;
+        let mut resident = ResidentLayerCache::new(width, height);
+        let runtime = if options.video_sources.is_empty() { None } else { Some(VideoDecodeRuntime::new(&pool)?) };
+        let mut videos: HashMap<usize, VideoLayer> = HashMap::new();
+        let mut video_frames = 0u64;
+        let mut video_decode_seconds = 0.0;
         let adapter = pool.adapter_name().to_string();
-        let mut pending: VecDeque<(usize, i64)> = VecDeque::with_capacity(options.slots);
+        let mut pending: VecDeque<(usize, i64)> = VecDeque::with_capacity(slots);
         let mut current = frame;
         loop {
-            if pending.len() == options.slots {
+            if pending.len() == slots {
                 consume(&mut pool, &mut encoder, &mut pending, &mut writer, &mut clock, &mut timings)?;
             }
-            if current.width != options.width || current.height != options.height {
+            if current.width != width || current.height != height {
                 return Err("Canvas packet dimensions changed mid-export".into());
             }
             let pts = clock.next_submission()?;
@@ -467,13 +568,61 @@ mod windows_export {
                 |texture,pixels,width| affine.upload(texture,pixels,width),
             )?;
             affine.prepare(&current, &resident)?;
-            let layers = current.layers.iter().map(|source| {
-                Ok(NativeCanvasBgraLayer {
-                    texture: if source.geometry.is_identity(options.width, options.height) {
-                        resident.resource(&source.stream_key)?
-                    } else { affine.output(&source.stream_key)? }, opacity: source.opacity,
-                })
-            }).collect::<Result<Vec<_>, String>>()?;
+            let mut active_video = [false; 8];
+            let mut seen_video = [false; 8];
+            let video_started = Instant::now();
+            for layer in &current.layers {
+                let Some(request) = layer.video else { continue; };
+                let path = options.video_sources.get(request.asset).ok_or("Unknown native video asset")?;
+                if seen_video[request.asset] {
+                    return Err("A native video asset was used more than once in one frame".into());
+                }
+                seen_video[request.asset] = true;
+                let Some(time) = request.media_time else { continue; };
+                let [x, y, r, b] = layer.geometry.clip;
+                let entry = match videos.entry(request.asset) {
+                    std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        let runtime = runtime.as_ref().ok_or("Missing native video runtime")?;
+                        let decoder = GpuVideoSource::open(runtime, &pool, path, (r - x, b - y), request.crop)?;
+                        let (texture, view) = affine.create_output()?;
+                        affine.clear_output(&view);
+                        entry.insert(VideoLayer { decoder, texture, view, clip: layer.geometry.clip,
+                            placement: request, last_pts: None })
+                    }
+                };
+                if entry.clip != layer.geometry.clip || entry.placement.crop != request.crop
+                    || entry.placement.flip_horizontal != request.flip_horizontal
+                    || entry.placement.flip_vertical != request.flip_vertical
+                    || entry.placement.border_radius != request.border_radius
+                    || entry.placement.saturation != request.saturation {
+                    return Err("Native video layer geometry changed mid-export".into());
+                }
+                let luma = entry.decoder.luma;
+                let Some((decoded, actual)) = entry.decoder.frame_with_limit(time, request.media_limit)?
+                    else { continue; };
+                if entry.last_pts != Some(actual) {
+                    affine.place_video(&entry.texture, &entry.view, decoded, entry.clip, request, luma)?;
+                    entry.last_pts = Some(actual);
+                }
+                active_video[request.asset] = true;
+                video_frames += 1;
+            }
+            if !options.video_sources.is_empty() {
+                video_decode_seconds += video_started.elapsed().as_secs_f64();
+            }
+            let mut layers = Vec::with_capacity(current.layers.len());
+            for source in &current.layers {
+                let texture = if let Some(request) = source.video {
+                    if !active_video[request.asset] { continue; }
+                    &videos.get(&request.asset).ok_or("Native video output was not prepared")?.texture
+                } else if source.uses_resident_texture(width, height) {
+                    resident.resource(&source.stream_key)?
+                } else {
+                    affine.output(&source.stream_key)?
+                };
+                layers.push(NativeCanvasBgraLayer { texture, opacity: source.composition_opacity() });
+            }
             let slot = pool.queue_gpu_canvas_layers(&processor, &layers, pts)?;
             timings.gpu_submit += submit_started.elapsed().as_secs_f64();
             pending.push_back((slot, pts));
@@ -528,7 +677,7 @@ mod windows_export {
             return Err("Native D3D11/NVENC completion counters did not match".into());
         }
         let bytes = writer.bytes_written;
-        writer.publish(&options.video)?;
+        let h264_sha256 = writer.publish(&options.video)?;
         let stage_seconds = json!({
             "d3d11_upload_and_submit": timings.gpu_submit,
             "d3d11_completion_wait": timings.gpu_wait,
@@ -543,8 +692,9 @@ mod windows_export {
             "source": "real_qt_canvas_snapshot_cpu_raster_packets",
             "adapter_name": adapter,
             "nvenc_api_version": encoder.negotiated_api_version(),
-            "resolution": [options.width, options.height],
-            "fps": options.fps,
+            "resolution": [width, height],
+            "fps": fps,
+            "adapter_luid": adapter_luid,
             "duration_seconds": options.seconds,
             "expected_frames": options.frames,
             "frames_encoded": options.frames,
@@ -556,12 +706,12 @@ mod windows_export {
             "d3d11_affine_shader_draws": affine.draws,
             "d3d11_exact_roi_gpu_copies": affine.exact_roi_copies,
             "affine_output_textures": {"allocations":affine.allocations,"releases":affine.releases,"peak_bytes":affine.peak_output_bytes},
-            "canvas_packet_schemas": [1,2],
+            "canvas_packet_schemas": CANVAS_PACKET_SCHEMAS,
             "gpu_nv12_to_cpu_readbacks": 0,
             "nvenc_output_synchronously_completed": true,
             "qt_canvas_rasterized_on_cpu": true,
-            "native_gpu_text_painting_implemented": false,
-            "max_pending_gpu_slots": options.slots,
+            "native_gpu_text_painting_implemented": affine.text_layers_drawn > 0,
+            "max_pending_gpu_slots": slots,
             "input": if options.binary_v3 { "binary-v3" } else if options.binary_v2 { "binary-v2" } else if options.binary { "binary-v1" } else { "newline_separated_manifest_paths_stdin" },
             "frame_receive_seconds": transfer_seconds,
             "native_stage_seconds": stage_seconds,
@@ -578,9 +728,24 @@ mod windows_export {
                 "pixel_identity": "sha256_cpu",
             },
         });
+        result["h264_sha256"] = json!(h264_sha256);
+        result["d3d11_particle_layers_drawn"] = json!(affine.particle_layers_drawn);
+        result["d3d11_particle_sprites_drawn"] = json!(affine.particle_sprites_drawn);
+        result["d3d11_radial_layers_drawn"] = json!(affine.radial_layers_drawn);
+        result["d3d11_text_layers_drawn"] = json!(affine.text_layers_drawn);
+        result["d3d11_text_quads_drawn"] = json!(affine.text_quads_drawn);
+        result["d3d11_video_sources"] = json!({
+            "composited_frames": video_frames,
+            "decoded_samples": videos.values().map(|v| v.decoder.decoded_frames).sum::<u64>(),
+            "converted_samples": videos.values().map(|v| v.decoder.converted_frames).sum::<u64>(),
+            "seeks": videos.values().map(|v| v.decoder.seeks).sum::<u64>(),
+            "cpu_pixel_bytes": 0,
+            "cpu_readbacks": 0,
+            "decode_and_submit_seconds": video_decode_seconds,
+        });
         result["nvenc_encoding"] = json!({
-            "preset": format!("p{}", options.nvenc_preset),
-            "cq": options.nvenc_cq,
+            "preset": format!("p{nvenc_preset}"),
+            "cq": nvenc_cq,
         });
         // A failed report means no completed deliverable. If the runner
         // closes/crashes mid-export, no report is emitted at all.
@@ -613,7 +778,24 @@ mod windows_export {
 
     #[cfg(test)]
     mod reference_lifetime_tests {
-        use super::{needs_previous_packet, read_shared_length, SHARED_PACKET_CAPACITY};
+        use super::{needs_previous_packet, parse_options, read_shared_length, Command, SHARED_PACKET_CAPACITY};
+
+        #[test]
+        fn probe_requires_encoding_settings_but_no_timeline_or_output() {
+            let mut args = vec![
+                "--probe", "1", "--width", "1920", "--height", "1080", "--fps", "60",
+                "--nvenc-preset", "p5", "--nvenc-cq", "19",
+                "--adapter-luid", "4294967297",
+            ];
+            let Command::Probe(encoding, paths) = parse_options(args.iter().map(|arg| arg.to_string())).unwrap()
+                else { panic!("expected probe mode") };
+            assert_eq!((encoding.width, encoding.height, encoding.fps), (1920, 1080, 60));
+            assert_eq!((encoding.nvenc_preset, encoding.nvenc_cq), (5, 19));
+            assert_eq!(encoding.adapter_luid, Some(4294967297));
+            assert!(paths.is_empty());
+            args[3] = "1921";
+            assert!(parse_options(args.iter().map(|arg| arg.to_string())).is_err());
+        }
 
         #[test]
         fn v3_keeps_previous_packet_for_subsequent_frames() {
@@ -634,8 +816,25 @@ mod windows_export {
     }
 
     pub fn run() -> Result<(), String> {
-        let options = parse_options()?;
-        let report = export(options)?;
+        let report = match parse_options(env::args().skip(1))? {
+            Command::Probe(options, paths) => {
+                let resources = open_encoder(options)?;
+                if !paths.is_empty() {
+                    let runtime = VideoDecodeRuntime::new(&resources.pool)?;
+                    for path in &paths {
+                        GpuVideoSource::open(&runtime, &resources.pool, path, (64, 64), false)?;
+                    }
+                }
+                json!({
+                    "status": "ready",
+                    "adapter_luid": resources.adapter_luid,
+                    "adapter_name": resources.pool.adapter_name(),
+                    "canvas_packet_schemas": CANVAS_PACKET_SCHEMAS,
+                    "canvas_layer_limit": resources.processor.canvas_layer_limit()?,
+                })
+            }
+            Command::Export(options) => export(options)?,
+        };
         println!("{}", serde_json::to_string_pretty(&report)
             .map_err(|e| e.to_string())?);
         Ok(())

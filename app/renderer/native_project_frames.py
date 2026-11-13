@@ -18,7 +18,9 @@ from app.canvas.live_canvas import CanvasScene
 from app.canvas.source_item import SourceItem
 from app.models.project import ProjectDocument
 from app.models.source import SourceType
-from app.preview.native_canvas_layer_packets import NativeCanvasFrame, capture_native_canvas_track_frame
+from app.preview.native_canvas_layer_packets import (
+    MAX_NATIVE_CANVAS_LAYERS, NativeCanvasFrame, capture_native_canvas_track_frame,
+)
 from app.renderer.ffmpeg_renderer import RenderError, RenderCancelledError
 from app.renderer.native_dynamic_layers import (
     DYNAMIC_TYPES, analyze_reactive_canvas_tracks, build_dynamic_stack,
@@ -30,8 +32,10 @@ from app.renderer.native_project_support import (
 )
 from app.timeline.compiler import compile_playlist
 from app.services.lyrics_intro_service import prepare_instrumental_spans
-from app.renderer.native_layer_cache import NativeRasterCache, split_resident_bands
+from app.renderer.native_layer_cache import NativeRasterCache, split_gpu_cover_bands, split_resident_bands
 from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
+from app.renderer.native_text_layers import split_gpu_text_bands
+from app.renderer.native_project_video import NativeVideoSource
 from app.renderer.export_timeline import ExportTimelinePlanner
 from app.renderer.cfr_sample_pruning import iter_cfr_emitting_samples
 
@@ -113,6 +117,7 @@ def produce_complete_project_frames(
     instrumental_by_track: dict[str, dict[str, tuple]] | None = None,
     raster_counters: dict | None = None,
     optimizations: NativeGpuOptimizations | None = None,
+    video_sources: dict[str, NativeVideoSource] | None = None,
 ) -> Iterator[NativeCanvasFrame]:
     """Yield *every* playlist CFR frame lazily in true source Z order.
 
@@ -128,17 +133,17 @@ def produce_complete_project_frames(
     if not isinstance(fps, int) or isinstance(fps, bool) or not 1 <= fps <= 120:
         raise TimelineValidationError("Full native export FPS must be 1..120")
     _check_cancel(cancel)
-    validate_project_for_gpu_capture(
-        project, scale=scale, source_policy="dynamic-audio",
-    )
+    gpu_video = bool(video_sources)
+    validate_project_for_gpu_capture(project, scale=scale, source_policy="dynamic-audio", gpu_video=gpu_video)
     plan = compile_playlist(project.playlist, enabled_only=True)
     tracks = [t for t in project.playlist if t.enabled and t.duration_seconds > 0]
     if not tracks or plan.duration_seconds <= 0:
         raise TimelineValidationError("A complete native export needs enabled playlist tracks")
-    stack = build_dynamic_stack(project, scale)
+    stack = build_dynamic_stack(project, scale, gpu_video=gpu_video)
     included = [
         s for s in project.sources
         if s.visible and s.source_type not in DYNAMIC_TYPES
+        and (not gpu_video or s.source_type is not SourceType.VIDEO)
     ]
     reactive = [s for s in included if s.uses_bass_reaction]
     scene = CanvasScene()
@@ -158,12 +163,22 @@ def produce_complete_project_frames(
                 _ProfiledNativeSourceItem(source, paint_costs, text_stage_costs)
                 if profile_paint else SourceItem(source)
             )
-        stack = split_resident_bands(scene, stack, plan.duration_seconds)
+        layer_limit = (optimizations.canvas_layer_limit if gpu_video and optimizations is not None
+                       else MAX_NATIVE_CANVAS_LAYERS)
+        stack = split_resident_bands(scene, stack, plan.duration_seconds, layer_limit=layer_limit)
+        schedule_bands = stack.bands
+        schedule_owners = range(len(schedule_bands))
+        if optimizations is not None and optimizations.gpu_album_cover_motion and len(stack.order) < layer_limit:
+            stack, schedule_owners = split_gpu_cover_bands(scene, stack)
+        if optimizations is not None and optimizations.gpu_text:
+            stack, schedule_owners = split_gpu_text_bands(
+                scene, stack, schedule_owners, optimizations.canvas_layer_limit,
+            )
         raster_cache = NativeRasterCache(
             scene, stack.bands, plan.duration_seconds, optimizations=optimizations,
         )
         schedules = ExportTimelinePlanner.build_by_z_band(
-            tracks, included, set(), stack.bands, fps, plan, lazy=True,
+            tracks, included, set(), schedule_bands, fps, plan, lazy=True,
         )
         band_schedules = [iter_cfr_emitting_samples(samples, fps) for samples in schedules.values()]
         band_samples = [next(schedule) for schedule in band_schedules]
@@ -178,14 +193,18 @@ def produce_complete_project_frames(
                 real_audio_dynamic_frames(
                     project, plan, fps=fps, scale=scale, start_seconds=0.0,
                     prepared_audio=prepared_audio, ffmpeg=ffmpeg, cancel_event=cancel, analysis=analysis,
+                    gpu_particles=optimizations is not None and optimizations.gpu_particles,
+                    gpu_radial=optimizations is not None and optimizations.gpu_radial,
                 )
             )
-            if len(overlays) != len(stack.source_ids):
+            video_sources = video_sources or {}
+            if len(overlays) + len(video_sources) != len(stack.source_ids):
                 raise TimelineValidationError("Dynamic overlay count differs from original project")
             envelopes = analysis.envelopes if analysis is not None else analyze_reactive_canvas_tracks(
                 project, tracks, fps=fps, ffmpeg=ffmpeg, cancel_event=cancel,
             ) if reactive else {}
             total_frames = math.ceil(plan.duration_seconds * fps - 1e-9)
+            band_states = [None] * len(band_schedules)
             for frame_index in range(total_frames):
                 _check_cancel(cancel)
                 state = resolve_project_frame(project, frame_index / fps, plan=plan)
@@ -193,7 +212,6 @@ def produce_complete_project_frames(
                     state["track"], state["track_elapsed_seconds"], fps,
                     reactive, envelopes,
                 )
-                band_states = []
                 for index, schedule in enumerate(band_schedules):
                     while band_samples[index].cfr_target_frame_count <= frame_index:
                         next_sample = next(schedule, None)
@@ -201,11 +219,14 @@ def produce_complete_project_frames(
                             break
                         band_samples[index] = next_sample
                     sample = band_samples[index]
+                    if band_states[index] is not None and band_states[index][0] is sample:
+                        continue
                     band_bass, band_music = canvas_reaction_at(
                         sample.track, sample.elapsed_seconds, fps, reactive, envelopes,
                     )
-                    band_states.append((sample, band_bass, band_music,
-                                        instrumental_by_track[sample.track.id]))
+                    # A held CFR sample keeps the same evaluated state object.
+                    band_states[index] = (sample, band_bass, band_music,
+                                          instrumental_by_track[sample.track.id])
                 static = capture_native_canvas_track_frame(
                     scene, state["track"], stack.bands,
                     elapsed_seconds=state["track_elapsed_seconds"],
@@ -224,13 +245,17 @@ def produce_complete_project_frames(
                     music_levels=music,
                     lyric_instrumental_spans_by_source=instrumental_by_track[state["track"].id],
                     raster_cache=raster_cache,
-                    band_states=band_states,
+                    band_states=[band_states[owner] for owner in schedule_owners],
                 )
                 try:
-                    layers = [
-                        (overlay, next(stream))
-                        for overlay, stream in zip(overlays, dynamic_streams, strict=True)
-                    ]
+                    audio_layers = iter(zip(overlays, dynamic_streams, strict=True))
+                    layers = []
+                    for source_id in stack.source_ids:
+                        if source_id in video_sources:
+                            layers.append((None, video_sources[source_id].layer_at(frame_index / fps)))
+                        else:
+                            overlay, stream = next(audio_layers)
+                            layers.append((overlay, next(stream)))
                 except StopIteration as exc:
                     raise TimelineValidationError(
                         f"Audio-reactive overlay ended at frame {frame_index}/{total_frames}"
@@ -255,6 +280,17 @@ def produce_complete_project_frames(
                     raster_counters.update(
                         rasterizations=raster_cache.rasterizations,
                         reuse_hits=raster_cache.hits,
+                        sample_reuse_hits=raster_cache.sample_reuse_hits,
+                        gpu_canvas_translation_frames=raster_cache.translation_frames,
+                        gpu_canvas_translation_textures=len(raster_cache.translation_textures),
+                        gpu_canvas_translation_texture_bytes=raster_cache.translation_texture_bytes,
+                        gpu_album_cover_frames=raster_cache.cover_motion_frames,
+                        gpu_album_cover_texture_captures=raster_cache.cover_texture_captures,
+                        gpu_album_cover_texture_bytes=raster_cache.cover_texture_bytes,
+                        gpu_text_frames=raster_cache.text.frames,
+                        gpu_text_fallbacks=raster_cache.text.fallbacks,
+                        gpu_text_tile_renders=raster_cache.text.tile_renders,
+                        gpu_text_atlases_built=raster_cache.text.atlas_uploads,
                         cpu_parallel_bgra_enabled=raster_cache.parallel_bgra_enabled,
                         cpu_parallel_bgra_submissions=raster_cache.parallel_bgra_submissions,
                         cpu_parallel_bgra_peak_workers=raster_cache.parallel_bgra_peak_workers,
@@ -349,8 +385,9 @@ class GuiProjectFrameSource(QObject):
             raise TimelineValidationError("Full native export FPS must be 1..120")
         if not math.isfinite(request_timeout) or request_timeout <= 0:
             raise ValueError("Frame request timeout must be positive and finite.")
-        validate_project_for_gpu_capture(project, scale=scale, source_policy="dynamic-audio")
-        build_dynamic_stack(project, scale)
+        gpu_video = bool(optimizations and optimizations.gpu_video)
+        validate_project_for_gpu_capture(project, scale=scale, source_policy="dynamic-audio", gpu_video=gpu_video)
+        build_dynamic_stack(project, scale, gpu_video=gpu_video)
         self.project = deepcopy(project)
         self.fps, self.scale = fps, scale
         self.cancel_event = cancel_event or Event()
@@ -363,6 +400,7 @@ class GuiProjectFrameSource(QObject):
         self._audio = None
         self._ffmpeg = None
         self._analysis = None
+        self.video_sources = None
         self._instrumental_by_track = None
         self.raster_counters = {}
         self._result = None
@@ -441,6 +479,7 @@ class GuiProjectFrameSource(QObject):
                     instrumental_by_track=self._instrumental_by_track,
                     raster_counters=self.raster_counters,
                     optimizations=self.optimizations,
+                    video_sources=self.video_sources,
                 )
             self._result = next(self._iterator)
         except StopIteration:

@@ -26,8 +26,8 @@ fn run() -> Result<(),String> {
         use music_motion_gpu_core::d3d11_bgra_video::{NativeBgraNv12VideoProcessor,NativeCanvasBgraLayer};
         let processor=NativeBgraNv12VideoProcessor::new_for_pool(&pool)?;
         let layers=frame.layers.iter().map(|l| Ok(NativeCanvasBgraLayer {
-            texture:if l.geometry.is_identity(frame.width,frame.height) {resident.resource(&l.stream_key)?} else {shader.output(&l.stream_key)?},
-            opacity:l.opacity,
+            texture:if l.uses_resident_texture(frame.width,frame.height) {resident.resource(&l.stream_key)?} else {shader.output(&l.stream_key)?},
+            opacity:l.composition_opacity(),
         })).collect::<Result<Vec<_>,String>>()?;
         let slot=pool.queue_gpu_canvas_layers(&processor,&layers,0)?;
         pool.wait_for_gpu_copy(slot,std::time::Duration::from_secs(15))?;
@@ -37,7 +37,7 @@ fn run() -> Result<(),String> {
         println!("{}",serde_json::json!({"status":"validated_readback","format":"NV12","bytes":bytes.len(),"shader_draws":shader.draws,"adapter":pool.adapter_name()}));
         return Ok(());
     }
-    let output=if layer.geometry.is_identity(frame.width,frame.height) { resident.resource(&layer.stream_key)? }
+    let output=if layer.uses_resident_texture(frame.width,frame.height) { resident.resource(&layer.stream_key)? }
         else { shader.output(&layer.stream_key)? };
     let mut desc=D3D11_TEXTURE2D_DESC::default(); unsafe {output.GetDesc(&mut desc)};
     desc.Usage=D3D11_USAGE_STAGING; desc.BindFlags=0;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ.0 as u32;

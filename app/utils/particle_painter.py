@@ -46,14 +46,8 @@ def _particle_static_values(
     )
 
 
-@timed("canvas.particle_paint_seconds")
-def paint_particles(
-    painter: QPainter,
-    rect: QRectF,
-    *,
-    style: str,
-    color: str,
-    secondary_color: str,
+def particle_samples(
+    width: float, height: float, *,
     density: int,
     speed: float,
     minimum_size: float,
@@ -62,11 +56,10 @@ def paint_particles(
     direction: float,
     drift: float,
     twinkle: float,
-    glow: float,
     seed: int,
     time_seconds: float = 0.0,
-) -> None:
-    """Paint a repeatable animated particle field inside *rect*."""
+):
+    """Yield the same seeded position, diameter, alpha and phase for either painter."""
     density = max(4, min(500, int(density)))
     speed = max(0.0, min(5.0, float(speed)))
     minimum_size = max(0.5, min(40.0, float(minimum_size)))
@@ -74,13 +67,8 @@ def paint_particles(
     particle_opacity = max(0.0, min(1.0, float(particle_opacity)))
     drift = max(0.0, min(2.0, float(drift)))
     twinkle = max(0.0, min(1.0, float(twinkle)))
-    glow = max(0.0, min(1.0, float(glow)))
     angle = radians(float(direction))
-    travel = time_seconds * speed * max(rect.width(), rect.height()) * 0.075
-
-    primary = QColor(color)
-    secondary = QColor(secondary_color)
-    painter.setPen(Qt.PenStyle.NoPen)
+    travel = time_seconds * speed * max(width, height) * 0.075
     static_values = (
         None if _DISABLE_PARTICLE_STATIC_CACHE
         else _particle_static_values(density, seed)
@@ -88,21 +76,44 @@ def paint_particles(
     for index in range(density):
         if static_values is None:
             phase = _random_unit(index, 0, seed) * 2.0 * pi
-            base_x = _random_unit(index, 1, seed) * rect.width()
-            base_y = _random_unit(index, 2, seed) * rect.height()
+            base_x = _random_unit(index, 1, seed) * width
+            base_y = _random_unit(index, 2, seed) * height
             size_ratio = _random_unit(index, 3, seed)
         else:
             phase, x_ratio, y_ratio, size_ratio = static_values[index]
-            base_x = x_ratio * rect.width()
-            base_y = y_ratio * rect.height()
+            base_x = x_ratio * width
+            base_y = y_ratio * height
         sway = sin(time_seconds * speed * 1.35 + phase) * drift
-        x = (base_x + cos(angle) * travel + sway * rect.width() * 0.035) % max(1.0, rect.width())
-        y = (base_y + sin(angle) * travel + cos(phase) * sway * rect.height() * 0.018) % max(1.0, rect.height())
+        x = (base_x + cos(angle) * travel + sway * width * 0.035) % max(1.0, width)
+        y = (base_y + sin(angle) * travel + cos(phase) * sway * height * 0.018) % max(1.0, height)
         size = minimum_size + (maximum_size - minimum_size) * size_ratio
         pulse = 1.0 - twinkle * 0.45 + twinkle * 0.45 * (
             sin(time_seconds * (1.8 + size_ratio * 2.4) + phase) * 0.5 + 0.5
         )
         alpha = max(0, min(255, round(255 * particle_opacity * pulse)))
+        yield x, y, size, alpha, phase
+
+
+@timed("canvas.particle_paint_seconds")
+def paint_particles(
+    painter: QPainter, rect: QRectF, *,
+    style: str, color: str, secondary_color: str, density: int, speed: float,
+    minimum_size: float, maximum_size: float, particle_opacity: float,
+    direction: float, drift: float, twinkle: float, glow: float, seed: int,
+    time_seconds: float = 0.0,
+) -> None:
+    """Paint a repeatable animated particle field inside *rect*."""
+    glow = max(0.0, min(1.0, float(glow)))
+    speed = max(0.0, min(5.0, float(speed)))
+    primary = QColor(color)
+    secondary = QColor(secondary_color)
+    painter.setPen(Qt.PenStyle.NoPen)
+    samples = particle_samples(
+        rect.width(), rect.height(), density=density, speed=speed,
+        minimum_size=minimum_size, maximum_size=maximum_size, particle_opacity=particle_opacity,
+        direction=direction, drift=drift, twinkle=twinkle, seed=seed, time_seconds=time_seconds,
+    )
+    for index, (x, y, size, alpha, phase) in enumerate(samples):
         dot = QColor(secondary if index % 3 == 0 else primary)
         dot.setAlpha(alpha)
         particle_rect = QRectF(rect.left() + x - size / 2, rect.top() + y - size / 2, size, size)

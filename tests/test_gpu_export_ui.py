@@ -13,8 +13,10 @@ from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.controllers.export_controller import ExportOrchestrator
+from app.models.source import Source, SourceType
 from app.renderer.render_worker import RenderWorker
 from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
+from app.renderer.native_gpu_stream import NativeGpuPreflightError
 from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderSettings
 from app.services.app_settings_service import AppSettings
 from tests.test_native_canvas_project_probe import project_fixture
@@ -24,6 +26,7 @@ class FakeWorker(QObject):
     progress = Signal(str, float, str)
     succeeded = Signal(object)
     failed = Signal(str)
+    native_preflight_failed = Signal(str)
     cancelled = Signal()
     finished = Signal()
     storage_path_changed = Signal(str, object)
@@ -55,6 +58,7 @@ class GpuUiTests(unittest.TestCase):
         self.window._project_document.return_value = self.project
         self.controller = ExportOrchestrator(self.window)
         self.options = MagicMock()
+        self.options.engine_combo.findData.return_value = 1
         self.options.app_settings = AppSettings(render_width=self.project.canvas.width,
                                                 render_height=self.project.canvas.height)
         self.options.save_as_default = False
@@ -97,7 +101,7 @@ class GpuUiTests(unittest.TestCase):
         self.assertEqual(self.bridge_kwargs[-1]["optimizations"], auto)
         self.assertTrue(all((
             auto.pipelined, auto.partial_bands, auto.compact_bands,
-            auto.reuse_layers, auto.parallel_bgra, auto.adaptive_bgra,
+            auto.reuse_layers, auto.parallel_bgra, auto.adaptive_bgra, auto.gpu_radial,
         )))
 
     def test_gpu_export_summary_localizes_the_active_encoding_settings(self):
@@ -180,6 +184,28 @@ class GpuUiTests(unittest.TestCase):
             self.assertFalse(self.controller.start_gpu_export(MagicMock(), [], self.output, self.options))
         self.controller.start_storage_monitor.assert_not_called()
 
+    def test_gpu_tries_supported_video_and_routes_unsupported_effects_to_ffmpeg(self):
+        source = Source(SourceType.VIDEO, "Video", width=320, height=180, z_index=30,
+                        video_paths=["movie.mp4"], image_fit_mode="cover")
+        self.project.sources.append(source)
+        with patch.object(QMessageBox, "information") as notice:
+            worker = self.start()
+            notice.assert_not_called()
+            self.assertTrue(worker.native_optimizations.gpu_video)
+            source.blur = 5.0
+            self.assertFalse(self.controller.start_gpu_export(MagicMock(), [], self.output, self.options))
+            notice.assert_called_once()
+
+    def test_1080p_export_accepts_visualizer_and_text_with_shared_layer_order(self):
+        self.project.sources.extend([
+            Source(SourceType.TEXT, "Album title", z_index=10, text="%album%"),
+            Source(SourceType.AUDIO_VISUALIZER, "Audio Visualizer", z_index=10),
+        ])
+        self.options.app_settings = AppSettings(render_width=1920, render_height=1080)
+        with patch.object(QMessageBox, "information") as notice:
+            self.start()
+        notice.assert_not_called()
+
     def test_error_offers_fallback_only_after_close(self):
         worker = self.start()
         with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes) as question, \
@@ -190,7 +216,27 @@ class GpuUiTests(unittest.TestCase):
             self.close_bridge()
             self.app.processEvents()
             retry.assert_called_once_with(self.options)
-        self.options.engine_combo.setCurrentIndex.assert_called_once_with(0)
+        self.options.engine_combo.findData.assert_called_once_with("ffmpeg")
+        self.options.engine_combo.setCurrentIndex.assert_called_once_with(1)
+
+    def test_hardware_preflight_falls_back_after_close(self):
+        self.window.translator.is_korean = True
+        worker = self.start()
+        with patch.object(QMessageBox, "information") as notice, \
+             patch.object(QMessageBox, "question") as question, \
+             patch.object(self.controller, "export_video") as retry:
+            worker.native_preflight_failed.emit("driver rejected resolution")
+            worker.finished.emit()
+            notice.assert_not_called()
+            self.close_bridge()
+            self.app.processEvents()
+            retry.assert_called_once_with(self.options)
+        self.assertIn("Rust GPU", notice.call_args.args[2])
+        self.assertIn("FFmpeg", notice.call_args.args[2])
+        self.assertNotIn("driver rejected resolution", notice.call_args.args[2])
+        question.assert_not_called()
+        self.options.engine_combo.findData.assert_called_once_with("ffmpeg")
+        self.options.engine_combo.setCurrentIndex.assert_called_once_with(1)
 
     def test_cancel_never_offers_fallback(self):
         worker = self.start()
@@ -263,7 +309,17 @@ class GpuUiTests(unittest.TestCase):
         self.assertEqual(export.call_args.kwargs["native_nvenc_cq"], 19)
         self.assertEqual(renderer.render.call_count, 1)
 
-    def test_export_video_ui_dispatches_gpu_and_keeps_ffmpeg_default(self):
+    def test_worker_signals_hardware_preflight_separately_from_render_failure(self):
+        worker = RenderWorker(MagicMock(), QImage(), [], self.output, RenderSettings(),
+                              native_project=self.project)
+        errors = []
+        worker.native_preflight_failed.connect(errors.append)
+        with patch("app.renderer.native_project_export.export_project_document",
+                   side_effect=NativeGpuPreflightError("cannot open NVENC")):
+            worker.run()
+        self.assertEqual(errors, ["cannot open NVENC"])
+
+    def test_export_video_ui_dispatches_gpu_and_explicit_ffmpeg_selection(self):
         self.window._render_worker = None
         self.window._export_preparation_cancel = None
         self.window.playlist_service.tracks = self.project.playlist
@@ -279,6 +335,13 @@ class GpuUiTests(unittest.TestCase):
             self.options.engine_combo.currentData.return_value = "ffmpeg"
             self.controller.export_video(self.options)
             self.assertEqual(gpu.call_count, 1)
+            ffmpeg.assert_called_once()
+            ffmpeg.reset_mock()
+            self.options.engine_combo.currentData.return_value = "native_gpu"
+            gpu.return_value = False
+            self.controller.export_video(self.options)
+            self.options.engine_combo.findData.assert_called_once_with("ffmpeg")
+            self.options.engine_combo.setCurrentIndex.assert_called_once_with(1)
             ffmpeg.assert_called_once()
 
     def test_duplicate_export_is_blocked_before_options(self):

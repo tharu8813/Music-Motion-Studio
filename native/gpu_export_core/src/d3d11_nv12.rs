@@ -12,7 +12,7 @@
 
 use windows::Win32::Foundation::HMODULE;
 use windows::Win32::Graphics::Direct3D::{
-    D3D_DRIVER_TYPE, D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL, D3D_FEATURE_LEVEL_11_0,
+    D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_UNKNOWN, D3D_FEATURE_LEVEL, D3D_FEATURE_LEVEL_11_0,
 };
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_CPU_ACCESS_READ, D3D11_CPU_ACCESS_WRITE,
@@ -23,7 +23,7 @@ use windows::Win32::Graphics::Direct3D11::{
     ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
 };
 use windows::Win32::Graphics::Dxgi::{
-    IDXGIAdapter1, IDXGIDevice, DXGI_ADAPTER_FLAG_SOFTWARE,
+    IDXGIAdapter, IDXGIAdapter1, IDXGIDevice, DXGI_ADAPTER_FLAG_SOFTWARE,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC,
@@ -73,11 +73,11 @@ impl NativeD3d11Nv12Surface {
     /// Hardware adapter only, not WARP. A local RTX is required for a
     /// meaningful NVENC compatibility gate.
     pub fn new(width: u32, height: u32) -> Result<Self, String> {
-        Self::new_for_driver(width, height, D3D_DRIVER_TYPE_HARDWARE)
+        Self::new_for_adapter(width, height, None)
     }
 
-    fn new_for_driver(
-        width: u32, height: u32, driver: D3D_DRIVER_TYPE,
+    pub(crate) fn new_for_adapter(
+        width: u32, height: u32, adapter: Option<&IDXGIAdapter>,
     ) -> Result<Self, String> {
         nv12_size(width, height)?;
         let mut device = None;
@@ -87,10 +87,11 @@ impl NativeD3d11Nv12Surface {
         // substitute software/WARP in production hardware measurements.
         unsafe {
             D3D11CreateDevice(
-                None,
-                driver,
+                adapter,
+                if adapter.is_some() { D3D_DRIVER_TYPE_UNKNOWN } else { D3D_DRIVER_TYPE_HARDWARE },
                 HMODULE::default(),
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                D3D11_CREATE_DEVICE_BGRA_SUPPORT
+                    | windows::Win32::Graphics::Direct3D11::D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
                 Some(&[D3D_FEATURE_LEVEL_11_0]),
                 D3D11_SDK_VERSION,
                 Some(&mut device),
