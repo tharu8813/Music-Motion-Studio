@@ -765,7 +765,7 @@ class ExportProgressDialog(QDialog):
         if display_message and display_message != self._last_log:
             self.log_output.add_detail(display_message)
             self._last_log = display_message
-        matched = re.fullmatch(r"Rust GPU: (\\d+)/(\\d+) frames", message.strip())
+        matched = re.fullmatch(r"Rust GPU: (\d+)/(\d+) frames", message.strip())
         if stage == "Encoding video" and matched:
             if self._gpu_frame_eta is None:
                 self._gpu_frame_eta = NativeGpuFrameEtaEstimator()
@@ -804,7 +804,7 @@ class ExportProgressDialog(QDialog):
             # separate workload and we don't invent a remaining duration.
             media = re.match(
                 r"^(?:Encoding|Capturing and encoding|Saving audio|Muxing) "
-                r"([\\d.]+)s / ([\\d.]+)s", message.strip(),
+                r"([\d.]+)s / ([\d.]+)s", message.strip(),
                 flags=re.IGNORECASE,
             )
             if not self._native_gpu_export and media:
