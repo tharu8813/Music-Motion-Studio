@@ -483,8 +483,14 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             for frame in frames:
                 seen += 1
                 self.assertEqual((frame.width, frame.height), (320, 180))
+                if seen == 1:
+                    # Diagnostics are export-final, not expensive per-frame
+                    # copies of evolving nested Qt paint dictionaries.
+                    self.assertEqual(metrics, {})
             self.assertEqual(seen, 30)
             self.assertEqual(project.to_dict(), snapshot)
+            self.assertEqual(metrics["retained_bytes"], 0)
+            self.assertIn("qt_canvas_band_timing", metrics)
             self.assertIn("qt_canvas_source_type_paint", metrics)
             by_type = metrics["qt_canvas_source_type_paint"]
             self.assertTrue(by_type)
