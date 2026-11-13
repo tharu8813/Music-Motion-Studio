@@ -79,6 +79,16 @@ QPushButton#primaryButton:disabled { color: @disabled_text; background: @disable
 
 QToolTip { background: @panel; color: @text; border: 1px solid @border; border-radius: 3px; padding: 8px; }
 
+/* Shared dialog footer and keyboard-first discovery, without extra cards. */
+QDialog QDialogButtonBox#dialogActions { background: transparent; border: 0; }
+QDialog QDialogButtonBox#dialogActions QPushButton {
+    min-width: 82px; min-height: 24px; padding: 5px 12px;
+}
+QLineEdit#settingsSearch, QLineEdit#shortcutSearch {
+    min-height: 28px; padding-left: 10px;
+}
+QTableWidget#shortcutTable { background: @field; }
+
 /* --- Tabs (shared flat underline style) ----------------------------- */
 QTabBar { qproperty-drawBase: 0; }
 QTabWidget::pane { border: 0; background: @panel; }
