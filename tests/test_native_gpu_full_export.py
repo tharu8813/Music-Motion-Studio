@@ -214,6 +214,17 @@ class NativeGpuFullProjectTests(unittest.TestCase):
                 previous = actual
                 frames_compared += 1
             self.assertEqual(frames_compared, 2 * fps)
+            origins = reuse_metrics["frame_layer_source_types"]
+            self.assertEqual(
+                set(origins),
+                {"base"} | {f"layer:{i}" for i in range(len(previous.layers) - 1)},
+            )
+            captured_types = {
+                source_type
+                for descriptor in origins.values()
+                for source_type in descriptor["source_types"]
+            }
+            self.assertTrue({"shape", "lyrics", "particle_overlay"} <= captured_types)
             self.assertGreater(particle_changes_during_hold, 0)
             self.assertEqual(reuse_metrics["sample_reuse_hits"], 2 * fps - 3)
             self.assertEqual(reuse_metrics["qt_canvas_band_timing"]["layer:0"]["captures"], 3)
