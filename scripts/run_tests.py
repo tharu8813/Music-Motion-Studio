@@ -41,6 +41,8 @@ def main() -> int:
     parser.add_argument("filters", nargs="*", help="only run modules whose name contains one of these")
     parser.add_argument("--timeout", type=float, default=180.0)
     parser.add_argument("--repeat", type=int, default=1, help="run each selected module this many times")
+    parser.add_argument("--verbose", action="store_true",
+                        help="include the active test name in captured timeout diagnostics")
     parser.add_argument("--report", type=Path, help="write per-run status and seconds as JSON")
     args = parser.parse_args()
 
@@ -78,7 +80,7 @@ def main() -> int:
         begin = perf_counter()
         try:
             completed = subprocess.run(
-                [sys.executable, "-m", "unittest", module, "-q"],
+                [sys.executable, "-m", "unittest", module, "-v" if args.verbose else "-q"],
                 cwd=root,
                 env=environment,
                 text=True,
