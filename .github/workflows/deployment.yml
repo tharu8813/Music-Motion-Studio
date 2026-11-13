@@ -159,7 +159,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Install verified FFmpeg for integration tests
-        run: python scripts/setup_ci_ffmpeg.py
+        run: python -m scripts.setup_ci_ffmpeg
 
       - name: Verify native NVENC H264-to-MP4 remux and optional AAC soundtrack
         shell: pwsh
@@ -454,7 +454,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Rust development preflight failed.' }
 
       - name: Install verified FFmpeg for integration tests
-        run: python scripts/setup_ci_ffmpeg.py
+        run: python -m scripts.setup_ci_ffmpeg
 
       - name: Run main-window GUI modules (one process per module)
         if: matrix.group == 'main-window'
