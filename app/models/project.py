@@ -41,6 +41,8 @@ class ProjectSettings:
     title: str = "Untitled Project"
     description: str = ""
     author: str = ""
+    created_app_version: str = __version__
+    export_preferences: dict[str, Any] = field(default_factory=dict)
     content_mode: str = "embed"
     thumbnail_mode: str = "canvas"
     thumbnail_path: str = ""
@@ -63,6 +65,8 @@ class ProjectSettings:
     )
 
     def __post_init__(self) -> None:
+        if not isinstance(self.export_preferences, dict):
+            self.export_preferences = {}
         if self.content_mode not in {"embed", "reference"}:
             self.content_mode = "embed"
         if self.thumbnail_mode not in {"canvas", "custom"}:
@@ -232,9 +236,14 @@ class ProjectDocument:
         if (not isinstance(crossfade_value, (int, float)) or isinstance(crossfade_value, bool)
                 or not isfinite(float(crossfade_value))):
             raise ValueError("Project crossfade_seconds must be a finite number.")
+        settings_data = dict(settings_data)
+        settings_data.setdefault("created_app_version", app_version or __version__)
+        if not isinstance(settings_data.get("export_preferences", {}), dict):
+            raise ValueError("Project export preferences must be an object.")
         settings_model = ProjectSettings(**settings_data)
         if not all(isinstance(getattr(settings_model, name), str) for name in (
-            "title", "description", "author", "thumbnail_path", "created_at", "modified_at",
+            "title", "description", "author", "created_app_version", "thumbnail_path",
+            "created_at", "modified_at",
         )):
             raise ValueError("Project identity and timestamp fields must be strings.")
 
