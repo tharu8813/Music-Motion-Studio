@@ -76,6 +76,7 @@ def export_complete_project(
     gpu_parallel_packet_validation: bool | None = None,
     gpu_text: bool = False,
     gpu_video: bool | None = None,
+    gpu_trim_transparent_bands: bool = False,
 ) -> Path:
     """Run actual complete GPU encoding + MP4 mux with the existing soundtrack."""
     source = Path(project_path)
@@ -117,6 +118,11 @@ def export_complete_project(
         if gpu_profile != "automatic":
             raise ValueError("--gpu-video requires --gpu-profile automatic")
         optimizations = replace(optimizations, gpu_video=gpu_video)
+    if gpu_trim_transparent_bands:
+        if gpu_profile != "automatic":
+            raise ValueError("--gpu-trim-transparent-bands requires --gpu-profile automatic")
+        # Developer A/B only. No user preference; production stays unchanged.
+        optimizations = replace(optimizations, trim_transparent_bands=True)
     started = monotonic()
     project = ProjectService.load(source)
     if smoke_seconds is not None:
@@ -193,6 +199,10 @@ def main(argv: list[str] | None = None) -> int:
         "--gpu-video", action=argparse.BooleanOptionalAction,
         help="Developer A/B: toggle H.264 MP4 video sources in the automatic GPU profile",
     )
+    parser.add_argument(
+        "--gpu-trim-transparent-bands", action="store_true",
+        help="Developer A/B only: crop proven transparent Qt layer pixels; never enabled by the GUI",
+    )
     parser.add_argument("--report", type=Path, default=None, help="Preserve developer diagnostics outside temporary staging")
     parser.add_argument(
         "--smoke-seconds", type=float, default=None,
@@ -213,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
             gpu_parallel_packet_validation=args.gpu_parallel_packet_validation,
             gpu_text=args.gpu_text,
             gpu_video=args.gpu_video,
+            gpu_trim_transparent_bands=args.gpu_trim_transparent_bands,
         )
     except Exception as exc:
         if args.report is not None and not args.report.exists():
