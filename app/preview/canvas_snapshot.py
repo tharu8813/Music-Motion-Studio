@@ -1008,7 +1008,16 @@ class CanvasSnapshot:
                 graphics_item.setRotation(source.rotation)
             key_values = evaluate_keyframes(source, global_seconds, track.id,
                 elapsed_seconds if keyframe_active and global_seconds >= start_seconds and 0 <= elapsed_seconds < track.duration_seconds else None)
-            source = keyframe_context.enter_context(keyframe_source(graphics_item, key_values))
+            # Most sources have no active numeric keyframes. Their scope
+            # would only enter/leave an inert context manager every frame.
+            # Preserve it for animated sources and editor blur restoration.
+            if key_values or (
+                getattr(graphics_item, "_editor_keyframe_pose", False)
+                and "blur" in getattr(graphics_item, "_editor_keyframe_values", {})
+            ):
+                source = keyframe_context.enter_context(
+                    keyframe_source(graphics_item, key_values)
+                )
             if (source.source_type is SourceType.TIME
                     or (source.source_type is SourceType.TEXT and "%" in source.text)):
                 original_text.append((graphics_item, source.text))
