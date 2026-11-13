@@ -462,13 +462,8 @@ class ExportProgressDialog(QDialog):
         status_footer.addWidget(self.time_label, 1)
         status_footer.addWidget(self.storage_button, 0)
         layout.addLayout(status_footer)
-        # Diagnostic history is still collected for support, but its large
-        # expandable panel no longer interrupts the ordinary export workflow.
-        # When technical details are collapsed, this spacer alone consumes
-        # additional window height. Without it, QVBoxLayout can distribute the
-        # spare height among ordinary cards and labels, making every control
-        # appear to drift apart as the user resizes the dialog. When details
-        # are shown, the log view becomes the only expanding content instead.
+        # Keep the visible status cards anchored while the spacer absorbs
+        # any extra vertical room. Diagnostic history remains internal.
         self.content_spacer = QSpacerItem(
             0, 0,
             QSizePolicy.Policy.Minimum,
@@ -728,11 +723,16 @@ class ExportProgressDialog(QDialog):
             if total > 0 and accepted >= total:
                 self._gpu_frame_eta = None
                 self._gpu_finalizing = True
+                self.progress_bar.setRange(0, 0)
+                self.percent_label.setText("마무리 중" if self._korean else "Finalizing")
             self._update_time_label(remaining, elapsed, native_frames=not self._gpu_finalizing)
         else:
             if self._gpu_frame_eta is not None:
                 self._gpu_frame_eta = None
                 self._gpu_finalizing = True
+            if self._native_gpu_export and self._gpu_finalizing:
+                self.progress_bar.setRange(0, 0)
+                self.percent_label.setText("마무리 중" if self._korean else "Finalizing")
             # The final audio mux is a separate workload. A 90%-full UI
             # bar cannot predict its speed from the earlier GPU frame rate.
             remaining = (
@@ -742,6 +742,8 @@ class ExportProgressDialog(QDialog):
             self._update_time_label(remaining, elapsed)
 
     def _active_step(self, stage: str) -> int:
+        if self._native_gpu_export and stage == "Encoding video":
+            return 2  # Accepted GPU frames, not the later MP4 mux.
         try:
             return self._EXPORT_STEPS.index(self._stage_key(stage))
         except ValueError:
