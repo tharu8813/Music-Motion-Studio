@@ -45,6 +45,37 @@ def _check_cancel(cancel):
         raise RenderCancelledError("Native GPU export was cancelled.")
 
 
+def describe_native_frame_layers(stack, band_source_items, project_sources):
+    """Match output packet keys to types only, without user paths or names.
+
+    This is an export-final diagnostic. The native packet still contains the
+    same pixels, ordering, checksums, and input schema.
+    """
+    by_id = {source.id: source for source in project_sources}
+    result = {}
+    for position, (kind, index) in enumerate(stack.order):
+        key = "base" if position == 0 else f"layer:{position - 1}"
+        if kind == "canvas":
+            items = band_source_items[index]
+            result[key] = {
+                "kind": "qt_canvas",
+                "source_types": sorted({
+                    item.source.source_type.value for item in items
+                }),
+                "source_count": len(items),
+            }
+        elif kind == "dynamic":
+            source = by_id[stack.source_ids[index]]
+            result[key] = {
+                "kind": "dynamic",
+                "source_types": [source.source_type.value],
+                "source_count": 1,
+            }
+        else:
+            raise ValueError("Unknown native layer ordering kind")
+    return result
+
+
 class _ProfiledNativeSourceItem(SourceItem):
     """Developer diagnostics only: measure actual Qt item renderer calls.
 
@@ -278,6 +309,10 @@ def produce_complete_project_frames(
         raise
     finally:
         if raster_cache is not None:
+            if raster_counters is not None:
+                raster_counters["frame_layer_source_types"] = describe_native_frame_layers(
+                    stack, raster_cache.band_source_items, project.sources,
+                )
             # Final report only: do not reconstruct 40+ diagnostic fields or
             # nested per-layer paint dictionaries for *every* exported frame.
             # Record resident bytes before clear() drops cache allocations.
