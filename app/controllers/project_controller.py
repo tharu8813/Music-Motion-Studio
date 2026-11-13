@@ -99,19 +99,15 @@ class ProjectController:
         window._synchronize_content_library()
 
     def thumbnail_image(self) -> QImage:
-        """Return the custom thumbnail or a clean raster of the current artboard."""
-        window = self.window
-        if (window.project_settings.thumbnail_mode == "custom"
-                and window.project_settings.thumbnail_path):
-            image = QImage(window.project_settings.thumbnail_path)
-            if not image.isNull():
-                return image.scaled(
-                    480, 270, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-        image = CanvasSnapshot.capture(window.canvas.scene_model, output_scale=0.5)
+        """Capture the live project's canvas for every saved thumbnail.png.
+
+        Custom thumbnail paths never replace the visual project identity.
+        Capture from the artboard model to exclude editor chrome and selection
+        handles, and never reuse a previous exported frame or cover art.
+        """
+        image = CanvasSnapshot.capture(self.window.canvas.scene_model, output_scale=0.5)
         return image.scaled(
-            480, 270, Qt.AspectRatioMode.IgnoreAspectRatio,
+            480, 270, Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
 
