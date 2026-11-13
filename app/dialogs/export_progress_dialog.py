@@ -795,9 +795,15 @@ class ExportProgressDialog(QDialog):
             if self._gpu_frame_eta is not None:
                 self._gpu_frame_eta = None
                 self._gpu_finalizing = True
-            if self._native_gpu_export and self._gpu_finalizing:
+            if self._native_gpu_export:
+                # GPU percentage represents accepted frames only. Other
+                # phases use an indeterminate spinner so starting the frame
+                # counter never makes the percentage jump backwards.
                 self.progress_bar.setRange(0, 0)
-                self.percent_label.setText("마무리 중" if self._korean else "Finalizing")
+                self.percent_label.setText(
+                    ("마무리 중" if self._korean else "Finalizing")
+                    if self._gpu_finalizing else "…"
+                )
             # FFmpeg publishes media timeline seconds (different from weighted
             # UI percentages). Derive throughput from those real timestamps.
             # Once the last media frame is emitted, muxing/verifying is a
