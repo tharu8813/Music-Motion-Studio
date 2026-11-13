@@ -582,12 +582,27 @@ def capture_native_canvas_track_frame(
             else:
                 pixel_rect = QRect(origin_x, origin_y, image.width(), image.height())
         elif compact and raster_cache.trim_transparent_bands:
-            # Animated lyrics and glyph shadows may need the full Qt raster.
-            # Trim only pixels with zero alpha after painting, preserving even
-            # the faintest edge or shadow without estimating its extent.
+            # Developer A/B only: inspect actual QImage alpha, never assume
+            # album-art/lyrics bounds or clip glyph shadows approximately.
+            # Count scan/copy overhead so a smaller wire packet cannot be
+            # mistaken for a faster end-to-end export.
+            source_bytes = image.width() * image.height() * 4
+            bucket = raster_cache.alpha_trim_band_timing.setdefault(key, {
+                "attempts": 0, "cropped": 0, "source_bytes": 0,
+                "candidate_bytes": 0, "scan_seconds": 0.0,
+                "copy_seconds": 0.0,
+            })
+            bucket["attempts"] += 1
+            bucket["source_bytes"] += source_bytes
+            started = monotonic()
             pixel_rect = _nontransparent_crop(image)
+            bucket["scan_seconds"] += monotonic() - started
             if pixel_rect is not None:
+                started = monotonic()
                 image = image.copy(pixel_rect)
+                bucket["copy_seconds"] += monotonic() - started
+                bucket["cropped"] += 1
+            bucket["candidate_bytes"] += image.width() * image.height() * 4
         if pixel_rect is not None:
             x, y, width, height = pixel_rect.getRect()
             inverse = (1, 0, 0, 1, -x, -y)

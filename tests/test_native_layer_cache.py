@@ -845,6 +845,14 @@ class RasterCacheTests(unittest.TestCase):
         self.assertEqual(cache.partial_band_captures, 0)
         self.assertEqual(cache.compact_band_captures, 3)
         self.assertGreater(cache.compact_canvas_bytes_saved, 0)
+        cost = cache.alpha_trim_band_timing["layer:0"]
+        self.assertEqual(cost["attempts"], 3)
+        self.assertEqual(cost["cropped"], 3)
+        self.assertEqual(cost["source_bytes"], 3 * 128 * 128 * 4)
+        self.assertLess(cost["candidate_bytes"], cost["source_bytes"])
+        self.assertGreaterEqual(cost["scan_seconds"], 0)
+        self.assertGreaterEqual(cost["copy_seconds"], 0)
+        self.assertEqual(automatic.alpha_trim_band_timing, {})
 
     def test_opt_in_partial_band_does_not_crop_full_screen_or_opaque_base(self):
         self.add(Source(SourceType.SHAPE, "Base", width=128, height=128, z_index=0))

@@ -1,8 +1,10 @@
 """Reproducible Windows GPU A-B-B-A benchmark with full decoded media parity.
 
 This is an opt-in developer tool, not a production rendering preference.
-A disables two developer-only transport optimizations; B uses the automatic
-production profile. Every run captures an actual short MP4 and native report.
+Default transport study: A disables two developer-only transport features;
+B uses the automatic production profile. Optional alpha-trim study: A uses
+unmodified automatic and B additionally enables transparent-band trimming.
+Every run captures an actual short MP4 and native report.
 No GPU speedup can be inferred until both project cases pass on real hardware.
 """
 from __future__ import annotations
@@ -225,9 +227,18 @@ def build_command(args: argparse.Namespace, label: str) -> list[str]:
         "--report", str(args.output_dir / f"{label}.json"),
         "--ffmpeg", str(args.ffmpeg),
     ]
-    if label.startswith("a"):
-        cmd.extend(["--no-gpu-shared-packet-transport",
-                    "--no-gpu-parallel-packet-validation"])
+    experiment = getattr(args, "experiment", "transport")
+    if experiment == "transport":
+        if label.startswith("a"):
+            cmd.extend(["--no-gpu-shared-packet-transport",
+                        "--no-gpu-parallel-packet-validation"])
+    elif experiment == "alpha_trim":
+        # The only difference between A and B is one opt-in Qt alpha crop.
+        # The regular automatic transport and encoder remain identical.
+        if label.startswith("b"):
+            cmd.append("--gpu-trim-transparent-bands")
+    else:
+        raise ValueError(f"Unknown P1 experiment: {experiment}")
     return cmd
 
 
@@ -269,6 +280,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seconds", type=int, default=30)
     parser.add_argument("--ffmpeg", default="ffmpeg")
     parser.add_argument("--ffprobe", default="ffprobe")
+    parser.add_argument(
+        "--experiment", choices=("transport", "alpha_trim"), default="transport",
+        help="transport (legacy P1 baseline) or isolated transparent Qt band trim",
+    )
     args = parser.parse_args(argv)
     if (not args.project.is_file() or args.project.is_symlink()
             or args.project.suffix.lower() not in (".pvsproj", ".json")
@@ -314,6 +329,7 @@ def main(argv: list[str] | None = None) -> int:
         ]
         summary = _summarize(trials)
         summary["git_revision"] = revision
+        summary["experiment"] = args.experiment
         summary["native_binary_sha256"] = _sha_file(args.native_exe)
         summary["project_sha256"] = source_sha
         with (args.output_dir / "p1-summary.json").open("x", encoding="utf-8") as target:
