@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from threading import Event
 from unittest import TestCase
 from unittest.mock import Mock, patch
 
@@ -20,7 +19,7 @@ class PreviewWorkerModuleTests(TestCase):
         renderer = Mock()
         track = Mock(id="test", file_path="not-read-in-this-test.wav")
         worker = AudioAnalysisWorker(renderer, track, 10)
-        self.assertIsInstance(worker.cancel_event, Event)
+        self.assertFalse(worker.cancel_event.is_set())
         worker.cancel()
         self.assertTrue(worker.cancel_event.is_set())
 
