@@ -159,35 +159,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Install verified FFmpeg for integration tests
-        shell: pwsh
-        run: |
-          @'
-          import os
-          import time
-          from pathlib import Path
-          from app.ffmpeg.managed_installer import ManagedFFmpegInstaller, FFmpegInstallError
-
-          # Official FFmpeg mirror requests occasionally return transient
-          # 502/503/504 errors. Retry the *verified* managed installer,
-          # isolating each attempt so partial archives are never reused.
-          installation = None
-          for attempt in range(1, 4):
-              try:
-                  destination = Path(os.environ["RUNNER_TEMP"]) / f"ffmpeg-tests-attempt-{attempt}"
-                  installation = ManagedFFmpegInstaller(destination).install_latest()
-                  break
-              except FFmpegInstallError as error:
-                  if attempt == 3:
-                      raise RuntimeError("Verified FFmpeg download failed after 3 attempts") from error
-                  delay = (5, 20)[attempt - 1]
-                  print(f"FFmpeg download attempt {attempt}/3 failed: {error}; retrying", flush=True)
-                  time.sleep(delay)
-          if installation is None:
-              raise RuntimeError("Verified FFmpeg installation was not created")
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as environment:
-              environment.write(f"PLAYLIST_CANVAS_TEST_FFMPEG={installation.executable}\n")
-          '@ | python -
-          if ($LASTEXITCODE -ne 0) { throw 'Verified FFmpeg installation failed.' }
+        run: python -m scripts.setup_ci_ffmpeg
 
       - name: Verify native NVENC H264-to-MP4 remux and optional AAC soundtrack
         shell: pwsh
@@ -409,19 +381,9 @@ jobs:
           python -m unittest -v tests.test_editor_workspace_layout
           python -m unittest -v tests.test_translation_workspace
 
-      - name: Run isolated test modules
-        env:
-          QT_QPA_PLATFORM: offscreen
-          QT_FFMPEG_DECODING_HW_DEVICE_TYPES: ","
-        run: python scripts/run_tests.py --timeout 300 --report test-results.json
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-test-results
-          path: test-results.json
-          if-no-files-found: ignore
+      # The full 235+ module suite is verified in two independent Windows
+      # runner jobs below. Qt registry/recovery state must NOT be shared
+      # by concurrently running test modules on this same Windows host.
 
       # playlist_canvas.spec requires the D3D11/NVENC streaming worker as
       # a real executable. Earlier GPU replay steps build packet probes only.
@@ -453,3 +415,66 @@ jobs:
           if ($process.ExitCode -ne 0) {
             throw "Packaged application smoke test failed with exit code $($process.ExitCode)."
           }
+
+  verify-python-tests:
+    name: Isolated Python tests (${{ matrix.group }})
+    runs-on: windows-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [main-window, other-modules]
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: '.python-version'
+          cache: pip
+          cache-dependency-path: requirements-lock.txt
+
+      - name: Install locked dependencies
+        run: python -m pip install -r requirements-lock.txt
+
+      - name: Build mandatory Rust export native module
+        shell: pwsh
+        run: |
+          rustup default stable
+          python -m pip install "maturin>=1.9.4,<2"
+          maturin build --release --manifest-path native/export_analysis/Cargo.toml --interpreter python
+          if ($LASTEXITCODE -ne 0) { throw 'Rust export build failed.' }
+          $wheel = Get-ChildItem native/export_analysis/target/wheels/*.whl | Select-Object -First 1
+          if (-not $wheel) { throw 'No Rust export wheel was produced.' }
+          python -m pip install $wheel.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Rust export installation failed.' }
+          python scripts/rust_prerequisites.py
+          if ($LASTEXITCODE -ne 0) { throw 'Rust development preflight failed.' }
+
+      - name: Install verified FFmpeg for integration tests
+        run: python -m scripts.setup_ci_ffmpeg
+
+      - name: Run main-window GUI modules (one process per module)
+        if: matrix.group == 'main-window'
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_FFMPEG_DECODING_HW_DEVICE_TYPES: ","
+        run: python scripts/run_tests.py main_window --verbose --timeout 300 --report test-results.json
+
+      - name: Run all other modules (one process per module)
+        if: matrix.group == 'other-modules'
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_FFMPEG_DECODING_HW_DEVICE_TYPES: ","
+        run: python scripts/run_tests.py --exclude main_window --verbose --timeout 300 --report test-results.json
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-python-${{ matrix.group }}
+          path: test-results.json
+          if-no-files-found: ignore
+

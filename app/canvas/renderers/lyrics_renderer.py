@@ -1,5 +1,6 @@
 """Cue motion and typography shared by Canvas preview and video export."""
 
+from functools import lru_cache
 from math import cos, pi, sin
 import re
 from typing import TYPE_CHECKING
@@ -20,6 +21,11 @@ _MIN_FIT = 0.55
 _TRANSLATION_GAP_RATIO = 0.6
 
 
+@lru_cache(maxsize=512)
+def lyric_display_lines(text: str) -> tuple[str, ...]:
+    return tuple(line for line in text.splitlines() if line.strip())
+
+
 def render(item: "SourceItem", painter: QPainter, option: object, widget: object | None = None) -> None:
     rect, _fill, _pen = paint_background(item, painter)
     painter.drawRoundedRect(rect, item.source.border_radius, item.source.border_radius)
@@ -31,6 +37,11 @@ def _mix(start: QColor, end: QColor, amount: float) -> QColor:
     return QColor.fromRgbF(*(a + (b - a) * amount for a, b in zip(start.getRgbF(), end.getRgbF())))
 
 
+def _line_font_size(source, line: dict) -> float:
+    size = float(line.get("font_size", source.font_size + float(line.get("font_size_offset", 0))))
+    return max(8.0, min(120.0, size))
+
+
 def _line_style(source, role: str, line: dict, karaoke_line=True) -> dict:
     style = role_style(source, role)
     style["color"] = (
@@ -40,10 +51,7 @@ def _line_style(source, role: str, line: dict, karaoke_line=True) -> dict:
     )
     if source.subtitle_karaoke_enabled and karaoke_line:
         style["color"] = source.subtitle_accent_color if role == "previous" else pending_color(source).name(QColor.NameFormat.HexArgb)
-    style["size"] = float(line.get(
-        "font_size", source.font_size + float(line.get("font_size_offset", 0)),
-    ))
-    style["size"] = max(8.0, min(120.0, style["size"])) * float(style["scale"])
+    style["size"] = _line_font_size(source, line) * float(style["scale"])
     style["font_weight"] = line.get("font_weight", source.font_weight)
     style["italic"] = line.get("italic", source.text_italic)
     return style
@@ -96,13 +104,20 @@ def lyric_wrapped_rows(item, text: str, style_index: int = 0) -> tuple[tuple[str
         return ((text, 0),)
     width = lyric_wrap_width(source)
     overrides = lyric_line_overrides(source, style_index)
-    styles = [_display_line_style(source, role, overrides, style_index) for role in ("previous", "current", "next")]
-    fonts = [item._lyric_font(max(8, round(float(style["size"]))), int(style["font_weight"]),
-                              bool(style["italic"]), str(overrides.get("font_family", ""))) for style in styles]
-    key = (text, width, tuple(font.key() for font in fonts))
+    # Wrapping depends on typography and role scales, not on cue motion,
+    # colours or opacity. Check the cache before resolving any Qt fonts.
+    size = _line_font_size(source, overrides)
+    sizes = tuple(max(8, round(size * float(source.subtitle_role_styles.get(role, {}).get(
+        "scale", source.subtitle_current_scale if role == "current" else 1.0,
+    )))) for role in ("previous", "current", "next"))
+    family = str(overrides.get("font_family", ""))
+    weight = int(overrides.get("font_weight", source.font_weight))
+    italic = bool(overrides.get("italic", source.text_italic))
+    key = (text, width, sizes, family or source.font_family, weight, italic, item._typography_key())
     cache = item._lyric_wrap_cache
     if key in cache:
         return cache[key]
+    fonts = tuple(item._lyric_font(size, weight, italic, family) for size in dict.fromkeys(sizes))
     words = list(re.finditer(r"\S+", text))
     rows = []
     if words:
@@ -121,6 +136,7 @@ def lyric_wrapped_rows(item, text: str, style_index: int = 0) -> tuple[tuple[str
     return result
 
 
+@lru_cache(maxsize=128)
 def _wrapped_row_layout(original_layout, origins, height, line_spacing, style_indices=(), cue_spacing=None):
     """Compact wraps and original-to-translation gaps within the same cue.
 
@@ -159,7 +175,7 @@ def lyric_cue_extent(item, cue) -> float:
     """Measure a cue in the same row units used by the scrolling strip."""
     from app.services.lyrics_service import LyricsService
 
-    lines = [line for line in LyricsService.decode_line_breaks(cue.get("text", "")).splitlines() if line.strip()]
+    lines = lyric_display_lines(LyricsService.decode_line_breaks(cue.get("text", "")))
     positions = cue.get("display_line_positions", tuple(range(len(lines))))
     source = item.source
     cue_spacing = source.subtitle_line_spacing if source.subtitle_flow_direction in {"left", "right"} else source.subtitle_cue_spacing
@@ -167,10 +183,10 @@ def lyric_cue_extent(item, cue) -> float:
             and cue_spacing == source.subtitle_line_spacing):
         return float(max(1, len(lines)))
     height = item._lyric_line_height()
-    origins = [index for index, line in enumerate(lines)
-               for _part in lyric_wrapped_rows(item, line, positions[index])]
+    origins = tuple(index for index, line in enumerate(lines)
+                    for _part in lyric_wrapped_rows(item, line, positions[index]))
     layout = tuple((0, index, len(lines)) for index in range(len(lines)))
-    return _wrapped_row_layout(layout, origins, height, source.subtitle_line_spacing, positions, cue_spacing)[2]
+    return _wrapped_row_layout(layout, origins, height, source.subtitle_line_spacing, tuple(positions), cue_spacing)[2]
 
 
 def paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
@@ -196,7 +212,7 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
     source = item.source
     painter.save()
     painter.setClipRect(rect, Qt.ClipOperation.IntersectClip)
-    lines = [line for line in (item._render_text() or source.subtitle_fallback).splitlines() if line.strip()]
+    lines = lyric_display_lines(item._render_text() or source.subtitle_fallback)
     current = (source.subtitle_current_line if item._music_preview_current_line is None
                else item._music_preview_current_line)
     count = max(1, source.subtitle_current_line_count)
@@ -243,7 +259,7 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
                 offsets.append(offset)
             boundaries.append(len(expanded))
         wrapped_layout, centers, block_extent = _wrapped_row_layout(
-            original_layout, origins, height, source.subtitle_line_spacing, original_style_indices,
+            original_layout, tuple(origins), height, source.subtitle_line_spacing, original_style_indices,
             source.subtitle_line_spacing if horizontal else source.subtitle_cue_spacing)
         if has_current:
             count = boundaries[min(len(lines), current + count)] - boundaries[current]

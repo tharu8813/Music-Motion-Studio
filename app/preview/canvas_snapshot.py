@@ -24,7 +24,7 @@ from app.animation.keyframes import evaluate as evaluate_keyframes
 from app.animation.custom_motion import source_motion, has_custom_motion
 from app.animation.canvas_keyframes import keyframe_source
 from app.canvas.source_item import SourceItem
-from app.canvas.renderers.lyrics_renderer import lyric_cue_extent, lyric_wrapped_rows
+from app.canvas.renderers.lyrics_renderer import lyric_cue_extent, lyric_display_lines, lyric_wrapped_rows
 from app.animation.curves import (
     AnimationPose, animation_pose, ease_in_out_cubic, loop_pose, motion_padding, music_reactive_pose,
 )
@@ -83,7 +83,7 @@ def _pixmap_bytes(pixmap: QPixmap) -> int:
 def _lyric_cue_line_count(cue: dict[str, object], graphics_item: SourceItem | None = None) -> int:
     """Count the physical display rows occupied by one lyric cue."""
     text = LyricsService.decode_line_breaks(cue.get("text", ""))
-    lines = [line for line in text.splitlines() if line.strip()]
+    lines = lyric_display_lines(text)
     if graphics_item is not None and graphics_item.source.subtitle_auto_wrap:
         positions = cue.get("display_line_positions", tuple(range(len(lines))))
         return max(1, sum(len(lyric_wrapped_rows(graphics_item, line, positions[index]))
@@ -1008,7 +1008,16 @@ class CanvasSnapshot:
                 graphics_item.setRotation(source.rotation)
             key_values = evaluate_keyframes(source, global_seconds, track.id,
                 elapsed_seconds if keyframe_active and global_seconds >= start_seconds and 0 <= elapsed_seconds < track.duration_seconds else None)
-            source = keyframe_context.enter_context(keyframe_source(graphics_item, key_values))
+            # Most sources have no active numeric keyframes. Their scope
+            # would only enter/leave an inert context manager every frame.
+            # Preserve it for animated sources and editor blur restoration.
+            if key_values or (
+                getattr(graphics_item, "_editor_keyframe_pose", False)
+                and "blur" in getattr(graphics_item, "_editor_keyframe_values", {})
+            ):
+                source = keyframe_context.enter_context(
+                    keyframe_source(graphics_item, key_values)
+                )
             if (source.source_type is SourceType.TIME
                     or (source.source_type is SourceType.TEXT and "%" in source.text)):
                 original_text.append((graphics_item, source.text))
@@ -1097,6 +1106,7 @@ class CanvasSnapshot:
                 )
                 graphics_item._subtitle_word_highlight_ranges = resolve_lyrics_overlapping_word_ranges(
                     track, source, elapsed_seconds, cue_state, graphics_item._subtitle_intro_state,
+                    word_reveal=graphics_item._subtitle_word_reveal,
                 )
                 # The newest overlapping phrase owns the normal current-line
                 # position. Older active phrases remain visible and highlighted
@@ -1171,10 +1181,7 @@ class CanvasSnapshot:
                         LyricsService.decode_line_breaks(cue.get("text", "")).strip()
                         for cue in display_cues[first:last]
                     ]
-                    block_line_counts = [
-                        max(1, len([line for line in block.splitlines() if line.strip()]))
-                        for block in blocks
-                    ]
+                    block_line_counts = [max(1, len(lyric_display_lines(block))) for block in blocks]
                     graphics_item._subtitle_prefetch_line_count = (0 if strip else
                         sum(block_line_counts[visible_last - first:]))
                     # Bring the nearest staged cue in before the next clock
@@ -1206,8 +1213,8 @@ class CanvasSnapshot:
                                 original_cue = track.lyrics[original_index]
                                 if source.subtitle_translation_enabled:
                                     original_cue = display_cue(original_cue)
-                                rows = max(1, len([line for line in LyricsService.decode_line_breaks(
-                                    original_cue.get("text", "")).strip().splitlines() if line.strip()]))
+                                rows = max(1, len(lyric_display_lines(LyricsService.decode_line_breaks(
+                                    original_cue.get("text", "")).strip())))
                                 if original_index in cue_state.blur_restore_cue_indices:
                                     restored_rows.update(range(row_offset, row_offset + rows))
                                 row_offset += rows
@@ -1276,7 +1283,7 @@ class CanvasSnapshot:
                             display_cues[cue_index - 1].get("text", "")
                         )
                         previous_line_count = max(
-                            1, len([line for line in previous_text.splitlines() if line.strip()])
+                            1, len(lyric_display_lines(previous_text))
                         )
                     graphics_item._subtitle_previous_line_count = previous_line_count
                     graphics_item._subtitle_previous_emphasis = cue_state.previous_emphasis

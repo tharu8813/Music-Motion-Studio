@@ -82,6 +82,9 @@ from app.services.export_storage_service import ExportStorageMonitor, estimate_e
 from app.services.export_storage_service import estimate_audio_export_storage
 from app.services.export_formats import is_audio_export, is_subtitle_export
 from app.services.export_file_naming import project_export_stem
+from app.services.project_export_preferences import (
+    remember_export_preferences, settings_for_project,
+)
 from app.services.subtitle_export_service import SubtitleExportService
 from app.services.lyrics_service import LyricsError
 from app.services.playlist_service import PlaylistService
@@ -931,35 +934,57 @@ class ExportOrchestrator:
                  "Check FFmpeg and the source audio, then add the track again."),
             )
             return
-        output_directory = window.settings_service.current.output_directory
+        project_defaults, saved_export = settings_for_project(
+            window.settings_service.current, window.project_settings,
+        )
+        output_directory = project_defaults.output_directory
         default_directory = (
             Path(output_directory) if output_directory
             else window.settings_service.default_output_directory()
         )
+        project = window.project_settings
         export_options = _options or ExportSettingsDialog(
-            window.settings_service.current,
+            project_defaults,
             len(active_tracks),
             window._playlist_duration(active_tracks),
             window.translator,
-            default_directory / f"{project_export_stem(window.project_settings.title)}.mp4",
+            default_directory / f"{project_export_stem(project.title)}.mp4",
             window,
             canvas_size=(
                 round(window.canvas.scene_model.artboard_rect.width()),
                 round(window.canvas.scene_model.artboard_rect.height()),
             ),
+            project_info={
+                "title": project.title,
+                "author": project.author,
+                "created_at": project.created_at,
+                "created_app_version": project.created_app_version,
+                "path": str(window.current_project_path or ""),
+            },
+            project_thumbnail=window._project_thumbnail_image(),
+            initial_export=saved_export,
         )
         if _options is None and export_options.exec() != export_options.DialogCode.Accepted:
             return
         requested_app_settings = export_options.app_settings
-        quality_profile_name = export_options.quality_mode_combo.currentText()
         output = str(export_options.output_path)
+        # Persist each confirmed project's choices immediately without
+        # changing defaults for a different project.
+        remember_export_preferences(
+            window.project_settings, requested_app_settings,
+            engine=str(export_options.engine_combo.currentData() or "ffmpeg"),
+            kind=str(export_options.export_type_combo.currentData() or "video"),
+            file_format=export_options.output_format,
+        )
         if is_subtitle_export(output) and window.project_settings.transition_mode == "none":
             self.export_subtitles(active_tracks, output)
             return
         try:
             configured_path = window.settings_service.current.ffmpeg_path or None
             renderer = FFmpegRenderer(configured_path)
-            renderer.prevent_output_overwrite = _options is not None
+            # A competing process may create the chosen filename after the
+            # dialog closes. Never replace that new file silently.
+            renderer.prevent_output_overwrite = True
         except FFmpegNotFoundError:
             answer = QMessageBox.warning(
                 window, "FFmpeg 필요" if korean else "FFmpeg required",
@@ -1000,7 +1025,6 @@ class ExportOrchestrator:
             if self.start_gpu_export(renderer, active_tracks, output, export_options):
                 return
             export_options.engine_combo.setCurrentIndex(export_options.engine_combo.findData("ffmpeg"))
-            quality_profile_name = export_options.quality_mode_combo.currentText()
         resolved = self.resolve_render_settings(
             renderer, requested_app_settings, output,
             export_options.save_as_default,
@@ -1064,9 +1088,8 @@ class ExportOrchestrator:
             (
                 f"해상도 {render_settings.output_width} × {render_settings.output_height}"
                 f" · {selected_app_settings.fps} FPS\n"
-                f"비디오 인코더 {encoder_name}\n"
-                f"작업 모드 {work_mode_name} · "
-                f"품질 모드 {quality_profile_name} · CRF {selected_app_settings.crf}"
+                f"엔진 FFmpeg · 비디오 인코더 {encoder_name}\n"
+                f"작업 모드 {work_mode_name} · CRF {selected_app_settings.crf}"
                 f" · 인코딩 속도 {selected_app_settings.preset}"
                 f" · 오디오 AAC {selected_app_settings.audio_bitrate}"
             )
@@ -1074,9 +1097,8 @@ class ExportOrchestrator:
             (
                 f"Resolution {render_settings.output_width} × {render_settings.output_height}"
                 f" · {selected_app_settings.fps} FPS\n"
-                f"Video encoder {encoder_name}\n"
-                f"Work mode {work_mode_name} · "
-                f"Quality mode {quality_profile_name} · CRF {selected_app_settings.crf}"
+                f"Engine FFmpeg · Video encoder {encoder_name}\n"
+                f"Work mode {work_mode_name} · CRF {selected_app_settings.crf}"
                 f" · Encoding speed {selected_app_settings.preset}"
                 f" · Audio AAC {selected_app_settings.audio_bitrate}"
             )
@@ -1477,7 +1499,11 @@ class ExportOrchestrator:
         window._export_dialog = dialog
         dialog.set_korean(window.translator.is_korean)
         dialog.set_native_gpu_export(True)
-        gpu_label = f"Rust GPU · {settings.output_width} × {settings.output_height} · {settings.fps} FPS"
+        gpu_label = (
+            f"해상도 {settings.output_width} × {settings.output_height} · {settings.fps} FPS\n엔진 Rust GPU (NVENC H.264)"
+            if window.translator.is_korean else
+            f"Resolution {settings.output_width} × {settings.output_height} · {settings.fps} FPS\nEngine Rust GPU (NVENC H.264)"
+        )
         korean = window.translator.is_korean
         quality = f"CQ {settings.native_nvenc_cq}" if settings.native_nvenc_cq else ("자동" if korean else "Auto")
         speed = settings.native_nvenc_preset.upper()

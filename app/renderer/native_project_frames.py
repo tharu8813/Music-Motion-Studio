@@ -28,7 +28,8 @@ from app.renderer.native_dynamic_layers import (
     prepare_project_frame_audio, PreparedProjectFrameAudio,
 )
 from app.renderer.native_project_support import (
-    TimelineValidationError, resolve_project_frame, validate_project_for_gpu_capture,
+    TimelineValidationError, build_native_frame_lookup, resolve_project_frame,
+    validate_project_for_gpu_capture,
 )
 from app.timeline.compiler import compile_playlist
 from app.services.lyrics_intro_service import prepare_instrumental_spans
@@ -42,6 +43,37 @@ from app.renderer.cfr_sample_pruning import iter_cfr_emitting_samples
 def _check_cancel(cancel):
     if cancel.is_set():
         raise RenderCancelledError("Native GPU export was cancelled.")
+
+
+def describe_native_frame_layers(stack, band_source_items, project_sources):
+    """Match output packet keys to types only, without user paths or names.
+
+    This is an export-final diagnostic. The native packet still contains the
+    same pixels, ordering, checksums, and input schema.
+    """
+    by_id = {source.id: source for source in project_sources}
+    result = {}
+    for position, (kind, index) in enumerate(stack.order):
+        key = "base" if position == 0 else f"layer:{position - 1}"
+        if kind == "canvas":
+            items = band_source_items[index]
+            result[key] = {
+                "kind": "qt_canvas",
+                "source_types": sorted({
+                    item.source.source_type.value for item in items
+                }),
+                "source_count": len(items),
+            }
+        elif kind == "dynamic":
+            source = by_id[stack.source_ids[index]]
+            result[key] = {
+                "kind": "dynamic",
+                "source_types": [source.source_type.value],
+                "source_count": 1,
+            }
+        else:
+            raise ValueError("Unknown native layer ordering kind")
+    return result
 
 
 class _ProfiledNativeSourceItem(SourceItem):
@@ -139,6 +171,7 @@ def produce_complete_project_frames(
     tracks = [t for t in project.playlist if t.enabled and t.duration_seconds > 0]
     if not tracks or plan.duration_seconds <= 0:
         raise TimelineValidationError("A complete native export needs enabled playlist tracks")
+    frame_lookup = build_native_frame_lookup(project, tracks)
     stack = build_dynamic_stack(project, scale, gpu_video=gpu_video)
     included = [
         s for s in project.sources
@@ -207,7 +240,9 @@ def produce_complete_project_frames(
             band_states = [None] * len(band_schedules)
             for frame_index in range(total_frames):
                 _check_cancel(cancel)
-                state = resolve_project_frame(project, frame_index / fps, plan=plan)
+                state = resolve_project_frame(
+                    project, frame_index / fps, plan=plan, frame_lookup=frame_lookup,
+                )
                 bass, music = canvas_reaction_at(
                     state["track"], state["track_elapsed_seconds"], fps,
                     reactive, envelopes,
@@ -266,58 +301,6 @@ def produce_complete_project_frames(
                     output_scale=scale, gpu_affine=True,
                     raster_cache=raster_cache,
                 )
-                if raster_counters is not None:
-                    if profile_paint:
-                        raster_counters["qt_canvas_source_type_paint"] = {
-                            category: dict(costs)
-                            for category, costs in paint_costs.items()
-                        }
-                        raster_counters["qt_canvas_text_stage_costs"] = {
-                            category: {stage: dict(cost)
-                                       for stage, cost in stages.items()}
-                            for category, stages in text_stage_costs.items()
-                        }
-                    raster_counters.update(
-                        rasterizations=raster_cache.rasterizations,
-                        reuse_hits=raster_cache.hits,
-                        sample_reuse_hits=raster_cache.sample_reuse_hits,
-                        gpu_canvas_translation_frames=raster_cache.translation_frames,
-                        gpu_canvas_translation_textures=len(raster_cache.translation_textures),
-                        gpu_canvas_translation_texture_bytes=raster_cache.translation_texture_bytes,
-                        gpu_album_cover_frames=raster_cache.cover_motion_frames,
-                        gpu_album_cover_texture_captures=raster_cache.cover_texture_captures,
-                        gpu_album_cover_texture_bytes=raster_cache.cover_texture_bytes,
-                        gpu_text_frames=raster_cache.text.frames,
-                        gpu_text_fallbacks=raster_cache.text.fallbacks,
-                        gpu_text_tile_renders=raster_cache.text.tile_renders,
-                        gpu_text_atlases_built=raster_cache.text.atlas_uploads,
-                        cpu_parallel_bgra_enabled=raster_cache.parallel_bgra_enabled,
-                        cpu_parallel_bgra_submissions=raster_cache.parallel_bgra_submissions,
-                        cpu_parallel_bgra_peak_workers=raster_cache.parallel_bgra_peak_workers,
-                        cpu_parallel_bgra_work_seconds=raster_cache.parallel_bgra_work_seconds,
-                        adaptive_bgra_enabled=raster_cache.adaptive_bgra_enabled,
-                        parallel_bgra_inline_small=raster_cache.parallel_bgra_inline_small,
-                        parallel_bgra_inline_busy=raster_cache.parallel_bgra_inline_busy,
-                        qt_canvas_capture_seconds=raster_cache.qt_canvas_capture_seconds,
-                        qt_canvas_state_setup_seconds=raster_cache.qt_canvas_state_setup_seconds,
-                        qt_canvas_paint_stage_seconds=raster_cache.qt_canvas_paint_stage_seconds,
-                        qt_canvas_state_restore_seconds=raster_cache.qt_canvas_state_restore_seconds,
-                        qt_canvas_inline_bgra_seconds=raster_cache.qt_canvas_inline_bgra_seconds,
-                    qt_canvas_band_timing={
-                        key: dict(costs)
-                        for key, costs in raster_cache.qt_canvas_band_timing.items()
-                    },
-                        retained_bytes=raster_cache.retained_bytes,
-                        peak_retained_bytes=raster_cache.peak_retained_bytes,
-                        advanced_lyric_cache_entries=len(raster_cache.frozen_lyric_settings_cache),
-                        partial_band_enabled=raster_cache.partial_band_enabled,
-                        partial_band_captures=raster_cache.partial_band_captures,
-                        compact_band_enabled=raster_cache.compact_band_enabled,
-                        compact_band_captures=raster_cache.compact_band_captures,
-                        compact_canvas_bytes_saved=raster_cache.compact_canvas_bytes_saved,
-                        scene_render_source_pixels=raster_cache.scene_render_source_pixels,
-                        full_frame_source_pixels=raster_cache.full_frame_source_pixels,
-                    )
                 yield frame_packet
             if project.to_dict() != before:
                 raise TimelineValidationError("Native export unexpectedly modified project sources")
@@ -326,7 +309,13 @@ def produce_complete_project_frames(
         raise
     finally:
         if raster_cache is not None:
-            raster_cache.clear()
+            if raster_counters is not None:
+                raster_counters["frame_layer_source_types"] = describe_native_frame_layers(
+                    stack, raster_cache.band_source_items, project.sources,
+                )
+            # Final report only: do not reconstruct 40+ diagnostic fields or
+            # nested per-layer paint dictionaries for *every* exported frame.
+            # Record resident bytes before clear() drops cache allocations.
             if raster_counters is not None:
                 if profile_paint:
                     raster_counters["qt_canvas_source_type_paint"] = {
@@ -338,6 +327,54 @@ def produce_complete_project_frames(
                                    for stage, cost in stages.items()}
                         for category, stages in text_stage_costs.items()
                     }
+                raster_counters.update(
+                    rasterizations=raster_cache.rasterizations,
+                    reuse_hits=raster_cache.hits,
+                    sample_reuse_hits=raster_cache.sample_reuse_hits,
+                    gpu_canvas_translation_frames=raster_cache.translation_frames,
+                    gpu_canvas_translation_textures=len(raster_cache.translation_textures),
+                    gpu_canvas_translation_texture_bytes=raster_cache.translation_texture_bytes,
+                    gpu_album_cover_frames=raster_cache.cover_motion_frames,
+                    gpu_album_cover_texture_captures=raster_cache.cover_texture_captures,
+                    gpu_album_cover_texture_bytes=raster_cache.cover_texture_bytes,
+                    gpu_text_frames=raster_cache.text.frames,
+                    gpu_text_fallbacks=raster_cache.text.fallbacks,
+                    gpu_text_tile_renders=raster_cache.text.tile_renders,
+                    gpu_text_atlases_built=raster_cache.text.atlas_uploads,
+                    cpu_parallel_bgra_enabled=raster_cache.parallel_bgra_enabled,
+                    cpu_parallel_bgra_submissions=raster_cache.parallel_bgra_submissions,
+                    cpu_parallel_bgra_peak_workers=raster_cache.parallel_bgra_peak_workers,
+                    cpu_parallel_bgra_work_seconds=raster_cache.parallel_bgra_work_seconds,
+                    adaptive_bgra_enabled=raster_cache.adaptive_bgra_enabled,
+                    parallel_bgra_inline_small=raster_cache.parallel_bgra_inline_small,
+                    parallel_bgra_inline_busy=raster_cache.parallel_bgra_inline_busy,
+                    qt_canvas_capture_seconds=raster_cache.qt_canvas_capture_seconds,
+                    qt_canvas_state_setup_seconds=raster_cache.qt_canvas_state_setup_seconds,
+                    qt_canvas_paint_stage_seconds=raster_cache.qt_canvas_paint_stage_seconds,
+                    qt_canvas_state_restore_seconds=raster_cache.qt_canvas_state_restore_seconds,
+                    qt_canvas_inline_bgra_seconds=raster_cache.qt_canvas_inline_bgra_seconds,
+                qt_canvas_band_timing={
+                    key: dict(costs)
+                    for key, costs in raster_cache.qt_canvas_band_timing.items()
+                },
+                alpha_trim_enabled=raster_cache.trim_transparent_bands,
+                alpha_trim_band_timing={
+                    key: dict(costs)
+                    for key, costs in raster_cache.alpha_trim_band_timing.items()
+                },
+                    retained_bytes=raster_cache.retained_bytes,
+                    peak_retained_bytes=raster_cache.peak_retained_bytes,
+                    advanced_lyric_cache_entries=len(raster_cache.frozen_lyric_settings_cache),
+                    partial_band_enabled=raster_cache.partial_band_enabled,
+                    partial_band_captures=raster_cache.partial_band_captures,
+                    compact_band_enabled=raster_cache.compact_band_enabled,
+                    compact_band_captures=raster_cache.compact_band_captures,
+                    compact_canvas_bytes_saved=raster_cache.compact_canvas_bytes_saved,
+                    scene_render_source_pixels=raster_cache.scene_render_source_pixels,
+                    full_frame_source_pixels=raster_cache.full_frame_source_pixels,
+                )
+            raster_cache.clear()
+            if raster_counters is not None:
                 # After the converter pool joins, report final worker totals
                 # instead of a snapshot with the final BGRA packet pending.
                 raster_counters.update(

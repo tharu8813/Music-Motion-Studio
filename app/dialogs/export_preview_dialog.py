@@ -83,12 +83,14 @@ from app.preview.frame_state import (
     MixJunction, resolve_lyrics_cue_state, resolve_mix_phase, segment_junction,
 )
 from app.preview.album_art import prewarm_cover_thumbnail
+# Re-export worker names here to preserve existing dialog/test integrations.
+from app.preview.audio_analysis_worker import AudioAnalysisWorker
+from app.video.duration_probe_worker import VideoDurationProbeWorker
 from app.preview.overlay_frame_cache import OverlayFrameCache, OverlaySignature
 from app.video.timeline import resolve_video_position, source_video_paths
 from app.video.frame_filter import VideoFrameFilterSettings, filter_video_frame
 from app.video.decoder_backpressure import VideoDecoderBackpressure
 from app.video.preview_proxy import PreviewProxyCache, PreviewProxySpec, PreviewProxyWorker
-from app.video.duration_probe import mp4_container_duration
 from app.utils.i18n import Translator
 from app.utils.performance import ENABLED as PROFILE_ENABLED, PROFILE, timed
 from app.widgets.activity_progress import activity_for
@@ -378,114 +380,6 @@ class PreviewTrackDelegate(QStyledItemDelegate):
 
     def sizeHint(self, option, index) -> QSize:  # type: ignore[override]
         return QSize(0, 54)
-
-
-class AudioAnalysisWorker(QThread):
-    """Build audio-reactive preview frames without blocking the playback UI."""
-
-    ready = Signal(str, int, object)
-    failed = Signal(str)
-
-    def __init__(self, renderer: PythonVisualizerRenderer, track: PlaylistTrack,
-                 bands: int, fps: int = 30, needs_waveform: bool = False,
-                 overlays: tuple[VisualizerOverlay, ...] = (),
-                 parent: QWidget | None = None, *, music_profiles: tuple = (),
-                 cached_analysis: dict | None = None) -> None:
-        super().__init__(parent)
-        self.renderer = renderer
-        self.track = track
-        self.bands = bands
-        self.fps = fps
-        self.needs_waveform = needs_waveform
-        self.overlays = overlays
-        self.cancel_event = threading.Event()
-        self.music_profiles = music_profiles
-        self.cached_analysis = cached_analysis
-
-    def cancel(self) -> None:
-        """Request cancellation before the next analysis block."""
-        self.cancel_event.set()
-
-    def run(self) -> None:
-        try:
-            payload = dict(self.cached_analysis) if self.cached_analysis is not None else self._analyze_audio()
-            payload["music_envelopes"] = {
-                profile: self.renderer.music_envelope(payload["levels"], self.fps, profile, self.cancel_event)
-                for profile in self.music_profiles
-            }
-        except Exception as error:
-            if not self.cancel_event.is_set():
-                self.failed.emit(str(error))
-            return
-        if not self.cancel_event.is_set():
-            self.ready.emit(self.track.id, self.fps, payload)
-
-    def _analyze_audio(self) -> dict:
-        needs_meter = any(overlay.kind == "level_meter" for overlay in self.overlays)
-        stereo = (
-            self.renderer._decode_stereo_audio(
-                Path(self.track.file_path), self.cancel_event,
-            )
-            if needs_meter else None
-        )
-        samples = (
-            np.mean(stereo, axis=1, dtype=np.float32)
-            if stereo is not None else
-            self.renderer._decode_mono_audio(Path(self.track.file_path), self.cancel_event)
-        )
-        levels = self.renderer._analyze_levels(samples, self.fps, self.bands, self.cancel_event)
-        waveform = (
-            self.renderer._analyze_waveform(samples, self.fps, max(32, self.bands), self.cancel_event)
-            if self.needs_waveform else np.zeros((1, max(32, self.bands)), dtype=np.float32)
-        )
-        processed = tuple(
-            (
-                np.zeros((1, 1), dtype=np.float32)
-                if overlay.kind in {"particles", "level_meter"} else
-                self.renderer.process_level_sequence(
-                    waveform if overlay.kind == "waveform" else levels,
-                    overlay,
-                    max(4, min(96, overlay.bar_count)),
-                )
-            )
-            for overlay in self.overlays
-        )
-        raw_meter = (
-            np.column_stack((
-                self.renderer._analyze_rms(stereo[:, 0], self.fps, self.cancel_event),
-                self.renderer._analyze_rms(stereo[:, 1], self.fps, self.cancel_event),
-            ))
-            if stereo is not None else None
-        )
-        meters = tuple(
-            self.renderer.process_meter_sequence(raw_meter, overlay, self.fps)
-            if overlay.kind == "level_meter" and raw_meter is not None else None
-            for overlay in self.overlays
-        )
-        return {"levels": levels, "waveform": waveform,
-                "bass": self.renderer.bass_envelope(levels, self.fps),
-                "processed": processed, "meters": meters}
-
-
-class VideoDurationProbeWorker(QThread):
-    """Resolve one media duration without blocking preview interaction."""
-
-    ready = Signal(str, float)
-
-    def __init__(self, path: str, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.path = path
-
-    def run(self) -> None:
-        path = Path(self.path)
-        # Local MP4/MOV boxes expose movie duration without initializing the
-        # managed FFmpeg environment or spawning a 15-second FFprobe process.
-        # Other formats and incomplete containers retain the old fallback.
-        duration = mp4_container_duration(path)
-        if duration is None and not self.isInterruptionRequested():
-            duration = PlaylistService._probe_duration(path)
-        if not self.isInterruptionRequested():
-            self.ready.emit(self.path, duration or 0.0)
 
 
 class OverlayFrameWorker(QThread):

@@ -335,6 +335,7 @@ def resolve_lyrics_word_reveal(
 def resolve_lyrics_overlapping_word_ranges(
     track: PlaylistTrack, source: Source, elapsed: float,
     cue_state: LyricsCueState, intro_state: LyricsIntroState | None,
+    *, word_reveal: tuple[float, ...] | None = None,
 ) -> tuple[tuple[tuple[float, float], ...] | None, ...]:
     """Word-specific reveal ranges only where source timings overlap.
 
@@ -347,7 +348,8 @@ def resolve_lyrics_overlapping_word_ranges(
     clock = max(0.0, elapsed + track.lyrics_timing_offset_seconds
                 + source.subtitle_timing_offset + source.subtitle_karaoke_offset)
     result: list[tuple[tuple[float, float], ...] | None] = []
-    for cue_index in (cue_state.active_cue_indices or cue_state.held_cue_indices or (cue_state.cue_index,)):
+    indices = cue_state.active_cue_indices or cue_state.held_cue_indices or (cue_state.cue_index,)
+    for cue_index in indices:
         cue = track.lyrics[cue_index]
         if cue.get("format") != "ttml":
             result.extend(None for _ in LyricsService.decode_line_breaks(
@@ -361,6 +363,8 @@ def resolve_lyrics_overlapping_word_ranges(
             if has_overlap:
                 result.extend(LyricsService.word_highlight_ranges(
                     cue, clock, line_positions=tuple(source.subtitle_karaoke_lines)))
+            elif word_reveal is not None and indices == (cue_state.cue_index,):
+                return (None,) * len(word_reveal)
             else:
                 result.extend(None for _ in LyricsService.word_reveal(
                     cue, clock, line_positions=tuple(source.subtitle_karaoke_lines)))

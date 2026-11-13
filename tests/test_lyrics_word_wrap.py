@@ -71,6 +71,29 @@ class LyricsWordWrapTests(unittest.TestCase):
         item.source.width = 180
         self.assertGreater(len(lyric_wrapped_rows(item, item.source.text)), 1)
 
+    def test_wrapping_reuses_rows_until_typography_changes(self):
+        source = self.source(text="한글 English 가사 English 혼합")
+        item = SourceItem(source)
+        with patch.object(item, "_lyric_font", wraps=item._lyric_font) as font:
+            original = lyric_wrapped_rows(item, source.text)
+            self.assertEqual(font.call_count, 1)
+            source.outline_color = "#112233"
+            self.assertIs(lyric_wrapped_rows(item, source.text), original)
+            self.assertEqual(font.call_count, 1)
+
+            source.subtitle_role_styles = {"current": {"scale": 1.5}}
+            scaled = lyric_wrapped_rows(item, source.text)
+            self.assertEqual(font.call_count, 3)
+            self.assertIsNot(scaled, original)
+
+            source.subtitle_line_styles = [{"font_family": "Arial"}]
+            lyric_wrapped_rows(item, source.text)
+            self.assertEqual(font.call_args.args[-1], "Arial")
+            source.text_letter_spacing = 3
+            font.reset_mock()
+            lyric_wrapped_rows(item, source.text)
+            self.assertEqual(font.call_count, 2)
+
     def test_fitting_and_wrapping_switch_independently(self):
         for shrink in (False, True):
             for wrap in (False, True):

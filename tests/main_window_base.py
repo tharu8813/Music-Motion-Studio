@@ -21,6 +21,16 @@ from app.ui.main_window import MainWindow
 from app.utils.i18n import Language
 
 
+
+def accept_ffmpeg_export(dialog) -> object:
+    """Accept a dialog using FFmpeg, independent of the production default engine."""
+    index = dialog.engine_combo.findData("ffmpeg")
+    if index < 0:
+        raise AssertionError("FFmpeg export engine is missing")
+    dialog.engine_combo.setCurrentIndex(index)
+    return dialog.DialogCode.Accepted
+
+
 class MainWindowTestCase(unittest.TestCase):
     """One fresh MainWindow per test, Korean UI baseline, isolated user presets."""
 

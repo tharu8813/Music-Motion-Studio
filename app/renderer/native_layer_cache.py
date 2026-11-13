@@ -216,6 +216,9 @@ class NativeRasterCache:
         self.trim_transparent_bands = bool(optimizations and optimizations.trim_transparent_bands)
         self.compact_band_captures = 0
         self.compact_canvas_bytes_saved = 0
+        # Only the opt-in real-hardware experiment updates this diagnostic.
+        # No image pixels are retained by the accounting buckets.
+        self.alpha_trim_band_timing: dict[str, dict[str, int | float]] = {}
         self.scene_render_source_pixels = 0
         self.full_frame_source_pixels = 0
         self.layers = {}

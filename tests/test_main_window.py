@@ -62,7 +62,7 @@ from app.services.video_encoder_service import (
     VideoEncoderAdvisor,
 )
 from app.presets.preset_service import PresetService
-from tests.main_window_base import MainWindowTestCase
+from tests.main_window_base import MainWindowTestCase, accept_ffmpeg_export
 
 
 class MainWindowWorkspaceTests(MainWindowTestCase):
@@ -2425,7 +2425,7 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
                 patch("app.controllers.export_controller.FFmpegRenderer") as renderer_type,
                 patch(
                     "app.controllers.export_controller.ExportSettingsDialog.exec",
-                    return_value=QDialog.DialogCode.Accepted,
+                    new=accept_ffmpeg_export,
                 ),
                 patch.object(
                     VideoEncoderAdvisor, "automatic_encoder",

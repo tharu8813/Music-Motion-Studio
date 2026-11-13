@@ -1,6 +1,7 @@
 """Project GPU capture eligibility and complete timeline resolution."""
 from math import isfinite
 from pathlib import Path
+from app.models.playlist import PlaylistTrack
 from app.models.project import ProjectDocument
 from app.models.source import SourceType
 from app.renderer.export_timeline import ExportTimelinePlanner
@@ -136,11 +137,34 @@ def validate_project_for_gpu_capture(
     return omitted
 
 
+# This lookup is scoped to one detached, immutable native export snapshot.
+# The interactive editor's default resolve_project_frame path remains live.
+NativeFrameLookup = tuple[
+    list[PlaylistTrack], dict[str, tuple[PlaylistTrack, int, float, float]],
+]
+
+
+def build_native_frame_lookup(
+    project: ProjectDocument, tracks: list[PlaylistTrack] | None = None,
+) -> NativeFrameLookup:
+    """Compute stable track order and animation durations just once per export."""
+    if tracks is None:
+        tracks = [track for track in project.playlist
+                  if track.enabled and track.duration_seconds > 0]
+    return tracks, {
+        track.id: (
+            track, number, *ExportTimelinePlanner._animation_durations(track, project.sources),
+        )
+        for number, track in enumerate(tracks, 1)
+    }
+
+
 def resolve_project_frame(
     project: ProjectDocument,
     global_seconds: float,
     *,
     plan=None,
+    frame_lookup: NativeFrameLookup | None = None,
 ) -> dict:
     """Map one exact CFR presentation instant onto the compiled track clock."""
     if not isfinite(global_seconds) or global_seconds < 0:
@@ -153,17 +177,29 @@ def resolve_project_frame(
         window = frame_window(plan, global_seconds)
     except ValueError as exc:
         raise TimelineValidationError(str(exc)) from exc
-    tracks = [track for track in project.playlist if track.enabled and track.duration_seconds > 0]
-    track_by_id = {track.id: track for track in tracks}
-    track = track_by_id.get(window.track_id)
-    if track is None:
-        raise TimelineValidationError("Compiled presentation references missing playlist track")
+    if frame_lookup is None:
+        # Compatibility path: the caller may be editing the live project.
+        tracks = [track for track in project.playlist
+                  if track.enabled and track.duration_seconds > 0]
+        track_by_id = {track.id: track for track in tracks}
+        track = track_by_id.get(window.track_id)
+        if track is None:
+            raise TimelineValidationError("Compiled presentation references missing playlist track")
+        number = tracks.index(track) + 1
+        intro, outro = ExportTimelinePlanner._animation_durations(track, project.sources)
+    else:
+        # Export path: no per-frame playlist scans, hash-table construction,
+        # index search or source animation-duration aggregation.
+        tracks, track_by_id = frame_lookup
+        entry = track_by_id.get(window.track_id)
+        if entry is None:
+            raise TimelineValidationError("Compiled presentation references missing playlist track")
+        track, number, intro, outro = entry
     elapsed = window.source_time_at_start + (
         global_seconds - window.timeline_start
     ) * window.playback_rate
     if elapsed < -1e-9 or elapsed >= track.duration_seconds + 1e-9:
         raise TimelineValidationError("Compiled track elapsed time outside source duration")
-    intro, outro = ExportTimelinePlanner._animation_durations(track, project.sources)
     phase = None
     progress = 1.0
     phase_duration = 0.0
@@ -177,7 +213,7 @@ def resolve_project_frame(
         phase_duration = outro
     return {
         "track": track,
-        "track_number": tracks.index(track) + 1,
+        "track_number": number,
         "tracks": tracks,
         "window_start_seconds": window.timeline_start,
         "source_time_at_start": window.source_time_at_start,

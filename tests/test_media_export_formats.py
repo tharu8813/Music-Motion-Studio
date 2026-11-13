@@ -181,12 +181,18 @@ class ExportDestinationTests(unittest.TestCase):
         self.assertIn("playlist.mp4", self.dialog.output_filename_label.text())
         self.assertNotIn("playlist (2).mp4", self.dialog.output_filename_label.text())
 
-    def test_manual_filename_is_kept_and_collision_is_numbered(self):
+    def test_manual_filename_is_kept_and_collision_is_warned(self):
         root = Path(self.directory.name)
         self.dialog.filename_edit.setText("My custom mix")
         (root / "My custom mix.mp4").write_bytes(b"existing")
+        self.dialog._update_output_filename()
         self.assertEqual(self.dialog.filename_edit.text(), "My custom mix")
-        self.assertEqual(self.dialog.output_path, (root / "My custom mix (2).mp4").resolve())
+        self.assertEqual(self.dialog.output_path, (root / "My custom mix.mp4").resolve())
+        self.assertFalse(self.dialog.filename_warning_label.isHidden())
+        with patch.object(QMessageBox, "warning") as warning:
+            self.dialog._accept_if_valid()
+        warning.assert_called_once()
+        self.assertEqual(self.dialog.result(), QDialog.DialogCode.Rejected)
 
     def test_audio_progress_and_completion_offer_audio_actions(self):
         progress = ExportProgressDialog()

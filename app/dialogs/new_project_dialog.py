@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from app.dialogs.help_dialog import install_help_shortcut
 from app.dialogs.adaptive_dialog import AdaptiveDialog
+from app.ui.form_layout import style_form, style_dialog_actions
 from app.models.project import (
     DEFAULT_CROSSFADE_SECONDS, MAX_CROSSFADE_SECONDS, MIN_CROSSFADE_SECONDS, ProjectSettings,
 )
@@ -81,7 +82,8 @@ class NewProjectDialog(AdaptiveDialog):
         self.description = QLabel()
         self.description.setObjectName("mutedLabel")
         self.description.setWordWrap(True)
-        root.addWidget(self.description)
+        # The dialog heading and section labels are enough orientation.
+        self.description.hide()
         columns = QHBoxLayout()
         columns.setSpacing(16)
         left = QVBoxLayout()
@@ -208,10 +210,14 @@ class NewProjectDialog(AdaptiveDialog):
         music_layout.addLayout(music_buttons)
         root.addWidget(self.music_group)
 
+        for item_form in (identity_form, form, design_form, options_form):
+            style_form(item_form)
+
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel
         )
+        style_dialog_actions(self.buttons)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         create_button = self.buttons.button(QDialogButtonBox.StandardButton.Ok)
@@ -498,9 +504,9 @@ class NewProjectDialog(AdaptiveDialog):
         self.storage_combo.setItemText(0, "프로젝트에 포함" if korean else "Include in the project")
         self.storage_combo.setItemText(1, "원본 위치 참조" if korean else "Reference original files")
         self.music_empty.setText(
-            "만들면서 플레이리스트에 넣을 음악 파일이나 M3U8 플레이리스트를 고르거나 이 창으로 끌어오세요."
+            "음악을 추가하거나 여기로 파일을 끌어오세요."
             if korean else
-            "Pick music files or an M3U8 playlist to put in the Playlist right away, or drop them here."
+            "Add music or drop files here."
         )
         self.add_music_button.setText("음악 추가…" if korean else "Add music…")
         self.remove_music_button.setText("선택 제거" if korean else "Remove selected")

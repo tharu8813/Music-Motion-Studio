@@ -170,6 +170,8 @@ class SourceItem(QGraphicsObject):
         self._raw_pixmap = QPixmap()
         self._raw_pixmap_path: str | None = None
         self._lyric_fonts: dict[str, QFont] = {}
+        # Cache typography templates, never fonts returned to callers.
+        self._text_font_cache: dict[tuple[object, ...], QFont] = {}
         self._lyric_font_cache: dict[tuple, QFont] = {}
         self._lyric_advance_cache: dict[tuple, float] = {}
         self._lyric_wrap_cache: dict[tuple, tuple[tuple[str, int], ...]] = {}
@@ -180,6 +182,7 @@ class SourceItem(QGraphicsObject):
         self._lyric_resource_key: tuple[object, ...] | None = None
         self._text_outline_path_key: tuple[object, ...] | None = None
         self._text_outline_path = QPainterPath()
+        self._text_stroke_cache: tuple[float, QPainterPath] | None = None
         self._text_shadow_cache: dict[tuple[object, ...], tuple[QPixmap, float]] = {}
         # Preview/export assigns this transient value while a timed lyric cue
         # enters. Keeping it on the graphics item avoids serializing render state.
@@ -418,6 +421,9 @@ class SourceItem(QGraphicsObject):
         """Apply current model properties without emitting changes."""
         if self.source.font_path:
             load_application_font(self.source.font_path)
+        # Font files may be reloaded on edits. Keep templates scoped to the
+        # current source application, not an earlier family registration.
+        self._text_font_cache.clear()
         with self.lyric_settings():
             self._rebuild_lyric_resources()
         self.prepareGeometryChange()
@@ -1220,18 +1226,34 @@ class SourceItem(QGraphicsObject):
         return advance
 
     def text_font(self, size: int, weight: int) -> QFont:
-        """A font for this source's text with its shared typography applied."""
-        font = QFont(self.source.font_family, size)
-        font.setWeight(QFont.Weight(weight))
-        font.setItalic(self.source.text_italic)
-        if self.source.text_letter_spacing:
-            font.setLetterSpacing(
-                QFont.SpacingType.AbsoluteSpacing, self.source.text_letter_spacing,
-            )
-        font.setCapitalization(_CAPITALIZATION.get(
-            self.source.text_case, QFont.Capitalization.MixedCase,
-        ))
-        return font
+        """Return a detached copy of a bounded, typography-keyed QFont.
+
+        Qt QFont uses implicit sharing; a caller changing italic, family or
+        letter spacing cannot mutate the cached template. Keeping the full
+        typography key also handles animated property changes without an
+        explicit apply_source() call.
+        """
+        source = self.source
+        key = (
+            source.font_family, size, weight, source.text_italic,
+            source.text_letter_spacing, source.text_case,
+        )
+        cached = self._text_font_cache.get(key)
+        if cached is None:
+            cached = QFont(source.font_family, size)
+            cached.setWeight(QFont.Weight(weight))
+            cached.setItalic(source.text_italic)
+            if source.text_letter_spacing:
+                cached.setLetterSpacing(
+                    QFont.SpacingType.AbsoluteSpacing, source.text_letter_spacing,
+                )
+            cached.setCapitalization(_CAPITALIZATION.get(
+                source.text_case, QFont.Capitalization.MixedCase,
+            ))
+            if len(self._text_font_cache) >= 64:
+                self._text_font_cache.pop(next(iter(self._text_font_cache)))
+            self._text_font_cache[key] = cached
+        return QFont(cached)
 
     def _typography_key(self) -> tuple[object, ...]:
         return (
@@ -1674,13 +1696,18 @@ class SourceItem(QGraphicsObject):
             return 0.0
         return float(self.source.text_line_gap)
 
-    @staticmethod
-    def _glyph_stroke(path: QPainterPath, width: float) -> QPainterPath:
+    def _glyph_stroke(self, path: QPainterPath, width: float) -> QPainterPath:
+        """Reuse the stroke of the most recently laid out text path."""
+        cached = self._text_stroke_cache
+        if cached is not None and cached[0] == width:
+            return cached[1]
         stroker = QPainterPathStroker()
         stroker.setWidth(width * 2.0)
         stroker.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         stroker.setCapStyle(Qt.PenCapStyle.RoundCap)
-        return stroker.createStroke(path)
+        stroke = stroker.createStroke(path)
+        self._text_stroke_cache = (width, stroke)
+        return stroke
 
     def _draw_glyph_shadow(
         self, painter: QPainter, rect: QRectF, flags: int, text: str, stroke: float,
@@ -1794,6 +1821,7 @@ class SourceItem(QGraphicsObject):
                 path.addPath(glyph_path)
         self._text_outline_path_key = cache_key
         self._text_outline_path = QPainterPath(path)
+        self._text_stroke_cache = None
         return path
 
     @contextmanager

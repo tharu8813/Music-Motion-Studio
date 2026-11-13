@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.dialogs.help_dialog import install_help_shortcut
+from app.ui.form_layout import style_form, style_dialog_actions
 from app.models.project import (
     MAX_CROSSFADE_SECONDS,
     MIN_CROSSFADE_SECONDS,
@@ -50,7 +51,8 @@ class ProjectSettingsDialog(QDialog):
         self.subtitle_label.setObjectName("mutedLabel")
         self.subtitle_label.setWordWrap(True)
         outer.addWidget(self.dialog_title_label)
-        outer.addWidget(self.subtitle_label)
+        # The active tab already tells the user which project settings are in view.
+        self.subtitle_label.hide()
         self.tabs = QTabWidget()
         self.tabs.setObjectName("settingsTabs")
         self.tabs.setDocumentMode(True)
@@ -71,6 +73,8 @@ class ProjectSettingsDialog(QDialog):
         form = QFormLayout(identity_group)
         self.title_edit = QLineEdit(settings.title)
         self.author_edit = QLineEdit(settings.author)
+        self.title_edit.setClearButtonEnabled(True)
+        self.author_edit.setClearButtonEnabled(True)
         self.description_edit = QPlainTextEdit(settings.description)
         self.description_edit.setMaximumHeight(84)
         self.description_edit.setTabChangesFocus(True)
@@ -201,7 +205,12 @@ class ProjectSettingsDialog(QDialog):
         thumbnail_controls.addWidget(self.thumbnail_path_label)
         thumbnail_controls.addStretch()
         thumbnail_layout.addLayout(thumbnail_controls, 1)
-        (self.custom_radio if settings.thumbnail_mode == "custom" else self.canvas_radio).setChecked(True)
+        # All saved thumbnails now come from the live canvas, never an
+        # imported still image. Keep legacy widgets hidden for compatibility.
+        self.canvas_radio.setChecked(True)
+        self.custom_radio.hide()
+        self.choose_thumbnail_button.hide()
+        self.thumbnail_path_label.hide()
         root.addWidget(self.thumbnail_group)
         root.addStretch(1)
         for group in (self.canvas_group, self.transition_group, self.content_group):
@@ -232,6 +241,9 @@ class ProjectSettingsDialog(QDialog):
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
+        style_form(form)
+        style_form(canvas_form)
+        style_dialog_actions(self.buttons)
         self.buttons.accepted.connect(self._accept)
         self.buttons.rejected.connect(self.reject)
         self.buttons.button(QDialogButtonBox.StandardButton.Save).setObjectName("primaryButton")
@@ -334,8 +346,18 @@ class ProjectSettingsDialog(QDialog):
         self.transition_automix_radio.setText("AutoMix (베타, 템포 인식 자동 전환)" if korean else "AutoMix (beta, tempo-aware)")
         self._update_transition_help()
         self.thumbnail_group.setTitle("프로젝트 썸네일" if korean else "Project thumbnail")
-        self.canvas_radio.setText("현재 캔버스를 자동 사용" if korean else "Use the current canvas")
-        self.custom_radio.setText("사용자 이미지 사용" if korean else "Use a custom image")
+        # A long QRadioButton label establishes a hard minimum width for
+        # the thumbnail row (192px preview + the label). Keep the visible
+        # wording concise so the Files tab fits the minimum dialog width.
+        self.canvas_radio.setText(
+            "캔버스 자동 캡처" if korean else "Capture canvas automatically"
+        )
+        self.canvas_radio.setToolTip(
+            "프로젝트 저장 시 캔버스를 직접 캡처해 썸네일로 저장합니다."
+            if korean else
+            "Directly captures the canvas for the thumbnail whenever the project is saved."
+        )
+        self.custom_radio.setText("")
         self.choose_thumbnail_button.setText("이미지 선택…" if korean else "Choose image…")
         self.buttons.button(QDialogButtonBox.StandardButton.Save).setText(
             "저장" if korean else "Save"
@@ -389,17 +411,13 @@ class ProjectSettingsDialog(QDialog):
 
     def _refresh_thumbnail(self) -> None:
         pixmap = self.canvas_thumbnail
-        if self.custom_radio.isChecked() and self.selected_settings.thumbnail_path:
-            custom = QPixmap(self.selected_settings.thumbnail_path)
-            if not custom.isNull():
-                pixmap = custom
         self.thumbnail_preview.setPixmap(
             pixmap.scaled(
                 self.thumbnail_preview.size(), Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
         )
-        self.choose_thumbnail_button.setEnabled(self.custom_radio.isChecked())
+        self.choose_thumbnail_button.setEnabled(False)
 
     def _accept(self) -> None:
         if self.selected_canvas_size != self.original_canvas_size:
@@ -425,7 +443,8 @@ class ProjectSettingsDialog(QDialog):
         self.selected_settings.author = self.author_edit.text().strip()
         self.selected_settings.description = self.description_edit.toPlainText().strip()
         self.selected_settings.content_mode = "embed" if self.embed_radio.isChecked() else "reference"
-        self.selected_settings.thumbnail_mode = "custom" if self.custom_radio.isChecked() else "canvas"
+        self.selected_settings.thumbnail_mode = "canvas"
+        self.selected_settings.thumbnail_path = ""
         if self.transition_crossfade_radio.isChecked():
             self.selected_settings.transition_mode = "crossfade"
         elif self.transition_automix_radio.isChecked():

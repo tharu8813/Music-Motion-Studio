@@ -38,10 +38,11 @@ class NativeTextLayerTests(unittest.TestCase):
         ]
         for index, track in enumerate(project.playlist):
             track.lyrics = [
-                {"start": 0.0, "end": 0.85, "text": "한글 Hello" if index == 0 else "다음 Again",
+                {"start": 0.0, "end": 0.85, "format": "ttml",
+                 "text": "한글 Hello" if index == 0 else "다음 Again",
                  "words": [{"start": 0.0, "end": 0.40, "text": "한글" if index == 0 else "다음", "offset": 0},
                            {"start": 0.4, "end": 0.82, "text": "Hello" if index == 0 else "Again", "offset": 3}]},
-                {"start": 0.48, "end": 0.95, "text": "겹침 overlap"},
+                {"start": 0.48, "end": 0.95, "format": "ttml", "text": "겹침 overlap"},
             ]
         title = Source(SourceType.TEXT, "Title", x=40, y=24, width=380, height=50, z_index=1,
                        fill_color="#00000000", outline_color="#e9f3ff", text="%title%",

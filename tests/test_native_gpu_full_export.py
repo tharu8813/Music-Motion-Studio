@@ -214,6 +214,17 @@ class NativeGpuFullProjectTests(unittest.TestCase):
                 previous = actual
                 frames_compared += 1
             self.assertEqual(frames_compared, 2 * fps)
+            origins = reuse_metrics["frame_layer_source_types"]
+            self.assertEqual(
+                set(origins),
+                {"base"} | {f"layer:{i}" for i in range(len(previous.layers) - 1)},
+            )
+            captured_types = {
+                source_type
+                for descriptor in origins.values()
+                for source_type in descriptor["source_types"]
+            }
+            self.assertTrue({"shape", "lyrics", "particle_overlay"} <= captured_types)
             self.assertGreater(particle_changes_during_hold, 0)
             self.assertEqual(reuse_metrics["sample_reuse_hits"], 2 * fps - 3)
             self.assertEqual(reuse_metrics["qt_canvas_band_timing"]["layer:0"]["captures"], 3)
@@ -459,6 +470,22 @@ class NativeGpuFullProjectTests(unittest.TestCase):
                         gpu_profile_qt_paint=True,
                     )
 
+    def test_alpha_trim_flag_is_developer_only(self):
+        self.assertFalse(NativeGpuOptimizations.for_profile("automatic").trim_transparent_bands)
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "project.json"
+            source.write_text("{}", encoding="utf8")
+            for profile in (None, "standard", "accelerated", "cpu_parallel"):
+                with self.subTest(profile=profile), self.assertRaisesRegex(
+                    ValueError,
+                    "--gpu-trim-transparent-bands requires --gpu-profile automatic",
+                ):
+                    export_complete_project(
+                        source, root / "out.mp4", gpu_profile=profile,
+                        gpu_trim_transparent_bands=True,
+                    )
+
     def test_native_qt_source_paint_report_counts_real_rendered_types(self):
         ffmpeg = os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG") or shutil.which("ffmpeg")
         if not ffmpeg or not Path(ffmpeg).is_file():
@@ -483,8 +510,14 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             for frame in frames:
                 seen += 1
                 self.assertEqual((frame.width, frame.height), (320, 180))
+                if seen == 1:
+                    # Diagnostics are export-final, not expensive per-frame
+                    # copies of evolving nested Qt paint dictionaries.
+                    self.assertEqual(metrics, {})
             self.assertEqual(seen, 30)
             self.assertEqual(project.to_dict(), snapshot)
+            self.assertEqual(metrics["retained_bytes"], 0)
+            self.assertIn("qt_canvas_band_timing", metrics)
             self.assertIn("qt_canvas_source_type_paint", metrics)
             by_type = metrics["qt_canvas_source_type_paint"]
             self.assertTrue(by_type)
