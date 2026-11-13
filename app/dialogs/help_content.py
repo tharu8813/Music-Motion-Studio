@@ -1721,32 +1721,60 @@ Transitions shorten the video by the overlaps.</li>
        """<p>오른쪽 위 <b>내보내기</b>(<code>Ctrl+E</code>)를 누르면 내보내기 설정 창이 열립니다. 영상·오디오와 믹싱 시간 확인에는 <a href='topic:ffmpeg'>FFmpeg</a>가 필요합니다. 믹싱 없는 자막은 FFmpeg 없이 저장할 수 있습니다.</p>
 [[img:export_settings]]
 <ul>
-<li><b>출력 파일</b>: 내보내기 항목·파일 형식·파일 이름·저장 폴더를 따로 선택합니다. 같은 파일이 있으면 덮어쓸지 묻습니다.</li>
+<li><b>출력 파일</b>: 내보내기 항목·파일 형식·파일 이름·저장 폴더를 따로 선택합니다. 같은 파일이 있으면 파일 이름에 (2), (3) 등을 붙이며, 직접 같은 이름으로 바꾸면 경고합니다.</li>
 <li><b>영상 + 오디오</b>: MP4·MOV·MKV. <b>오디오만 내보내기</b>: MP3·M4A·WAV·FLAC·OGG.</li>
 <li><b>자막 내보내기</b>: LRC·SRT. 등록한 가사와 시간 보정을 실제 믹싱 타임라인에 맞춥니다. 겹치는 가사는 <b>나가는 곡을 윗줄, 들어오는 곡을 아랫줄</b>에 표시하고 각 줄 앞에 <code>- </code>를 붙입니다. 겹침이 끝나면 한 곡만 표시합니다.</li>
-<li><b>용도</b>: <b>권장 · 대부분의 영상</b>(균형, 사용 가능한 NVIDIA GPU는 자동 사용) · <b>빠른 내보내기</b> · <b>고화질 보관용</b> · <b>작은 파일</b>. 고급 값을 바꾸면 <b>사용자 설정</b>이 됩니다.</li>
 <li><b>해상도</b>(HD·Full HD·QHD·4K, 프로젝트 비율 유지)와 <b>프레임 레이트</b>. 예상 작업량이 함께 표시됩니다.</li>
 <li><b>고급 인코딩 설정</b>: 비디오 인코더(자동 선택 권장, CPU H.264/H.265, 지원되는 GPU 인코더), 화질 CRF(낮을수록 고화질), 인코딩 속도(preset), 오디오 품질(AAC). <b>권장 설정으로 되돌리기</b></li>
-<li><b>이 값을 다음 내보내기의 기본값으로 저장</b></li>
+<li><b>설정 자동 저장</b>: 프로젝트의 첫 내보내기는 프로그램 기본 설정을 사용하고 이후에는 이 프로젝트의 마지막 내보내기 설정을 기억합니다. 다른 프로젝트 기본값은 변경하지 않습니다.</li>
+<li><b><a href='topic:export_engines'>Rust GPU와 FFmpeg 엔진 비교</a></b>에서 지원되는 형식과 차이를 확인할 수 있습니다.</li>
 </ul>
-<p>내보내기에 포함된 곡만 들어가며(플레이리스트에서 제외한 곡은 빠짐), 곡 전환·곡별 볼륨/EQ·가사·애니메이션이 미리보기와 같게 적용됩니다.</p>
+<p>내보내기에 포함된 곡만 들어가며(플레이리스트에서 제외한 곡은 빠짐), 곡 전환·곡별 볼륨/EQ·가사·애니메이션이 미리보기와 같게 적용됩니다. 저장되는 <code>thumbnail.png</code>는 항상 프로젝트 캔버스를 새로 캡처합니다.</p>
 <div class='note'>4K나 60 FPS는 화면 준비와 인코딩 시간을 크게 늘립니다. 잘 모르겠으면 <b>권장</b>과 Full HD 30 FPS로 시작하세요.</div>""",
        """<p><b>Export</b> at the top right (<code>Ctrl+E</code>) opens the export settings. Video/audio and mix timing need <a href='topic:ffmpeg'>FFmpeg</a>. Unmixed subtitles can be saved without FFmpeg.</p>
 [[img:export_settings]]
 <ul>
-<li><b>Output file</b>: choose the export type, format, file name, and folder separately. You are asked before overwriting.</li>
+<li><b>Output file</b>: choose the export type, format, file name, and folder separately. Existing names are numbered (2), (3), and so on; manually entering a conflicting name shows a warning.</li>
 <li><b>Video + audio</b>: MP4, MOV, MKV. <b>Audio only</b>: MP3, M4A, WAV, FLAC, OGG.</li>
 <li><b>Subtitles</b>: LRC and SRT. Attached lyrics and timing offsets follow the actual mix timeline. Overlapping lyrics show the <b>outgoing track above the incoming track</b>, each with a <code>- </code> prefix. Only one track remains after the overlap.</li>
-<li><b>Purpose</b>: <b>Recommended · Most videos</b> (balanced; uses an available NVIDIA GPU) · <b>Fast export</b> · <b>High-quality archive</b> · <b>Small file</b>. Changing an advanced value makes it <b>Custom</b>.</li>
 <li><b>Resolution</b> (HD, Full HD, QHD, 4K — the project ratio is kept) and <b>frame rate</b>, with the estimated workload</li>
 <li><b>Advanced encoding</b>: video encoder (automatic recommended, CPU H.264/H.265, supported GPU encoders), quality CRF (lower is better), encoding speed (preset), audio quality (AAC). <b>Back to recommended</b></li>
-<li><b>Save these values as the default for the next export</b></li>
+<li><b>Automatic settings</b>: the first export uses app defaults. Later exports remember this project's last export settings without changing defaults for other projects.</li>
+<li>See <b><a href='topic:export_engines'>Rust GPU versus FFmpeg</a></b> for supported formats and differences.</li>
 </ul>
-<p>Only tracks included in export go in (tracks excluded in the playlist are left out); transitions, per-track volume/EQ, lyrics and animations are applied just like in Preview.</p>
+<p>Only tracks included in export go in (tracks excluded in the playlist are left out); transitions, per-track volume/EQ, lyrics and animations are applied just like in Preview. The project's <code>thumbnail.png</code> is captured from the actual canvas at save time.</p>
 <div class='note'>4K or 60 FPS greatly lengthen screen preparation and encoding. When unsure, start with <b>Recommended</b> at Full HD 30 FPS.</div>""",
        ("export_process", "ffmpeg", "performance"),
        ("내보내기 MP4 해상도 FPS 프레임 레이트 인코더 CRF 화질 preset AAC 용도 권장 빠른 고화질 작은 파일 저장공간 H.264 H.265 NVENC",
         "export MP4 resolution FPS frame rate encoder CRF quality preset AAC purpose recommended fast archive small storage H.264 H.265 NVENC")),
+
+    _e("other", "export_engines", ("내보내기 엔진 비교", "Export engine comparison"),
+       ("Rust GPU,FFmpeg,내보내기", "Rust GPU,FFmpeg,export"),
+       """<h2>Rust GPU</h2>
+<p>Windows의 NVIDIA GPU와 Direct3D 11 기반 화면 처리, NVENC H.264 하드웨어 인코딩을 사용하는 엔진입니다. 결과물은 MP4로 저장하며, 인코딩된 영상과 오디오를 마지막에 결합합니다.</p>
+<ul><li>복잡한 장면·가사·효과에 따라 실제 처리 속도와 GPU 사용률이 달라집니다.</li>
+<li>진행 창의 프레임 수와 FPS는 실제 처리된 프레임 기준이며, 표시된 남은 시간은 <b>프레임 처리 단계만</b> 추정합니다. MP4 마무리 시간은 별도입니다.</li>
+<li>지원되지 않는 소스·효과·환경에서는 FFmpeg 방식으로 전환할 수 있습니다.</li></ul>
+<h2>FFmpeg (레거시)</h2>
+<p>다양한 비디오 포맷과 CPU/GPU 인코더를 지원하는 범용 엔진입니다. 캔버스 프레임·오디오·효과를 준비한 후 영상 파일로 합칩니다.</p>
+<ul><li>MP4 외 MOV·MKV 등 여러 영상 형식을 지원합니다.</li>
+<li>자동 인코더 선택 시 사용할 수 있는 NVIDIA NVENC를 우선 검사하고, 불가능하면 CPU 인코더를 선택할 수 있습니다.</li>
+<li>진행률은 여러 작업 단계의 가중치이므로 남은 시간은 <b>추정치</b>이며 파일 내용과 컴퓨터 상태에 따라 달라집니다.</li></ul>
+<div class='note'>빠른 엔진이 항상 같은 것은 아닙니다. 긴 영상과 복잡한 애니메이션은 실제 테스트로 비교하세요.</div>""",
+       """<h2>Rust GPU</h2>
+<p>Uses Windows Direct3D 11 and NVIDIA NVENC H.264 hardware encoding. It exports MP4 and muxes video and audio in a final step.</p>
+<ul><li>Speed and GPU load depend on scene complexity, lyrics, and effects.</li>
+<li>The frame counter and throughput are measured from accepted frames. Its ETA covers <b>frame processing only</b>, not final MP4 muxing.</li>
+<li>Unsupported sources, effects or hardware can be handled by switching to FFmpeg.</li></ul>
+<h2>FFmpeg (Legacy)</h2>
+<p>A general-purpose engine supporting different containers and CPU/GPU codecs. It prepares canvas frames, audio and effects before producing the final file.</p>
+<ul><li>Supports MP4, MOV and MKV, among others.</li>
+<li>Automatic encoder selection tests NVIDIA NVENC first when available, with CPU encoding as a fallback.</li>
+<li>Progress uses weighted stages, so overall ETA is an <b>estimate</b> that varies with content and system load.</li></ul>
+<div class='note'>Neither engine is universally fastest. Compare using your actual project.</div>""",
+       ("export", "export_process", "ffmpeg"),
+       ("Rust GPU FFmpeg NVENC 프레임 진행률 남은 시간 H264 MP4 호환성",
+        "Rust GPU FFmpeg NVENC frames throughput ETA H264 MP4 compatibility")),
 
     _e("other", "export_process", ("내보내기 진행과 완료", "Export progress and completion"),
        ("내보내기,진행", "export,progress"),
