@@ -57,7 +57,7 @@ from app.renderer.ffmpeg_renderer import (
     VisualizerOverlay,
 )
 from app.renderer.static_video_stream import StaticVideoStreamResult
-from tests.main_window_base import MainWindowTestCase
+from tests.main_window_base import MainWindowTestCase, accept_ffmpeg_export
 
 
 class MainWindowPreviewTests(MainWindowTestCase):
@@ -1568,12 +1568,15 @@ class MainWindowPreviewTests(MainWindowTestCase):
             # a given result.
             self.assertEqual(start.call_args.kwargs.get("provider_id"), "auto")
 
-    def test_export_custom_gpu_defaults_reveal_advanced_settings(self) -> None:
+    def test_custom_native_gpu_quality_reveals_advanced_settings(self) -> None:
+        # Rust GPU is the default engine. Its default CQ=0/preset is a
+        # balanced profile; a genuinely custom CQ must reveal advanced UI.
         dialog = ExportSettingsDialog(
-            AppSettings(video_codec="h264_nvenc"), 1, 60.0,
+            AppSettings(video_codec="h264_nvenc", native_nvenc_cq=13), 1, 60.0,
             self.window.translator, Path("gpu-export.mp4"),
         )
         try:
+            self.assertEqual(dialog.engine_combo.currentData(), "native_gpu")
             self.assertEqual(dialog.quality_mode_combo.currentData(), "custom")
             self.assertTrue(dialog.advanced_check.isChecked())
             self.assertFalse(dialog.advanced_group.isHidden())
@@ -2671,7 +2674,7 @@ class MainWindowPreviewTests(MainWindowTestCase):
                 patch("app.preview.export_plan.piped_export_supported",
                       return_value=False),
                 patch("app.controllers.export_controller.ExportSettingsDialog.exec",
-                      return_value=QDialog.DialogCode.Accepted),
+                      new=accept_ffmpeg_export),
                 patch.object(CanvasSnapshot, "z_bands",
                              return_value=[
                                  (None, 1.0), (1.0, 2.0), (2.0, None),

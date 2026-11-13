@@ -413,7 +413,7 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
           QT_FFMPEG_DECODING_HW_DEVICE_TYPES: ","
-        run: python scripts/run_tests.py --timeout 300 --report test-results.json
+        run: python scripts/run_tests.py --verbose --timeout 300 --report test-results.json
 
       - name: Upload test results
         if: always()
