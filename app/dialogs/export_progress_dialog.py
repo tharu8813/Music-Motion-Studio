@@ -818,7 +818,7 @@ class ExportProgressDialog(QDialog):
                 remaining = None if self._media_finalizing else self._media_eta.remaining(now)
             else:
                 remaining = (
-                    None if self._gpu_finalizing
+                    None if self._native_gpu_export or self._gpu_finalizing
                     else self._eta_estimator.update(stage, fraction, now)
                 )
             self._update_time_label(remaining, elapsed)
@@ -920,6 +920,7 @@ class ExportProgressDialog(QDialog):
             None if self._gpu_finalizing or self._media_finalizing else
             self._gpu_frame_eta.remaining(now)
             if self._gpu_frame_eta is not None else
+            None if self._native_gpu_export else
             self._media_eta.remaining(now)
             if self._media_eta is not None else
             self._eta_estimator.remaining(now)
