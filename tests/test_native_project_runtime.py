@@ -19,7 +19,7 @@ from app.renderer.native_project_frames import GuiProjectFrameSource, produce_co
 from app.renderer.native_project_export import export_project_document, resolve_native_executable, NATIVE_EXECUTABLE
 from app.renderer.native_gpu_stream import NativeGpuPreflightError
 from app.renderer.native_project_support import TimelineValidationError, validate_project_for_gpu_capture
-from app.renderer.native_project_support import resolve_project_frame
+from app.renderer.native_project_support import build_native_frame_lookup, resolve_project_frame
 from app.renderer.native_dynamic_layers import build_dynamic_stack
 from app.timeline.compiler import compile_playlist
 from tests.test_native_canvas_project_probe import project_fixture
@@ -98,13 +98,27 @@ class RuntimeContracts(unittest.TestCase):
         project.playlist[1].duration_seconds = 7199.875
         plan = compile_playlist(project.playlist, enabled_only=True)
         # 3-hour timeline, fractional-frame song boundary, then final CFR PTS.
-        for n, index, origin in ((216007, 0, 0), (216008, 1, 3600.125),
-                                 (647999, 1, 3600.125)):
-            with self.subTest(frame=n):
-                state = resolve_project_frame(project, n / 60, plan=plan)
-                self.assertIs(state["track"], project.playlist[index])
-                self.assertAlmostEqual(state["track_elapsed_seconds"], n / 60 - origin)
-                self.assertEqual(state["timeline_seconds"], n / 60)
+        samples = ((216007, 0, 0), (216008, 1, 3600.125),
+                   (647999, 1, 3600.125))
+        reference = {n: resolve_project_frame(project, n / 60, plan=plan)
+                     for n, _index, _origin in samples}
+        lookup = build_native_frame_lookup(project)
+        self.assertEqual(len(lookup[1]), 2)
+        # A real detached export resolves each frame with the same frozen
+        # track map and MUST NOT recalculate every track's animation duration.
+        with patch(
+            "app.renderer.native_project_support.ExportTimelinePlanner._animation_durations",
+            side_effect=AssertionError("per-frame animation scan"),
+        ):
+            for n, index, origin in samples:
+                with self.subTest(frame=n):
+                    state = resolve_project_frame(
+                        project, n / 60, plan=plan, frame_lookup=lookup,
+                    )
+                    self.assertEqual(state, reference[n])
+                    self.assertIs(state["track"], project.playlist[index])
+                    self.assertAlmostEqual(state["track_elapsed_seconds"], n / 60 - origin)
+                    self.assertEqual(state["timeline_seconds"], n / 60)
 
     def test_dynamic_stream_closed_on_cancel_and_early_iterator_close(self):
         for cancel_instead in (False, True):

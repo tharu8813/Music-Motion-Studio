@@ -28,7 +28,8 @@ from app.renderer.native_dynamic_layers import (
     prepare_project_frame_audio, PreparedProjectFrameAudio,
 )
 from app.renderer.native_project_support import (
-    TimelineValidationError, resolve_project_frame, validate_project_for_gpu_capture,
+    TimelineValidationError, build_native_frame_lookup, resolve_project_frame,
+    validate_project_for_gpu_capture,
 )
 from app.timeline.compiler import compile_playlist
 from app.services.lyrics_intro_service import prepare_instrumental_spans
@@ -139,6 +140,7 @@ def produce_complete_project_frames(
     tracks = [t for t in project.playlist if t.enabled and t.duration_seconds > 0]
     if not tracks or plan.duration_seconds <= 0:
         raise TimelineValidationError("A complete native export needs enabled playlist tracks")
+    frame_lookup = build_native_frame_lookup(project, tracks)
     stack = build_dynamic_stack(project, scale, gpu_video=gpu_video)
     included = [
         s for s in project.sources
@@ -207,7 +209,9 @@ def produce_complete_project_frames(
             band_states = [None] * len(band_schedules)
             for frame_index in range(total_frames):
                 _check_cancel(cancel)
-                state = resolve_project_frame(project, frame_index / fps, plan=plan)
+                state = resolve_project_frame(
+                    project, frame_index / fps, plan=plan, frame_lookup=frame_lookup,
+                )
                 bass, music = canvas_reaction_at(
                     state["track"], state["track_elapsed_seconds"], fps,
                     reactive, envelopes,
