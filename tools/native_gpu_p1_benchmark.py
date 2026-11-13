@@ -175,6 +175,10 @@ def _read_trial(root: Path, label: str, *, expected_source_sha256: str,
         "decoded_video_sha256": _hash_stream(ffmpeg, video, "video"),
         "decoded_pcm_sha256": _hash_stream(ffmpeg, video, "audio"),
         "stage_timings": _native_stages(native),
+        "frame_transport_bytes": native.get("frame_transport_bytes"),
+        "alpha_trim_band_timing": (
+            native.get("raster_cache") or {}
+        ).get("alpha_trim_band_timing") or {},
     }
 
 
@@ -197,9 +201,26 @@ def _summarize(trials: list[dict]) -> dict:
             f"{entry['label']}: {key} differs from A1"
             for entry in trials[1:] if entry[key] != first[key]
         ]
-    return {
+    # 'verdict' historically reports ONLY decoded video/audio/PTS parity.
+    # An all-green media check does not imply a speedup.
+    if base_seconds <= 0:
+        raise ValueError("Baseline wall time must be positive")
+    delta_seconds = candidate_seconds - base_seconds
+    performance_verdict = (
+        "slower" if delta_seconds > 0 else
+        "faster" if delta_seconds < 0 else "equal"
+    )
+    promotion_decision = (
+        "reject" if mismatches or delta_seconds >= 0
+        else "requires_second_project_confirmation"
+    )
+    summary = {
         "schema": 1,
         "verdict": "pass" if not mismatches else "fail",
+        "verdict_scope": "decoded_video_audio_pts_parity_only",
+        "performance_verdict": performance_verdict,
+        "candidate_mean_delta_seconds": round(delta_seconds, 4),
+        "automatic_promotion_decision": promotion_decision,
         "baseline_mean_seconds": round(base_seconds, 4),
         "candidate_mean_seconds": round(candidate_seconds, 4),
         "wall_time_reduction_percent": round(
@@ -213,6 +234,33 @@ def _summarize(trials: list[dict]) -> dict:
             "48kHz stereo PCM soundtrack, not the compressed MP4 bytes."
         ),
     }
+    # Additive optional fields keep existing benchmark reports and test
+    # fixtures compatible while quantifying a candidate's traffic savings.
+    if all(
+        isinstance(row.get("frame_transport_bytes"), (int, float))
+        and row["frame_transport_bytes"] >= 0 for row in trials
+    ):
+        baseline_wire = sum(row["frame_transport_bytes"] for row in baseline) / 2
+        candidate_wire = sum(row["frame_transport_bytes"] for row in candidate) / 2
+        summary["baseline_mean_transport_bytes"] = round(baseline_wire)
+        summary["candidate_mean_transport_bytes"] = round(candidate_wire)
+        if baseline_wire > 0:
+            summary["transport_reduction_percent"] = round(
+                100 * (baseline_wire - candidate_wire) / baseline_wire, 2
+            )
+    if (all(isinstance(row.get("alpha_trim_band_timing"), dict) for row in candidate)
+            and any(row["alpha_trim_band_timing"] for row in candidate)):
+        summary["candidate_alpha_trim_scan_seconds_mean"] = round(
+            sum(sum(bucket.get("scan_seconds", 0.0) for bucket in
+                    row["alpha_trim_band_timing"].values())
+                for row in candidate) / 2, 4,
+        )
+        summary["candidate_alpha_trim_copy_seconds_mean"] = round(
+            sum(sum(bucket.get("copy_seconds", 0.0) for bucket in
+                    row["alpha_trim_band_timing"].values())
+                for row in candidate) / 2, 4,
+        )
+    return summary
 
 
 def build_command(args: argparse.Namespace, label: str) -> list[str]:
@@ -336,6 +384,9 @@ def main(argv: list[str] | None = None) -> int:
             json.dump(summary, target, ensure_ascii=False, indent=2)
         print(json.dumps({
             "verdict": summary["verdict"],
+            "verdict_scope": summary["verdict_scope"],
+            "performance_verdict": summary["performance_verdict"],
+            "automatic_promotion_decision": summary["automatic_promotion_decision"],
             "wall_time_reduction_percent": summary["wall_time_reduction_percent"],
             "mismatches": summary["mismatches"],
             "report": str(args.output_dir / "p1-summary.json"),
