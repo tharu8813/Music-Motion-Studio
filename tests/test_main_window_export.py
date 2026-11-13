@@ -24,7 +24,7 @@ from app.dialogs.settings_dialog import SettingsDialog
 from app.dialogs.preset_dialog import DesignPresetDialog
 from app.dialogs.export_settings_dialog import ExportSettingsDialog
 from app.dialogs.track_details_dialog import TrackDetailsDialog
-from app.dialogs.export_progress_dialog import ExportEtaEstimator, NativeGpuFrameEtaEstimator, ExportProgressDialog
+from app.dialogs.export_progress_dialog import ExportEtaEstimator, NativeGpuFrameEtaEstimator, MediaTimelineEtaEstimator, ExportProgressDialog
 from app.dialogs.export_complete_dialog import ExportCompleteDialog
 from app.services.export_storage_service import ExportStorageSnapshot, estimate_export_storage
 from app.dialogs.ffmpeg_install_progress_dialog import FFmpegInstallProgressDialog
@@ -1809,6 +1809,34 @@ class MainWindowExportTests(MainWindowTestCase):
             dialog.set_korean(False)
             self.assertIn("temporary H.264", dialog.storage_rows["processing"][0].text())
             self.assertIn("cleaned up", dialog.storage_estimate_hint.text())
+        finally:
+            dialog.complete(False)
+
+    def test_ffmpeg_timeline_eta_uses_actual_media_throughput(self) -> None:
+        estimator = MediaTimelineEtaEstimator()
+        self.assertIsNone(estimator.update(1.0, 600.0, 10.0))
+        remaining = estimator.update(61.0, 600.0, 20.0)
+        self.assertIsNotNone(remaining)
+        self.assertGreater(remaining, 70)
+        self.assertLess(remaining, 110)
+        self.assertAlmostEqual(estimator.remaining(25.0), remaining - 5, delta=0.01)
+        self.assertIsNone(estimator.remaining(45.0))
+        self.assertIsNone(estimator.update(600.0, 600.0, 46.0))
+
+    def test_ffmpeg_dialog_eta_uses_media_seconds_not_weighted_percent(self) -> None:
+        dialog = ExportProgressDialog(self.window)
+        dialog.set_korean(True)
+        try:
+            with patch("app.dialogs.export_progress_dialog.monotonic", return_value=10.0):
+                dialog.update_progress("Encoding video", 0.77, "Encoding 5.0s / 600.0s")
+            with patch("app.dialogs.export_progress_dialog.monotonic", return_value=20.0):
+                dialog.update_progress("Encoding video", 0.79, "Encoding 65.0s / 600.0s")
+            self.assertIn("남은 시간 약", dialog.time_label.text())
+            self.assertIn("01:", dialog.time_label.text())
+            with patch("app.dialogs.export_progress_dialog.monotonic", return_value=25.0):
+                dialog.update_progress("Finalizing export", 0.995, "Finishing the MP4 file")
+            self.assertIn("마무리 중", dialog.time_label.text())
+            self.assertIn("예측 불가", dialog.time_label.text())
         finally:
             dialog.complete(False)
 
