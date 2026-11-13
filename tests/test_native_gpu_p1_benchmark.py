@@ -6,7 +6,6 @@ from argparse import Namespace
 import hashlib
 import os
 from pathlib import Path
-import shutil
 import subprocess
 from tempfile import TemporaryDirectory
 import unittest
@@ -84,7 +83,7 @@ class NativeGpuP1BenchmarkTests(unittest.TestCase):
         with patch.object(benchmark, "_execute", return_value="0\n512\n1024\n"):
             n, hash_value = benchmark._video_pts("ffprobe", Path("a.mp4"))
         self.assertEqual(n, 3)
-        self.assertEqual(hash_value, hashlib.sha256(b"0\\n512\\n1024\\n").hexdigest())
+        self.assertEqual(hash_value, hashlib.sha256(b"0\n512\n1024\n").hexdigest())
         with patch.object(benchmark, "_execute", return_value="0\n1024\n512\n"):
             _, changed = benchmark._video_pts("ffprobe", Path("b.mp4"))
         self.assertNotEqual(hash_value, changed)
