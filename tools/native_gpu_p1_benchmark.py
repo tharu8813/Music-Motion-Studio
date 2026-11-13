@@ -231,6 +231,31 @@ def build_command(args: argparse.Namespace, label: str) -> list[str]:
     return cmd
 
 
+def verify_output_geometry(project_path: Path, scale: float, width: int, height: int) -> tuple[int, int]:
+    """Fail before four GPU exports if Canvas scale cannot yield target pixels."""
+    from app.services.project_service import ProjectError, ProjectService
+
+    try:
+        canvas = ProjectService.load(project_path).canvas
+    except ProjectError as error:
+        raise ValueError(f"Could not read benchmark Canvas: {error}") from error
+    actual = (round(canvas.width * scale), round(canvas.height * scale))
+    if actual != (width, height):
+        ratio_x = width / canvas.width
+        ratio_y = height / canvas.height
+        suggestion = (
+            f" Use --scale {ratio_x:g}."
+            if math.isclose(ratio_x, ratio_y, rel_tol=0, abs_tol=1e-9)
+            else " The project aspect ratio differs from the requested target."
+        )
+        raise ValueError(
+            f"Project Canvas {canvas.width:g}x{canvas.height:g} with "
+            f"--scale {scale:g} produces {actual[0]}x{actual[1]}, "
+            f"not the required {width}x{height}.{suggestion}"
+        )
+    return actual
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", required=True, type=Path)
@@ -255,6 +280,12 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("Invalid project, native binary or benchmark frame geometry")
     if args.output_dir.exists():
         parser.error("Output directory must be new: existing results are never overwritten")
+    # The GUI Canvas is not assumed to be 1920x1080. Catch mismatches before
+    # spending 4 × 30s on GPU exports and before creating any result files.
+    try:
+        verify_output_geometry(args.project, args.scale, args.width, args.height)
+    except (ValueError, OSError) as error:
+        parser.error(f"Benchmark geometry preflight failed: {error}")
     for executable in (args.ffmpeg, args.ffprobe):
         if not (Path(executable).is_file() or shutil.which(executable)):
             parser.error(f"Required FFmpeg tool is unavailable: {executable}")
