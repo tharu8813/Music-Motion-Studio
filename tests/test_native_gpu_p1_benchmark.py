@@ -80,14 +80,25 @@ class NativeGpuP1BenchmarkTests(unittest.TestCase):
         self.assertIn("pcm_s16le", run.call_args.args[0])
 
     def test_which_pts_are_hashed_is_complete_and_order_sensitive(self) -> None:
-        with patch.object(benchmark, "_execute", return_value="0\n512\n1024\n"):
+        import json
+        # H.264 first frames may carry SEI side data. ffprobe CSV yields
+        # "0," but its JSON frame PTS remains a valid integer.
+        frames = {"frames": [
+            {"best_effort_timestamp": 0, "side_data_list": [{}]},
+            {"best_effort_timestamp": 512},
+            {"best_effort_timestamp": 1024},
+        ]}
+        with patch.object(benchmark, "_execute", return_value=json.dumps(frames)):
             n, hash_value = benchmark._video_pts("ffprobe", Path("a.mp4"))
         self.assertEqual(n, 3)
         self.assertEqual(hash_value, hashlib.sha256(b"0\n512\n1024\n").hexdigest())
-        with patch.object(benchmark, "_execute", return_value="0\n1024\n512\n"):
+        frames["frames"][1]["best_effort_timestamp"] = 1024
+        frames["frames"][2]["best_effort_timestamp"] = 512
+        with patch.object(benchmark, "_execute", return_value=json.dumps(frames)):
             _, changed = benchmark._video_pts("ffprobe", Path("b.mp4"))
         self.assertNotEqual(hash_value, changed)
-        with patch.object(benchmark, "_execute", return_value="0\nN/A\n1024\n"):
+        frames["frames"][1].pop("best_effort_timestamp")
+        with patch.object(benchmark, "_execute", return_value=json.dumps(frames)):
             with self.assertRaisesRegex(ValueError, "presentation timestamp"):
                 benchmark._video_pts("ffprobe", Path("broken.mp4"))
 
