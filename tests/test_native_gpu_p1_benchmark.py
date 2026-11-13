@@ -136,7 +136,7 @@ class NativeGpuP1BenchmarkTests(unittest.TestCase):
                 ffmpeg, "-hide_banner", "-v", "error", "-y",
                 "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=30",
                 "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
-                "-t", "1", "-c:v", "mpeg4", "-c:a", "aac",
+                "-t", "1", "-c:v", "libx264", "-c:a", "aac",
                 str(output),
             ], check=True, capture_output=True, timeout=30)
             media = benchmark._probe_media(
