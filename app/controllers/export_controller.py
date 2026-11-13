@@ -982,7 +982,9 @@ class ExportOrchestrator:
         try:
             configured_path = window.settings_service.current.ffmpeg_path or None
             renderer = FFmpegRenderer(configured_path)
-            renderer.prevent_output_overwrite = _options is not None
+            # A competing process may create the chosen filename after the
+            # dialog closes. Never replace that new file silently.
+            renderer.prevent_output_overwrite = True
         except FFmpegNotFoundError:
             answer = QMessageBox.warning(
                 window, "FFmpeg 필요" if korean else "FFmpeg required",
