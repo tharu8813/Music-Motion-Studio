@@ -339,9 +339,16 @@ class ProjectSettingsDialog(QDialog):
         self.transition_automix_radio.setText("AutoMix (베타, 템포 인식 자동 전환)" if korean else "AutoMix (beta, tempo-aware)")
         self._update_transition_help()
         self.thumbnail_group.setTitle("프로젝트 썸네일" if korean else "Project thumbnail")
+        # A long QRadioButton label establishes a hard minimum width for
+        # the thumbnail row (192px preview + the label). Keep the visible
+        # wording concise so the Files tab fits the minimum dialog width.
         self.canvas_radio.setText(
-            "저장할 때 캔버스를 직접 캡처하여 썸네일로 사용합니다."
-            if korean else "The canvas is captured directly whenever the project is saved."
+            "캔버스 자동 캡처" if korean else "Capture canvas automatically"
+        )
+        self.canvas_radio.setToolTip(
+            "프로젝트 저장 시 캔버스를 직접 캡처해 썸네일로 저장합니다."
+            if korean else
+            "Directly captures the canvas for the thumbnail whenever the project is saved."
         )
         self.custom_radio.setText("")
         self.choose_thumbnail_button.setText("이미지 선택…" if korean else "Choose image…")
