@@ -472,6 +472,7 @@ class NativeGpuFullProjectTests(unittest.TestCase):
 
     def test_alpha_trim_flag_is_developer_only(self):
         self.assertFalse(NativeGpuOptimizations.for_profile("automatic").trim_transparent_bands)
+        self.assertFalse(NativeGpuOptimizations.for_profile("automatic").reuse_equal_pixels)
         with TemporaryDirectory() as temp:
             root = Path(temp)
             source = root / "project.json"

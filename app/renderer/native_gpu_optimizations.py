@@ -36,6 +36,8 @@ class NativeGpuOptimizations:
     gpu_video: bool = False
     # Developer diagnostics until trimming improves total export time.
     trim_transparent_bands: bool = False
+    # Exact bytes equality before SHA-256; developer P1 A/B only until timed.
+    reuse_equal_pixels: bool = False
     gpu_radial: bool = False
 
     @classmethod

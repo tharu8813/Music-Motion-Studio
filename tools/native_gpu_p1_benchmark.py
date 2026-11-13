@@ -4,6 +4,8 @@ This is an opt-in developer tool, not a production rendering preference.
 Default transport study: A disables two developer-only transport features;
 B uses the automatic production profile. Optional alpha-trim study: A uses
 unmodified automatic and B additionally enables transparent-band trimming.
+Optional equal-pixels study: B attempts full immutable-byte equality before
+SHA-256, using the previous verified digest only for an exact match.
 Every run captures an actual short MP4 and native report.
 No GPU speedup can be inferred until both project cases pass on real hardware.
 """
@@ -145,6 +147,8 @@ def _native_stages(native: dict) -> dict[str, float]:
         "qt_canvas_capture_seconds": raster.get("qt_canvas_capture_seconds"),
         "qt_canvas_paint_stage_seconds": raster.get("qt_canvas_paint_stage_seconds"),
         "qt_canvas_state_setup_seconds": raster.get("qt_canvas_state_setup_seconds"),
+        "frame_sha256_wall_seconds": native.get("frame_sha256_wall_seconds"),
+        "frame_sha256_equality_seconds": native.get("frame_sha256_equality_seconds"),
     }
     return {key: float(value) for key, value in keys.items()
             if isinstance(value, (float, int)) and math.isfinite(value) and value >= 0}
@@ -176,6 +180,10 @@ def _read_trial(root: Path, label: str, *, expected_source_sha256: str,
         "decoded_pcm_sha256": _hash_stream(ffmpeg, video, "audio"),
         "stage_timings": _native_stages(native),
         "frame_transport_bytes": native.get("frame_transport_bytes"),
+        "frame_sha256_bytes": native.get("frame_sha256_bytes"),
+        "frame_sha256_reused_bytes": native.get("frame_sha256_reused_bytes"),
+        "frame_sha256_equality_checked_bytes": native.get("frame_sha256_equality_checked_bytes"),
+        "frame_sha256_equality_reused_bytes": native.get("frame_sha256_equality_reused_bytes"),
         "alpha_trim_band_timing": (
             native.get("raster_cache") or {}
         ).get("alpha_trim_band_timing") or {},
@@ -248,6 +256,21 @@ def _summarize(trials: list[dict]) -> dict:
             summary["transport_reduction_percent"] = round(
                 100 * (baseline_wire - candidate_wire) / baseline_wire, 2
             )
+    if all(
+        type(row.get("frame_sha256_bytes")) is int and row["frame_sha256_bytes"] >= 0
+        and type(row.get("frame_sha256_equality_reused_bytes")) is int
+        and row["frame_sha256_equality_reused_bytes"] >= 0
+        for row in trials
+    ):
+        summary["baseline_mean_sha256_bytes"] = round(
+            sum(row["frame_sha256_bytes"] for row in baseline) / 2
+        )
+        summary["candidate_mean_sha256_bytes"] = round(
+            sum(row["frame_sha256_bytes"] for row in candidate) / 2
+        )
+        summary["candidate_mean_sha256_equality_reused_bytes"] = round(
+            sum(row["frame_sha256_equality_reused_bytes"] for row in candidate) / 2
+        )
     if (all(isinstance(row.get("alpha_trim_band_timing"), dict) for row in candidate)
             and any(row["alpha_trim_band_timing"] for row in candidate)):
         summary["candidate_alpha_trim_scan_seconds_mean"] = round(
@@ -285,6 +308,10 @@ def build_command(args: argparse.Namespace, label: str) -> list[str]:
         # The regular automatic transport and encoder remain identical.
         if label.startswith("b"):
             cmd.append("--gpu-trim-transparent-bands")
+    elif experiment == "equal_pixels":
+        # Full byte equality before SHA-256, no changes to Qt capture or Rust.
+        if label.startswith("b"):
+            cmd.append("--gpu-reuse-equal-pixels")
     else:
         raise ValueError(f"Unknown P1 experiment: {experiment}")
     return cmd
@@ -329,8 +356,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ffmpeg", default="ffmpeg")
     parser.add_argument("--ffprobe", default="ffprobe")
     parser.add_argument(
-        "--experiment", choices=("transport", "alpha_trim"), default="transport",
-        help="transport (legacy P1 baseline) or isolated transparent Qt band trim",
+        "--experiment", choices=("transport", "alpha_trim", "equal_pixels"), default="transport",
+        help="transport baseline, developer alpha-trim, or exact BGRA equality/SHA-256 reuse",
     )
     args = parser.parse_args(argv)
     if (not args.project.is_file() or args.project.is_symlink()

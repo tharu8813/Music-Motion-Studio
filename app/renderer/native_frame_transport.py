@@ -110,7 +110,8 @@ def _encode_pixels(pixels):
 
 
 def frame_chunks(frame, index, *, reuse_state=None, timings=None,
-                 compress_planes=False, v3_wire=False, executor=None):
+                 compress_planes=False, v3_wire=False, executor=None,
+                 reuse_equal_pixels=False):
     """Iterate one bounded packet with immutable pixels.
 
     An optional small shared executor runs CPU hashing/compression of separate
@@ -121,6 +122,8 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
         raise ValueError("Native LZ4 transport requires v2 reuse and installed lz4")
     if v3_wire and reuse_state is None:
         raise ValueError("Native v3 transport requires a previous-frame state")
+    if reuse_equal_pixels and reuse_state is None:
+        raise ValueError("Exact pixel equality requires a previous-frame state")
     version = 3 if (v3_wire or compress_planes) else 2 if reuse_state is not None else 1
     sizes = [getattr(layer, "payload_bytes", layer.width * layer.height * 4) for layer in frame.layers]
     total_size = sum(sizes)
@@ -142,7 +145,26 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
     cached = []
     for layer in frame.layers:
         prior_pixel = refs.get(layer.stream_key)
-        cached.append(prior_pixel[1] if prior_pixel is not None and prior_pixel[0] is layer.pixels else None)
+        digest = None
+        if prior_pixel is not None and isinstance(layer.pixels, bytes):
+            if prior_pixel[0] is layer.pixels:
+                digest = prior_pixel[1]
+            elif (reuse_equal_pixels
+                  and len(prior_pixel[0]) == len(layer.pixels)):
+                # Developer A/B: only exact equality of TWO immutable byte
+                # sequences may reuse the previous SHA-256. No fingerprints,
+                # sampled regions, timing heuristics or probabilistic matches.
+                # The native receiver still validates the reconstructed bytes.
+                started_equal = monotonic() if timings is not None else 0.0
+                identical = prior_pixel[0] == layer.pixels
+                _metric(timings, "sha256_equality_checks", 1)
+                _metric(timings, "sha256_equality_checked_bytes", len(layer.pixels))
+                if timings is not None:
+                    _metric(timings, "sha256_equality_seconds", monotonic() - started_equal)
+                if identical:
+                    digest = prior_pixel[1]
+                    _metric(timings, "sha256_equality_reused_bytes", len(layer.pixels))
+        cached.append(digest)
     pending = [layer.pixels for layer, digest in zip(frame.layers, cached) if digest is None]
     computed = iter(executor.map(_hash_pixels, pending) if parallel and len(pending) > 1
                     else map(_hash_pixels, pending))
@@ -280,10 +302,11 @@ def frame_chunks(frame, index, *, reuse_state=None, timings=None,
     yield from payloads
 
 def write_frame(stream, frame, index, *, reuse_state=None, timings=None,
-                compress_planes=False, v3_wire=False, executor=None, shared_packet=None):
+                compress_planes=False, v3_wire=False, executor=None, shared_packet=None,
+                reuse_equal_pixels=False):
     chunks = frame_chunks(frame, index, reuse_state=reuse_state, timings=timings,
                           compress_planes=compress_planes, v3_wire=v3_wire,
-                          executor=executor)
+                          executor=executor, reuse_equal_pixels=reuse_equal_pixels)
     # A frame always starts with the fixed 28-byte header followed by its
     # bounded JSON manifest. One write for both eliminates a tiny pipe write
     # per frame without touching layer payloads or the MMSB wire format.
