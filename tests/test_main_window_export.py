@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtGui import QColor, QCloseEvent, QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox, QScrollArea
@@ -250,7 +250,11 @@ class MainWindowExportTests(MainWindowTestCase):
             output_geometry = dialog.output_group.geometry()
             render_geometry = dialog.render_group.geometry()
 
-            self.assertLess(project_geometry.right(), output_geometry.left())
+            project_right = dialog.project_group.mapToGlobal(
+                QPoint(project_geometry.width(), 0)
+            ).x()
+            output_left = dialog.output_group.mapToGlobal(QPoint(0, 0)).x()
+            self.assertLess(project_right, output_left)
             self.assertLess(output_geometry.bottom(), render_geometry.top())
             self.assertFalse(dialog.thumbnail_label.pixmap().isNull())
             self.assertIn("Demo project", dialog.project_title_label.text())
