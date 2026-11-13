@@ -215,7 +215,10 @@ class MainWindowExportTests(MainWindowTestCase):
         try:
             self.assertEqual(dialog.engine_combo.currentData(), "native_gpu")
             self.assertEqual(dialog.quality_mode_combo.currentData(), "balanced")
-            self.assertTrue(dialog.advanced_group.isHidden())
+            self.assertTrue(dialog.quality_group.isHidden())
+            self.assertFalse(dialog.advanced_group.isHidden())
+            self.assertFalse(dialog.save_default_check.isVisible())
+            self.assertFalse(dialog.save_as_default)
             self.assertIn("권장", dialog.quality_mode_combo.currentText())
             self.assertIn("예상 작업량", dialog.workload_label.text())
             self.assertIn("권장", dialog.quality_description_label.text())
@@ -227,33 +230,37 @@ class MainWindowExportTests(MainWindowTestCase):
         finally:
             dialog.close()
 
-    def test_export_dialog_uses_compact_two_column_layout(self) -> None:
+    def test_export_dialog_uses_project_identity_and_right_hand_settings(self) -> None:
+        thumbnail = QImage(160, 90, QImage.Format.Format_ARGB32)
+        thumbnail.fill(QColor("#4682b4"))
         dialog = ExportSettingsDialog(
             AppSettings(), 12, 754.0, self.window.translator,
             Path("layout-export.mp4"), canvas_size=(1920, 1080),
+            project_info={
+                "title": "Demo project", "author": "Creator",
+                "created_at": "2026-01-02T12:00:00+00:00",
+                "created_app_version": "2.0.1",
+                "path": "C:/Projects/demo.pvsproj",
+            }, project_thumbnail=thumbnail,
         )
         try:
             dialog.show()
             self.application.processEvents()
-            render_geometry = dialog.render_group.geometry()
-            quality_geometry = dialog.quality_group.geometry()
+            project_geometry = dialog.project_group.geometry()
             output_geometry = dialog.output_group.geometry()
+            render_geometry = dialog.render_group.geometry()
 
-            self.assertLessEqual(
-                abs(render_geometry.top() - quality_geometry.top()), 2,
-            )
-            self.assertLess(render_geometry.right(), quality_geometry.left())
+            self.assertLess(project_geometry.right(), output_geometry.left())
             self.assertLess(output_geometry.bottom(), render_geometry.top())
-            self.assertGreaterEqual(dialog.width(), 760)
-            self.assertLess(dialog.height(), dialog.width())
-
-            dialog.advanced_check.setChecked(False)
-            self.application.processEvents()
-            compact_height = dialog.height()
-            dialog.advanced_check.setChecked(True)
-            self.application.processEvents()
+            self.assertFalse(dialog.thumbnail_label.pixmap().isNull())
+            self.assertIn("Demo project", dialog.project_title_label.text())
+            for value in ("Creator", "2026-01-02", "2.0.1", "demo.pvsproj"):
+                self.assertIn(value, dialog.project_metadata_label.text())
+            self.assertEqual(len(dialog.export_type_buttons), 3)
+            self.assertFalse(dialog.export_type_combo.isVisible())
+            self.assertTrue(dialog.quality_group.isHidden())
             self.assertFalse(dialog.advanced_group.isHidden())
-            self.assertGreaterEqual(dialog.height(), compact_height)
+            self.assertGreaterEqual(dialog.width(), 920)
         finally:
             dialog.close()
 
@@ -330,6 +337,44 @@ class MainWindowExportTests(MainWindowTestCase):
                 self.assertEqual(output.read_bytes(), b"existing video")
             finally:
                 dialog.close()
+
+    def test_folder_change_numbers_filename_but_manual_collision_warns(self) -> None:
+        with TemporaryDirectory(prefix="pvs-export-folder-") as raw_directory:
+            target_folder = Path(raw_directory)
+            (target_folder / "song.mp4").write_bytes(b"already here")
+            (target_folder / "song (2).mp4").write_bytes(b"already here too")
+            dialog = ExportSettingsDialog(
+                AppSettings(), 1, 60.0, self.window.translator,
+                Path("song.mp4"),
+            )
+            try:
+                dialog.output_path_edit.setText(str(target_folder))
+                self.assertEqual(dialog.filename_edit.text(), "song (3)")
+                self.assertFalse(dialog.filename_warning_label.isVisible())
+                dialog.filename_edit.setText("song")
+                self.assertFalse(dialog.filename_warning_label.isHidden())
+                with patch.object(QMessageBox, "warning") as warning:
+                    dialog._accept_if_valid()
+                warning.assert_called_once()
+                self.assertNotEqual(dialog.result(), QDialog.DialogCode.Accepted)
+                self.assertEqual(dialog.output_path.name, "song.mp4")
+            finally:
+                dialog.close()
+
+    def test_export_type_icons_switch_formats_without_a_dropdown(self) -> None:
+        dialog = ExportSettingsDialog(
+            AppSettings(), 1, 60.0, self.window.translator, Path("video.mp4"),
+        )
+        try:
+            dialog.export_type_buttons[1].click()
+            self.assertTrue(dialog.audio_only)
+            self.assertEqual(dialog.output_format, "mp3")
+            dialog.export_type_buttons[2].click()
+            self.assertTrue(dialog.subtitle_only)
+            self.assertEqual(dialog.output_format, "lrc")
+            self.assertTrue(dialog.render_group.isHidden())
+        finally:
+            dialog.close()
 
     def test_track_lyrics_dialog_exports_registered_lyrics_as_lrc(self) -> None:
         track = PlaylistTrack(
@@ -1595,7 +1640,7 @@ class MainWindowExportTests(MainWindowTestCase):
         finally:
             dialog.complete(False)
 
-    def test_export_progress_steps_and_technical_details_are_user_friendly(self) -> None:
+    def test_export_progress_steps_are_user_friendly_without_details_panel(self) -> None:
         dialog = ExportProgressDialog(self.window)
         dialog.set_korean(True)
         try:
@@ -1625,12 +1670,9 @@ class MainWindowExportTests(MainWindowTestCase):
                 "화면 구성 요소를 영상으로 변환하는 중 · "
                 "17,827/17,828 프레임 · 100%",
             )
-            self.assertNotIn("Z 레이어", friendly)
-            self.assertNotIn("버퍼", friendly)
-            self.assertFalse(dialog.log_output.isVisible())
-            dialog.details_button.setChecked(True)
-            self.assertFalse(dialog.log_output.isHidden())
-            self.assertEqual(dialog.details_button.text(), "상세 현황 숨기기")
+            self.assertTrue(dialog.log_output.isHidden())
+            self.assertTrue(dialog.details_button.isHidden())
+            self.assertIn("영상", dialog._step_names()[3])
         finally:
             dialog.complete(False)
 
@@ -1670,12 +1712,10 @@ class MainWindowExportTests(MainWindowTestCase):
                 dialog.buttons.geometry().top(), dialog.time_label.geometry().bottom(),
             )
 
-            dialog.details_button.setChecked(True)
-            self.application.processEvents()
-            initial_log_height = dialog.log_output.height()
-            dialog.resize(680, 920)
-            self.application.processEvents()
-            self.assertGreater(dialog.log_output.height(), initial_log_height)
+            self.assertTrue(dialog.log_output.isHidden())
+            self.assertTrue(dialog.storage_dialog.isHidden())
+            self.assertEqual(dialog.storage_button.toolButtonStyle(),
+                             Qt.ToolButtonStyle.ToolButtonIconOnly)
         finally:
             dialog.complete(False)
 
@@ -1735,7 +1775,7 @@ class MainWindowExportTests(MainWindowTestCase):
             self.assertIn("프레임 진행 22.0%", dialog.detail_label.text())
             self.assertIn("10.0 FPS", dialog.detail_label.text())
             dialog.update_progress("Encoding video", .85, "Rust GPU: 1000/1000 frames")
-            self.assertIn("영상 프레임 처리 완료", dialog.time_label.text())
+            self.assertIn("영상 처리 완료", dialog.time_label.text())
             for stage, title, progress, detail in (
                 ("Finishing GPU encoding", "GPU 인코딩 마무리", .85,
                  "Writing the last encoded frames to H.264"),
@@ -1749,7 +1789,7 @@ class MainWindowExportTests(MainWindowTestCase):
                     dialog.update_progress(stage, progress, detail)
                     self.assertEqual(dialog.stage_label.text(), title)
                     self.assertNotEqual(dialog.detail_label.text(), detail)
-                    self.assertIn("영상 프레임 처리 완료", dialog.time_label.text())
+                    self.assertIn("영상 처리 완료", dialog.time_label.text())
                     self.assertNotIn("영상 처리 약", dialog.time_label.text())
                     self.assertEqual(dialog.step_labels[3].property("stepState"), "active")
         finally:
@@ -1878,21 +1918,20 @@ class MainWindowExportTests(MainWindowTestCase):
         finally:
             dialog.complete(False)
 
-    def test_export_progress_storage_panel_can_be_toggled_off_and_on(self) -> None:
+    def test_export_progress_storage_is_only_in_an_icon_popup(self) -> None:
         dialog = ExportProgressDialog(self.window)
         dialog.set_korean(True)
         try:
-            self.assertTrue(dialog.storage_button.isChecked())
-            self.assertFalse(dialog.storage_widget.isHidden())
-
-            dialog.storage_button.setChecked(False)
+            self.assertEqual(
+                dialog.storage_button.toolButtonStyle(),
+                Qt.ToolButtonStyle.ToolButtonIconOnly,
+            )
+            self.assertTrue(dialog.storage_dialog.isHidden())
             self.assertTrue(dialog.storage_widget.isHidden())
-            self.assertTrue(dialog.storage_heading.isHidden())
-            self.assertIn("보기", dialog.storage_button.text())
-
-            dialog.storage_button.setChecked(True)
-            self.assertFalse(dialog.storage_widget.isHidden())
-            self.assertIn("숨기기", dialog.storage_button.text())
+            self.assertIn("저장 공간", dialog.storage_button.toolTip())
+            with patch.object(dialog.storage_dialog, "exec") as show:
+                dialog.storage_button.click()
+            show.assert_called_once()
         finally:
             dialog.complete(False)
 
