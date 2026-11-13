@@ -31,6 +31,10 @@ class NativeGpuP1BenchmarkTests(unittest.TestCase):
                 case("b2", wall=34), case("a2", wall=42)]
         report = benchmark._summarize(runs)
         self.assertEqual(report["verdict"], "pass")
+        self.assertEqual(report["verdict_scope"], "decoded_video_audio_pts_parity_only")
+        self.assertEqual(report["performance_verdict"], "faster")
+        self.assertEqual(report["automatic_promotion_decision"],
+                         "requires_second_project_confirmation")
         self.assertEqual(report["baseline_mean_seconds"], 41)
         self.assertEqual(report["candidate_mean_seconds"], 33)
         self.assertEqual(report["wall_time_reduction_percent"], 19.51)
@@ -42,6 +46,48 @@ class NativeGpuP1BenchmarkTests(unittest.TestCase):
         report = benchmark._summarize(runs)
         self.assertEqual(report["verdict"], "fail")
         self.assertEqual(len(report["mismatches"]), 3)
+        self.assertEqual(report["automatic_promotion_decision"], "reject")
+
+    def test_parity_pass_cannot_hide_an_alpha_trim_performance_regression(self) -> None:
+        # Measured RTX 5060 1080p60 A-B-B-A wall seconds, rounded.
+        runs = [
+            case("a1", wall=52.87653), case("b1", wall=63.73668),
+            case("b2", wall=63.55592), case("a2", wall=57.16109),
+        ]
+        for row in runs:
+            row["frame_transport_bytes"] = (
+                23703103933 if row["label"].startswith("b")
+                else 30626522968
+            )
+            row["alpha_trim_band_timing"] = (
+                {"layer:0": {"scan_seconds": 7.0, "copy_seconds": 2.9}}
+                if row["label"].startswith("b") else {}
+            )
+        report = benchmark._summarize(runs)
+        self.assertEqual(report["verdict"], "pass")  # media parity, not speed
+        self.assertEqual(report["performance_verdict"], "slower")
+        self.assertEqual(report["automatic_promotion_decision"], "reject")
+        self.assertEqual(report["wall_time_reduction_percent"], -15.68)
+        self.assertAlmostEqual(report["candidate_mean_delta_seconds"], 8.6275, places=3)
+        self.assertEqual(report["baseline_mean_transport_bytes"], 30626522968)
+        self.assertEqual(report["candidate_mean_transport_bytes"], 23703103933)
+        self.assertEqual(report["transport_reduction_percent"], 22.61)
+        self.assertEqual(report["candidate_alpha_trim_scan_seconds_mean"], 7.0)
+        self.assertEqual(report["candidate_alpha_trim_copy_seconds_mean"], 2.9)
+
+    def test_equal_speed_does_not_recommend_promotion(self) -> None:
+        report = benchmark._summarize([
+            case("a1"), case("b1"), case("b2"), case("a2"),
+        ])
+        self.assertEqual(report["performance_verdict"], "equal")
+        self.assertEqual(report["automatic_promotion_decision"], "reject")
+
+    def test_zero_baseline_cannot_be_assessed(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Baseline wall time"):
+            benchmark._summarize([
+                case("a1", wall=0), case("b1"), case("b2"),
+                case("a2", wall=0),
+            ])
 
     def test_rejects_partial_or_misordered_benchmark(self) -> None:
         with self.assertRaisesRegex(ValueError, "four ordered"):
