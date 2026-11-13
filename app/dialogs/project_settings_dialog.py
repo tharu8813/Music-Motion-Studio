@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.dialogs.help_dialog import install_help_shortcut
+from app.ui.form_layout import style_form, style_dialog_actions
 from app.models.project import (
     MAX_CROSSFADE_SECONDS,
     MIN_CROSSFADE_SECONDS,
@@ -50,7 +51,8 @@ class ProjectSettingsDialog(QDialog):
         self.subtitle_label.setObjectName("mutedLabel")
         self.subtitle_label.setWordWrap(True)
         outer.addWidget(self.dialog_title_label)
-        outer.addWidget(self.subtitle_label)
+        # The active tab already tells the user which project settings are in view.
+        self.subtitle_label.hide()
         self.tabs = QTabWidget()
         self.tabs.setObjectName("settingsTabs")
         self.tabs.setDocumentMode(True)
@@ -71,6 +73,8 @@ class ProjectSettingsDialog(QDialog):
         form = QFormLayout(identity_group)
         self.title_edit = QLineEdit(settings.title)
         self.author_edit = QLineEdit(settings.author)
+        self.title_edit.setClearButtonEnabled(True)
+        self.author_edit.setClearButtonEnabled(True)
         self.description_edit = QPlainTextEdit(settings.description)
         self.description_edit.setMaximumHeight(84)
         self.description_edit.setTabChangesFocus(True)
@@ -232,6 +236,9 @@ class ProjectSettingsDialog(QDialog):
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
+        style_form(form)
+        style_form(canvas_form)
+        style_dialog_actions(self.buttons)
         self.buttons.accepted.connect(self._accept)
         self.buttons.rejected.connect(self.reject)
         self.buttons.button(QDialogButtonBox.StandardButton.Save).setObjectName("primaryButton")

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.dialogs.help_dialog import install_help_shortcut
+from app.ui.form_layout import style_form, style_dialog_actions
 from app.services.playlist_export_service import TimestampFormat
 from app.utils.i18n import Translator
 
@@ -33,6 +34,7 @@ class PlaylistExportDialog(QDialog):
         self.translator = translator
         self.setMinimumWidth(460)
         self.directory_edit = QLineEdit(str(default_directory))
+        self.directory_edit.setClearButtonEnabled(True)
         self.browse_button = QPushButton()
         self.standard_radio = QRadioButton()
         self.bracketed_radio = QRadioButton()
@@ -45,6 +47,8 @@ class PlaylistExportDialog(QDialog):
         self.button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok
         )
+        style_dialog_actions(self.button_box)
+        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setProperty("primary", True)
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         self.browse_button.clicked.connect(self._choose_directory)
@@ -56,6 +60,7 @@ class PlaylistExportDialog(QDialog):
         form = QFormLayout()
         self.output_label = QLabel()
         self.format_label = QLabel()
+        style_form(form)
         form.addRow(self.output_label, directory_row)
         form.addRow(self.format_label, self.standard_radio)
         form.addRow("", self.bracketed_radio)
@@ -64,7 +69,8 @@ class PlaylistExportDialog(QDialog):
         layout.addWidget(self._heading())
         layout.addWidget(self._description())
         layout.addLayout(form)
-        layout.addWidget(self.preview_label)
+        # The two radio choices already show exact output examples.
+        self.preview_label.hide()
         layout.addWidget(self.button_box)
         translator.language_changed.connect(self.retranslate)
         self.retranslate()
@@ -108,8 +114,8 @@ class PlaylistExportDialog(QDialog):
         self.setWindowTitle("타임라인 내보내기" if korean else "Export timeline")
         self._heading_label.setText("타임라인 내보내기" if korean else "Export timeline")
         self._description_label.setText(
-            "믹싱 타임라인의 곡 시작 시간을 YouTube 설명문(description.txt)과 곡 정보(playlist.csv)로 저장합니다."
-            if korean else "Save track start times from the mix timeline as a YouTube description (description.txt) and track details (playlist.csv)."
+            "description.txt와 playlist.csv를 생성합니다."
+            if korean else "Creates description.txt and playlist.csv."
         )
         self.browse_button.setText("찾아보기" if korean else "Browse")
         self.output_label.setText("저장 폴더" if korean else "Output folder")
@@ -129,7 +135,7 @@ class PlaylistExportDialog(QDialog):
 
     def _heading(self) -> QLabel:
         self._heading_label = QLabel()
-        self._heading_label.setObjectName("panelTitle")
+        self._heading_label.setObjectName("dialogTitle")
         return self._heading_label
 
     def _description(self) -> QLabel:

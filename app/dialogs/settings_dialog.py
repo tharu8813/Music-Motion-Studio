@@ -8,12 +8,13 @@ import subprocess
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QUrl, Qt, Signal
+from PySide6.QtCore import QUrl, Qt, Signal, QStringListModel
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QCompleter,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressDialog,
     QPushButton,
+    QRadioButton,
     QScrollArea,
     QSizePolicy,
     QSlider,
@@ -37,6 +39,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.dialogs.help_dialog import install_help_shortcut
+from app.ui.form_layout import style_form, style_dialog_actions
 from app.services.app_settings_service import (
     ENCODING_PRESETS,
     RESOLUTIONS,
@@ -551,17 +554,29 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(20, 18, 20, 16)
         layout.setSpacing(12)
         layout.addWidget(self.title_label)
-        layout.addWidget(self.subtitle_label)
+        # The title and tab names provide orientation; a second explanatory
+        # sentence just consumes vertical space on smaller screens.
+        self.subtitle_label.hide()
+        self.settings_search_edit = QLineEdit()
+        self.settings_search_edit.setObjectName("settingsSearch")
+        self.settings_search_edit.setClearButtonEnabled(True)
+        self._settings_search_model = QStringListModel(self)
+        self._settings_search_completer = QCompleter(self._settings_search_model, self)
+        self._settings_search_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self._settings_search_completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self._settings_search_completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.settings_search_edit.setCompleter(self._settings_search_completer)
+        self._settings_search_targets: dict[str, tuple[int, QWidget]] = {}
+        self._settings_search_completer.activated[str].connect(self._navigate_to_setting)
+        self.settings_search_edit.returnPressed.connect(self._search_first_setting)
+        layout.addWidget(self.settings_search_edit)
         layout.addWidget(self.tabs, 1)
+        style_dialog_actions(self.button_box)
         self.button_box.button(QDialogButtonBox.StandardButton.Save).setObjectName("primaryButton")
         layout.addWidget(self.button_box)
         for form in (app_form, content_form, render_form, output_form, ffmpeg_form, notification_form,
                      maintenance_form):
-            form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-            form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-            form.setHorizontalSpacing(24)
-            form.setVerticalSpacing(14)
-            form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            style_form(form)
         self.ffmpeg_group = ffmpeg_group
         self.output_group = output_group
         self.render_group = render_group
@@ -679,6 +694,69 @@ class SettingsDialog(QDialog):
         self._managed_installation = installation
         self._refresh_ffmpeg_manager_actions()
         self._refresh_ffmpeg_status()
+
+    def _rebuild_settings_search(self) -> None:
+        """Index actual form labels, choices and sections, not helper paragraphs."""
+        targets: dict[str, tuple[int, QWidget]] = {}
+        for tab_index in range(self.tabs.count()):
+            page = self.tabs.widget(tab_index)
+            prefix = self.tabs.tabText(tab_index)
+            # QFormLayout labels are not automatically buddies when callers
+            # supply QLabel objects. Read the layout itself to find them.
+            for form in page.findChildren(QFormLayout):
+                for row in range(form.rowCount()):
+                    label_item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
+                    if label_item is None or not isinstance(label_item.widget(), QLabel):
+                        continue
+                    label_widget = label_item.widget()
+                    label = label_widget.text().strip()
+                    if not label or "<" in label or "\n" in label:
+                        continue
+                    focus_target: QWidget = label_widget
+                    field_item = form.itemAt(row, QFormLayout.ItemRole.FieldRole)
+                    if field_item is not None:
+                        field = field_item.widget()
+                        if field is None and field_item.layout() is not None:
+                            inner = field_item.layout()
+                            for child_index in range(inner.count()):
+                                candidate = inner.itemAt(child_index).widget()
+                                if candidate is not None and candidate.focusPolicy() != Qt.FocusPolicy.NoFocus:
+                                    field = candidate
+                                    break
+                        if field is not None:
+                            focus_target = field
+                    targets.setdefault(f"{prefix} · {label}", (tab_index, focus_target))
+            for widget in page.findChildren(QWidget):
+                if isinstance(widget, (QCheckBox, QRadioButton, QGroupBox)):
+                    label = (
+                        widget.title() if isinstance(widget, QGroupBox)
+                        else widget.text()
+                    ).strip()
+                    if label and "<" not in label and "\n" not in label:
+                        targets.setdefault(f"{prefix} · {label}", (tab_index, widget))
+        self._settings_search_targets = targets
+        self._settings_search_model.setStringList(sorted(targets, key=str.casefold))
+
+    def _navigate_to_setting(self, title: str) -> None:
+        result = self._settings_search_targets.get(title)
+        if result is None:
+            return
+        index, widget = result
+        self.tabs.setCurrentIndex(index)
+        page = self.tabs.widget(index)
+        if isinstance(page, QScrollArea):
+            page.ensureWidgetVisible(widget, 20, 20)
+        if widget.focusPolicy() != Qt.FocusPolicy.NoFocus:
+            widget.setFocus(Qt.FocusReason.ShortcutFocusReason)
+
+    def _search_first_setting(self) -> None:
+        query = self.settings_search_edit.text().strip().casefold()
+        if not query:
+            return
+        for title in self._settings_search_targets:
+            if query in title.casefold():
+                self._navigate_to_setting(title)
+                return
 
     def _settings_tab_changed(self, _index: int) -> None:
         if self.tabs.currentWidget() is self.accounts_page:
@@ -1351,6 +1429,13 @@ class SettingsDialog(QDialog):
         self._update_language_pack_ui()
         self._update_preview_backend_restart_hint()
         self._update_export_notification_ui()
+        self.settings_search_edit.setPlaceholderText(
+            "설정 검색 (Enter로 이동)" if korean else "Find a setting (Enter to jump)"
+        )
+        self.settings_search_edit.setAccessibleName(
+            "설정 검색" if korean else "Find a setting"
+        )
+        self._rebuild_settings_search()
 
     def _export_notification_stage_checks(self) -> tuple[QCheckBox, ...]:
         """Return stage controls in their stable display and persistence order."""
