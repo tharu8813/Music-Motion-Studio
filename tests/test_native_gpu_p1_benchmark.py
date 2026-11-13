@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from argparse import Namespace
 import hashlib
+import os
 from pathlib import Path
+import shutil
+import subprocess
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
@@ -108,6 +111,34 @@ class NativeGpuP1BenchmarkTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Frame count"):
                 benchmark._probe_media("ffprobe", Path("broken.mp4"), width=1920,
                                        height=1080, fps=60, seconds=30)
+
+    def test_real_ffmpeg_decoded_hash_and_all_pts(self) -> None:
+        ffmpeg = os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG")
+        if not ffmpeg:
+            self.skipTest("Only runs after verified FFmpeg is installed by Windows CI")
+        ffprobe = str(Path(ffmpeg).with_name("ffprobe.exe"))
+        if not Path(ffprobe).is_file():
+            self.skipTest("Verified FFmpeg package has no ffprobe binary")
+        with TemporaryDirectory(prefix="mms-p1-media-") as raw:
+            root = Path(raw)
+            output = root / "reference.mp4"
+            subprocess.run([
+                ffmpeg, "-hide_banner", "-v", "error", "-y",
+                "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=30",
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+                "-t", "1", "-c:v", "mpeg4", "-c:a", "aac",
+                str(output),
+            ], check=True, capture_output=True, timeout=30)
+            media = benchmark._probe_media(
+                ffprobe, output, width=64, height=64, fps=30, seconds=1,
+            )
+            self.assertEqual(media["frames"], 30)
+            self.assertEqual(benchmark._hash_stream(ffmpeg, output, "video"),
+                             benchmark._hash_stream(ffmpeg, output, "video"))
+            self.assertEqual(benchmark._hash_stream(ffmpeg, output, "audio"),
+                             benchmark._hash_stream(ffmpeg, output, "audio"))
+            self.assertEqual(len(media["pts_sha256"]), 64)
+
 
     def test_native_stages_are_separate_and_not_summed(self) -> None:
         stages = benchmark._native_stages({
