@@ -259,14 +259,21 @@ class ProjectSettingsDialog(QDialog):
         settings = self.selected_settings
         values = self.details_values
         values["created_at"].setText(self._display_timestamp(settings.created_at, korean))
-        values["modified_at"].setText(
-            self._display_timestamp(settings.modified_at, korean) if self.project_path else not_saved
-        )
         values["created_app_version"].setText(settings.created_app_version or unknown)
         values["current_app_version"].setText(__version__)
         values["format_version"].setText(f"v{CURRENT_VERSION}")
         path = self.project_path
         exists = bool(path and path.is_file())
+        if not path:
+            values["modified_at"].setText(not_saved)
+        elif exists:
+            try:
+                saved_date = datetime.fromtimestamp(path.stat().st_mtime).astimezone()
+                values["modified_at"].setText(saved_date.strftime("%Y-%m-%d %H:%M"))
+            except (OSError, ValueError, OverflowError):
+                values["modified_at"].setText(unknown)
+        else:
+            values["modified_at"].setText(unknown)
         if not path:
             values["project_format"].setText(not_saved)
         elif path.suffix.lower() == ".pvsproj":
@@ -343,7 +350,7 @@ class ProjectSettingsDialog(QDialog):
         self.details_group.setTitle("프로젝트 상세 정보" if korean else "Project details")
         detail_names = {
             "created_at": ("생성일", "Created"),
-            "modified_at": ("기록된 수정일", "Recorded modification"),
+            "modified_at": ("파일 마지막 수정일", "Last file modification"),
             "created_app_version": ("생성 당시 프로그램 버전", "Created with"),
             "current_app_version": ("현재 프로그램 버전", "Current app version"),
             "project_format": ("저장 형식", "File format"),
