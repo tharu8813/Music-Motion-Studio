@@ -636,10 +636,14 @@ class SourceItem(QGraphicsObject):
         if reported_fps > 0.0:
             self._video_stream_fps = reported_fps
         if PROFILE_ENABLED and frame.startTime() >= 0 and self._video_last_requested_target_ms is not None:
-            PROFILE.observe(
-                "video.eligible_pts_error_seconds",
-                (frame.startTime() / 1000 - self._video_last_requested_target_ms) / 1000,
-            )
+            # Signed drift remains useful for direction, but a signed P95 can
+            # hide large early frames. Record magnitude for A/B synchronization
+            # diagnostics without changing frame acceptance or playback timing.
+            pts_error_seconds = (
+                frame.startTime() / 1000 - self._video_last_requested_target_ms
+            ) / 1000
+            PROFILE.observe("video.eligible_pts_error_seconds", pts_error_seconds)
+            PROFILE.observe("video.eligible_pts_abs_error_seconds", abs(pts_error_seconds))
         planar = self._video_direct_gpu_frame and pixel_format_name in MAPPED_YUV420_FORMATS
         surface_format = frame.surfaceFormat() if planar else None
         # Qt's public API supplies mapped planes, including for CPU-backed
