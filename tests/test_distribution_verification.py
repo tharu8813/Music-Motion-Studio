@@ -107,6 +107,10 @@ class DistributionVerificationTests(unittest.TestCase):
                 "app/resources/help/ko/canvas_workspace.png",
             )
             required = {Path(name) for name in assets}
+            for critical in verify_distribution.CRITICAL_HASH_PATHS:
+                file = distribution / critical
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_bytes(b"original-release-binary")
             for name in assets:
                 file = distribution / "_internal" / name
                 file.parent.mkdir(parents=True, exist_ok=True)
