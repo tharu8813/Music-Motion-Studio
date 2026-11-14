@@ -46,7 +46,8 @@ from app.automix.models import TrackAnalysis
 from app.automix.structure.models import TrackStructureAnalysis
 from app.dialogs.help_dialog import install_help_shortcut
 from app.models.playlist import (
-    EQ_BANDS_HZ, EQ_LIMIT_DB, VOLUME_RANGE_DB, PlaylistTrack, track_audio_filter,
+    BASS_LIMIT_DB, EQ_BANDS_HZ, EQ_LIMIT_DB, VOLUME_RANGE_DB,
+    PlaylistTrack, expanded_eq_gains, track_audio_filter,
 )
 from app.widgets.activity_progress import activity_for
 from app.widgets.audio_sync_warning import AudioSyncWarning
@@ -65,6 +66,8 @@ from app.utils.time_format import format_clock
 EQ_PREVIEW_LIMITER = "alimiter=limit=0.95:level=0"
 """A boost past full scale would clip in the preview file; the export has float headroom instead."""
 EQ_ACTIVITY = "track_eq_preview"
+EQ_PREVIEW_SECONDS = 20.0
+"""The Audio tab renders only this much around the playhead for responsive audition."""
 
 
 def audio_file_facts(path: str) -> dict[str, object]:
@@ -121,6 +124,10 @@ class TrackDetailsDialog(QDialog):
         self._eq_generation = 0
         self._eq_playing_filter = ""
         self._eq_rendering_filter = ""
+        self._eq_playing_segment = False
+        self._eq_rendering_segment = False
+        self._eq_rendering_start_ms = 0
+        self._eq_clip_offset_ms = 0
         self._eq_state = "original"
         self._eq_error = ""
         self._pending_resume: tuple[int, bool] | None = None
@@ -144,7 +151,8 @@ class TrackDetailsDialog(QDialog):
         self.selected_cover_path = track.cover_path
         self.selected_video_paths = list(track.video_paths)
         self.selected_volume_db = float(track.volume_db)
-        self.selected_eq_db = [float(gain) for gain in track.eq_db]
+        self.selected_eq_db = expanded_eq_gains(track.eq_db)
+        self.selected_bass_db = float(track.bass_db)
         saved_volume = preview_volume()
         self.audio_output = QAudioOutput(self)
         self.audio_output.setVolume(saved_volume / 100.0)
@@ -626,7 +634,8 @@ class TrackDetailsDialog(QDialog):
         video_layout.addWidget(self.video_help)
         video_layout.addWidget(self.video_list_group, 1)
         self.tabs.addTab(self.video_tab, "")
-        self.tabs.addTab(self._build_audio_tab(), "")
+        self.audio_tab = self._build_audio_tab()
+        self.tabs.addTab(self.audio_tab, "")
         root.addWidget(self.tabs, 1)
 
         self.buttons = QDialogButtonBox(
@@ -660,7 +669,7 @@ class TrackDetailsDialog(QDialog):
         self.volume_slider.valueChanged.connect(self._set_volume)
         self.playback_slider.sliderMoved.connect(self._playback_position_changed)
         self.playback_slider.sliderReleased.connect(self._seek_playback)
-        self.media_player.positionChanged.connect(self._playback_position_changed)
+        self.media_player.positionChanged.connect(self._player_position_changed)
         self.media_player.durationChanged.connect(self._playback_duration_changed)
         self.media_player.playbackStateChanged.connect(self._playback_state_changed)
         self.media_player.errorOccurred.connect(self._playback_error)
@@ -731,10 +740,21 @@ class TrackDetailsDialog(QDialog):
         volume_row.addWidget(self.track_volume_slider, 1)
         volume_row.addWidget(self.track_volume_value)
 
+        self.bass_group = QGroupBox()
+        bass_row = QHBoxLayout(self.bass_group)
+        self.bass_slider = self._db_slider(
+            Qt.Orientation.Horizontal, (-BASS_LIMIT_DB, BASS_LIMIT_DB), self.selected_bass_db,
+        )
+        self.bass_value = QLabel()
+        self.bass_value.setMinimumWidth(64)
+        self.bass_value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        bass_row.addWidget(self.bass_slider, 1)
+        bass_row.addWidget(self.bass_value)
+
         self.eq_group = QGroupBox()
         eq_row = QHBoxLayout(self.eq_group)
-        eq_row.setSpacing(18)
-        gains = self.selected_eq_db + [0.0] * (len(EQ_BANDS_HZ) - len(self.selected_eq_db))
+        eq_row.setSpacing(8)
+        gains = self.selected_eq_db
         self.eq_sliders: list[QSlider] = []
         self.eq_values: list[QLabel] = []
         for frequency, gain in zip(EQ_BANDS_HZ, gains):
@@ -768,6 +788,8 @@ class TrackDetailsDialog(QDialog):
         transport = QHBoxLayout()
         self.audio_play_button = QPushButton()
         self.audio_stop_button = QPushButton()
+        self.quick_preview_button = QPushButton()
+        self.quick_preview_button.clicked.connect(self._preview_from_current_position)
         self.audio_play_button.clicked.connect(self._toggle_playback)
         self.audio_stop_button.clicked.connect(self._stop_playback)
         self.audio_time = QLabel()
@@ -776,6 +798,7 @@ class TrackDetailsDialog(QDialog):
         self.eq_status.setObjectName("mutedLabel")
         transport.addWidget(self.audio_play_button)
         transport.addWidget(self.audio_stop_button)
+        transport.addWidget(self.quick_preview_button)
         transport.addWidget(self.eq_status, 1)
         transport.addWidget(self.audio_time)
         self.audio_position_slider = QSlider(Qt.Orientation.Horizontal)
@@ -790,6 +813,7 @@ class TrackDetailsDialog(QDialog):
         self.audio_help.setObjectName("mutedLabel")
         self.audio_help.setWordWrap(True)
         layout.addWidget(self.track_volume_group)
+        layout.addWidget(self.bass_group)
         layout.addWidget(self.eq_group, 1)
         layout.addLayout(actions)
         layout.addWidget(self.audition_group)
@@ -801,22 +825,25 @@ class TrackDetailsDialog(QDialog):
         if not hasattr(self, "reset_audio_button"):
             return  # still building the tab
         self.track_volume_value.setText(f"{self.track_volume_slider.value() / 2:+.1f} dB")
+        self.bass_value.setText(f"{self.bass_slider.value() / 2:+.1f} dB")
         for slider, label in zip(self.eq_sliders, self.eq_values):
             label.setText(f"{slider.value() / 2:+.1f}")
         self.reset_audio_button.setEnabled(
-            any(slider.value() for slider in (self.track_volume_slider, *self.eq_sliders))
+            any(slider.value() for slider in (self.track_volume_slider, self.bass_slider, *self.eq_sliders))
         )
         self._eq_timer.start()
 
     def _reset_audio(self) -> None:
-        for slider in (self.track_volume_slider, *self.eq_sliders):
+        for slider in (self.track_volume_slider, self.bass_slider, *self.eq_sliders):
             slider.setValue(0)
 
     def _wanted_filter(self) -> str:
         if self.eq_bypass_check.isChecked():
             return ""
         return track_audio_filter(
-            self.track_volume_slider.value() / 2, [slider.value() / 2 for slider in self.eq_sliders],
+            self.track_volume_slider.value() / 2,
+            [slider.value() / 2 for slider in self.eq_sliders],
+            self.bass_slider.value() / 2,
         )
 
     def _update_audio_source(self, *_args: object) -> None:
@@ -1691,6 +1718,7 @@ class TrackDetailsDialog(QDialog):
         self.selected_volume_db = self.track_volume_slider.value() / 2
         eq = [slider.value() / 2 for slider in self.eq_sliders]
         self.selected_eq_db = eq if any(eq) else []
+        self.selected_bass_db = self.bass_slider.value() / 2
         self.accept()
 
     def done(self, result: int) -> None:
@@ -1718,23 +1746,28 @@ class TrackDetailsDialog(QDialog):
         self.tabs.setTabText(3, "이 곡의 영상" if korean else "Videos for this track")
         self.tabs.setTabText(4, "오디오" if korean else "Audio")
         self.track_volume_group.setTitle("곡 볼륨" if korean else "Track volume")
-        self.eq_group.setTitle("이퀄라이저 (dB)" if korean else "Equalizer (dB)")
+        self.bass_group.setTitle("베이스 · 저음 강조" if korean else "Bass · low-frequency gain")
+        self.eq_group.setTitle("8밴드 이퀄라이저 (dB)" if korean else "8-band equalizer (dB)")
         self.reset_audio_button.setText("초기화" if korean else "Reset")
-        self.eq_bypass_check.setText("원본과 비교 (볼륨/EQ 끄기)" if korean else "Compare with original (bypass)")
+        self.eq_bypass_check.setText("원본과 비교 (볼륨/베이스/EQ 끄기)" if korean
+                                     else "Compare with original (bypass volume/bass/EQ)")
+        self.quick_preview_button.setText("현재 위치부터 미리듣기" if korean else "Preview from playhead")
         self.audition_group.setTitle("미리듣기" if korean else "Listen")
         self.audio_stop_button.setText("정지" if korean else "Stop")
-        for button in (self.audio_play_button, self.audio_stop_button, self.eq_bypass_check):
+        for button in (self.audio_play_button, self.audio_stop_button,
+                       self.quick_preview_button, self.eq_bypass_check):
             button.setEnabled(self._audio_available)
         self.audio_position_slider.setEnabled(self._audio_available)
         self._set_eq_state(self._eq_state)
         self.audio_help.setText(
             "이 곡에만 적용되며 미리보기와 내보내기에 반영됩니다. 전체 믹스는 여전히 -14 LUFS로 "
             "맞춰지므로, 볼륨은 다른 곡과 비교한 상대적인 크기를 조절합니다. "
-            "값을 바꾸면 잠시 뒤 재생 중인 소리에 반영됩니다."
+            "8밴드 EQ와 베이스를 조절하면 현재 재생 위치부터 최대 20초만 빠르게 "
+            "렌더링해 미리듣습니다. 다른 구간은 타임라인에서 이동하거나 버튼을 누르세요."
             if korean else
-            "Applies to this track only, in Preview and Export. The whole mix is still normalized "
-            "to -14 LUFS, so volume sets this track's level relative to the others. "
-            "Changes reach the playing sound after a moment."
+            "Adjusting the 8-band EQ or bass renders just 20 seconds from the current "
+            "playhead for quicker audition. Seek or use the preview button for another section. "
+            "All adjustments apply to this track in the mix and export."
         )
         self.analysis_panel.retranslate(korean)
         self.video_scope_badge.setText(
