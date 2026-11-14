@@ -3,22 +3,48 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime
 from math import gcd
 from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QButtonGroup, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
-    QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
+    QButtonGroup, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
+    QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
     QMessageBox, QRadioButton, QScrollArea, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from app.dialogs.help_dialog import install_help_shortcut
 from app.ui.form_layout import style_form, style_dialog_actions
-from app.models.project import ProjectSettings
+from app.models.project import CURRENT_VERSION, ProjectSettings
+from app import __version__
 from app.dialogs.new_project_dialog import CANVAS_PRESETS
 from app.utils.i18n import Translator
+
+
+def _timestamp_text(raw: str) -> str:
+    """Format an existing persisted ISO timestamp; unknown remains unknown."""
+    if not raw:
+        return ""
+    try:
+        date = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    if date.tzinfo is not None:
+        date = date.astimezone()
+    return date.strftime("%Y-%m-%d %H:%M")
+
+
+def _file_size_text(size: int | None) -> str:
+    if size is None:
+        return ""
+    if size < 1024:
+        return f"{size} B"
+    for unit, divisor in (("GB", 1024 ** 3), ("MB", 1024 ** 2), ("KB", 1024)):
+        if size >= divisor:
+            return f"{size / divisor:,.1f} {unit}"
+    return f"{size} B"
 
 
 class ProjectSettingsDialog(QDialog):
@@ -28,6 +54,8 @@ class ProjectSettingsDialog(QDialog):
         self, settings: ProjectSettings, translator: Translator,
         canvas_thumbnail: QPixmap, parent: QWidget | None = None,
         canvas_size: tuple[int, int] = (1280, 720),
+        project_path: Path | None = None,
+        project_counts: dict[str, int] | None = None,
     ) -> None:
         super().__init__(parent)
         install_help_shortcut(self, ("other", "project_settings"), translator)
@@ -36,6 +64,18 @@ class ProjectSettingsDialog(QDialog):
         self.selected_settings = replace(settings)
         self.canvas_thumbnail = canvas_thumbnail
         self.original_canvas_size = canvas_size
+        self.project_path = Path(project_path) if project_path is not None else None
+        self.project_counts = dict(project_counts or {})
+        self._file_size: int | None = None
+        self._file_modified_at = ""
+        if self.project_path is not None:
+            try:
+                stat = self.project_path.stat()
+            except OSError:
+                pass
+            else:
+                self._file_size = stat.st_size
+                self._file_modified_at = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M")
         self.setMinimumSize(620, 420)
         self.resize(820, 620)
         outer = QVBoxLayout(self)
@@ -47,6 +87,34 @@ class ProjectSettingsDialog(QDialog):
         self.subtitle_label.setObjectName("mutedLabel")
         self.subtitle_label.setWordWrap(True)
         outer.addWidget(self.dialog_title_label)
+        # A passive thumbnail at the top, independent of the active settings tab.
+        self.thumbnail_group = QFrame()
+        self.thumbnail_group.setObjectName("projectThumbnailHeader")
+        self.thumbnail_group.setFrameShape(QFrame.Shape.StyledPanel)
+        thumbnail_layout = QHBoxLayout(self.thumbnail_group)
+        thumbnail_layout.setContentsMargins(14, 10, 14, 10)
+        thumbnail_layout.setSpacing(16)
+        self.thumbnail_preview = QLabel()
+        self.thumbnail_preview.setFixedSize(224, 126)
+        self.thumbnail_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.thumbnail_preview.setObjectName("thumbnailPreview")
+        thumbnail_layout.addWidget(self.thumbnail_preview)
+        thumbnail_text = QVBoxLayout()
+        thumbnail_text.setSpacing(5)
+        self.thumbnail_title_label = QLabel()
+        self.thumbnail_title_label.setObjectName("panelTitle")
+        self.thumbnail_project_label = QLabel(settings.title)
+        self.thumbnail_project_label.setObjectName("projectThumbnailName")
+        self.thumbnail_project_label.setWordWrap(True)
+        self.thumbnail_hint_label = QLabel()
+        self.thumbnail_hint_label.setObjectName("mutedLabel")
+        self.thumbnail_hint_label.setWordWrap(True)
+        thumbnail_text.addWidget(self.thumbnail_title_label)
+        thumbnail_text.addWidget(self.thumbnail_project_label)
+        thumbnail_text.addWidget(self.thumbnail_hint_label)
+        thumbnail_text.addStretch()
+        thumbnail_layout.addLayout(thumbnail_text, 1)
+        outer.addWidget(self.thumbnail_group)
         # The active tab already tells the user which project settings are in view.
         self.subtitle_label.hide()
         self.tabs = QTabWidget()
@@ -81,6 +149,25 @@ class ProjectSettingsDialog(QDialog):
         form.addRow(self.author_label, self.author_edit)
         form.addRow(self.description_label, self.description_edit)
         root.addWidget(identity_group)
+        self.details_group = QGroupBox()
+        details_form = QFormLayout(self.details_group)
+        self.metadata_names: dict[str, QLabel] = {}
+        self.metadata_values: dict[str, QLabel] = {}
+        self._metadata_fields = (
+            "created_at", "created_version", "last_modified", "current_version",
+            "format_version", "file_type", "file_size", "file_path",
+            "tracks", "sources", "groups", "library",
+        )
+        for key in self._metadata_fields:
+            heading = QLabel()
+            value = QLabel()
+            value.setObjectName("mutedLabel")
+            value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            value.setWordWrap(True)
+            details_form.addRow(heading, value)
+            self.metadata_names[key] = heading
+            self.metadata_values[key] = value
+        root.addWidget(self.details_group)
 
         self.canvas_group = QGroupBox()
         canvas_form = QFormLayout(self.canvas_group)
@@ -136,36 +223,6 @@ class ProjectSettingsDialog(QDialog):
         (self.embed_radio if settings.content_mode == "embed" else self.reference_radio).setChecked(True)
         root.addWidget(self.content_group)
 
-        self.thumbnail_group = QGroupBox()
-        thumbnail_layout = QHBoxLayout(self.thumbnail_group)
-        self.thumbnail_preview = QLabel()
-        self.thumbnail_preview.setFixedSize(192, 108)
-        self.thumbnail_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.thumbnail_preview.setObjectName("thumbnailPreview")
-        thumbnail_layout.addWidget(self.thumbnail_preview)
-        thumbnail_controls = QVBoxLayout()
-        self.canvas_radio = QRadioButton()
-        self.custom_radio = QRadioButton()
-        thumbnail_buttons = QButtonGroup(self)
-        thumbnail_buttons.addButton(self.canvas_radio)
-        thumbnail_buttons.addButton(self.custom_radio)
-        self.choose_thumbnail_button = QPushButton()
-        self.thumbnail_path_label = QLabel(settings.thumbnail_path)
-        self.thumbnail_path_label.setObjectName("mutedLabel")
-        self.thumbnail_path_label.setWordWrap(True)
-        thumbnail_controls.addWidget(self.canvas_radio)
-        thumbnail_controls.addWidget(self.custom_radio)
-        thumbnail_controls.addWidget(self.choose_thumbnail_button)
-        thumbnail_controls.addWidget(self.thumbnail_path_label)
-        thumbnail_controls.addStretch()
-        thumbnail_layout.addLayout(thumbnail_controls, 1)
-        # All saved thumbnails now come from the live canvas, never an
-        # imported still image. Keep legacy widgets hidden for compatibility.
-        self.canvas_radio.setChecked(True)
-        self.custom_radio.hide()
-        self.choose_thumbnail_button.hide()
-        self.thumbnail_path_label.hide()
-        root.addWidget(self.thumbnail_group)
         root.addStretch(1)
         for group in (self.canvas_group, self.content_group):
             root.removeWidget(group)
@@ -180,7 +237,7 @@ class ProjectSettingsDialog(QDialog):
             page_layout.addStretch(1)
             page.setWidget(content)
             self.tabs.addTab(page, "")
-        for settings_form in (form, canvas_form):
+        for settings_form in (form, details_form, canvas_form):
             settings_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
             settings_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
             settings_form.setHorizontalSpacing(24)
@@ -196,15 +253,16 @@ class ProjectSettingsDialog(QDialog):
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
         style_form(form)
+        style_form(details_form)
         style_form(canvas_form)
         style_dialog_actions(self.buttons)
         self.buttons.accepted.connect(self._accept)
         self.buttons.rejected.connect(self.reject)
         self.buttons.button(QDialogButtonBox.StandardButton.Save).setObjectName("primaryButton")
         outer.addWidget(self.buttons)
-        self.choose_thumbnail_button.clicked.connect(self._choose_thumbnail)
-        self.canvas_radio.toggled.connect(self._refresh_thumbnail)
-        self.custom_radio.toggled.connect(self._refresh_thumbnail)
+        self.title_edit.textChanged.connect(
+            lambda value: self.thumbnail_project_label.setText(value.strip() or "Untitled Project")
+        )
         self.canvas_preset_combo.currentIndexChanged.connect(
             self._canvas_preset_changed
         )
@@ -291,20 +349,56 @@ class ProjectSettingsDialog(QDialog):
             "원본 파일 경로를 사용합니다. 프로젝트는 작지만 원본을 이동하면 다시 연결해야 합니다."
             if korean else "Keeps original file paths. The project stays small, but moved files must be relinked."
         )
-        self.thumbnail_group.setTitle("프로젝트 썸네일" if korean else "Project thumbnail")
-        # A long QRadioButton label establishes a hard minimum width for
-        # the thumbnail row (192px preview + the label). Keep the visible
-        # wording concise so the Files tab fits the minimum dialog width.
-        self.canvas_radio.setText(
-            "캔버스 자동 캡처" if korean else "Capture canvas automatically"
+        self.thumbnail_title_label.setText("프로젝트 미리보기" if korean else "Project preview")
+        self.thumbnail_preview.setAccessibleName(
+            "프로젝트 썸네일" if korean else "Project thumbnail"
         )
-        self.canvas_radio.setToolTip(
-            "프로젝트 저장 시 캔버스를 직접 캡처해 썸네일로 저장합니다."
-            if korean else
-            "Directly captures the canvas for the thumbnail whenever the project is saved."
+        self.thumbnail_hint_label.setText(
+            "현재 캔버스를 캡처한 이미지 · 보기 전용" if korean else
+            "Captured from the current canvas · Read-only"
         )
-        self.custom_radio.setText("")
-        self.choose_thumbnail_button.setText("이미지 선택…" if korean else "Choose image…")
+        self.details_group.setTitle("프로젝트 세부 정보" if korean else "Project details")
+        labels = {
+            "created_at": ("생성일", "Created"),
+            "created_version": ("생성 프로그램 버전", "Created with"),
+            "last_modified": ("파일 최종 수정", "File last modified"),
+            "current_version": ("현재 프로그램 버전", "Current app version"),
+            "format_version": ("현재 데이터 규격", "Current data schema"),
+            "file_type": ("프로젝트 파일 형식", "File format"),
+            "file_size": ("파일 크기", "File size"),
+            "file_path": ("저장 위치", "Location"),
+            "tracks": ("음원 트랙", "Audio tracks"),
+            "sources": ("캔버스 요소", "Canvas sources"),
+            "groups": ("요소 그룹", "Source groups"),
+            "library": ("콘텐츠 항목", "Library items"),
+        }
+        missing = "기록 없음" if korean else "Not recorded"
+        saved = "저장 전" if korean else "Not saved"
+        location = str(self.project_path) if self.project_path is not None else ""
+        if self.project_path is None:
+            file_type = saved
+        elif self.project_path.suffix.casefold() == ".pvsproj":
+            file_type = "PVS project package (.pvsproj)"
+        else:
+            file_type = "기존 JSON 프로젝트" if korean else "Legacy JSON project"
+        values = {
+            "created_at": _timestamp_text(self.selected_settings.created_at),
+            "created_version": self.selected_settings.created_app_version,
+            "last_modified": self._file_modified_at,
+            "current_version": __version__,
+            "format_version": f"v{CURRENT_VERSION}",
+            "file_type": file_type,
+            "file_size": _file_size_text(self._file_size),
+            "file_path": location or saved,
+            "tracks": str(self.project_counts["tracks"]) if "tracks" in self.project_counts else "",
+            "sources": str(self.project_counts["sources"]) if "sources" in self.project_counts else "",
+            "groups": str(self.project_counts["groups"]) if "groups" in self.project_counts else "",
+            "library": str(self.project_counts["library"]) if "library" in self.project_counts else "",
+        }
+        for key, (ko, en) in labels.items():
+            self.metadata_names[key].setText(ko if korean else en)
+            self.metadata_values[key].setText(values[key] or missing)
+        self._refresh_thumbnail()
         self.buttons.button(QDialogButtonBox.StandardButton.Save).setText(
             "저장" if korean else "Save"
         )
@@ -313,28 +407,22 @@ class ProjectSettingsDialog(QDialog):
         )
         self._update_canvas_summary()
 
-    def _choose_thumbnail(self) -> None:
-        selected, _ = QFileDialog.getOpenFileName(
-            self,
-            "썸네일 선택" if self.translator.is_korean else "Choose thumbnail",
-            "",
-            "Images (*.jpg *.jpeg *.png *.webp)",
-        )
-        if selected:
-            self.selected_settings.thumbnail_path = str(Path(selected).resolve())
-            self.thumbnail_path_label.setText(self.selected_settings.thumbnail_path)
-            self.custom_radio.setChecked(True)
-            self._refresh_thumbnail()
-
     def _refresh_thumbnail(self) -> None:
-        pixmap = self.canvas_thumbnail
+        """Show an uneditable canvas snapshot, or a neutral missing-preview label."""
+        if self.canvas_thumbnail.isNull():
+            self.thumbnail_preview.setPixmap(QPixmap())
+            self.thumbnail_preview.setText(
+                "미리보기 없음" if self.translator.is_korean else "No preview"
+            )
+            return
+        self.thumbnail_preview.setText("")
         self.thumbnail_preview.setPixmap(
-            pixmap.scaled(
-                self.thumbnail_preview.size(), Qt.AspectRatioMode.KeepAspectRatio,
+            self.canvas_thumbnail.scaled(
+                self.thumbnail_preview.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
         )
-        self.choose_thumbnail_button.setEnabled(False)
 
     def _accept(self) -> None:
         if self.selected_canvas_size != self.original_canvas_size:
