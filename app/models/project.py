@@ -243,7 +243,12 @@ class ProjectDocument:
                 or not isfinite(float(crossfade_value))):
             raise ValueError("Project crossfade_seconds must be a finite number.")
         settings_data = dict(settings_data)
-        settings_data.setdefault("created_app_version", app_version or __version__)
+        # Legacy files did not always store provenance. An absent creation
+        # version/timestamp must not be invented from the currently running
+        # application or the moment the old file is opened.
+        settings_data.setdefault("created_app_version", "")
+        settings_data.setdefault("created_at", "")
+        settings_data.setdefault("modified_at", "")
         if not isinstance(settings_data.get("export_preferences", {}), dict):
             raise ValueError("Project export preferences must be an object.")
         settings_model = ProjectSettings(**settings_data)
