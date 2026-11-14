@@ -122,7 +122,6 @@ class SourceInspector(QScrollArea):
 
     animation_preview_requested = Signal(str)
     custom_motion_requested = Signal(str, str)
-    lyrics_search_requested = Signal()
 
     _ANIMATION_LABELS = {
         "none": ("없음", "None"), "fade": ("페이드", "Fade"),
@@ -408,10 +407,7 @@ class SourceInspector(QScrollArea):
         self.lyrics_output_note = QLabel()
         self.lyrics_output_note.setObjectName("mutedLabel")
         self.lyrics_output_note.setWordWrap(True)
-        self.lyrics_search_button = QPushButton()
-        self.lyrics_search_button.clicked.connect(self.lyrics_search_requested)
         content_form.addRow(self.lyrics_output_note)
-        content_form.addRow(self.lyrics_search_button)
         content_form.addRow(self.lyrics_transition_button)
         self.lyrics.add_rows(
             self._add_labeled_row, content_form,
@@ -809,8 +805,8 @@ class SourceInspector(QScrollArea):
             if note:
                 description = f"{description} {note}"
             if key in self._lyrics_locked_fields:
-                description += (" 고급 모드가 활성화되어 있으므로 속성 탭에서 설정할 수 없습니다. 자막 전환 설정에서 변경하세요."
-                                if korean else " Advanced mode is active; this property cannot be edited here. Change it in Subtitle transition settings.")
+                description += (" 자막 전환 설정에서 직접 설정을 사용 중입니다. 해당 창에서 이 값을 변경하세요."
+                                if korean else " Custom settings are active. Edit this value in Subtitle transition settings.")
             range_text = ""
             if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
                 minimum = f"{widget.minimum():g}"
@@ -1423,7 +1419,12 @@ class SourceInspector(QScrollArea):
             return
         dialog = LyricsAnimationDialog(source, self.translator, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            self._apply_updates(dialog.settings())
+            changes = dialog.settings()
+            if len(self._source_ids) > 1:
+                for key in LyricsAnimationDialog.REALTIME_CONTROLS:
+                    if key in changes and changes[key] == getattr(source, key):
+                        changes.pop(key)
+            self._apply_updates(changes)
 
     def _open_lyrics_translation_style(self) -> None:
         from app.dialogs.lyrics_translation_style_dialog import LyricsTranslationStyleDialog
@@ -1909,10 +1910,10 @@ class SourceInspector(QScrollArea):
             "자막 전환 설정…" if korean else "Subtitle transition settings…"
         )
         self.lyrics_transition_button.setToolTip(
-            "실시간 미리보기로 이동 방향, 순차 이동과 이전·현재·다음 가사 스타일을 설정합니다."
-            if korean else "Customize direction, staggered motion and previous/current/next styles with a live preview."
+            "가사 배치, 줄 전환, 실시간 가사의 글자 효과를 미리 보며 설정합니다."
+            if korean else "Preview and adjust the lyric layout, cue transitions and real-time lyric effects."
         )
-        self.lyrics_animation_button.setText("자막 전환 고급 설정…" if korean else "Advanced subtitle settings…")
+        self.lyrics_animation_button.setText(self.lyrics_transition_button.text())
         self.lyrics_animation_button.setToolTip(self.lyrics_transition_button.toolTip())
         source = self.store.get(self._source_id) if self._source_id else None
         line_style_count = (
@@ -1989,9 +1990,7 @@ class SourceInspector(QScrollArea):
         """Explain missing input separately from the text rendered in the video."""
         lyrics_selected = any(source.source_type is SourceType.LYRICS for source in self._selected_sources())
         self.lyrics_output_note.setVisible(lyrics_selected)
-        self.lyrics_search_button.setVisible(lyrics_selected)
         tracks = self._tracks_provider() if self._tracks_provider else []
-        self.lyrics_search_button.setEnabled(bool(tracks))
         korean = self.translator.is_korean
         missing = sum(not track.lyrics for track in tracks)
         status = (
@@ -2004,9 +2003,6 @@ class SourceInspector(QScrollArea):
             if korean else
             "Text without lyrics, in the Text category, appears in the exported video too. Leave it empty to hide it."
         ))
-        self.lyrics_search_button.setText(
-            "가사 검색 및 연결…" if korean else "Find and attach lyrics…"
-        )
 
     def set_source(self, source: Source | None) -> None:
         """Compatibility entry point for a single Inspector selection."""
@@ -2141,14 +2137,14 @@ class SourceInspector(QScrollArea):
                 slider.setEnabled(enabled and field not in self._mixed_fields)
         self.lyrics_mode_note.setVisible(bool(lyrics))
         korean = self.translator.is_korean
-        names = {"motion": ("움직임", "Motion"), "layout": ("줄 배치", "Layout"),
-                 "styles": ("줄 스타일", "Role styles"), "intro": ("인트로", "Intro")}
+        names = {"motion": ("줄 전환", "Cue transitions"), "layout": ("가사 배치", "Lyric layout"),
+                 "styles": ("가사 모양", "Cue appearance"), "intro": ("대기 표시", "Waiting indicator")}
         labels = ", ".join(names[key][0 if korean else 1] for key in names if key in active)
         self.lyrics_mode_note.setText(
-            (f"고급 모드: {labels}\n고급 모드가 활성화되어 있으므로 관련 옵션은 속성 탭에서 설정할 수 없습니다."
-             if active else "기본 모드 · 속성 패널의 자막 설정을 적용합니다.") if korean else
-            (f"Advanced: {labels}\nAdvanced mode is active; related options cannot be edited in Properties."
-             if active else "Basic mode · subtitle settings follow Properties.")
+            (f"직접 설정 적용 중 · {labels}\n관련 항목은 자막 전환 설정에서 조절할 수 있습니다."
+             if active else "기본 설정 · 속성 패널의 자막 설정을 적용합니다.") if korean else
+            (f"Custom settings active · {labels}\nEdit these sections in Subtitle transition settings."
+             if active else "Basic settings · subtitle settings follow Properties.")
         )
         self._install_property_tooltips()
 

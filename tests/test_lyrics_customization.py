@@ -434,8 +434,8 @@ class LyricsCustomizationTests(unittest.TestCase):
         self.assertFalse(inspector.lyrics.widgets["subtitle_animation"].isEnabled())
         self.assertFalse(inspector.lyrics.widgets["subtitle_animation_duration"].isEnabled())
         self.assertTrue(inspector.lyrics.widgets["subtitle_next_lines"].isEnabled())
-        self.assertIn("속성 탭에서 설정할 수 없습니다", inspector.lyrics_mode_note.text())
-        self.assertIn("고급 모드", inspector.lyrics.widgets["subtitle_animation"].toolTip())
+        self.assertIn("줄 전환", inspector.lyrics_mode_note.text())
+        self.assertIn("직접 설정", inspector.lyrics.widgets["subtitle_animation"].toolTip())
         self.assertEqual(inspector.lyrics.widgets["subtitle_animation"].currentData(), "rise")
         inspector._update("subtitle_animation_duration", 0.1)
         self.assertEqual(source.subtitle_animation_duration, 0.6)
@@ -446,7 +446,7 @@ class LyricsCustomizationTests(unittest.TestCase):
         self.assertFalse(inspector.text_alignment_combo.isEnabled())
         self.assertTrue(inspector.font_size_spin.isEnabled())
         translator.set_language(Language.ENGLISH)
-        self.assertIn("Advanced mode", inspector.lyrics_mode_note.text())
+        self.assertIn("Custom settings active", inspector.lyrics_mode_note.text())
         store.update(source.id, subtitle_advanced_categories=[])
         self.assertTrue(inspector.lyrics.widgets["subtitle_previous_opacity"].isEnabled())
         self.assertTrue(inspector.text_alignment_combo.isEnabled())
@@ -502,27 +502,62 @@ class LyricsCustomizationTests(unittest.TestCase):
             self.addCleanup(reopened.close)
             self.assertFalse(any(toggle.isChecked() for toggle in reopened.category_toggles.values()))
 
-    def test_blur_tab_saves_effects_and_non_intro_tabs_share_sample_clock(self):
+    def test_realtime_tab_saves_effects_and_previews_timed_lyrics(self):
         source = self.source()
-        dialog = LyricsAnimationDialog(source, Translator())
+        translator = Translator()
+        translator.set_language(Language.KOREAN)
+        dialog = LyricsAnimationDialog(source, translator)
         self.addCleanup(dialog.close)
+        self.assertEqual([dialog.tabs.tabText(index) for index in range(dialog.tabs.count())],
+                         ["전체", "줄 가사", "실시간 가사"])
+        self.assertEqual(dialog._preview_mode, "line")
+        dialog.tabs.setCurrentIndex(2)
+        self.assertEqual(dialog._preview_mode, "timed")
+        self.assertFalse(dialog.preview_timing.isHidden())
+        self.assertTrue(dialog._preview_source.subtitle_karaoke_enabled)
         edge = dialog.controls["subtitle_karaoke_edge_blur"]
         self.assertEqual((edge.value(), edge.maximum()), (15, 50))
         edge.setValue(50)
         blur_mode = dialog.controls["subtitle_karaoke_blur_mode"]
+        fade_in = dialog.controls["subtitle_karaoke_glow_fade_in"]
+        self.assertTrue(fade_in.isHidden())
         blur_mode.setCurrentIndex(blur_mode.findData("long"))
-        self.assertTrue(dialog.controls["subtitle_karaoke_blur_min_duration"].isEnabled())
+        self.assertFalse(dialog.controls["subtitle_karaoke_blur_min_duration"].isHidden())
+        self.assertFalse(fade_in.isHidden())
         for name, default, value in (("fade_in", 0.10, 0.4), ("fade_out", 0.32, 0.75)):
             control = dialog.controls[f"subtitle_karaoke_glow_{name}"]
             self.assertEqual(control.value(), default)
             control.setValue(value)
+        blur_mode.setCurrentIndex(blur_mode.findData("continuous"))
+        self.assertTrue(dialog.controls["subtitle_karaoke_blur_min_duration"].isHidden())
+        blur_mode.setCurrentIndex(blur_mode.findData("long"))
+        glow_enabled = dialog.controls["subtitle_karaoke_glow_enabled"]
+        brightness = dialog.controls["subtitle_karaoke_glow_strength"]
+        self.assertTrue(brightness.isHidden())
+        glow_enabled.setChecked(True)
+        self.assertFalse(brightness.isHidden())
+        brightness.setValue(0.7)
+        height = dialog.controls["subtitle_karaoke_lift"]
+        unit = dialog.controls["subtitle_karaoke_lift_unit"]
+        self.assertTrue(unit.isHidden())
+        height.setValue(6)
+        self.assertFalse(unit.isHidden())
+        unit.setCurrentIndex(unit.findData("word"))
+        dialog.controls["subtitle_karaoke_enabled"].setChecked(True)
         settings = dialog.settings()
         restored = Source.from_dict(source.to_dict() | settings)
         self.assertEqual(restored.subtitle_karaoke_edge_blur, 50)
         self.assertEqual(restored.subtitle_karaoke_blur_mode, "long")
         self.assertEqual(restored.subtitle_karaoke_glow_fade_in, 0.4)
         self.assertEqual(restored.subtitle_karaoke_glow_fade_out, 0.75)
-        dialog.preview_karaoke.setChecked(True)
+        self.assertEqual(restored.subtitle_karaoke_glow_strength, 0.7)
+        self.assertTrue(restored.subtitle_karaoke_glow_enabled)
+        self.assertEqual((restored.subtitle_karaoke_lift, restored.subtitle_karaoke_lift_unit), (6, "word"))
+        self.assertTrue(restored.subtitle_karaoke_enabled)
+        self.assertFalse(source.subtitle_karaoke_enabled)
+        restored_dialog = LyricsAnimationDialog(restored, translator)
+        self.addCleanup(restored_dialog.close)
+        self.assertEqual(restored_dialog.settings(), settings)
         dialog.preview_word_duration.setValue(1.2)
         track, _ = dialog._preview_track()
         self.assertEqual(track.lyrics[0]["format"], "ttml")
@@ -532,14 +567,21 @@ class LyricsCustomizationTests(unittest.TestCase):
         track, _ = dialog._preview_track()
         self.assertAlmostEqual(track.lyrics[0]["words"][0]["end"], 0.4)
         self.assertEqual(dialog.settings(), settings)
+
+    def test_line_and_layout_tabs_share_sample_clock(self):
+        dialog = LyricsAnimationDialog(self.source(), Translator())
+        self.addCleanup(dialog.close)
         with patch.object(dialog, "_render_preview", wraps=dialog._render_preview) as render:
             dialog.tabs.setCurrentIndex(1)
-            dialog.tabs.setCurrentIndex(dialog.tabs.count() - 1)
-            render.assert_not_called()
-            dialog.tabs.setCurrentIndex(dialog._intro_tab)
-            self.assertTrue(dialog.preview_timing.isHidden())
+            dialog.line_tabs.setCurrentIndex(1)
             dialog.tabs.setCurrentIndex(0)
-            self.assertFalse(dialog.preview_timing.isHidden())
+            render.assert_not_called()
+            dialog.general_tabs.setCurrentIndex(1)
+            self.assertEqual(dialog._preview_mode, "intro")
+            self.assertTrue(dialog.preview_timing.isHidden())
+            self.assertFalse(dialog.preview_intro.isHidden())
+            dialog.general_tabs.setCurrentIndex(0)
+            self.assertTrue(dialog.preview_intro.isHidden())
             self.assertEqual(render.call_count, 2)
 
 

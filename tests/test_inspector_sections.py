@@ -68,8 +68,6 @@ class LyricsSectionTests(unittest.TestCase):
         self.assertEqual(kinds.pop("subtitle_karaoke_lines"), "line")
         self.assertEqual(kinds.pop("subtitle_accent_color"), "color")
         self.assertEqual(kinds.pop("subtitle_karaoke_pending_mode"), "combo")
-        self.assertEqual(kinds.pop("subtitle_karaoke_glow_enabled"), "check")
-        self.assertEqual(kinds.pop("subtitle_karaoke_lift_unit"), "combo")
         self.assertEqual(kinds.pop("subtitle_karaoke_pending_color"), "color")
         self.assertEqual(kinds.pop("subtitle_auto_shrink"), "check")
         self.assertEqual(kinds.pop("subtitle_auto_wrap"), "check")
@@ -87,9 +85,6 @@ class LyricsSectionTests(unittest.TestCase):
             "subtitle_karaoke_offset": False,
             "subtitle_karaoke_pending_mode": False, "subtitle_karaoke_pending_color": False,
             "subtitle_karaoke_pending_brightness": False,
-            "subtitle_karaoke_glow_enabled": False, "subtitle_karaoke_glow_strength": False,
-            "subtitle_karaoke_lift": False,
-            "subtitle_karaoke_lift_unit": False,
         })
 
     def test_highlight_lines_are_one_based_in_ui_and_preserve_legacy_masks(self) -> None:
@@ -176,10 +171,15 @@ class LyricsSectionTests(unittest.TestCase):
             dialog_type.return_value.settings.return_value = {
                 "subtitle_flow_direction": "left",
                 "subtitle_role_styles": {"next": {"color": "#55AACC", "scale": 1.2}},
+                "subtitle_karaoke_glow_enabled": True,
+                "subtitle_karaoke_glow_strength": 0.75,
+                "subtitle_karaoke_lift": 4,
+                "subtitle_karaoke_lift_unit": "word",
             }
             inspector.lyrics_animation_button.click()
             self.assertEqual(lyrics.subtitle_flow_direction, "left")
             self.assertEqual(lyrics.subtitle_role_styles["next"]["scale"], 1.2)
+            self.assertEqual(lyrics.subtitle_karaoke_lift_unit, "word")
         effect.setCurrentIndex(effect.findData("rise"))
         self.assertTrue(duration.isEnabled())
         duration.setValue(0.65)
@@ -197,17 +197,13 @@ class LyricsSectionTests(unittest.TestCase):
         self.assertEqual(lyrics.subtitle_karaoke_pending_mode, "custom")
         self.assertTrue(inspector._field_visibility["subtitle_karaoke_pending_color"])
         self.assertFalse(inspector._field_visibility["subtitle_karaoke_pending_brightness"])
-        self.assertTrue(inspector._field_visibility["subtitle_karaoke_glow_enabled"])
-        self.assertFalse(inspector._field_visibility["subtitle_karaoke_glow_strength"])
-        inspector.lyrics.widgets["subtitle_karaoke_glow_enabled"].click()
-        self.assertTrue(inspector._field_visibility["subtitle_karaoke_glow_strength"])
-        self.assertFalse(inspector._field_visibility["subtitle_karaoke_lift_unit"])
-        inspector.lyrics.widgets["subtitle_karaoke_lift"].setValue(4)
-        self.assertTrue(inspector._field_visibility["subtitle_karaoke_lift_unit"])
+        for key in ("subtitle_karaoke_glow_enabled", "subtitle_karaoke_glow_strength",
+                    "subtitle_karaoke_lift", "subtitle_karaoke_lift_unit"):
+            self.assertNotIn(key, inspector.lyrics.widgets)
+            self.assertNotIn(key, inspector._field_visibility)
         effect.setCurrentIndex(effect.findData("none"))
         store.add(Source(SourceType.TEXT, "Text"))
         self.assertFalse(inspector._field_visibility["subtitle_karaoke_enabled"])
-        self.assertFalse(inspector._field_visibility["subtitle_karaoke_glow_enabled"])
         self.assertFalse(inspector._field_visibility["subtitle_karaoke_pending_mode"])
         self.assertFalse(inspector._field_visibility["subtitle_karaoke_lines"])
         self.assertTrue(inspector.lyrics_transition_button.isHidden())
@@ -220,6 +216,32 @@ class LyricsSectionTests(unittest.TestCase):
         translator.set_language(Language.ENGLISH)
         self.assertEqual(duration.suffix(), " s")
         self.assertIn("Subtitle transition", inspector.lyrics_transition_button.text())
+
+    def test_transition_dialog_preserves_unedited_realtime_values_in_multi_selection(self) -> None:
+        from app.dialogs.lyrics_animation_dialog import LyricsAnimationDialog
+        from app.inspector.source_inspector import SourceInspector
+        from app.services.source_store import SourceStore
+        from app.utils.i18n import Translator
+
+        store = SourceStore()
+        inspector = SourceInspector(store, Translator())
+        self.addCleanup(inspector.close)
+        first = Source(SourceType.LYRICS, "First", subtitle_karaoke_enabled=True, subtitle_karaoke_lift=4)
+        second = Source(SourceType.LYRICS, "Second", subtitle_karaoke_glow_enabled=True, subtitle_karaoke_lift=6)
+        store.replace([first, second])
+        store.select_many([first.id, second.id], active_id=first.id)
+
+        def edit(dialog):
+            dialog.controls["subtitle_karaoke_lift_unit"].setCurrentIndex(1)
+            return 1
+
+        with patch.object(LyricsAnimationDialog, "exec", edit):
+            inspector.lyrics_transition_button.click()
+
+        self.assertEqual((first.subtitle_karaoke_lift_unit, second.subtitle_karaoke_lift_unit), ("word", "word"))
+        self.assertEqual((first.subtitle_karaoke_lift, second.subtitle_karaoke_lift), (4, 6))
+        self.assertEqual((first.subtitle_karaoke_enabled, second.subtitle_karaoke_enabled), (True, False))
+        self.assertEqual((first.subtitle_karaoke_glow_enabled, second.subtitle_karaoke_glow_enabled), (False, True))
 
 
 class TypographySectionTests(unittest.TestCase):

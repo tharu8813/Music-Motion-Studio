@@ -1689,7 +1689,6 @@ class MainWindow(QMainWindow):
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding,
         )
         self.inspector.set_mix_transitions_active(self.project_settings.transition_mode != "none")
-        self.inspector.lyrics_search_requested.connect(self._show_lyrics_search)
         self.playlist_service.playlist_changed.connect(self.inspector.refresh_lyrics_status)
         self.inspector.animation_preview_requested.connect(
             self._preview_source_animation

@@ -491,10 +491,22 @@ QPushButton#previewTimelineMode:focus { border-color: @accent; }
 #lyricStyleLines::item:selected { background: @selection; color: @text; }
 #lyricLineTitle { font-size: 17px; font-weight: 600; }
 #lyricStylePreview { background: @shadow; border: 1px solid @border; border-radius: 6px; }
-#lyricsAnimationDialog QScrollArea, #lyricsAnimationDialog QScrollArea > QWidget > QWidget { background: @window; }
+#lyricScopeTabs::pane { background: @panel; border: 1px solid @border; border-radius: 5px; }
+#lyricScopeTabs > QTabBar::tab {
+    background: @panel; color: @muted; border: 1px solid @border;
+    border-radius: 4px; margin: 0 4px 8px 0; padding: 8px 12px;
+}
+#lyricScopeTabs > QTabBar::tab:last { margin-right: 0; }
+#lyricScopeTabs > QTabBar::tab:hover:!selected { background: @hover; color: @text; }
+#lyricScopeTabs > QTabBar::tab:selected {
+    background: @selection; color: @accent; border-color: @accent; font-weight: 600;
+}
+#lyricSectionTabs::pane, #lyricSettingsScroll, #lyricSettingsScroll > QWidget > QWidget { background: @panel; }
+#lyricSectionTabs > QTabBar::tab { padding: 9px 12px; }
+#lyricCustomToggle { font-weight: 600; }
 #subtitleMotionPreview { background: @shadow; border: 1px solid @border; border-radius: 6px; }
 #lyricsAnimationDialog QPushButton { min-height: 22px; padding: 6px 12px; }
-#lyricsAnimationDialog QGroupBox#lyricOptionGroup { margin-top: 16px; padding: 12px 0 4px; }
+#lyricsAnimationDialog QGroupBox#lyricOptionGroup { margin-top: 12px; padding: 7px 0 0; }
 #lyricsAnimationDialog QGroupBox#lyricOptionGroup::title { color: @text; font-size: 12px; }
 #lyricsAnimationDialog QGroupBox#lyricOptionGroup::title:disabled { color: @disabled_text; }
 

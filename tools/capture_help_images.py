@@ -575,18 +575,24 @@ def capture_source_effects(session: Session) -> None:
     source = replace(source, subtitle_advanced_categories=["motion", "styles", "intro"],
                      fill_color="#00000000", font_size=30,
                      subtitle_animation="cascade", subtitle_stagger=0.12,
-                     subtitle_intro_enabled=True, subtitle_intro_midtrack=True)
+                     subtitle_intro_enabled=True, subtitle_intro_midtrack=True,
+                     subtitle_karaoke_enabled=True, subtitle_karaoke_glow_enabled=True, subtitle_karaoke_lift=5)
     dialog = LyricsAnimationDialog(source, window.translator, window)
     dialog.show()
+    dialog.tabs.setCurrentIndex(1)
     session.refresh()
     save(grab(dialog), session.language, "lyrics_transition")
-    dialog.tabs.setCurrentIndex(2)
+    dialog.line_tabs.setCurrentIndex(1)
     dialog.role.setCurrentIndex(2)
     session.refresh()
     save(grab(dialog), session.language, "lyrics_role_styles")
-    dialog.tabs.setCurrentIndex(3)
+    dialog.tabs.setCurrentIndex(0)
+    dialog.general_tabs.setCurrentIndex(1)
     session.refresh()
     save(grab(dialog), session.language, "lyrics_intro")
+    dialog.tabs.setCurrentIndex(2)
+    session.refresh()
+    save(grab(dialog), session.language, "lyrics_realtime_effects")
     dialog.reject()
     dialog.deleteLater()
     settle(session.app)

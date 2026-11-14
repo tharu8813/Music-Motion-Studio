@@ -459,8 +459,6 @@ TYPE_SPECIFIC_FIELD_KEYS: tuple[str, ...] = (
     "subtitle_karaoke_enabled", "subtitle_karaoke_pending_mode",
     "subtitle_karaoke_offset", "subtitle_karaoke_lines",
     "subtitle_karaoke_pending_color", "subtitle_karaoke_pending_brightness",
-    "subtitle_karaoke_glow_enabled", "subtitle_karaoke_glow_strength",
-    "subtitle_karaoke_lift", "subtitle_karaoke_lift_unit",
     "waveform_style",
     "level_meter_mode", "level_meter_style", "level_meter_orientation",
     "level_meter_sensitivity", "level_meter_attack", "level_meter_release",
