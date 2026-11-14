@@ -11,7 +11,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
-    QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
+    QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
     QMessageBox, QRadioButton, QScrollArea, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -350,6 +350,9 @@ class ProjectSettingsDialog(QDialog):
             if korean else "Keeps original file paths. The project stays small, but moved files must be relinked."
         )
         self.thumbnail_title_label.setText("프로젝트 미리보기" if korean else "Project preview")
+        self.thumbnail_preview.setAccessibleName(
+            "프로젝트 썸네일" if korean else "Project thumbnail"
+        )
         self.thumbnail_hint_label.setText(
             "현재 캔버스를 캡처한 이미지 · 보기 전용" if korean else
             "Captured from the current canvas · Read-only"
@@ -377,7 +380,7 @@ class ProjectSettingsDialog(QDialog):
         elif self.project_path.suffix.casefold() == ".pvsproj":
             file_type = "PVS project package (.pvsproj)"
         else:
-            file_type = "Legacy JSON"
+            file_type = "기존 JSON 프로젝트" if korean else "Legacy JSON project"
         values = {
             "created_at": _timestamp_text(self.selected_settings.created_at),
             "created_version": self.selected_settings.created_app_version,
