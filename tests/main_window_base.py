@@ -16,6 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 from app.models.playlist import PlaylistTrack
+from app.dialogs.export_settings_dialog import ExportSettingsDialog
 from app.services.playlist_service import AudioImportCandidate
 from app.ui.main_window import MainWindow
 from app.utils.i18n import Language
@@ -29,6 +30,24 @@ def accept_ffmpeg_export(dialog) -> object:
         raise AssertionError("FFmpeg export engine is missing")
     dialog.engine_combo.setCurrentIndex(index)
     return dialog.DialogCode.Accepted
+
+
+def accept_native_gpu_export(dialog) -> object:
+    """Accept a dialog selecting native GPU without relying on stored user preferences."""
+    index = dialog.engine_combo.findData("native_gpu")
+    if index < 0:
+        raise AssertionError("Rust GPU export engine is missing")
+    dialog.engine_combo.setCurrentIndex(index)
+    return dialog.DialogCode.Accepted
+
+
+def reject_unmocked_export_dialog(_dialog) -> object:
+    """A real modal settings dialog would hang a headless CI test indefinitely."""
+    raise AssertionError(
+        "ExportSettingsDialog.exec() is unmocked in a headless test. "
+        "Patch it with accept_ffmpeg_export or accept_native_gpu_export "
+        "(or explicitly return QDialog.DialogCode.Rejected)."
+    )
 
 
 class MainWindowTestCase(unittest.TestCase):
@@ -60,8 +79,17 @@ class MainWindowTestCase(unittest.TestCase):
         self._original_language_setting = settings.value("language", None)
         settings.setValue("language", Language.KOREAN.value)
         self.window = MainWindow()
-        # Registered first, so it runs after every test's own cleanups: closing
-        # deletes the window (WA_DeleteOnClose) and those may still use it.
+        # A forgotten real export settings exec() blocks an offscreen runner
+        # until the entire Windows CI job times out. Tests must explicitly
+        # choose the FFmpeg or Rust GPU code path (or model cancellation).
+        # Register this cleanup before window close: cleanups run in LIFO order,
+        # so the guard remains active while _close_window() is called.
+        modal_guard = patch.object(
+            ExportSettingsDialog, "exec", new=reject_unmocked_export_dialog,
+        )
+        modal_guard.start()
+        self.addCleanup(modal_guard.stop)
+        # Registered last, so it runs before the modal guard is removed.
         self.addCleanup(self._close_window)
         self.application.processEvents()
 
