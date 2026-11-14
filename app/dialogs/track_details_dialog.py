@@ -1453,6 +1453,7 @@ class TrackDetailsDialog(QDialog):
         if not self._audio_available:
             return
         if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            self._resume_after_preview_seek = False
             self.media_player.pause()
         else:
             self.media_player.play()
@@ -1465,6 +1466,7 @@ class TrackDetailsDialog(QDialog):
 
     def _stop_playback(self) -> None:
         """Stop audio and reset the active source (the song or short EQ sample)."""
+        self._resume_after_preview_seek = False
         self.media_player.stop()
         self.media_player.setPosition(0)
         self._playback_position_changed(self._eq_clip_offset_ms)
