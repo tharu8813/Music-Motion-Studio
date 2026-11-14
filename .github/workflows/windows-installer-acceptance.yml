@@ -6,6 +6,8 @@ on:
     paths:
       - '.github/workflows/windows-installer-acceptance.yml'
       - 'scripts/verify_installer_smoke.ps1'
+      - 'scripts/verify_installer_upgrade_smoke.ps1'
+      - 'tests/test_installer_upgrade_contract.py'
       - 'setup.iss'
       - 'playlist_canvas.spec'
       - 'scripts/verify_distribution.py'
@@ -93,6 +95,30 @@ jobs:
           $setup = Get-ChildItem 'output-setup' -Filter 'Music Motion Studio-*-setup.exe' -File | Select-Object -First 1
           & ./scripts/verify_installer_smoke.ps1 -SetupPath $setup.FullName
           if ($LASTEXITCODE -ne 0) { throw 'Installed Setup acceptance failed.' }
+
+      - name: Download previous published Setup (SHA-256 pinned)
+        shell: pwsh
+        run: |
+          $uri = 'https://github.com/tharu8813/Music-Motion-Studio/releases/download/1.4.0.0/Music.Motion.Studio-1.4.0.0-setup.exe'
+          $download = Join-Path $env:RUNNER_TEMP 'mms-previous-public-1.4.0.0-setup.exe'
+          Invoke-WebRequest -Uri $uri -OutFile $download -TimeoutSec 300
+          $expectedSha256 = 'ec41c04dbdaf507affe5dbee4385c71eef0987d513af069b43b39ed60cdacb3d'
+          $actualSha256 = (Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualSha256 -ne $expectedSha256) {
+            throw "Published 1.4.0.0 setup hash mismatch: $actualSha256"
+          }
+          "MMS_PREVIOUS_INSTALLER=$download" >> $env:GITHUB_ENV
+
+      - name: Test 1.4.0.0 to current release upgrade and uninstall
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_FFMPEG_DECODING_HW_DEVICE_TYPES: ","
+        run: |
+          $current = Get-ChildItem 'output-setup' -Filter 'Music Motion Studio-*-setup.exe' -File | Select-Object -First 1
+          if (-not $current) { throw 'Compiled current Setup executable missing.' }
+          & ./scripts/verify_installer_upgrade_smoke.ps1 -PreviousSetupPath $env:MMS_PREVIOUS_INSTALLER -CurrentSetupPath $current.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Previous-release upgrade acceptance failed.' }
 
       - name: Upload installer verification logs
         if: always()
