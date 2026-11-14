@@ -12,6 +12,7 @@ import argparse
 import json
 from pathlib import Path
 from statistics import mean
+from math import isfinite
 
 
 # These fields must match across all four runs to support a fair comparison.
@@ -26,6 +27,24 @@ MATCH_FIELDS = (
 # Each expression is a scalar obtained from one benchmark run. Lower CPU
 # percentage / latency / dropped-frame rate is better; higher real scene FPS
 # is better. Repeated callbacks are NOT counted as new scene FPS.
+# Only existing opt-in profiling spans. Values are inclusive wall time in
+# seconds, not additive CPU work or GPU execution time. A stage is reported
+# only if every run captured usable samples for that exact stage.
+STAGE_METRICS = (
+    ("canvas.capture_seconds", "Canvas frame capture"),
+    ("canvas.qt_scene_paint_seconds", "Qt scene painting"),
+    ("preview.gpu_ordered_canvas_seconds", "GPU-ordered Canvas preparation"),
+    ("preview.texture_prepare_upload_seconds", "GPU texture preparation / upload"),
+    ("preview.gl_texture_upload_cpu_seconds", "OpenGL upload submission"),
+    ("preview.gl_submission_seconds", "OpenGL paint submission"),
+    ("preview.submission_to_swap_seconds", "Submission to Qt frame swap"),
+    ("preview.gui_refresh_lateness_seconds", "GUI refresh scheduling lateness"),
+    ("video.to_image_seconds", "QVideoFrame to QImage conversion"),
+    ("video.cpu_filter_seconds", "CPU video frame filtering"),
+    ("video.cpu_scale_seconds", "CPU video scaling"),
+    ("video.cpu_color_blur_seconds", "CPU video color and blur"),
+)
+
 METRICS = (
     ("presented_scene_fps", "fps", True),
     ("scene_frame_time_p50_ms", "ms", False),
@@ -53,6 +72,52 @@ def _read(path: Path) -> dict:
 def _spread_percent(values: list[float]) -> float | None:
     average = mean(values)
     return round((max(values) - min(values)) * 100 / abs(average), 3) if average else None
+
+
+def _stage_percentile(run: dict, stage: str) -> tuple[float, int] | None:
+    """Extract an opt-in profile P95 sample without inventing missing stages."""
+    profile = run.get("profile")
+    if not isinstance(profile, dict):
+        return None
+    sample = profile.get(stage)
+    if not isinstance(sample, dict):
+        return None
+    count, p95 = sample.get("count"), sample.get("recent_p95")
+    if (
+        isinstance(count, bool) or not isinstance(count, int) or count < 1
+        or isinstance(p95, bool) or not isinstance(p95, (int, float))
+        or not isfinite(p95) or p95 < 0
+    ):
+        return None
+    return float(p95) * 1000.0, count
+
+
+def _stage_latency_report(runs: list[dict]) -> dict[str, dict]:
+    """P95 of per-call spans, never the sum of overlapping nested timers."""
+    stages: dict[str, dict] = {}
+    for stage, label in STAGE_METRICS:
+        samples = [_stage_percentile(run, stage) for run in runs]
+        if any(sample is None for sample in samples):
+            continue
+        # The order of runs is A1, B1, B2, A2.
+        durations = [sample[0] for sample in samples]
+        before, after = [durations[0], durations[3]], [durations[1], durations[2]]
+        baseline_mean, candidate_mean = mean(before), mean(after)
+        stages[stage] = {
+            "label": label,
+            "unit": "ms",
+            "measurement": "inclusive per-call recent P95 wall time",
+            "baseline_p95_mean_ms": round(baseline_mean, 4),
+            "candidate_p95_mean_ms": round(candidate_mean, 4),
+            "candidate_change_percent": (
+                round((candidate_mean - baseline_mean) * 100 / baseline_mean, 3)
+                if baseline_mean else None
+            ),
+            "baseline_pair_spread_percent": _spread_percent(before),
+            "candidate_pair_spread_percent": _spread_percent(after),
+            "sample_counts_abba": [sample[1] for sample in samples],
+        }
+    return stages
 
 
 def compare(baseline: list[dict], candidate: list[dict]) -> dict:
@@ -122,6 +187,7 @@ def compare(baseline: list[dict], candidate: list[dict]) -> dict:
         "canvas_scale_ranges_abba": scale_ranges,
         "same_effective_canvas_scale": quality_scale_equal,
         "metrics": metrics,
+        "profile_stage_p95_ms": _stage_latency_report(runs),
         "performance_only": True,
         "notes": [
             "No FPS improvement or regression is claimed without inspecting measured differences and noise.",
@@ -131,6 +197,8 @@ def compare(baseline: list[dict], candidate: list[dict]) -> dict:
             "Recorded adaptive canvas scale ranges match, but image-pixel parity must be tested separately.",
             "GPU utilization samples, if present, describe the whole device, not the application.",
             "A/B timing must exclude other concurrent benchmark or background-intensive tasks.",
+            "Profile stage P95 values are inclusive per-call wall times: nested stages overlap and must not be summed.",
+            "OpenGL submission times are not GPU execution times; compare stage counts and per-run spread before assigning bottlenecks.",
         ],
     }
 
