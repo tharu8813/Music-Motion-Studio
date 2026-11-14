@@ -39,10 +39,10 @@ jobs:
       QT_FFMPEG_DECODING_HW_DEVICE_TYPES: ","
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python 3.14
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version-file: '.python-version'
           cache: pip
@@ -114,7 +114,7 @@ jobs:
 
       - name: Upload encoder-input A/B timings
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: rust-encoder-pipe-benchmark
           path: rust-encoder-pipe-*.json

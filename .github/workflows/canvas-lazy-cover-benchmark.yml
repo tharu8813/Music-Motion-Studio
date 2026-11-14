@@ -21,8 +21,8 @@ jobs:
       QT_QPA_PLATFORM: offscreen
       QT_FFMPEG_DECODING_HW_DEVICE_TYPES: ","
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version-file: '.python-version'
       - name: Install application dependencies
@@ -33,7 +33,7 @@ jobs:
         run: python tools/benchmark_lazy_track_cover.py --frames 120 --repeats 3 --output lazy-cover-benchmark.json
       - name: Upload measurement and parity evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: canvas-lazy-cover-benchmark
           path: lazy-cover-benchmark.json

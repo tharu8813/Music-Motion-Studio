@@ -25,8 +25,8 @@ jobs:
       QT_FFMPEG_DECODING_HW_DEVICE_TYPES: ","
       PLAYLIST_CANVAS_EXPERIMENTAL_GL_EXPORT: "0"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version-file: '.python-version'
       - name: Install locked application dependencies
@@ -43,7 +43,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'GPU Canvas experimental benchmark failed' }
       - name: Upload GPU/CPU comparison or unavailable-device report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: gpu-canvas-capture-diagnostics
           path: experimental-gpu-canvas.json
