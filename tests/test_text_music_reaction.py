@@ -305,6 +305,70 @@ class TextMusicReactionTests(unittest.TestCase):
         preview.close(); preview.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
+    def test_preview_reactive_partition_avoids_full_source_scan_each_frame(self):
+        class NoIterationSources(tuple):
+            def __iter__(self):
+                raise AssertionError("Music reaction must not scan every source per frame")
+
+        track = PlaylistTrack("", "Cache test", duration_seconds=2)
+        scene = CanvasScene()
+        scene.set_artboard_size(640, 360)
+        text = Source(SourceType.TEXT, "Reactive title", music_reactive_enabled=True)
+        lyrics = Source(
+            SourceType.LYRICS, "Reactive lyrics", music_reactive_enabled=True,
+            music_reactive_band="treble",
+        )
+        for index in range(24):
+            scene.addItem(SourceItem(Source(SourceType.SHAPE, f"Static {index}")))
+        scene.addItem(SourceItem(text))
+        scene.addItem(SourceItem(lyrics))
+
+        preview = ExportPreviewDialog(scene, [track], Translator(), preferred_backend="cpu")
+        try:
+            preview._refresh_source_partitions()
+            self.assertEqual(
+                {item.source.id for item in preview._cached_music_reaction_items},
+                {text.id, lyrics.id},
+            )
+            preview.visualizer_renderer = PythonVisualizerRenderer(None)
+            preview._track_levels[track.id] = {
+                "levels": np.zeros((preview.preview_fps * 2, 24), dtype=np.float32),
+                "music_envelopes": {
+                    text.music_reaction_profile: np.ones(preview.preview_fps * 2),
+                    lyrics.music_reaction_profile: np.zeros(preview.preview_fps * 2),
+                },
+            }
+            reference = preview._music_reaction_levels(track, 0.5)
+            self.assertEqual(set(reference), {text.id, lyrics.id})
+            # Both analysis-profile discovery and per-frame sampling should now
+            # use the source partitions built at the previous model change.
+            preview._cached_source_items = NoIterationSources(preview._cached_source_items)
+            preview._ensure_track_analysis(track, 24)
+            self.assertEqual(preview._music_reaction_levels(track, 0.5), reference)
+            self.assertIsNone(preview._analysis_worker)
+
+            # A direct property change is still checked at sampling time;
+            # a model invalidation rebuilds the cached membership as well.
+            text.music_reactive_enabled = False
+            self.assertEqual(
+                set(preview._music_reaction_levels(track, 0.5)), {lyrics.id},
+            )
+            preview._invalidate_source_partitions()
+            preview._refresh_source_partitions()
+            self.assertEqual(
+                tuple(item.source.id for item in preview._cached_music_reaction_items),
+                (lyrics.id,),
+            )
+            lyrics.visible = False
+            preview._invalidate_source_partitions()
+            preview._refresh_source_partitions()
+            self.assertEqual(preview._cached_music_reaction_items, ())
+            self.assertEqual(preview._music_reaction_levels(track, 0.5), {})
+        finally:
+            preview.close()
+            preview.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
     def test_full_preview_refreshes_lyrics_when_audio_analysis_arrives(self):
         source = Source(SourceType.LYRICS, "Lyrics", width=600, height=400,
                         music_reactive_enabled=True, subtitle_karaoke_enabled=True,

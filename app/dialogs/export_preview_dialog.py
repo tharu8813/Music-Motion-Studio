@@ -486,6 +486,7 @@ class ExportPreviewDialog(QDialog):
         self._cached_animated_source_ids: frozenset[str] = frozenset()
         self._cached_visible_source_ids: frozenset[str] = frozenset()
         self._cached_source_items: tuple[SourceItem, ...] = ()
+        self._cached_music_reaction_items: tuple[SourceItem, ...] = ()
         self._cached_source_z_by_id: dict[str, float] = {}
         self._cached_animation_in_duration = 0.0
         self._cached_animation_out_duration = 0.0
@@ -2065,6 +2066,7 @@ class ExportPreviewDialog(QDialog):
         animated_source_ids: set[str] = set()
         visible_source_ids: set[str] = set()
         source_items: list[SourceItem] = []
+        music_reaction_items: list[SourceItem] = []
         source_z_by_id: dict[str, float] = {}
         video_items: list[SourceItem] = []
         step_lyrics: list[SourceItem] = []
@@ -2075,6 +2077,7 @@ class ExportPreviewDialog(QDialog):
             source = item.source
             source_items.append(item)
             if source.source_type in {SourceType.TEXT, SourceType.LYRICS} and source.uses_bass_reaction:
+                music_reaction_items.append(item)
                 always_dynamic_ids.add(source.id)
                 bass_reactive = True
             source_z_by_id[source.id] = float(source.z_index)
@@ -2140,6 +2143,9 @@ class ExportPreviewDialog(QDialog):
         self._cached_animated_source_ids = frozenset(animated_source_ids)
         self._cached_visible_source_ids = frozenset(visible_source_ids)
         self._cached_source_items = tuple(source_items)
+        # The editor invalidates partitions when source visibility or settings
+        # change. Only reactive text/lyrics need a per-frame music envelope.
+        self._cached_music_reaction_items = tuple(music_reaction_items)
         self._cached_source_z_by_id = source_z_by_id
         self._cached_animation_in_duration = max(
             (
@@ -3466,9 +3472,12 @@ class ExportPreviewDialog(QDialog):
 
     def _ensure_track_analysis(self, track: PlaylistTrack, bands: int) -> None:
         """Resolve the visualizer, reaction and tempo data the scene uses."""
-        profiles = tuple({item.source.music_reaction_profile for item in self._cached_source_items
-                          if item.source.source_type in {SourceType.TEXT, SourceType.LYRICS}
-                          and item.source.uses_bass_reaction})
+        profiles = tuple({
+            item.source.music_reaction_profile
+            for item in self._cached_music_reaction_items
+            if item.source.source_type in {SourceType.TEXT, SourceType.LYRICS}
+            and item.source.uses_bass_reaction
+        })
         cached = self._track_levels.get(track.id)
         needs_levels = bool(self.overlays or self._bass_reactive)
         needs_tempo = self._tempo_sync
@@ -3509,7 +3518,7 @@ class ExportPreviewDialog(QDialog):
                 envelopes.get(item.source.music_reaction_profile), self.preview_fps,
                 elapsed, item.source.music_reactive_offset,
             )
-            for item in self._cached_source_items
+            for item in self._cached_music_reaction_items
             if item.source.source_type in {SourceType.TEXT, SourceType.LYRICS}
             and item.source.uses_bass_reaction
         }
