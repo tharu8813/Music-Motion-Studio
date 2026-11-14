@@ -1,4 +1,5 @@
 """The FFmpeg adapter for the same curves and visual ownership used by Qt."""
+from bisect import bisect_right
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from math import ceil, hypot
@@ -33,7 +34,17 @@ class KeyframeRenderBinding:
         return cls(deepcopy(source), keyframe_windows(plan), output_scale) if source.keyframes.animated else None
 
     def values(self, seconds):
-        window = next((w for w in reversed(self.windows) if w.timeline_start <= seconds < w.timeline_end), None)
+        # keyframe_windows() returns ordered, non-overlapping visual owners.
+        # Find the last window whose start is not after this frame instead of
+        # rescanning the entire playlist for every animated output frame.
+        index = bisect_right(
+            self.windows, seconds, key=lambda window: window.timeline_start,
+        ) - 1
+        window = (
+            self.windows[index]
+            if index >= 0 and seconds < self.windows[index].timeline_end
+            else None
+        )
         return evaluate(self.source, seconds, window.track_id if window else "",
                         window.source_time_at_start + (seconds - window.timeline_start) * window.playback_rate if window else None)
 
