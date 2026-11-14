@@ -1470,6 +1470,9 @@ class ExportPreviewDialog(QDialog):
             from app.animation.keyframe_render import keyframe_windows
             cached = self._keyframe_windows_cache = (plan, keyframe_windows(plan))
         windows = cached[1]
+        # keyframe_windows follows visual_segments: sorted, non-overlapping
+        # ownership starts. A linear scan per frame becomes expensive in long
+        # playlists even when only the current owner can be active.
         index = bisect_right(windows, seconds, key=lambda window: window.timeline_start) - 1
         return index >= 0 and seconds < windows[index].timeline_end
 
