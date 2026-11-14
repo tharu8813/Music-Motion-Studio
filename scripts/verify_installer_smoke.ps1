@@ -104,7 +104,8 @@ if ($association.GetValue('') -ne 'PlaylistCanvas.Project') {
 $openCommand = (Get-Item -LiteralPath 'Registry::HKEY_CLASSES_ROOT\PlaylistCanvas.Project\shell\open\command' -ErrorAction Stop).GetValue('')
 # A substring match can pass if the ProgID points at a stale or unrelated
 # installation. Verify the full, quoted path and project argument instead.
-$expectedOpenCommand = '"' + $executable + '" "%1"'
+$installedExecutable = Join-Path $installDir 'Music Motion Studio.exe'
+$expectedOpenCommand = '"' + $installedExecutable + '" "%1"'
 if (-not [string]::Equals($openCommand, $expectedOpenCommand,
                           [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "The .pvsproj open command does not target the installed executable: $openCommand"
