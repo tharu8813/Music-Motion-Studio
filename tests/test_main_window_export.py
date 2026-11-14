@@ -210,7 +210,7 @@ class MainWindowExportTests(MainWindowTestCase):
     def test_export_settings_modal_requires_explicit_stub_and_engine_selection(self) -> None:
         # Never allow a real QDialog.exec() to trap headless Windows CI.
         with self.assertRaisesRegex(
-            AssertionError, "ExportSettingsDialog.exec\\(\\) is unmocked",
+            AssertionError, r"ExportSettingsDialog[.]exec[(][)] is unmocked",
         ):
             ExportSettingsDialog.exec(None)
 
