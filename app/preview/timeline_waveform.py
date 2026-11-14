@@ -10,12 +10,11 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 import subprocess
-from typing import Callable
 
 import numpy as np
 from PySide6.QtCore import QThread, Signal
 
-from app.utils.subprocess_utils import hidden_process_kwargs
+from app.utils.subprocess_utils import background_work, hidden_process_kwargs
 
 LOGGER = logging.getLogger(__name__)
 
@@ -63,14 +62,16 @@ class TimelineWaveformWorker(QThread):
                 pass
 
     def run(self) -> None:
-        for index, path in self.tracks:
-            if self.isInterruptionRequested():
-                return
-            peaks = self._decode(path)
-            if self.isInterruptionRequested():
-                return
-            if peaks is not None and peaks.size:
-                self.ready.emit(index, peaks)
+        # Keep playback and the UI compositor ahead of this optional analysis.
+        with background_work():
+            for index, path in self.tracks:
+                if self.isInterruptionRequested():
+                    return
+                peaks = self._decode(path)
+                if self.isInterruptionRequested():
+                    return
+                if peaks is not None and peaks.size:
+                    self.ready.emit(index, peaks)
 
     def _decode(self, path: str) -> np.ndarray | None:
         process = None
