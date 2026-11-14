@@ -547,6 +547,7 @@ def capture_native_canvas_track_frame(
             partial_render_pixel_aligned=partial,
             partial_render_keep_cropped=compact,
             render_metrics=capture_metrics,
+            profile_source_state=bool(raster_cache is not None and raster_cache.profile_state_setup),
             render_prepared_band=render_prepared_band,
             # Immutable export scene: shared worker-only lyric settings and
             # preselected source items avoid repeated per-frame Qt traversal.
