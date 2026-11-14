@@ -1790,11 +1790,12 @@ class ExportPreviewDialog(QDialog):
                                and regions[0][1] == self.scene.artboard_rect
                                and not self._base_image.isNull())
             if not use_gpu_layers:
-                # QImage is implicitly shared, but painting would detach it.
-                # A static frame can therefore reuse the base without a copy.
+                # The ordered capture is already the output frame. A reusable
+                # static base needs a copy only before painting layers onto it.
                 self._image = (
                     self._base_image
-                    if compose_on_base or (not raster_dynamic_ids and not audio_overlays)
+                    if full_canvas_ordered_required or compose_on_base
+                    or (not raster_dynamic_ids and not audio_overlays)
                     else self._base_image.copy()
                 )
             if regions:

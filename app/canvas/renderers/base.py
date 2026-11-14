@@ -122,9 +122,7 @@ def paint_background(item: "SourceItem", painter: QPainter) -> tuple[QRectF, QBr
 
 def paint_image_content(item: "SourceItem", painter: QPainter, rect: QRectF, frame_style: str,
                         *, image: QImage | None = None) -> None:
-    """Draw the item's pixmap clipped to frame_style. Extracted verbatim from
-    _paint_legacy's shared image_backed_types branch (frame_style was that
-    branch's own SourceType.ALBUM_COVER special case, now a parameter)."""
+    """Draw an image or the item's pixmap using the same framing and fit."""
     bitmap = item._pixmap if image is None else image
     display_rect = rect
     clip_path = QPainterPath()
