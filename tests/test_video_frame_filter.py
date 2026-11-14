@@ -114,15 +114,17 @@ class VideoFrameFilterTests(unittest.TestCase):
             filtered = frame_filter.apply_color_filters(
                 image, brightness=brightness, contrast=contrast,
             )
+            # Recreate the original uncached vector arithmetic independently.
+            levels = np.arange(256, dtype=np.float32)
+            expected_table = np.clip(
+                (levels - 128.0) * (1.0 + contrast / 100.0)
+                + 128.0 + brightness * 2.55, 0.0, 255.0,
+            ).astype(np.uint8)
             for x, y in ((0, 0), (3, 7), (10, 12), (15, 15)):
                 original = image.pixelColor(x, y)
                 actual = filtered.pixelColor(x, y)
                 expected = [
-                    int(np.clip(
-                        (np.float32(value) - 128.0) * (1.0 + contrast / 100.0)
-                        + 128.0 + brightness * 2.55,
-                        0.0, 255.0,
-                    ))
+                    int(expected_table[value])
                     for value in (original.red(), original.green(), original.blue())
                 ]
                 self.assertEqual((actual.red(), actual.green(), actual.blue()), tuple(expected))
