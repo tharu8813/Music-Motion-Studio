@@ -62,6 +62,15 @@ def validate_project_for_gpu_capture(
     if transition_reason:
         raise TimelineValidationError(transition_reason)
     visible = [source for source in project.sources if source.visible]
+    # Native dynamic layers and packet diagnostics address sources by ID.
+    # Colliding IDs silently replace the earlier layer in those lookups.
+    # ProjectDocument.from_dict already validates IDs, but a detached in-memory
+    # export snapshot can be constructed without passing through deserialization.
+    visible_ids = [source.id for source in visible]
+    if any(not isinstance(source_id, str) or not source_id.strip() for source_id in visible_ids):
+        raise TimelineValidationError("Native GPU export requires non-empty visible source IDs")
+    if len(set(visible_ids)) != len(visible_ids):
+        raise TimelineValidationError("Native GPU export cannot represent duplicate visible source IDs")
     if any(source.source_type not in set(SourceType) for source in visible):
         raise TimelineValidationError("Project has an unknown visible source type")
     if not visible or len(visible) > 64:
