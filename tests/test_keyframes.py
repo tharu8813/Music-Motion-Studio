@@ -129,6 +129,56 @@ class KeyframeEngineTests(TestCase):
             self.assertEqual(binding.values(time), evaluate(self.source, time, owner.track_id, local))
 
 
+    def test_preview_keyframe_windows_use_random_access_not_per_frame_scanning(self):
+        from types import SimpleNamespace
+        from app.dialogs.export_preview_dialog import ExportPreviewDialog
+        from app.timeline.render_plan import PresentationWindow
+
+        class NoIterationWindows(tuple):
+            def __iter__(self):
+                raise AssertionError("Preview must not scan all keyframe windows per frame")
+
+        # Deliberately leave two seconds of silence between every visual
+        # owner: bisect must preserve the old half-open and gap semantics.
+        windows = NoIterationWindows(
+            PresentationWindow(str(i), i * 10.0, i * 10.0 + 8.0)
+            for i in range(512)
+        )
+        plan = object()
+        preview = SimpleNamespace(_compiled_plan=plan, _keyframe_windows_cache=(plan, windows))
+        check = lambda seconds: ExportPreviewDialog._keyframes_active_at(preview, seconds)
+
+        self.assertFalse(check(-0.001))
+        for index in (0, 1, 63, 127, 255, 510, 511):
+            start = index * 10.0
+            self.assertTrue(check(start))
+            self.assertTrue(check(start + 7.999))
+            self.assertFalse(check(start + 8.0))
+            self.assertFalse(check(start + 9.999))
+        self.assertFalse(check(5120.0))
+
+    def test_preview_keyframe_windows_follow_crossfade_and_plan_replacement(self):
+        from types import SimpleNamespace
+        from app.dialogs.export_preview_dialog import ExportPreviewDialog
+
+        preview = SimpleNamespace(_compiled_plan=compile_crossfade([self.a, self.b], 2))
+        for seconds in (-1.0, 0.0, 7.999, 8.0, 8.999, 9.0, 9.001, 10.0, 27.999, 28.0):
+            expected = any(
+                window.timeline_start <= seconds < window.timeline_end
+                for window in keyframe_windows(preview._compiled_plan)
+            )
+            self.assertEqual(
+                ExportPreviewDialog._keyframes_active_at(preview, seconds),
+                expected,
+            )
+        old_cache = preview._keyframe_windows_cache
+        preview._compiled_plan = compile_playlist([self.a, self.b])
+        self.assertEqual(ExportPreviewDialog._keyframes_active_at(preview, 12.0), True)
+        self.assertIs(preview._keyframe_windows_cache[0], preview._compiled_plan)
+        self.assertIsNot(preview._keyframe_windows_cache, old_cache)
+
+
+
 class KeyframeEditingTests(TestCase):
     @classmethod
     def setUpClass(cls):
