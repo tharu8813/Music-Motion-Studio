@@ -23,7 +23,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -57,14 +57,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Dirty-rectangle GPU probe failed compilation, validation, or diagnostic output' }
       - name: Upload GPU dirty-rectangle capability diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: rust-gpu-dirty-ci
           path: rust-gpu-dirty-ci.json
           if-no-files-found: ignore
       - name: Upload dynamic NV12 GPU capability and parity diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: rust-gpu-dynamic-nv12-ci
           path: rust-gpu-dynamic-nv12-ci.json
@@ -312,7 +312,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Invalid Qt Canvas GPU packet report' }
       - name: Upload native Qt Canvas packet ingestion report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: d3d11-qt-canvas-input
           path: |
@@ -321,14 +321,14 @@ jobs:
           if-no-files-found: ignore
       - name: Upload native D3D11 Canvas layer and NVENC diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: d3d11-canvas-layers
           path: d3d11-canvas-layers-ci.json
           if-no-files-found: ignore
       - name: Upload H264 NVENC bitstream diagnostics (hardware only)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: d3d11-nvenc-h264-probe
           path: |
@@ -337,49 +337,49 @@ jobs:
           if-no-files-found: ignore
       - name: Upload D3D11 -> NVENC registration diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: d3d11-nvenc-registration
           path: d3d11-nvenc-register-ci.json
           if-no-files-found: ignore
       - name: Upload D3D11 completion and bounded pool diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: d3d11-gpu-completion
           path: d3d11-gpu-completion-ci.json
           if-no-files-found: ignore
       - name: Upload D3D11 GPU color reference diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: d3d11-bgra-nv12-color-chart
           path: d3d11-bgra-color-ci.json
           if-no-files-found: ignore
       - name: Upload BGRA-to-NV12 GPU video processor diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: d3d11-bgra-nv12-video-processor
           path: d3d11-bgra-nv12-ci.json
           if-no-files-found: ignore
       - name: Upload native D3D11 GPU frame pool report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: rust-d3d11-frame-pool-ci
           path: rust-d3d11-frame-pool-ci.json
           if-no-files-found: ignore
       - name: Upload native NV12 GPU texture diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: rust-d3d11-nv12-texture
           path: rust-d3d11-nv12-ci.json
           if-no-files-found: ignore
       - name: Upload actual GPU or unavailable-device diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: rust-gpu-compositor-ci
           path: rust-gpu-compositor-ci.json
@@ -396,7 +396,7 @@ jobs:
       MMS_GPU_TEST_REQUIRE_ADAPTER: "1"
       RUST_TEST_THREADS: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:

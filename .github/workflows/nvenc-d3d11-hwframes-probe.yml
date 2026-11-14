@@ -18,8 +18,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version-file: '.python-version'
       - name: Validate D3D11 NVENC command and H264 decode contract
@@ -53,7 +53,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Invalid D3D11 capability JSON' }
       - name: Upload inspectable D3D11 NVENC capability report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: nvenc-d3d11-compatibility
           path: nvenc-d3d11-ci.json

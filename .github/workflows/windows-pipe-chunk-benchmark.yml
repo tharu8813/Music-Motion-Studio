@@ -22,8 +22,8 @@ jobs:
       PLAYLIST_CANVAS_RUST_BGR24_PIPE: "0"
       QT_FFMPEG_DECODING_HW_DEVICE_TYPES: ","
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version-file: '.python-version'
       - name: Install project dependencies
@@ -57,7 +57,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw '4K benchmark or frame parity failed' }
       - name: Upload pipe throughput evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: windows-pipe-throughput
           path: pipe-chunks-*.json

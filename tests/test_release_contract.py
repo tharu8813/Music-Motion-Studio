@@ -180,6 +180,21 @@ class ReleaseContractTests(unittest.TestCase):
                 ):
                     self.assertNotIn(stale_action, workflow)
 
+    def test_all_github_workflows_use_supported_node24_official_actions(self) -> None:
+        # Guard workflow_dispatch-only benchmarks too: their Node.js 20
+        # deprecation warnings are invisible to the default PR matrix.
+        workflow_paths = sorted((ROOT / ".github/workflows").glob("*.yml"))
+        self.assertGreater(len(workflow_paths), 2)
+        for path in workflow_paths:
+            with self.subTest(workflow=path.name):
+                content = path.read_text(encoding="utf-8")
+                for action in ("checkout", "setup-python", "upload-artifact"):
+                    for version in re.findall(r"actions/" + action + r"@v(\d+)", content):
+                        self.assertEqual(
+                            int(version), 6,
+                            f"{path.name}: actions/{action}@v{version} must use Node.js 24",
+                        )
+
     def test_windows_ci_cancels_only_superseded_pull_request_runs(self) -> None:
         for relative_path in (
             ".github/workflows/deployment.yml",

@@ -20,8 +20,8 @@ jobs:
     env:
       QT_QPA_PLATFORM: offscreen
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version-file: '.python-version'
       - name: Install Python Qt and managed FFmpeg runtime
@@ -62,7 +62,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw '1080p60 medium-preset benchmark failed' }
       - name: Upload comparisons
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ffmpeg-overlay-worker-timings
           path: ffmpeg-worker-*.json
