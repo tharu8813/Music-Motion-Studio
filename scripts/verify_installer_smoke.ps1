@@ -126,7 +126,7 @@ if (-not (Test-Path -LiteralPath $unowned) -or -not (Test-Path -LiteralPath $use
 
 # An uninstaller must not leave an Explorer association pointing at its removed
 # launcher. Windows may legitimately keep the empty .pvsproj extension key.
-$remainingCommandKey = Get-Item -LiteralPath 'Registry::HKEY_CLASSES_ROOT\\PlaylistCanvas.Project\\shell\\open\\command' -ErrorAction SilentlyContinue
+$remainingCommandKey = Get-Item -LiteralPath 'Registry::HKEY_CLASSES_ROOT\PlaylistCanvas.Project\shell\open\command' -ErrorAction SilentlyContinue
 if ($remainingCommandKey -and [string]::Equals(
         [string]$remainingCommandKey.GetValue(''), $expectedOpenCommand,
         [System.StringComparison]::OrdinalIgnoreCase)) {
