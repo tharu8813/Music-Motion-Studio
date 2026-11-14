@@ -1618,18 +1618,20 @@ _TRACK = (
        """[[img:track_audio]]
 <ul>
 <li><b>곡 볼륨</b>(dB): 다른 곡과 비교한 이 곡의 상대적인 크기입니다. 전체 믹스는 여전히 −14 LUFS로 맞춰집니다.</li>
-<li><b>이퀄라이저</b>(60 Hz · 250 Hz · 1 kHz · 4 kHz · 12 kHz, dB): 대역별로 소리를 키우거나 줄입니다. <b>초기화</b>로 평탄하게 되돌립니다.</li>
-<li><b>미리듣기</b>: 재생·정지와 위치 슬라이더. 값을 바꾸면 잠시 뒤 재생 중인 소리에 반영됩니다.</li>
-<li><b>원본과 비교(볼륨/EQ 끄기)</b>: 켜면 원래 소리를 들려줍니다.</li>
+<li><b>8밴드 이퀄라이저</b>(60 · 125 · 250 · 500 Hz · 1 · 2 · 4 · 12 kHz): 대역별로 ±12 dB를 조절합니다. 기존 5밴드 프로젝트의 60/250/1k/4k/12k 설정은 원래 대역을 유지합니다.</li>
+<li><b>베이스</b>: 100 Hz 저음 셸프를 별도로 ±12 dB 조절합니다. <b>초기화</b>는 볼륨·베이스·EQ를 원래 값으로 되돌립니다.</li>
+<li><b>빠른 미리듣기</b>: 오디오 탭에서는 현재 위치부터 최대 20초만 변환하여 빨리 들어봅니다. 타임라인에서 다른 곳으로 이동하거나 <b>현재 위치부터 미리듣기</b> 버튼으로 새 구간을 선택합니다. 가사 탭에서는 전체 곡을 재생합니다.</li>
+<li><b>원본과 비교(볼륨/베이스/EQ 끄기)</b>: 켜면 원래 소리를 들려줍니다.</li>
 </ul>
 <p>이 곡에만 적용되며 미리보기와 내보내기에 반영됩니다.</p>
 <div class='note'>EQ 미리듣기에는 FFmpeg가 필요합니다. 없으면 원본으로 재생합니다.</div>""",
        """[[img:track_audio]]
 <ul>
 <li><b>Track volume</b> (dB): how loud this track is relative to the others. The whole mix is still normalized to −14 LUFS.</li>
-<li><b>Equalizer</b> (60 Hz · 250 Hz · 1 kHz · 4 kHz · 12 kHz, dB): boost or cut each band. <b>Reset</b> flattens it.</li>
-<li><b>Listen</b>: play, stop and seek. Changes reach the playing sound after a moment.</li>
-<li><b>Compare with original (bypass)</b>: hear the untouched sound.</li>
+<li><b>8-band equalizer</b> (60 · 125 · 250 · 500 Hz · 1 · 2 · 4 · 12 kHz): adjust ±12 dB per band. Existing five-band project values retain their original center frequencies.</li>
+<li><b>Bass</b>: independent ±12 dB low shelf at 100 Hz. <b>Reset</b> clears volume, bass, and EQ changes.</li>
+<li><b>Fast audition</b>: the Audio tab renders up to 20 seconds at the current playhead. Seek or click <b>Preview from playhead</b> for another segment. The Lyrics tab still uses full-track playback.</li>
+<li><b>Compare with original (bypass volume/bass/EQ)</b>: hear the untouched sound.</li>
 </ul>
 <p>It affects only this track, in both Preview and Export.</p>
 <div class='note'>The EQ preview needs FFmpeg; without it the original plays.</div>""",

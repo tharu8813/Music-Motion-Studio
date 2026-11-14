@@ -10,17 +10,33 @@ from uuid import uuid4
 
 from app.utils.time_format import format_clock
 
-EQ_BANDS_HZ = (60, 250, 1000, 4000, 12000)
-"""Per-track graphic EQ: a low shelf, three peaks, a high shelf."""
+LEGACY_EQ_BANDS_HZ = (60, 250, 1000, 4000, 12000)
+EQ_BANDS_HZ = (60, 125, 250, 500, 1000, 2000, 4000, 12000)
+"""8-band per-track EQ, retaining all five original center frequencies."""
 EQ_LIMIT_DB = 12.0
+BASS_LIMIT_DB = 12.0
 VOLUME_RANGE_DB = (-24.0, 12.0)
 
 
-def track_audio_filter(volume_db: float, eq_db: list[float]) -> str:
-    """FFmpeg filters for a volume and EQ_BANDS_HZ gains; "" when neutral."""
+def expanded_eq_gains(eq_db: list[float]) -> list[float]:
+    """Preserve original 5-band projects' sound when showing the 8-band editor.
+
+    Old saved curves have at most five entries. Newly edited non-flat curves
+    always persist all eight gains, avoiding format ambiguity.
+    """
+    if len(eq_db) <= len(LEGACY_EQ_BANDS_HZ):
+        existing = dict(zip(LEGACY_EQ_BANDS_HZ, eq_db))
+        return [float(existing.get(frequency, 0.0)) for frequency in EQ_BANDS_HZ]
+    return [float(value) for value in eq_db] + [0.0] * (len(EQ_BANDS_HZ) - len(eq_db))
+
+
+def track_audio_filter(volume_db: float, eq_db: list[float], bass_db: float = 0.0) -> str:
+    """FFmpeg filters for per-track bass, graphic EQ and relative gain."""
     parts = []
+    if abs(bass_db) >= 0.05:
+        parts.append(f"lowshelf=f=100:g={bass_db:.2f}")
     last = len(EQ_BANDS_HZ) - 1
-    for index, (frequency, gain) in enumerate(zip(EQ_BANDS_HZ, eq_db)):
+    for index, (frequency, gain) in enumerate(zip(EQ_BANDS_HZ, expanded_eq_gains(eq_db))):
         if abs(gain) < 0.05:
             continue
         if index == 0:
@@ -53,12 +69,14 @@ class PlaylistTrack:
     video_paths: list[str] = field(default_factory=list)
     volume_db: float = 0.0
     eq_db: list[float] = field(default_factory=list)
-    """Gain per EQ_BANDS_HZ band; empty is flat."""
+    """Five legacy values or eight full EQ gains; empty is flat."""
+    bass_db: float = 0.0
+    """Separate low-shelf gain for bass at 100 Hz."""
 
     @property
     def audio_filter(self) -> str:
         """FFmpeg filters for this track's volume/EQ, applied before any mixing; "" when neutral."""
-        return track_audio_filter(self.volume_db, self.eq_db)
+        return track_audio_filter(self.volume_db, self.eq_db, self.bass_db)
 
     @property
     def filename(self) -> str:
@@ -111,8 +129,12 @@ class PlaylistTrack:
             raise ValueError(f"Track '{track.title}' has an invalid volume.")
         if (not isinstance(track.eq_db, list) or len(track.eq_db) > len(EQ_BANDS_HZ)
                 or not all(isinstance(gain, (int, float)) and not isinstance(gain, bool)
-                           and abs(gain) <= EQ_LIMIT_DB for gain in track.eq_db)):
+                           and isfinite(float(gain)) and abs(gain) <= EQ_LIMIT_DB
+                           for gain in track.eq_db)):
             raise ValueError(f"Track '{track.title}' has invalid EQ settings.")
+        if (not isinstance(track.bass_db, (int, float)) or isinstance(track.bass_db, bool)
+                or not isfinite(float(track.bass_db)) or abs(track.bass_db) > BASS_LIMIT_DB):
+            raise ValueError(f"Track '{track.title}' has invalid bass boost.")
         for cue in track.lyrics:
             if not isinstance(cue, dict) or not isinstance(cue.get("text", ""), str):
                 raise ValueError(f"Track '{track.title}' contains an invalid lyric cue.")
