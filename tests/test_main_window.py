@@ -66,6 +66,14 @@ from tests.main_window_base import MainWindowTestCase, accept_ffmpeg_export
 
 
 class MainWindowWorkspaceTests(MainWindowTestCase):
+    def test_centered_splitter_is_owned_by_isolated_widget_module(self) -> None:
+        from app.ui.main_window import CanvasCenteredSplitter
+        from app.widgets.canvas_centered_splitter import CanvasCenteredSplitter as IsolatedSplitter
+
+        self.assertIs(CanvasCenteredSplitter, IsolatedSplitter)
+        self.assertIs(type(self.window.main_splitter), IsolatedSplitter)
+        self.assertIs(type(self.window.workspace_splitter), IsolatedSplitter)
+
     def test_status_bar_activity_progress_tracks_multiple_operations(self) -> None:
         progress = self.window.activity_progress
         self.assertTrue(progress.isHidden())
