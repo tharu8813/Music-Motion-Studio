@@ -58,6 +58,17 @@ class CanvasStaticKeyframeFastPathTests(TestCase):
         self.assertIs(item.source, source)
         self.assertFalse(item._suppress_position_sync)
 
+    def test_failed_snapshot_restores_editor_selection_and_signal_state(self):
+        scene, _source, item, _track = self.fixture()
+        item.setSelected(True)
+        scene.blockSignals(True)
+        with patch.object(CanvasSnapshot, "_paint_scene", side_effect=RuntimeError("paint failed")):
+            with self.assertRaisesRegex(RuntimeError, "paint failed"):
+                CanvasSnapshot.capture(scene)
+        self.assertTrue(item.isSelected())
+        self.assertTrue(scene.signalsBlocked())
+        self.assertTrue(scene.show_grid)
+
     def test_animated_sources_still_enter_keyframe_scope_and_restore(self):
         scene, source, item, track = self.fixture()
         source.keyframes.global_curves["x"] = [

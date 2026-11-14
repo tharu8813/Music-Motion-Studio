@@ -1049,7 +1049,7 @@ class FFmpegRenderer:
                         "Could not remove incomplete output staging file: %s",
                         temporary_video,
                     )
-        self._report(progress_callback, "Complete", 1.0, "Export completed")
+        self._report(progress_callback, "Finalizing export", 0.995, "Checking the exported file")
         try:
             validation = ExportPolicy.validate_output(
                 target,
@@ -1062,6 +1062,7 @@ class FFmpegRenderer:
             )
         except CancelledError as error:
             raise RenderCancelledError("Rendering was cancelled.") from error
+        self._report(progress_callback, "Complete", 1.0, "Export completed")
         return RenderResult(target, len(active_tracks), validation)
 
     @staticmethod
@@ -1392,6 +1393,7 @@ class FFmpegRenderer:
                     raise RenderError(f"Could not replace '{target.name}'. Check the destination folder.") from error
             finally:
                 staging.unlink(missing_ok=True)
+        self._report(progress_callback, "Finalizing export", 0.995, "Checking the exported file")
         validation = validate_audio_export_output(target, duration, self.executable)
         self._report(progress_callback, "Complete", 1.0, "Export completed")
         return RenderResult(target, len(active_tracks), validation)

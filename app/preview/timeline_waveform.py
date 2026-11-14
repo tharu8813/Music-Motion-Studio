@@ -67,6 +67,8 @@ class TimelineWaveformWorker(QThread):
             for index, path in self.tracks:
                 if self.isInterruptionRequested():
                     return
+                if not Path(path).is_file():
+                    continue
                 peaks = self._decode(path)
                 if self.isInterruptionRequested():
                     return

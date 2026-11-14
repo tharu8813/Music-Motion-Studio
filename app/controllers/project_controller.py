@@ -11,7 +11,7 @@ import traceback as traceback_module
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QEventLoop, Qt, QTimer
+from PySide6.QtCore import QEventLoop, QSize, QSizeF, Qt, QTimer
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QProgressDialog
 
@@ -105,10 +105,12 @@ class ProjectController:
         Capture from the artboard model to exclude editor chrome and selection
         handles, and never reuse a previous exported frame or cover art.
         """
-        image = CanvasSnapshot.capture(self.window.canvas.scene_model, output_scale=0.5)
-        return image.scaled(
-            480, 270, Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
+        scene = self.window.canvas.scene_model
+        size = scene.artboard_rect.size().scaled(
+            QSizeF(480, 270), Qt.AspectRatioMode.KeepAspectRatio,
+        )
+        return CanvasSnapshot.capture(
+            scene, output_size=QSize(max(1, round(size.width())), max(1, round(size.height()))),
         )
 
     # -- status/error UI -----------------------------------------------

@@ -145,6 +145,18 @@ class LargePlaylistPreviewTests(unittest.TestCase):
             visual, _junction = preview._visual_track_at(owner.timeline_start + 15)
             self.assertEqual(visual[0], len(tracks) - 1)
 
+    def test_track_keyframes_resume_at_next_track_after_silent_gap(self):
+        from app.timeline.crossfade import compile_crossfade
+
+        preview = self.preview(2)
+        preview.tracks[0].start_time_seconds = 5
+        preview.tracks[1].start_time_seconds = 210
+        preview._compiled_plan = compile_crossfade(preview.tracks, 3)
+        for seconds, active in ((4.99, False), (5.0, True), (184.99, True),
+                                (185.0, False), (209.99, False), (210.0, True)):
+            with self.subTest(seconds=seconds):
+                self.assertEqual(preview._keyframes_active_at(seconds), active)
+
     def test_cover_errors_do_not_abort_remaining_tracks(self):
         tracks = [PlaylistTrack("broken.wav", "Broken"), PlaylistTrack("ok.wav", "OK")]
         worker = PreviewCoverWorker(tracks)

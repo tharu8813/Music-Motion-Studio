@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 from time import monotonic
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPixmap, QTransform
 
 from app.canvas.live_canvas import CanvasScene
@@ -277,13 +277,15 @@ class CanvasSnapshot:
                 z_min: float | None = None, z_max: float | None = None,
                 transparent: bool = False, image_buffer: QImage | None = None,
                 capture_rect: QRectF | None = None, background_image: QImage | None = None,
-                capture_stage_metrics: dict[str, float] | None = None) -> QImage:
+                capture_stage_metrics: dict[str, float] | None = None, *,
+                output_size: QSize | None = None) -> QImage:
         """Render all or one Z-index band of the artboard at project resolution.
 
         Transparent Z bands are the basis for interleaving static Canvas content
         with audio-reactive video layers during export.
         ``background_image`` seeds a full-size preview capture with its cached
         base. Transparent scene painting leaves that base underneath the items.
+        ``output_size`` sets the raster dimensions directly for thumbnails.
         """
         capture_started = monotonic() if capture_stage_metrics is not None else None
         artboard = scene.artboard_rect
@@ -291,9 +293,13 @@ class CanvasSnapshot:
         source_rect = requested_rect.intersected(artboard)
         if source_rect.isEmpty():
             source_rect = QRectF(artboard.left(), artboard.top(), 1.0, 1.0)
-        scale = max(0.25, min(_MAX_CAPTURE_SCALE, output_scale))
-        width = max(1, round(source_rect.width() * scale))
-        height = max(1, round(source_rect.height() * scale))
+        if output_size is None:
+            scale = max(0.25, min(_MAX_CAPTURE_SCALE, output_scale))
+            width = max(1, round(source_rect.width() * scale))
+            height = max(1, round(source_rect.height() * scale))
+        else:
+            width = max(1, output_size.width())
+            height = max(1, output_size.height())
         image_format = (
             QImage.Format.Format_ARGB32_Premultiplied
             if transparent else QImage.Format.Format_RGB32
@@ -314,7 +320,7 @@ class CanvasSnapshot:
         guide_x, guide_y = scene.guide_x, scene.guide_y
         background_suppressed = scene.suppress_render_background
         hidden_items: list[SourceItem] = []
-        scene.blockSignals(True)
+        signals_were_blocked = scene.blockSignals(True)
         try:
             scene.clearSelection()
             scene.show_grid = False
@@ -355,16 +361,16 @@ class CanvasSnapshot:
                             capture_stage_metrics["scene_render_seconds"] = monotonic() - scene_started
                 finally:
                     painter.end()
-            for item in selected_items:
-                item.setSelected(True)
         finally:
             for item in hidden_items:
                 item.setVisible(True)
+            for item in selected_items:
+                item.setSelected(True)
             scene.show_grid = grid_visible
             scene.guide_x = guide_x
             scene.guide_y = guide_y
             scene.suppress_render_background = background_suppressed
-            scene.blockSignals(False)
+            scene.blockSignals(signals_were_blocked)
         if capture_stage_metrics is not None:
             capture_stage_metrics["capture_total_seconds"] = monotonic() - capture_started
         return image

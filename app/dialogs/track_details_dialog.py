@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import CancelledError
 from pathlib import Path
 from copy import deepcopy
 from app.services.lyrics_translation_service import approved_translation, display_cue
@@ -59,8 +60,8 @@ from app.dialogs.ttml_edit_dialog import TtmlRowsDialog, choose_ttml_edit_mode, 
 from app.services.lyrics_service import LyricsError, LyricsService
 from app.services.preview_audio_settings import preview_volume, save_preview_volume
 from app.preview.album_art import extract_track_cover
+from app.utils.cancellable_subprocess import run_probe
 from app.utils.i18n import Translator
-from app.utils.subprocess_utils import hidden_process_kwargs
 from app.utils.time_format import format_clock
 
 EQ_PREVIEW_LIMITER = "alimiter=limit=0.95:level=0"
@@ -121,12 +122,14 @@ class TrackDetailsDialog(QDialog):
         # current volume/EQ (Qt Multimedia cannot filter audio itself).
         self.ffmpeg_executable = ffmpeg_executable
         self._eq_dir: TemporaryDirectory | None = None
+        self._eq_cancel = threading.Event()
         self._eq_generation = 0
         self._eq_playing_filter = ""
         self._eq_rendering_filter = ""
         self._eq_playing_segment = False
         self._eq_rendering_segment = False
         self._eq_rendering_start_ms = 0
+        self._eq_requested_position_ms: int | None = None
         self._eq_clip_offset_ms = 0
         self._full_audio_duration_ms = max(1, round(track.duration_seconds * 1000))
         self._eq_state = "original"
@@ -856,6 +859,10 @@ class TrackDetailsDialog(QDialog):
 
     def _current_audio_position_ms(self) -> int:
         """Map the player position to the original song, even for short EQ samples."""
+        if self._eq_requested_position_ms is not None:
+            return self._eq_requested_position_ms
+        if self._pending_resume is not None:
+            return self._eq_clip_offset_ms + self._pending_resume[0]
         return self._eq_clip_offset_ms + self.media_player.position()
 
     def _preview_from_current_position(self) -> None:
@@ -892,9 +899,13 @@ class TrackDetailsDialog(QDialog):
             self._set_eq_state("eq" if wanted else "original")
             return
         self._eq_generation += 1  # older asynchronous results must not replace new settings
+        self._eq_cancel.set()
+        self._eq_cancel = threading.Event()
         self._eq_rendering_filter = wanted
         self._eq_rendering_segment = segment
         self._eq_rendering_start_ms = start_ms
+        if force_start_ms is not None:
+            self._eq_requested_position_ms = force_start_ms
         if not wanted:
             self._swap_source(Path(self.track.file_path), "")
             self._set_eq_state("original")
@@ -907,13 +918,13 @@ class TrackDetailsDialog(QDialog):
             self._set_eq_state("rendering")
             threading.Thread(
                 target=self._render_eq,
-                args=(self._eq_generation, wanted, output, start_ms, segment),
+                args=(self._eq_generation, wanted, output, start_ms, segment, self._eq_cancel),
                 daemon=True,
             ).start()
 
     def _render_eq(
         self, generation: int, audio_filter: str, output: Path,
-        start_ms: int = 0, segment: bool = False,
+        start_ms: int, segment: bool, cancel: threading.Event,
     ) -> None:
         """Worker thread: only the playhead window in Audio, full source in Lyrics."""
         command = [
@@ -929,13 +940,17 @@ class TrackDetailsDialog(QDialog):
             command.extend(("-t", str(EQ_PREVIEW_SECONDS)))
         command.extend(("-c:a", "flac", "-compression_level", "0", "-y", str(output)))
         try:
-            result = subprocess.run(
-                command, capture_output=True, text=True, errors="replace", check=False,
-                **hidden_process_kwargs(),
-            )
+            result = run_probe(command, cancel_event=cancel)
             error = "" if result.returncode == 0 else (
-                result.stderr.strip().splitlines() or [f"FFmpeg exited with {result.returncode}"])[-1]
-        except OSError as exc:
+                result.stderr.decode("utf-8", "replace").strip().splitlines()
+                or [f"FFmpeg exited with {result.returncode}"])[-1]
+        except CancelledError:
+            try:
+                output.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return
+        except (OSError, subprocess.TimeoutExpired) as exc:
             error = str(exc)
         try:
             self.eq_rendered.emit(generation, audio_filter, "" if error else str(output), error)
@@ -948,6 +963,7 @@ class TrackDetailsDialog(QDialog):
                 Path(path).unlink(missing_ok=True)
             return
         if error:
+            self._eq_requested_position_ms = None
             self._resume_after_preview_seek = False
             self._eq_error = error
             self._set_eq_state("failed")
@@ -970,6 +986,7 @@ class TrackDetailsDialog(QDialog):
         )
         self._resume_after_preview_seek = False
         absolute_position = self._current_audio_position_ms()
+        self._eq_requested_position_ms = None
         self._pending_resume = (max(0, absolute_position - clip_offset_ms), playing)
         previous = self.media_player.source().toLocalFile()
         self._eq_playing_filter = audio_filter
@@ -1467,6 +1484,8 @@ class TrackDetailsDialog(QDialog):
     def _stop_playback(self) -> None:
         """Stop audio and reset the active source (the song or short EQ sample)."""
         self._resume_after_preview_seek = False
+        self._eq_requested_position_ms = None
+        self._pending_resume = None
         self.media_player.stop()
         self.media_player.setPosition(0)
         self._playback_position_changed(self._eq_clip_offset_ms)
@@ -1482,27 +1501,34 @@ class TrackDetailsDialog(QDialog):
         slider = sender if isinstance(sender, QSlider) else self.playback_slider
         target = slider.value()
         if self._audio_available:
+            wanted = self._wanted_filter()
             audition = (
-                self.tabs.currentWidget() is self.audio_tab and self._wanted_filter()
+                self.tabs.currentWidget() is self.audio_tab and wanted
                 and self.ffmpeg_executable is not None
             )
             needs_segment = (
                 not self._eq_playing_segment
-                or not self._eq_playing_filter
+                or wanted != self._eq_playing_filter
+                or self._eq_requested_position_ms is not None
                 or target < self._eq_clip_offset_ms
                 or target >= self._eq_clip_offset_ms + round((EQ_PREVIEW_SECONDS - 2) * 1000)
             )
             if audition and needs_segment:
                 self._resume_after_preview_seek = (
                     self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+                    or self._resume_after_preview_seek
                 )
                 self.media_player.pause()
                 self._update_audio_source(force_start_ms=target)
             else:
+                if self._pending_resume is not None:
+                    self._pending_resume = (max(0, target - self._eq_clip_offset_ms), self._pending_resume[1])
                 self.media_player.setPosition(max(0, target - self._eq_clip_offset_ms))
         self._playback_position_changed(target)
 
     def _player_position_changed(self, position_ms: int) -> None:
+        if self._eq_requested_position_ms is not None:
+            return
         self._playback_position_changed(position_ms + self._eq_clip_offset_ms)
 
     def _playback_position_changed(self, position_ms: int) -> None:
@@ -1822,6 +1848,7 @@ class TrackDetailsDialog(QDialog):
         self._karaoke_timer.stop()
         self._eq_timer.stop()
         self._eq_generation += 1  # drop any render still on its way
+        self._eq_cancel.set()
         bar = activity_for(self)
         if bar is not None:
             bar.finish(EQ_ACTIVITY)

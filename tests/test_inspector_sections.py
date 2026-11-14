@@ -415,6 +415,27 @@ class VisualizerSectionTests(unittest.TestCase):
         self.assertEqual(section.widgets["visualizer_noise_gate"].text(), "0.012")  # 3 decimals kept
         self.assertEqual(set(section.notes(korean=False)), {"visualizer_min_level", "visualizer_curve"})
 
+    def test_open_style_menu_closes_when_multi_selection_changes(self) -> None:
+        from app.inspector.source_inspector import SourceInspector
+        from app.services.source_store import SourceStore
+        from app.utils.i18n import Translator
+
+        store = SourceStore()
+        inspector = SourceInspector(store, Translator())
+        self.addCleanup(inspector.deleteLater)
+        self.addCleanup(inspector.close)
+        first = Source(SourceType.AUDIO_VISUALIZER, "First", visualizer_style="bars")
+        second = Source(SourceType.AUDIO_VISUALIZER, "Second", visualizer_style="radial")
+        store.replace([first, second])
+        store.select(first.id)
+        style = inspector.visualizer.widgets["visualizer_style"]
+        style.showPopup()
+        self.assertIsNotNone(style._popup)
+        store.select_many([first.id, second.id], first.id)
+        self.assertIsNone(style._popup)
+        self.assertEqual(style.currentIndex(), -1)
+        self.assertEqual((first.visualizer_style, second.visualizer_style), ("bars", "radial"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,6 +6,7 @@ from dataclasses import asdict
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
+from PySide6.QtCore import QRectF, QSize
 from PySide6.QtGui import QImage
 
 from app.controllers.project_controller import ProjectController
@@ -76,7 +77,8 @@ class ProjectExportPreferencesTests(TestCase):
         window.project_settings = ProjectSettings(
             thumbnail_mode="custom", thumbnail_path="C:/external-thumbnail.png",
         )
-        source = QImage(640, 360, QImage.Format.Format_ARGB32)
+        window.canvas.scene_model.artboard_rect = QRectF(0, 0, 1280, 720)
+        source = QImage(480, 270, QImage.Format.Format_ARGB32)
         source.fill(0xFF123456)
         controller = ProjectController(window, MagicMock())
         with patch(
@@ -85,7 +87,7 @@ class ProjectExportPreferencesTests(TestCase):
         ) as capture:
             thumbnail = controller.thumbnail_image()
         capture.assert_called_once_with(
-            window.canvas.scene_model, output_scale=0.5,
+            window.canvas.scene_model, output_size=QSize(480, 270),
         )
         self.assertFalse(thumbnail.isNull())
         self.assertEqual(thumbnail.size().width(), 480)

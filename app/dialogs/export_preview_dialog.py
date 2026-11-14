@@ -79,11 +79,11 @@ from app.services.playlist_service import PlaylistService
 from app.timeline.compiler import compile_playlist
 from app.timeline.crossfade import compile_crossfade
 from app.preview.live_mix_player import LiveMixPlayer
-from app.preview.timeline_waveform import TimelineWaveformWorker
+from app.preview.timeline_waveform import SAMPLES_PER_BIN, SAMPLE_RATE, TimelineWaveformWorker
 from app.timeline.models import TransitionType
 from app.timeline.render_plan import (
-    AudioRenderTransition, CompiledRenderPlan, reactive_layer_windows, visual_segment_at,
-    visual_segments,
+    AudioRenderClip, AudioRenderTransition, CompiledRenderPlan, reactive_layer_windows,
+    visual_segment_at, visual_segments,
 )
 from app.preview.frame_state import (
     MixJunction, resolve_lyrics_cue_state, resolve_mix_phase, segment_junction,
@@ -214,7 +214,8 @@ class PlaylistTimeline(QSlider):
     def __init__(
         self, schedule: tuple[tuple[int, PlaylistTrack, float, float], ...],
         transitions: tuple[AudioRenderTransition, ...] = (),
-        parent: QWidget | None = None,
+        parent: QWidget | None = None, *,
+        clips: tuple[AudioRenderClip, ...] = (),
     ) -> None:
         super().__init__(Qt.Orientation.Horizontal, parent)
         self._dragging = False
@@ -222,51 +223,70 @@ class PlaylistTimeline(QSlider):
         self._current_track_mode = False
         self._focused_track = -1
         self._view_position = 0.0
-        self._waveforms: dict[int, np.ndarray] = {}
-        self._waveform_columns_cache: dict[int, tuple[int, tuple[float, ...]]] = {}
+        self._waveforms: dict[str, np.ndarray] = {}
+        self._waveform_columns_cache: dict[str, tuple[int, tuple[float, ...]]] = {}
         self.setMinimumHeight(46)
         self._scroll_animation = QVariantAnimation(self)
         self._scroll_animation.setDuration(420)
         self._scroll_animation.setEasingCurve(QEasingCurve.Type.InOutSine)
         self._scroll_animation.valueChanged.connect(self._set_view_position)
         self.valueChanged.connect(self._follow_current_track)
-        self.set_schedule(schedule, transitions)
+        self.set_schedule(schedule, transitions, clips=clips)
 
     def set_schedule(
         self, schedule: tuple[tuple[int, PlaylistTrack, float, float], ...],
-        transitions: tuple[AudioRenderTransition, ...] = (),
+        transitions: tuple[AudioRenderTransition, ...] = (), *,
+        clips: tuple[AudioRenderClip, ...] = (),
     ) -> None:
         """Replace track boundaries and the transition overlay, then repaint."""
         self.schedule = schedule
         self._starts = tuple(row[2] for row in schedule)
         self._transition_regions = _transition_display_regions(transitions)
+        self._clips_by_track = {clip.track_id: clip for clip in clips}
+        self._waveform_columns_cache.clear()
         self._reset_view_position()
 
-    def set_waveform(self, index: int, peaks: np.ndarray) -> None:
+    def set_waveform(self, track_id: str, peaks: np.ndarray) -> None:
         """Add display-only source-audio peaks without changing seek or mix timing."""
-        if not 0 <= index < len(self.schedule):
-            return
         values = np.asarray(peaks, dtype=np.float32)
         if values.ndim != 1 or values.size == 0:
             return
-        self._waveforms[index] = np.clip(np.nan_to_num(values, nan=0.0), 0.0, 1.0)
-        self._waveform_columns_cache.pop(index, None)
+        self._waveforms[track_id] = np.clip(np.nan_to_num(values, nan=0.0), 0.0, 1.0)
+        self._waveform_columns_cache.pop(track_id, None)
         self.update()
 
     def _waveform_columns(self, index: int, width: int) -> tuple[float, ...]:
         """Cache max-pooled bars per pixel width, not per playback frame."""
-        cached = self._waveform_columns_cache.get(index)
+        _, track, start, end = self.schedule[index]
+        cached = self._waveform_columns_cache.get(track.id)
         if cached is not None and cached[0] == width:
             return cached[1]
-        peaks = self._waveforms.get(index)
-        if peaks is None or not len(peaks) or width < 2:
+        peaks = self._waveforms.get(track.id)
+        if peaks is None or width < 2 or end <= start:
             return ()
-        count = min(len(peaks), max(1, width // 2))
-        edges = [i * len(peaks) // count for i in range(count + 1)]
+        bins_per_second = SAMPLE_RATE / SAMPLES_PER_BIN
+        count = min(ceil((end - start) * bins_per_second), width // 2)
+        timeline_edges = np.linspace(start, end, count + 1)
+        clip = self._clips_by_track.get(track.id)
+        if clip is None:
+            source_edges = timeline_edges - start
+        else:
+            # Map each display column through the same tempo steps as the mix.
+            segments = clip.rate_segments()
+            time_knots = [clip.timeline_start]
+            source_knots = [clip.source_in]
+            for source_start, source_end, rate in segments:
+                time_knots.append(time_knots[-1] + (source_end - source_start) / rate)
+                source_knots.append(source_end)
+            source_edges = np.interp(timeline_edges, time_knots, source_knots)
+        bin_edges = np.round(source_edges * bins_per_second, 8)
+        first_bins = np.floor(bin_edges[:-1]).astype(int).clip(0, len(peaks))
+        last_bins = np.ceil(bin_edges[1:]).astype(int).clip(0, len(peaks))
         columns = tuple(
-            float(peaks[edges[i]:edges[i + 1]].max()) for i in range(count)
+            float(peaks[first:last].max()) if last > first and high > low else 0.0
+            for first, last, low, high in zip(first_bins, last_bins, bin_edges, bin_edges[1:])
         )
-        self._waveform_columns_cache[index] = (width, columns)
+        self._waveform_columns_cache[track.id] = (width, columns)
         return columns
 
     def set_current_track_mode(self, enabled: bool) -> None:
@@ -423,7 +443,7 @@ class PlaylistTimeline(QSlider):
             line = QLineF(x, center - extent, x, center + extent)
             (played if x <= played_x else remaining).append(line)
         painter.save()
-        painter.setClipRect(block.adjusted(2, 2, -2, -2))
+        painter.setClipRect(block.adjusted(2, 2, -2, -2), Qt.ClipOperation.IntersectClip)
         accent = self.palette().highlight().color()
         accent.setAlpha(90)
         painter.setPen(QPen(accent, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
@@ -1037,7 +1057,10 @@ class ExportPreviewDialog(QDialog):
         self._last_decoder_pressure_drops = 0
         self._last_active_decoder_count = 0
         self._last_gpu_dropped_frames = 0
-        self.timeline = PlaylistTimeline(self._track_schedule, self._compiled_plan.audio.transitions)
+        self.timeline = PlaylistTimeline(
+            self._track_schedule, self._compiled_plan.audio.transitions,
+            clips=self._compiled_plan.audio.clips,
+        )
         self.timeline.setObjectName("previewTimeline")
         self.timeline.setRange(0, max(1, ceil(self._playlist_duration() * TIMELINE_SCALE)))
         self.timeline_all_button = QPushButton(checkable=True, checked=True, objectName="previewTimelineMode")
@@ -1250,10 +1273,7 @@ class ExportPreviewDialog(QDialog):
         QTimer.singleShot(0, self, self._start_cover_loading)
         self._waveform_worker: TimelineWaveformWorker | None = None
         if self._preview_proxy_ffmpeg is not None:
-            waveform_tracks = [
-                (index, str(track.file_path)) for index, track in enumerate(self.tracks)
-                if Path(track.file_path).is_file()
-            ]
+            waveform_tracks = [(index, str(track.file_path)) for index, track in enumerate(self.tracks)]
             if waveform_tracks:
                 self._waveform_worker = TimelineWaveformWorker(
                     self._preview_proxy_ffmpeg, waveform_tracks, self,
@@ -1449,7 +1469,9 @@ class ExportPreviewDialog(QDialog):
         if cached is None or cached[0] is not plan:
             from app.animation.keyframe_render import keyframe_windows
             cached = self._keyframe_windows_cache = (plan, keyframe_windows(plan))
-        return any(window.timeline_start <= seconds < window.timeline_end for window in cached[1])
+        windows = cached[1]
+        index = bisect_right(windows, seconds, key=lambda window: window.timeline_start) - 1
+        return index >= 0 and seconds < windows[index].timeline_end
 
     def _track_start_seconds(self, target_index: int) -> float:
         if 0 <= target_index < len(self._track_schedule):
@@ -1493,7 +1515,7 @@ class ExportPreviewDialog(QDialog):
 
     def _store_timeline_waveform(self, index: int, peaks: np.ndarray) -> None:
         if not self._closing:
-            self.timeline.set_waveform(index, peaks)
+            self.timeline.set_waveform(self.tracks[index].id, peaks)
 
     def _store_track_cover(self, index: int, image: QImage) -> None:
         if not self._closing:
@@ -4781,7 +4803,7 @@ class ExportPreviewDialog(QDialog):
         # The slider widget caches its own copy of the schedule/transition
         # overlay for paintEvent; without this it kept drawing the initial
         # sequential boundaries even after the final AutoMix plan arrived.
-        self.timeline.set_schedule(self._track_schedule, plan.audio.transitions)
+        self.timeline.set_schedule(self._track_schedule, plan.audio.transitions, clips=plan.audio.clips)
         self._populate_track_list()
         self._refresh_automix_details(covered_until)
         self._base_track_id = ""

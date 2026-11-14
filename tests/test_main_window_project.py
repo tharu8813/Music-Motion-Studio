@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QSettings, Qt, QTimer
+from PySide6.QtCore import QSettings, QSize, Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QPixmap
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QGraphicsView, QMessageBox
 from app import __version__
@@ -36,10 +36,20 @@ from app.services.playlist_service import AudioImportCandidate, PlaylistService
 from app.services.lrc_draft_service import LrcDraftService
 from app.utils.i18n import Language
 from app.presets.preset_service import PresetService
+from app.preview.canvas_snapshot import CanvasSnapshot
 from tests.main_window_base import MainWindowTestCase
 
 
 class MainWindowProjectTests(MainWindowTestCase):
+    def test_large_canvas_thumbnail_renders_at_thumbnail_size(self) -> None:
+        scene = self.window.canvas.scene_model
+        scene.set_artboard_size(16_384, 8_192)
+        with patch.object(CanvasSnapshot, "_paint_scene", wraps=CanvasSnapshot._paint_scene) as paint:
+            thumbnail = self.window._project_thumbnail_image()
+        self.assertEqual(thumbnail.size(), QSize(480, 240))
+        self.assertEqual(paint.call_args.args[2].size().toSize(), thumbnail.size())
+        self.assertEqual(paint.call_args.args[3], scene.artboard_rect)
+
     def test_new_project_cancel_preserves_unsaved_workspace(self) -> None:
         marker = Source(SourceType.TEXT, "UNSAVED_TEST_MARKER")
         self.window.store.add(marker)

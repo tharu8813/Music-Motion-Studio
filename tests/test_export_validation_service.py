@@ -1,5 +1,6 @@
 import json
 from concurrent.futures import CancelledError
+from subprocess import CompletedProcess
 from threading import Event
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from unittest.mock import patch
 from app.services.export_validation_service import (
     EXPORT_FPS_OPTIONS,
     select_export_work_mode,
+    validate_audio_export_output,
     validate_export_output,
 )
 
@@ -54,6 +56,35 @@ class ExportValidationServiceTests(unittest.TestCase):
         self.assertTrue(result.available)
         self.assertFalse(result.passed)
         self.assertIn("FPS", result.warnings[0])
+
+    def test_video_probe_uses_nominal_rate_when_average_or_frame_count_is_unavailable(self):
+        payload = {
+            "streams": [{"width": 640, "height": 360, "avg_frame_rate": "0/0",
+                         "r_frame_rate": "30000/1001", "nb_frames": "N/A"}],
+            "format": {"duration": "2.0"},
+        }
+        completed = CompletedProcess([], 0, json.dumps(payload), "")
+        with patch("app.services.export_validation_service._find_ffprobe", return_value=Path("ffprobe")), \
+             patch("app.services.export_validation_service.subprocess.run", return_value=completed):
+            result = validate_export_output(
+                "video.mkv", expected_width=640, expected_height=360, expected_fps=30,
+                expected_duration_seconds=2,
+            )
+        self.assertTrue(result.passed)
+        self.assertAlmostEqual(result.fps, 30000 / 1001)
+        self.assertEqual(result.frame_count, 0)
+
+    def test_failed_probe_surfaces_its_error_for_video_and_audio(self):
+        completed = CompletedProcess([], 1, "{}", "Invalid data found\n")
+        with patch("app.services.export_validation_service._find_ffprobe", return_value=Path("ffprobe")), \
+             patch("app.services.export_validation_service.subprocess.run", return_value=completed):
+            video = validate_export_output(
+                "video.mp4", expected_width=640, expected_height=360, expected_fps=30,
+            )
+            audio = validate_audio_export_output("audio.mp3", 2)
+        for result in (video, audio):
+            self.assertFalse(result.available)
+            self.assertEqual(result.error, "Invalid data found")
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QApplication
 from app.dialogs.export_preview_dialog import PlaylistTimeline, TIMELINE_SCALE
 from app.models.playlist import PlaylistTrack
 from app.preview.timeline_waveform import TimelineWaveformWorker, pcm_peak_bins
+from app.timeline.render_plan import AudioRenderClip, TempoRamp
 
 
 class TimelineWaveformTests(unittest.TestCase):
@@ -59,7 +60,7 @@ class TimelineWaveformTests(unittest.TestCase):
         try:
             ruler.resize(640, 55)
             ruler.setRange(0, 10 * TIMELINE_SCALE)
-            ruler.set_waveform(0, np.linspace(0.0, 1.0, 100, dtype=np.float32))
+            ruler.set_waveform(track.id, np.linspace(0.0, 1.0, 100, dtype=np.float32))
             self.assertEqual(len(ruler._waveform_columns(0, 200)), 100)
             self.assertEqual(ruler._waveform_columns(0, 200), ruler._waveform_columns(0, 200))
             ruler.setValue(200)
@@ -69,10 +70,32 @@ class TimelineWaveformTests(unittest.TestCase):
             ruler.set_current_track_mode(True)
             self.assertFalse(ruler.grab().isNull())
             self.assertEqual(ruler.value(), before)
-            ruler.set_waveform(0, np.zeros(8, dtype=np.float32))
-            self.assertEqual(len(ruler._waveform_columns(0, 200)), 8)
+            ruler.set_waveform(track.id, np.zeros(8, dtype=np.float32))
+            self.assertEqual(ruler._waveform_columns(0, 200), (0.0,) * 100)
         finally:
             ruler.close()
+
+    def test_plan_swap_remaps_source_peaks_for_trim_speed_and_silence(self) -> None:
+        track = PlaylistTrack("track.wav", "Track", duration_seconds=8)
+        earlier = PlaylistTrack("earlier.wav", "Earlier", duration_seconds=2)
+        ruler = PlaylistTimeline(((0, earlier, 0.0, 2.0), (1, track, 2.0, 10.0)))
+        self.addCleanup(ruler.deleteLater)
+        peaks = np.zeros(80, dtype=np.float32)
+        peaks[12] = 1.0
+        peaks[28] = 0.5
+        peaks[48] = 0.25
+        peaks[56] = 1.0
+        ruler.set_waveform(track.id, peaks)
+        self.assertEqual(ruler._waveform_columns(1, 8), (1.0, 0.5, 1.0, 0.0))
+
+        # Trim at source 2s. The first timeline second covers 2–4s, the
+        # second covers the deceleration and tail, then there's a silent gap.
+        clip = AudioRenderClip(
+            "mix", track.id, 10.0, 2.0, 5.0 + 1.0 / 3, playback_rate=2.0,
+            tempo_ramp=TempoRamp(4.0, 5.0, end_rate=1.0, steps=1),
+        )
+        ruler.set_schedule(((0, track, 10.0, 14.0),), clips=(clip,))
+        self.assertEqual(ruler._waveform_columns(0, 8), (0.5, 0.25, 0.0, 0.0))
 
 
 if __name__ == "__main__":

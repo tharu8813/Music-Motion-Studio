@@ -252,6 +252,8 @@ class SettingsDialog(QDialog):
             self._update_smooth_scroll_ui
         )
         self.preview_backend_combo = QComboBox()
+        self.preset_preview_hover_check = QCheckBox()
+        self.preset_preview_hover_check.setChecked(settings.preset_preview_on_hover)
         self.preview_backend_combo.addItem("", "gpu_layers")
         self.preview_backend_combo.addItem("", "cpu")
         self.preview_backend_combo.setCurrentIndex(
@@ -461,11 +463,13 @@ class SettingsDialog(QDialog):
         self.smooth_scroll_label = QLabel()
         self.smooth_scroll_speed_label = QLabel()
         self.preview_backend_label = QLabel()
+        self.preset_preview_label = QLabel()
         app_form.addRow(self.language_label, self.language_combo)
         app_form.addRow("", self.appearance_hint)
         app_form.addRow(self.language_pack_label, language_pack_panel)
         app_form.addRow(self.smooth_scroll_label, self.smooth_scroll_check)
         app_form.addRow(self.smooth_scroll_speed_label, smooth_scroll_speed_row)
+        app_form.addRow(self.preset_preview_label, self.preset_preview_hover_check)
         app_form.addRow(self.preview_backend_label, preview_backend_panel)
         content_group = QGroupBox()
         content_form = QFormLayout(content_group)
@@ -831,6 +835,7 @@ class SettingsDialog(QDialog):
             audio_bitrate=self.audio_bitrate_combo.currentText(),
             work_mode=str(self.work_mode_combo.currentData() or WORK_MODE_AUTO),
             smooth_scrolling=self.smooth_scroll_check.isChecked(),
+            preset_preview_on_hover=self.preset_preview_hover_check.isChecked(),
             smooth_scroll_duration_ms=self.smooth_scroll_duration_slider.value(),
             preview_backend=str(
                 self.preview_backend_combo.currentData() or "gpu_layers"
@@ -1289,6 +1294,14 @@ class SettingsDialog(QDialog):
             "Higher values scroll more slowly and smoothly."
         )
 
+        self.preset_preview_label.setText("모션 썸네일" if korean else "Motion thumbnails")
+        self.preset_preview_hover_check.setText(
+            "커서를 올리면 재생" if korean else "Play on hover"
+        )
+        self.preset_preview_hover_check.setToolTip(
+            "끄면 메뉴를 열었을 때 모션 썸네일이 계속 재생됩니다."
+            if korean else "When off, motion thumbnails loop while the menu is open."
+        )
         self.preview_backend_label.setText(
             "미리보기 렌더러" if korean else "Preview renderer"
         )

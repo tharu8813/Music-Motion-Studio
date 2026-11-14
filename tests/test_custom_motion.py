@@ -510,7 +510,7 @@ class MotionGpuTests(TestCase):
         from PySide6.QtGui import QPainter
         from PySide6.QtTest import QTest
         from app.controllers.export_controller import ExportOrchestrator
-        from app.dialogs.export_preview_dialog import ExportPreviewDialog
+        from app.dialogs.export_preview_dialog import ExportPreviewDialog, TIMELINE_SCALE
         from app.preview.gpu_texture_surface import GpuPreviewLayer, GpuTexturePreviewSurface
         from app.renderer.python_visualizer import PythonVisualizerRenderer
         from app.services.source_store import SourceStore
@@ -526,6 +526,7 @@ class MotionGpuTests(TestCase):
         overlay = ExportOrchestrator.visualizers(SimpleNamespace(window=SimpleNamespace(store=store)), tracks, compiled_plan=plan)[0]
         raw = PythonVisualizerRenderer._draw_frame(40, 32, overlay, np.ones(4))
         context = SimpleNamespace(_compiled_plan=plan, _active_render_scale=1)
+        context._overlay_keyframe_values = ExportPreviewDialog._overlay_keyframe_values.__get__(context)
         surface = GpuTexturePreviewSurface()
         errors = []
         surface.backend_failed.connect(errors.append)
@@ -537,6 +538,7 @@ class MotionGpuTests(TestCase):
         self.assertTrue(surface.ready)
         print("CUSTOM_MOTION_GPU", surface.backend_info, flush=True)
         for seconds in (0, .25, .5, .9, 1.5):
+            context.timeline = SimpleNamespace(value=lambda: round(seconds * TIMELINE_SCALE))
             overlays, images = ExportPreviewDialog._apply_overlay_keyframes(context, [overlay], (raw,), seconds)
             background = QImage(160, 100, QImage.Format.Format_RGB32)
             background.fill(QColor("black"))
@@ -546,7 +548,7 @@ class MotionGpuTests(TestCase):
             ExportPreviewDialog._paint_overlay_layer(context, painter, overlays[0], images[0])
             painter.end()
             layers = [GpuPreviewLayer("base", background, QRectF(0, 0, 160, 100)),
-                      *ExportPreviewDialog._gpu_audio_layers(context, overlays, images)]
+                      *ExportPreviewDialog._gpu_audio_layers(context, [overlay], (raw,))]
             surface.set_layers(QSize(160, 100), layers)
             QTest.qWait(70)
             gpu = surface.grabFramebuffer()

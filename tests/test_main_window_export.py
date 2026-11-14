@@ -1681,6 +1681,41 @@ class MainWindowExportTests(MainWindowTestCase):
         finally:
             dialog.complete(False)
 
+    def test_export_progress_keeps_overall_and_current_task_separate(self) -> None:
+        dialog = ExportProgressDialog(self.window)
+        dialog.set_korean(True)
+        try:
+            dialog.show()
+            self.application.processEvents()
+            self.assertEqual(dialog.progress_bar.width(), dialog.task_progress_bar.width())
+            self.assertLess(dialog.progress_bar.geometry().bottom(),
+                            dialog.task_progress_bar.geometry().top())
+            self.assertEqual(dialog.progress_bar.value(), 0)
+
+            dialog.set_busy("Preparing audio", "Analyzing beats and vocals 2/4")
+            self.assertEqual(dialog.progress_bar.value(), 0)
+            self.assertEqual(dialog.task_progress_bar.value(), 50)
+
+            dialog.update_progress("Encoding video", 0.82, "Encoding 15.0s / 60.0s")
+            self.assertEqual(dialog.percent_label.text(), "82%")
+            self.assertEqual(dialog.task_percent_label.text(), "25%")
+
+            dialog.set_busy("Finalizing export", "Finishing the MP4 file")
+            self.assertEqual(dialog.progress_bar.value(), 82)
+            self.assertEqual(dialog.task_progress_bar.maximum(), 0)
+            self.assertEqual(dialog.task_percent_label.text(), "진행 중")
+
+            dialog.update_progress("Finalizing export", 0.995, "Checking the exported file")
+            self.assertEqual(dialog.percent_label.text(), "99%")
+            dialog.update_progress("Preparing export", 0.02, "Preparing temporary files")
+            self.assertEqual(dialog.percent_label.text(), "99%")
+
+            dialog.update_progress("Complete", 1.0, "Export completed")
+            self.assertEqual(dialog.progress_bar.value(), 100)
+            self.assertEqual(dialog.task_progress_bar.value(), 100)
+        finally:
+            dialog.complete(False)
+
     def test_export_progress_resize_keeps_summary_controls_anchored(self) -> None:
         dialog = ExportProgressDialog(self.window)
         dialog.set_export_details(
@@ -1779,8 +1814,12 @@ class MainWindowExportTests(MainWindowTestCase):
             self.assertIn("마무리 별도", dialog.time_label.text())
             self.assertIn("프레임 진행 22.0%", dialog.detail_label.text())
             self.assertIn("10.0 FPS", dialog.detail_label.text())
+            self.assertEqual(dialog.progress_bar.value(), 26)
+            self.assertEqual(dialog.task_progress_bar.value(), 22)
             dialog.update_progress("Encoding video", .85, "Rust GPU: 1000/1000 frames")
             self.assertIn("영상 처리 완료", dialog.time_label.text())
+            self.assertEqual(dialog.progress_bar.value(), 85)
+            self.assertEqual(dialog.task_progress_bar.value(), 100)
             for stage, title, progress, detail in (
                 ("Finishing GPU encoding", "GPU 인코딩 마무리", .85,
                  "Writing the last encoded frames to H.264"),
@@ -1797,6 +1836,8 @@ class MainWindowExportTests(MainWindowTestCase):
                     self.assertIn("영상 처리 완료", dialog.time_label.text())
                     self.assertNotIn("영상 처리 약", dialog.time_label.text())
                     self.assertEqual(dialog.step_labels[3].property("stepState"), "active")
+                    self.assertEqual(dialog.progress_bar.maximum(), 100)
+                    self.assertEqual(dialog.task_progress_bar.maximum(), 0)
         finally:
             dialog.complete(False)
 

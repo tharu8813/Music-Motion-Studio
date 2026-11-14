@@ -128,8 +128,64 @@ class TrackAudioSettingsTests(unittest.TestCase):
             dialog.done(0)
             dialog.deleteLater()
 
+    def test_rapid_seek_resumes_the_latest_eq_segment_from_the_requested_time(self) -> None:
+        from pathlib import Path
+        from unittest.mock import Mock, patch
+
+        from PySide6.QtMultimedia import QMediaPlayer
+        from PySide6.QtWidgets import QApplication
+
+        from app.dialogs.track_details_dialog import TrackDetailsDialog
+        from app.utils.i18n import Translator
+
+        _app = QApplication.instance() or QApplication([])
+        dialog = TrackDetailsDialog(
+            PlaylistTrack("track.wav", "Track", duration_seconds=80, bass_db=3),
+            Translator(), ffmpeg_executable=Path("ffmpeg"),
+        )
+        original_player = dialog.media_player
+        player = Mock()
+        player.source.return_value.toLocalFile.return_value = ""
+        player.position.return_value = 4000
+        player.playbackState.side_effect = [
+            QMediaPlayer.PlaybackState.PlayingState, QMediaPlayer.PlaybackState.PausedState,
+            QMediaPlayer.PlaybackState.PausedState,
+        ]
+        try:
+            dialog.tabs.setCurrentWidget(dialog.audio_tab)
+            dialog._eq_timer.stop()
+            dialog._audio_available = True
+            dialog.media_player = player
+            dialog._eq_clip_offset_ms = 30000
+            dialog._eq_playing_segment = True
+            dialog._eq_playing_filter = dialog._wanted_filter()
+            with patch("app.dialogs.track_details_dialog.threading.Thread"):
+                stale_cancel = dialog._eq_cancel
+                for target in (17000, 10000):
+                    dialog.playback_slider.setValue(target)
+                    dialog._seek_playback()
+                    self.assertEqual(dialog._eq_rendering_start_ms, target)
+                    self.assertTrue(stale_cancel.is_set())
+                    stale_cancel = dialog._eq_cancel
+                    self.assertFalse(stale_cancel.is_set())
+                dialog._player_position_changed(4000)
+                self.assertEqual(dialog.playback_slider.value(), 10000)
+                dialog._eq_render_finished(
+                    dialog._eq_generation, dialog._wanted_filter(), "sample.flac", "",
+                )
+            self.assertEqual(dialog._eq_clip_offset_ms, 10000)
+            self.assertEqual(dialog._pending_resume, (0, True))
+            dialog._media_status_changed(QMediaPlayer.MediaStatus.LoadedMedia)
+            player.setPosition.assert_called_once_with(0)
+            player.play.assert_called_once_with()
+        finally:
+            dialog.media_player = original_player
+            dialog.done(0)
+            dialog.deleteLater()
+
     def test_fast_preview_command_seeks_and_limits_the_sample(self) -> None:
         from pathlib import Path
+        from threading import Event
         from unittest.mock import Mock, patch
         from PySide6.QtWidgets import QApplication
         from app.dialogs.track_details_dialog import TrackDetailsDialog
@@ -140,9 +196,11 @@ class TrackAudioSettingsTests(unittest.TestCase):
             PlaylistTrack("missing.mp3", "A"), Translator(), ffmpeg_executable=Path("ffmpeg"),
         )
         try:
-            with patch("app.dialogs.track_details_dialog.subprocess.run", return_value=Mock(returncode=0)) as run:
-                dialog._render_eq(42, "lowshelf=f=100:g=3.00", Path("preview.flac"), 15000, True)
+            cancel = Event()
+            with patch("app.dialogs.track_details_dialog.run_probe", return_value=Mock(returncode=0)) as run:
+                dialog._render_eq(42, "lowshelf=f=100:g=3.00", Path("preview.flac"), 15000, True, cancel)
                 command = run.call_args.args[0]
+                self.assertIs(run.call_args.kwargs["cancel_event"], cancel)
                 self.assertEqual(command[command.index("-ss") + 1], "15.000")
                 self.assertEqual(command[command.index("-t") + 1], "20.0")
                 self.assertIn("lowshelf=f=100:g=3.00", command[command.index("-af") + 1])

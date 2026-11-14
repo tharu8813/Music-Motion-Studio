@@ -2021,6 +2021,7 @@ class SourceInspector(QScrollArea):
             source for source_id in identifiers
             if (source := self.store.get(source_id)) is not None
         ]
+        selection_changed = identifiers != self._source_ids
         self._source_ids = identifiers
         self._source_id = (
             active.id if active is not None and active.id in identifiers
@@ -2032,6 +2033,8 @@ class SourceInspector(QScrollArea):
         # assuming the application's default look for every project.
         preview_source = active if active is not None else (sources[-1] if sources else None)
         for combo in self.findChildren(VisualPresetComboBox):
+            if selection_changed:
+                combo.hidePopup()
             combo.set_preview_source(preview_source)
         self._set_enabled(bool(sources))
         self._show_empty_state(not sources)

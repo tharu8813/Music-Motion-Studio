@@ -8,20 +8,24 @@ previews. Previews never mutate project state or start background playback.
 from __future__ import annotations
 
 from dataclasses import replace
-from math import cos, pi, sin
+from math import ceil, cos, pi, sin
 from time import monotonic
+from weakref import ref
 
-from PySide6.QtCore import QEvent, QPoint, QRectF, QSize, Qt, QTimer
-from PySide6.QtGui import QBrush, QColor, QCursor, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtCore import QEvent, QModelIndex, QPointF, QRect, QRectF, QSize, Qt, QTimer
+from PySide6.QtGui import (
+    QBrush, QColor, QCursor, QGuiApplication, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap,
+)
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QFrame, QListView,
-    QListWidget, QListWidgetItem, QVBoxLayout, QWidget,
+    QAbstractItemView, QComboBox, QFrame, QListView, QStyle,
+    QStyledItemDelegate, QToolTip, QVBoxLayout, QWidget,
 )
 
 from app.animation.curves import animation_pose, loop_pose, music_reactive_pose
 from app.canvas.renderers.base import linear_gradient
 from app.animation.lyrics import cue_effect_pose, intro_exit_pose, stagger_progress
 from app.models.source import Source, SourceType
+from app.services.app_settings_service import preset_preview_on_hover
 from app.ui.design_system import COLORS
 from app.utils.level_meter_painter import paint_level_meter
 from app.utils.particle_painter import paint_particles
@@ -29,8 +33,12 @@ from app.utils.visualizer_paint import draw_visualizer_content
 from app.utils.mask_shapes import mask_path
 
 
-_MOTION_KINDS = frozenset({"entrance", "exit", "loop", "reactive", "lyric", "intro", "intro_exit"})
-_TILE_SIZE = QSize(138, 116)
+_ANIMATED_KINDS = frozenset({
+    "entrance", "exit", "loop", "reactive", "lyric", "intro", "intro_exit",
+    "visualizer", "particle",
+})
+_SELECTABLE = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+_TILE_WIDTH = 144
 _ICON_SIZE = QSize(112, 72)
 
 
@@ -49,9 +57,12 @@ def _paint_motion(painter: QPainter, rect: QRectF, pose, color: QColor) -> None:
     painter.restore()
 
 
-def _preview_icon(kind: str, value: object, seconds: float, source: Source | None = None) -> QIcon:
-    """Draw at native pixel size; QIcon is recreated only while popup is visible."""
-    pix = QPixmap(_ICON_SIZE)
+def _preview_icon(
+    kind: str, value: object, seconds: float, source: Source | None = None, *, scale: float = 1.0,
+) -> QIcon:
+    """Render at the display scale while keeping the sample coordinates in logical pixels."""
+    pix = QPixmap(ceil(_ICON_SIZE.width() * scale), ceil(_ICON_SIZE.height() * scale))
+    pix.setDevicePixelRatio(scale)
     pix.fill(Qt.GlobalColor.transparent)
     p = QPainter(pix)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -60,6 +71,9 @@ def _preview_icon(kind: str, value: object, seconds: float, source: Source | Non
     p.setPen(QPen(QColor(COLORS["border"]), 1))
     p.setBrush(QColor(COLORS["stage"]))
     p.drawRoundedRect(stage, 7, 7)
+    clip = QPainterPath()
+    clip.addRoundedRect(stage.adjusted(1, 1, -1, -1), 6, 6)
+    p.setClipPath(clip)
     accent = QColor(COLORS["accent"])
     muted = QColor(COLORS["muted"])
     key = str(value)
@@ -104,6 +118,11 @@ def _preview_icon(kind: str, value: object, seconds: float, source: Source | Non
             for x, y in ((22, 47), (45, 24), (82, 42)):
                 p.drawEllipse(QRectF(x - 3, y - 3, 6, 6))
         else:
+            # Text and media can use a transparent fill. Keep the illustrative
+            # sample visible against the stage while retaining legible colors.
+            stage_color = QColor(COLORS["stage"])
+            if (color.lightness() - stage_color.lightness()) * color.alphaF() < 75:
+                color = accent
             if kind == "loop":
                 pose = loop_pose(key, seconds, 1.6, 1.0, 180, 100)
             elif kind == "reactive":
@@ -223,7 +242,6 @@ def _preview_icon(kind: str, value: object, seconds: float, source: Source | Non
         # The current Canvas waveform draws this same stroke for all three
         # stored waveform_style values; don't invent a fill or mirror that the
         # final render does not yet produce.
-        from PySide6.QtCore import QPointF
         rect = QRectF(9, 13, 94, 46)
         path = QPainterPath(QPointF(rect.left(), rect.center().y()))
         for index in range(32):
@@ -397,159 +415,319 @@ def _preview_icon(kind: str, value: object, seconds: float, source: Source | Non
     return QIcon(pix)
 
 
-class VisualPresetComboBox(QComboBox):
-    """A conventional combobox with a visual, keyboard-navigable grid popup.
+class _PresetTileDelegate(QStyledItemDelegate):
+    """Paint thumbnails without writing decoration or selection into the combo model."""
 
-    Data values, indexes, signals, retranslation and model persistence remain
-    owned by QComboBox, not by the popup. Unknown/custom values are preserved.
-    """
+    def __init__(self, combo: VisualPresetComboBox, view: QListView) -> None:
+        super().__init__(view)
+        self._combo = ref(combo)
+        self.hover_only = preset_preview_on_hover()
+        self.seconds = 0.0
+        self._still_icons: dict[tuple[str, float], QIcon] = {}
+
+    def sizeHint(self, option, index) -> QSize:
+        return self.parent().gridSize()
+
+    def invalidate_previews(self) -> None:
+        self._still_icons.clear()
+        self.parent().viewport().update()
+
+    def paint(self, painter, option, index) -> None:
+        enabled = index.flags() & _SELECTABLE == _SELECTABLE
+        combo = self._combo()
+        if combo is None:
+            return
+        applied = index.row() == combo.currentIndex()
+        hovered = enabled and bool(option.state & QStyle.StateFlag.State_MouseOver)
+        focused = enabled and bool(option.state & QStyle.StateFlag.State_HasFocus)
+        tile = QRectF(option.rect).adjusted(3.5, 3.5, -3.5, -3.5)
+        background, border = "field", "border"
+        if applied:
+            background, border = "selection", "selection_border"
+        elif hovered:
+            background, border = "hover", "selection_border"
+        if focused:
+            border = "accent"
+        if not enabled:
+            background, border = "disabled", "border"
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(QColor(COLORS[border]), 2 if focused else 1))
+        painter.setBrush(QColor(COLORS[background]))
+        painter.drawRoundedRect(tile, 7, 7)
+
+        stage = QRect(0, 0, min(_ICON_SIZE.width(), int(tile.width()) - 12), _ICON_SIZE.height())
+        stage.moveTopLeft(tile.topLeft().toPoint())
+        stage.translate(round((tile.width() - stage.width()) / 2), 6)
+        value = str(index.data(Qt.ItemDataRole.UserRole))
+        scale = painter.device().devicePixelRatioF()
+        painter.setOpacity(1.0 if enabled else .45)
+        if stage.isValid():
+            animated = enabled and (hovered or not self.hover_only)
+            self._icon(combo, value, scale, animated).paint(painter, stage)
+        painter.setOpacity(1.0)
+
+        if applied:
+            x, y = stage.right() - 9, stage.top() + 9
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(COLORS["accent"]))
+            painter.drawEllipse(QPointF(x, y), 8, 8)
+            mark = QPainterPath(QPointF(x - 3.5, y))
+            mark.lineTo(x - .8, y + 2.5)
+            mark.lineTo(x + 3.8, y - 2.6)
+            painter.setPen(QPen(QColor(COLORS["stage"]), 1.5, Qt.PenStyle.SolidLine,
+                                Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            painter.drawPath(mark)
+
+        text = str(index.data(Qt.ItemDataRole.DisplayRole) or "")
+        label = QRect(int(tile.left()) + 6, stage.bottom() + 4,
+                      int(tile.width()) - 12, 2 * option.fontMetrics.lineSpacing() + 2)
+        flags = Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextWordWrap
+        painter.setFont(option.font)
+        text_bounds = painter.boundingRect(label, flags, text)
+        if text_bounds.height() > label.height() or text_bounds.width() > label.width():
+            text = option.fontMetrics.elidedText(text, Qt.TextElideMode.ElideRight, label.width())
+        painter.setPen(QColor(COLORS["text" if enabled else "muted"]))
+        painter.setClipRect(label)
+        painter.drawText(label, flags, text)
+        painter.restore()
+
+    def _icon(self, combo: VisualPresetComboBox, value: str, scale: float, active: bool) -> QIcon:
+        kind, source = combo.preview_kind, combo._preview_source
+        # A representative frame keeps entrance and exit cards legible at rest.
+        seconds = .8 if kind == "entrance" else .32 if kind == "exit" else .6
+        if active and kind in _ANIMATED_KINDS and value not in {"none", "custom"}:
+            return _preview_icon(kind, value, seconds + self.seconds, source, scale=scale)
+        key = (value, scale)
+        if key not in self._still_icons:
+            self._still_icons[key] = _preview_icon(kind, value, seconds, source, scale=scale)
+        return self._still_icons[key]
+
+    def helpEvent(self, event, view, option, index) -> bool:
+        if super().helpEvent(event, view, option, index):
+            return True
+        if event.type() == QEvent.Type.ToolTip and index.isValid():
+            QToolTip.showText(event.globalPos(), str(index.data() or ""), view, option.rect)
+            return True
+        return False
+
+
+class VisualPresetComboBox(QComboBox):
+    """A QComboBox with a thumbnail grid over the same model and stored values."""
 
     def __init__(self, preview_kind: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.preview_kind = preview_kind
         self._preview_source: Source | None = None
         self._popup: QFrame | None = None
-        self._list: QListWidget | None = None
+        self._list: QListView | None = None
         self._started = 0.0
-        self._suppress_next_open = False
         self._timer = QTimer(self)
-        self._timer.setInterval(120)
-        self._timer.timeout.connect(self._refresh_icons)
+        self._timer.setInterval(65)
+        self._timer.timeout.connect(self._refresh_previews)
+        self.currentIndexChanged.connect(self._update_applied_tile)
 
     def set_preview_source(self, source: Source | None) -> None:
-        """Use the selected element's real colors and settings for samples."""
+        """Use the active element's appearance and dismiss menus for replaced elements."""
+        if source is not self._preview_source:
+            self.hidePopup()
         self._preview_source = source
+        if self._list is not None:
+            self._list.itemDelegate().invalidate_previews()
+
+    def setModel(self, model) -> None:
+        self.hidePopup()
+        super().setModel(model)
 
     def showPopup(self) -> None:
-        if self._suppress_next_open:
-            self._suppress_next_open = False
+        if self._popup is not None or not self.isEnabled() or self.count() == 0:
             return
-        if not self.isEnabled() or self.count() == 0:
-            return
-        if self._popup is not None:
-            self.hidePopup()
-            return
-        popup = QFrame(self, Qt.WindowType.Popup)
+        popup = QFrame(self, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
         popup.setObjectName("visualPresetPopup")
-        popup.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         popup.installEventFilter(self)
         layout = QVBoxLayout(popup)
-        layout.setContentsMargins(7, 7, 7, 7)
-        layout.setSpacing(0)
-        view = QListWidget(popup)
+        layout.setContentsMargins(6, 6, 6, 6)
+
+        view = QListView(popup)
         view.setObjectName("visualPresetList")
+        view.setAccessibleName(self.accessibleName())
         view.setViewMode(QListView.ViewMode.IconMode)
         view.setFlow(QListView.Flow.LeftToRight)
         view.setWrapping(True)
         view.setResizeMode(QListView.ResizeMode.Adjust)
         view.setMovement(QListView.Movement.Static)
+        view.setUniformItemSizes(True)
         view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         view.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-        view.setWordWrap(True)
-        view.setIconSize(_ICON_SIZE)
-        view.setGridSize(_TILE_SIZE)
-        view.setSpacing(0)
         view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         view.setFrameShape(QFrame.Shape.NoFrame)
-        for index in range(self.count()):
-            item = QListWidgetItem(self.itemText(index))
-            item.setData(Qt.ItemDataRole.UserRole, index)
-            item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
-            item.setToolTip(self.itemText(index))
-            item.setIcon(_preview_icon(self.preview_kind, self.itemData(index), 0, self._preview_source))
-            view.addItem(item)
-        view.setCurrentRow(self.currentIndex())
-        view.itemClicked.connect(self._choose)
-        view.itemActivated.connect(self._choose)
+        view.setMouseTracking(True)
+        view.setModel(self.model())
+        view.setModelColumn(self.modelColumn())
+        view.setRootIndex(self.rootModelIndex())
+        view.setItemDelegate(_PresetTileDelegate(self, view))
+        view.clicked.connect(self._choose)
+        view.activated.connect(self._choose)
+        view.installEventFilter(self)
         layout.addWidget(view)
-        self._popup = popup
-        self._list = view
+        self._popup, self._list = popup, view
 
-        # IconMode uses the VIEWPORT width, not the outer window width, to
-        # calculate wrapping. Reserve space for its scrollbar and frame:
-        # otherwise a nominal 3-column popup silently wraps to two and
-        # leaves a column-sized empty strip (especially on Windows/DPI).
-        screen = self.screen()
-        bounds = screen.availableGeometry() if screen is not None else self.geometry()
-        margin = layout.contentsMargins()
-        outer_width = margin.left() + margin.right() + 2  # popup border
-        scrollbar_width = max(18, view.verticalScrollBar().sizeHint().width() + 4)
-        cols = min(3, self.count(), max(
-            1, (bounds.width() - 24 - outer_width - scrollbar_width) // _TILE_SIZE.width()
-        ))
-        rows = (self.count() + cols - 1) // cols
-        max_height = max(120, min(480, bounds.height() - 24))
-        desired_height = rows * _TILE_SIZE.height() + margin.top() + margin.bottom() + 2
-        needs_scrollbar = desired_height > max_height
-        width = cols * _TILE_SIZE.width() + outer_width + (
-            scrollbar_width if needs_scrollbar else 4
-        )
-        height = min(desired_height, max_height)
-        # Extra viewport pixels are deliberate breathing room, not a spare
-        # (blank) preset column; all columns have enough room to wrap.
-        view.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded if needs_scrollbar
-            else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
-        origin = self.mapToGlobal(QPoint(0, self.height()))
-        x = max(bounds.left(), min(origin.x(), bounds.right() - width + 1))
-        y = origin.y() if origin.y() + height <= bounds.bottom() else (
-            self.mapToGlobal(QPoint(0, 0)).y() - height
-        )
-        y = max(bounds.top(), min(y, bounds.bottom() - height + 1))
-        popup.setGeometry(x, y, width, height)
+        popup.ensurePolished()
+        view.ensurePolished()
+        self._layout_popup()
+        model = view.model()
+        model.rowsInserted.connect(self._layout_popup)
+        model.rowsRemoved.connect(self._layout_popup)
+        model.modelReset.connect(self._layout_popup)
+        active = self._model_index(self.currentIndex())
+        if active.flags() & _SELECTABLE != _SELECTABLE:
+            active = next((index for row in range(self.count())
+                           if (index := self._model_index(row)).flags() & _SELECTABLE == _SELECTABLE),
+                          QModelIndex())
+
         self._started = monotonic()
         popup.show()
-        view.setFocus()
-        if self.preview_kind in _MOTION_KINDS | {"visualizer", "waveform", "meter", "particle"}:
+        if self._popup is not popup:
+            return
+        view.setFocus(Qt.FocusReason.PopupFocusReason)
+        if active.isValid():
+            view.setCurrentIndex(active)
+            view.scrollTo(active, QAbstractItemView.ScrollHint.EnsureVisible)
+        if self.preview_kind in _ANIMATED_KINDS:
             self._timer.start()
+
+    def _model_index(self, row: int) -> QModelIndex:
+        return self.model().index(row, self.modelColumn(), self.rootModelIndex())
+
+    def _layout_popup(self) -> None:
+        if self._popup is None:
+            return
+        if not self.count():
+            self.hidePopup()
+            return
+        anchor = QRect(self.mapToGlobal(self.rect().topLeft()), self.size())
+        screen = QGuiApplication.screenAt(anchor.center()) or self.screen()
+        self._position_popup(anchor, screen.availableGeometry().adjusted(6, 6, -6, -6))
+
+    def _position_popup(self, anchor: QRect, bounds: QRect) -> None:
+        popup, view = self._popup, self._list
+        margins = popup.layout().contentsMargins() + popup.contentsMargins()
+        # Qt reserves a few viewport pixels beyond the icon grid itself.
+        grid_slack = 4
+        scrollbar_width = view.verticalScrollBar().sizeHint().width()
+        horizontal_chrome = margins.left() + margins.right() + grid_slack
+        content_width = max(1, bounds.width() - horizontal_chrome - scrollbar_width)
+        columns = min(3, self.count(), max(1, content_width // _TILE_WIDTH))
+        cell_width = min(_TILE_WIDTH, content_width)
+        cell_height = _ICON_SIZE.height() + 2 * view.fontMetrics().lineSpacing() + 23
+        view.setGridSize(QSize(cell_width, cell_height))
+
+        rows = (self.count() + columns - 1) // columns
+        chrome_height = margins.top() + margins.bottom()
+        below, above = anchor.bottom() + 5, anchor.top() - 4
+        space_below = bounds.bottom() + 1 - below
+        space_above = above - bounds.top()
+        desired = min(4, rows) * cell_height + chrome_height
+        open_up = desired > space_below and space_above > space_below
+        available = space_above if open_up else space_below
+        shown_rows = max(1, (available - chrome_height) // cell_height)
+        height = min(desired, shown_rows * cell_height + chrome_height, bounds.height())
+        scrolling = rows * cell_height + chrome_height > height
+        width = columns * cell_width + horizontal_chrome
+        # Reserve the gutter before Qt lays out wrapping, including on scaled displays.
+        if scrolling:
+            width += scrollbar_width
+        view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn if scrolling
+                                        else Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        popup.layout().setSizeConstraint(QVBoxLayout.SizeConstraint.SetNoConstraint)
+        x = max(bounds.left(), min(anchor.left(), bounds.right() - width + 1))
+        y = above - height if open_up else below
+        popup.setGeometry(x, max(bounds.top(), min(y, bounds.bottom() - height + 1)), width, height)
 
     def hidePopup(self) -> None:
         if self._popup is not None:
             self._popup.close()
+        super().hidePopup()
 
     def mousePressEvent(self, event) -> None:
-        # The parent QComboBox remains clickable while its own Qt.Popup is
-        # open, but should TOGGLE it rather than immediately reopening it.
-        if self._popup is not None:
+        if self._popup is not None and event.button() == Qt.MouseButton.LeftButton:
             self.hidePopup()
             event.accept()
             return
         super().mousePressEvent(event)
 
-    def _reset_reopen_guard(self) -> None:
-        self._suppress_next_open = False
+    def wheelEvent(self, event) -> None:
+        # Scrolling the inspector over a closed field should never edit a source.
+        event.ignore()
 
-    def _choose(self, item: QListWidgetItem) -> None:
-        index = item.data(Qt.ItemDataRole.UserRole)
-        if isinstance(index, int) and 0 <= index < self.count():
-            self.setCurrentIndex(index)
-        if self._popup is not None:
-            self._popup.close()
-        self.setFocus(Qt.FocusReason.PopupFocusReason)
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.EnabledChange and not self.isEnabled():
+            self.hidePopup()
 
-    def _refresh_icons(self) -> None:
-        if self._list is None or not self._list.isVisible():
-            self._timer.stop()
+    def _choose(self, index: QModelIndex) -> None:
+        if (self._popup is None or not index.isValid()
+                or index != self._model_index(index.row()) or index.flags() & _SELECTABLE != _SELECTABLE):
             return
-        seconds = monotonic() - self._started
-        viewport = self._list.viewport().rect()
-        for i in range(self._list.count()):
-            item = self._list.item(i)
-            if self._list.visualItemRect(item).intersects(viewport):
-                item.setIcon(_preview_icon(self.preview_kind, self.itemData(i), seconds, self._preview_source))
+        row = index.row()
+        text = self.itemText(row)
+        self.hidePopup()
+        self.setCurrentIndex(row)
+        self.activated.emit(row)
+        self.textActivated.emit(text)
+
+    def _refresh_previews(self) -> None:
+        view = self._list
+        if view is None:
+            return
+        viewport = view.viewport()
+        delegate = view.itemDelegate()
+        delegate.seconds = monotonic() - self._started
+        if not delegate.hover_only:
+            viewport.update()
+            return
+        if viewport.underMouse():
+            hovered = view.indexAt(viewport.mapFromGlobal(QCursor.pos()))
+            viewport.update(view.visualRect(hovered))
+
+    def _update_applied_tile(self) -> None:
+        if self._list is not None:
+            self._list.viewport().update()
 
     def eventFilter(self, watched, event):
-        if watched is self._popup and event.type() == QEvent.Type.Hide:
-            # Windows may close the Popup before dispatching the *same* click
-            # to the combo. Suppress only that click; next deliberate clicks
-            # must work normally.
-            over_combo = self.rect().contains(self.mapFromGlobal(QCursor.pos()))
-            if over_combo:
-                self._suppress_next_open = True
-                QTimer.singleShot(0, self._reset_reopen_guard)
-            self._timer.stop()
-            self._list = None
-            self._popup = None
-            watched.deleteLater()
+        kind = event.type()
+        if watched is self._popup and self._popup is not None:
+            if kind == QEvent.Type.MouseButtonPress and self.rect().contains(
+                self.mapFromGlobal(event.globalPosition().toPoint())
+            ):
+                # Qt would otherwise replay the dismissing click on the field.
+                watched.setAttribute(Qt.WidgetAttribute.WA_NoMouseReplay)
+                self.hidePopup()
+                return True
+            if kind == QEvent.Type.Hide:
+                self._timer.stop()
+                model = self._list.model()
+                model.rowsInserted.disconnect(self._layout_popup)
+                model.rowsRemoved.disconnect(self._layout_popup)
+                model.modelReset.disconnect(self._layout_popup)
+                self._list = self._popup = None
+                watched.deleteLater()
+        elif watched is self._list and self._list is not None and kind in (
+            QEvent.Type.KeyPress, QEvent.Type.ShortcutOverride,
+        ):
+            key = event.key()
+            confirm = key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space)
+            dismiss = key in (Qt.Key.Key_Escape, Qt.Key.Key_F4) or (
+                key in (Qt.Key.Key_Down, Qt.Key.Key_Up) and event.modifiers() == Qt.KeyboardModifier.AltModifier
+            )
+            if confirm or dismiss:
+                event.accept()
+                if kind == QEvent.Type.KeyPress:
+                    if confirm:
+                        self._choose(watched.currentIndex())
+                    else:
+                        self.hidePopup()
+                return True
         return super().eventFilter(watched, event)

@@ -45,6 +45,12 @@ AUDIO_BITRATES = ("128k", "192k", "256k", "320k")
 PREVIEW_BACKENDS = ("gpu_layers", "cpu")
 EXPORT_NOTIFICATION_MODES = ("always", "unfocused")
 LYRICS_AUTO_ATTACH_MODES = ("always", "ask", "never")
+PRESET_PREVIEW_HOVER_KEY = "interface/preset_preview_on_hover"
+
+
+def preset_preview_on_hover(settings: QSettings | None = None) -> bool:
+    settings = settings if settings is not None else QSettings()
+    return settings.value(PRESET_PREVIEW_HOVER_KEY, False, type=bool)
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +88,7 @@ class AppSettings:
     render_height: int = 0
     native_nvenc_preset: str = DEFAULT_NATIVE_NVENC_PRESET
     native_nvenc_cq: int = 0
+    preset_preview_on_hover: bool = False
 
     @property
     def resolution(self) -> tuple[int, int]:
@@ -155,6 +162,7 @@ class AppSettingsService(QObject):
                 else WORK_MODE_AUTO
             ),
             smooth_scrolling=bool(settings.smooth_scrolling),
+            preset_preview_on_hover=bool(settings.preset_preview_on_hover),
             smooth_scroll_duration_ms=max(
                 80, min(420, int(settings.smooth_scroll_duration_ms))
             ),
@@ -196,6 +204,7 @@ class AppSettingsService(QObject):
         self._settings.setValue("audio_bitrate", normalized.audio_bitrate)
         self._settings.setValue("work_mode", normalized.work_mode)
         self._settings.endGroup()
+        self._settings.setValue(PRESET_PREVIEW_HOVER_KEY, normalized.preset_preview_on_hover)
         self._settings.beginGroup("interface")
         self._settings.setValue("smooth_scrolling", normalized.smooth_scrolling)
         self._settings.setValue(
@@ -252,6 +261,7 @@ class AppSettingsService(QObject):
         if values.fps not in EXPORT_FPS_OPTIONS:
             values = replace(values, fps=30)
         self._settings.endGroup()
+        values = replace(values, preset_preview_on_hover=preset_preview_on_hover(self._settings))
         self._settings.beginGroup("interface")
         values = replace(
             values,

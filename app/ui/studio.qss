@@ -361,6 +361,8 @@ QSlider#inspectorValueSlider::handle:horizontal { background: @text; border: 2px
 /* --- Progress & sliders ----------------------------------- */
 QProgressBar { background: @field; border: 0; border-radius: 3px; color: @text; text-align: center; min-height: 6px; }
 QProgressBar::chunk { background: @accent; border-radius: 3px; }
+QProgressBar#exportProgressBar { background: @border; border-radius: 4px; }
+QProgressBar#exportProgressBar::chunk { border-radius: 4px; }
 QSlider::groove:horizontal { background: @border; height: 4px; border-radius: 2px; }
 QSlider::sub-page:horizontal { background: @accent; border-radius: 2px; }
 QSlider::handle:horizontal { background: @text; border: 2px solid @panel; width: 12px; margin: -5px 0; border-radius: 7px; }
@@ -607,26 +609,9 @@ QFrame#visualPresetPopup {
     border: 1px solid @border;
     border-radius: 7px;
 }
-QListWidget#visualPresetList {
+QListView#visualPresetList {
     background: @panel;
     color: @text;
     border: 0;
     outline: 0;
-}
-QListWidget#visualPresetList::item {
-    background: @field;
-    color: @text;
-    border: 1px solid @border;
-    border-radius: 5px;
-    padding: 4px;
-    margin: 3px;
-}
-QListWidget#visualPresetList::item:hover {
-    background: @hover;
-    border-color: @selection_border;
-}
-QListWidget#visualPresetList::item:selected {
-    background: @selection;
-    border-color: @accent;
-    color: @text;
 }

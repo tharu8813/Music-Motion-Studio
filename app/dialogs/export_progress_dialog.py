@@ -42,6 +42,18 @@ from app.renderer.progress_text import audio_progress_text
 from app.utils.time_format import format_clock
 
 
+_MEDIA_PROGRESS = re.compile(
+    r"^(?:Encoding|Capturing and encoding|Saving audio|Muxing) "
+    r"(\d+(?:\.\d+)?)s / (\d+(?:\.\d+)?)s",
+    re.IGNORECASE,
+)
+_TASK_COUNTS = re.compile(
+    r"^(?:Validating visual frames|Preparing visual layers|Analyzing beats and vocals|"
+    r"Analyzing track structure|Rendering clips|Combining mix|Measuring loudness|"
+    r"Normalizing loudness|Normalized) (\d+)/(\d+)(?: frames| tracks)?$",
+)
+
+
 @dataclass(frozen=True, slots=True)
 class _EtaSample:
     """One monotonic export-progress observation."""
@@ -368,6 +380,7 @@ class ExportProgressDialog(QDialog):
         self._time_refresh_timer.timeout.connect(self._refresh_remaining_time)
         self._time_refresh_timer.start()
         self._cancelling = False
+        self._overall_fraction = 0.0
         self._allow_close = False
         self._last_log = ""
         self._korean = False
@@ -423,11 +436,24 @@ class ExportProgressDialog(QDialog):
         )
         self.stage_label = QLabel("Preparing export")
         self.stage_label.setObjectName("panelTitle")
+        self.overall_progress_label = QLabel("Overall progress")
+        self.overall_progress_label.setObjectName("panelTitle")
+        self.task_progress_label = QLabel("Current task progress")
+        self.task_progress_label.setObjectName("mutedLabel")
         self.progress_bar = QProgressBar()
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setFixedHeight(6)
+        self.task_progress_bar = QProgressBar()
+        for bar in (self.progress_bar, self.task_progress_bar):
+            bar.setObjectName("exportProgressBar")
+            bar.setTextVisible(False)
+            bar.setFixedHeight(8)
+        self.progress_bar.setAccessibleName(self.overall_progress_label.text())
+        self.task_progress_bar.setAccessibleName(self.task_progress_label.text())
+        self.progress_bar.setValue(0)
         self.percent_label = QLabel("0%")
         self.percent_label.setObjectName("panelTitle")
+        self.task_percent_label = QLabel()
+        self.task_percent_label.setObjectName("panelTitle")
+        self._update_task_progress(None)
         self.detail_label = QLabel("Preparing temporary files")
         self.detail_label.setObjectName("mutedLabel")
         self.detail_label.setWordWrap(True)
@@ -513,15 +539,26 @@ class ExportProgressDialog(QDialog):
         self.cancel_button = self.buttons.button(QDialogButtonBox.StandardButton.Cancel)
         self.minimize_button.clicked.connect(self.minimize_requested.emit)
         self.cancel_button.clicked.connect(self.request_cancel)
-        progress_row = QHBoxLayout()
-        progress_row.addWidget(self.progress_bar, 1)
-        progress_row.addWidget(self.percent_label)
+        overall_row = QHBoxLayout()
+        overall_row.addWidget(self.overall_progress_label, 1)
+        overall_row.addWidget(self.percent_label)
+        task_row = QHBoxLayout()
+        task_row.addWidget(self.task_progress_label)
+        task_row.addSpacing(4)
+        task_row.addWidget(self.stage_label, 1)
+        task_row.addWidget(self.task_percent_label)
+        progress_layout = QVBoxLayout()
+        progress_layout.setSpacing(5)
+        progress_layout.addLayout(overall_row)
+        progress_layout.addWidget(self.progress_bar)
+        progress_layout.addSpacing(5)
+        progress_layout.addLayout(task_row)
+        progress_layout.addWidget(self.task_progress_bar)
         layout.addWidget(self.steps_heading)
         layout.addWidget(self.steps_widget)
         layout.addWidget(self.export_settings_heading)
         layout.addWidget(self.export_settings_label)
-        layout.addWidget(self.stage_label)
-        layout.addLayout(progress_row)
+        layout.addLayout(progress_layout)
         layout.addWidget(self.detail_label)
         status_footer = QHBoxLayout()
         status_footer.addWidget(self.time_label, 1)
@@ -576,6 +613,12 @@ class ExportProgressDialog(QDialog):
             self.cancel_button.setText("Cancel")
             self.stage_label.setText("Preparing export")
             self.time_label.setText("Elapsed 00:00 · Calculating remaining time")
+        self.overall_progress_label.setText("전체 진행률" if korean else "Overall progress")
+        self.task_progress_label.setText("현재 작업 진행률" if korean else "Current task progress")
+        self.progress_bar.setAccessibleName(self.overall_progress_label.text())
+        self.task_progress_bar.setAccessibleName(self.task_progress_label.text())
+        if self.task_progress_bar.maximum() == 0:
+            self._update_task_progress(None)
         self._refresh_storage_labels()
         self._refresh_steps("Preparing visual frames")
 
@@ -726,11 +769,12 @@ class ExportProgressDialog(QDialog):
 
     def set_busy(self, stage: str, message: str) -> None:
         """Show activity before a measurable FFmpeg progress stream exists."""
+        if self._cancelling:
+            return
         display_message = self._detail_text(message)
         self.stage_label.setText(self._stage_text(stage))
         self._refresh_steps(stage)
-        self.progress_bar.setRange(0, 0)
-        self.percent_label.setText("…")
+        self._update_task_progress(self._task_fraction(message))
         self.detail_label.setText(display_message)
         now = monotonic()
         self._update_time_label(
@@ -751,12 +795,14 @@ class ExportProgressDialog(QDialog):
         """Apply worker progress and calculate an approximate time remaining."""
         if self._cancelling:
             return
-        percent = round(max(0.0, min(1.0, fraction)) * 100)
+        self._overall_fraction = (
+            1.0 if stage == "Complete"
+            else max(self._overall_fraction, min(0.99, fraction))
+        )
+        percent = int(self._overall_fraction * 100 + 1e-9)
         now = monotonic()
         elapsed = now - self._started_at
         display_message = self._detail_text(message)
-        if self.progress_bar.maximum() == 0:
-            self.progress_bar.setRange(0, 100)
         self.stage_label.setText(self._stage_text(stage))
         self._refresh_steps(stage)
         self.progress_bar.setValue(percent)
@@ -765,6 +811,8 @@ class ExportProgressDialog(QDialog):
         if display_message and display_message != self._last_log:
             self.log_output.add_detail(display_message)
             self._last_log = display_message
+        media = _MEDIA_PROGRESS.match(message.strip())
+        task_fraction = 1.0 if stage == "Complete" else self._task_fraction(message)
         matched = re.fullmatch(r"Rust GPU: (\d+)/(\d+) frames", message.strip())
         if stage == "Encoding video" and matched:
             if self._gpu_frame_eta is None:
@@ -773,46 +821,27 @@ class ExportProgressDialog(QDialog):
             accepted, total = int(matched.group(1)), int(matched.group(2))
             remaining = self._gpu_frame_eta.update(accepted, total, now)
             if total > 0:
-                frame_fraction = accepted / total * 100.0
-                # For GPU exports the accepted frame count is actual work.
-                # Do not present the unrelated weighted FFmpeg percentage.
-                self.progress_bar.setValue(round(frame_fraction))
-                self.percent_label.setText(f"{frame_fraction:.0f}%")
+                task_fraction = accepted / total
+                frame_percent = task_fraction * 100.0
                 measured = self._gpu_frame_eta.measured_fps
                 suffix = f" · {measured:.1f} FPS" if measured is not None else ""
                 self.detail_label.setText(
-                    f"{display_message} · 프레임 진행 {frame_fraction:.1f}%{suffix}"
+                    f"{display_message} · 프레임 진행 {frame_percent:.1f}%{suffix}"
                     if self._korean else
-                    f"{display_message} · Video frames {frame_fraction:.1f}%{suffix}"
+                    f"{display_message} · Video frames {frame_percent:.1f}%{suffix}"
                 )
             if total > 0 and accepted >= total:
                 self._gpu_frame_eta = None
                 self._gpu_finalizing = True
-                self.progress_bar.setRange(0, 0)
-                self.percent_label.setText("마무리 중" if self._korean else "Finalizing")
             self._update_time_label(remaining, elapsed, native_frames=not self._gpu_finalizing)
         else:
             if self._gpu_frame_eta is not None:
                 self._gpu_frame_eta = None
                 self._gpu_finalizing = True
-            if self._native_gpu_export:
-                # GPU percentage represents accepted frames only. Other
-                # phases use an indeterminate spinner so starting the frame
-                # counter never makes the percentage jump backwards.
-                self.progress_bar.setRange(0, 0)
-                self.percent_label.setText(
-                    ("마무리 중" if self._korean else "Finalizing")
-                    if self._gpu_finalizing else "…"
-                )
             # FFmpeg publishes media timeline seconds (different from weighted
             # UI percentages). Derive throughput from those real timestamps.
             # Once the last media frame is emitted, muxing/verifying is a
             # separate workload and we don't invent a remaining duration.
-            media = re.match(
-                r"^(?:Encoding|Capturing and encoding|Saving audio|Muxing) "
-                r"([\d.]+)s / ([\d.]+)s", message.strip(),
-                flags=re.IGNORECASE,
-            )
             if not self._native_gpu_export and media:
                 if self._media_eta is None:
                     self._media_eta = MediaTimelineEtaEstimator()
@@ -825,9 +854,35 @@ class ExportProgressDialog(QDialog):
             else:
                 remaining = (
                     None if self._native_gpu_export or self._gpu_finalizing
-                    else self._eta_estimator.update(stage, fraction, now)
+                    else self._eta_estimator.update(stage, self._overall_fraction, now)
                 )
             self._update_time_label(remaining, elapsed)
+        self._update_task_progress(task_fraction)
+
+    @staticmethod
+    def _task_fraction(message: str) -> float | None:
+        """Read measured progress from the current operation's status message."""
+        percentages = re.findall(r"(\d+(?:\.\d+)?)%", message)
+        if percentages:
+            # A combined visualizer message ends with the aggregate percentage.
+            return float(percentages[-1]) / 100
+        measurement = re.search(r"(\d+(?:\.\d+)?)s / (\d+(?:\.\d+)?)s", message)
+        if measurement is None:
+            measurement = _TASK_COUNTS.fullmatch(message.strip())
+        if measurement is None or float(measurement.group(2)) <= 0:
+            return None
+        return float(measurement.group(1)) / float(measurement.group(2))
+
+    def _update_task_progress(self, fraction: float | None) -> None:
+        self.task_progress_bar.setAccessibleDescription(self.stage_label.text())
+        if fraction is None:
+            self.task_progress_bar.setRange(0, 0)
+            self.task_percent_label.setText("진행 중" if self._korean else "In progress")
+            return
+        percent = int(max(0.0, min(1.0, fraction)) * 100 + 1e-9)
+        self.task_progress_bar.setRange(0, 100)
+        self.task_progress_bar.setValue(percent)
+        self.task_percent_label.setText(f"{percent}%")
 
     def _active_step(self, stage: str) -> int:
         if self._native_gpu_export and stage == "Encoding video":
@@ -992,6 +1047,7 @@ class ExportProgressDialog(QDialog):
         self._cancelling = True
         self.cancel_button.setEnabled(False)
         self.stage_label.setText("내보내기를 안전하게 취소하는 중..." if self._korean else "Cancelling export safely...")
+        self._update_task_progress(None)
         self.detail_label.setText(
             "현재 프레임 준비 또는 FFmpeg 작업을 안전하게 중단하는 중" if self._korean
             else "Safely stopping the current frame preparation or FFmpeg operation"
@@ -1134,6 +1190,7 @@ class ExportProgressDialog(QDialog):
             "Checking encoded video integrity and packet count": "인코딩된 영상의 무결성과 패킷 수를 검사하는 중",
             "Checking video and audio timing before publishing the file": "파일을 저장하기 전에 영상과 오디오 타이밍을 검사하는 중",
             "Finishing the MP4 file": "마지막 프레임을 정리하고 MP4 파일을 마무리하는 중",
+            "Checking the exported file": "내보낸 파일을 확인하는 중",
             "Writing the MP4 file": "MP4 파일을 기록하는 중",
             "Audio normalization complete": "오디오 정규화 완료",
             "Export completed": "내보내기 완료",

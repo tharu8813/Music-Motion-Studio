@@ -21,9 +21,10 @@ class PerformanceMonitorTests(unittest.TestCase):
         apply_studio_style(cls.app)
 
     def setUp(self):
-        settings_dir = tempfile.TemporaryDirectory(dir=os.getcwd())
+        settings_dir = tempfile.TemporaryDirectory()
         self.addCleanup(settings_dir.cleanup)
         self.settings = QSettings(os.path.join(settings_dir.name, 'monitor.ini'), QSettings.Format.IniFormat)
+        self.addCleanup(self.settings.sync)
         settings_patch = patch('app.widgets.performance_monitor.QSettings', return_value=self.settings)
         settings_patch.start()
         self.addCleanup(settings_patch.stop)

@@ -9,6 +9,7 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import QApplication
 
@@ -56,6 +57,9 @@ class ProjectSettingsMetadataTests(unittest.TestCase):
                 self.assertEqual(dialog.selected_settings, settings)
                 dialog.title_edit.setText("After edit")
                 self.assertEqual(dialog.thumbnail_project_label.text(), "After edit")
+                dialog.title_edit.setText("<b>Literal title</b>")
+                self.assertEqual(dialog.thumbnail_project_label.text(), "<b>Literal title</b>")
+                self.assertEqual(dialog.thumbnail_project_label.textFormat(), Qt.TextFormat.PlainText)
                 # Metadata display must not mutate the saved project's identity.
                 self.assertEqual(dialog.selected_settings.created_at, settings.created_at)
             finally:
@@ -73,10 +77,13 @@ class ProjectSettingsMetadataTests(unittest.TestCase):
             self.assertEqual(dialog.metadata_values["file_size"].text(), "기록 없음")
             self.assertEqual(dialog.metadata_values["file_path"].text(), "저장 전")
             self.assertEqual(dialog.thumbnail_preview.text(), "미리보기 없음")
+            dialog.title_edit.clear()
+            self.assertEqual(dialog.thumbnail_project_label.text(), "새 프로젝트")
             self.translator.set_language(Language.ENGLISH)
             self.assertEqual(dialog.metadata_values["created_at"].text(), "Not recorded")
             self.assertEqual(dialog.metadata_values["file_path"].text(), "Not saved")
             self.assertEqual(dialog.thumbnail_preview.text(), "No preview")
+            self.assertEqual(dialog.thumbnail_project_label.text(), "Untitled Project")
         finally:
             dialog.close()
 

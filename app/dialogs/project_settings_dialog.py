@@ -105,6 +105,7 @@ class ProjectSettingsDialog(QDialog):
         self.thumbnail_title_label.setObjectName("panelTitle")
         self.thumbnail_project_label = QLabel(settings.title)
         self.thumbnail_project_label.setObjectName("projectThumbnailName")
+        self.thumbnail_project_label.setTextFormat(Qt.TextFormat.PlainText)
         self.thumbnail_project_label.setWordWrap(True)
         self.thumbnail_hint_label = QLabel()
         self.thumbnail_hint_label.setObjectName("mutedLabel")
@@ -162,6 +163,7 @@ class ProjectSettingsDialog(QDialog):
             heading = QLabel()
             value = QLabel()
             value.setObjectName("mutedLabel")
+            value.setTextFormat(Qt.TextFormat.PlainText)
             value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             value.setWordWrap(True)
             details_form.addRow(heading, value)
@@ -260,9 +262,7 @@ class ProjectSettingsDialog(QDialog):
         self.buttons.rejected.connect(self.reject)
         self.buttons.button(QDialogButtonBox.StandardButton.Save).setObjectName("primaryButton")
         outer.addWidget(self.buttons)
-        self.title_edit.textChanged.connect(
-            lambda value: self.thumbnail_project_label.setText(value.strip() or "Untitled Project")
-        )
+        self.title_edit.textChanged.connect(self._update_thumbnail_title)
         self.canvas_preset_combo.currentIndexChanged.connect(
             self._canvas_preset_changed
         )
@@ -409,6 +409,7 @@ class ProjectSettingsDialog(QDialog):
 
     def _refresh_thumbnail(self) -> None:
         """Show an uneditable canvas snapshot, or a neutral missing-preview label."""
+        self._update_thumbnail_title()
         if self.canvas_thumbnail.isNull():
             self.thumbnail_preview.setPixmap(QPixmap())
             self.thumbnail_preview.setText(
@@ -423,6 +424,12 @@ class ProjectSettingsDialog(QDialog):
                 Qt.TransformationMode.SmoothTransformation,
             )
         )
+
+    def _update_thumbnail_title(self) -> None:
+        title = self.title_edit.text().strip()
+        if not title or title == "Untitled Project":
+            title = "새 프로젝트" if self.translator.is_korean else "Untitled Project"
+        self.thumbnail_project_label.setText(title)
 
     def _accept(self) -> None:
         if self.selected_canvas_size != self.original_canvas_size:

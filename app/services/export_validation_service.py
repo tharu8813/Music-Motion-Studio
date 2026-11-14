@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass
+from math import isfinite
 from pathlib import Path
 from threading import Event
 from app.utils.cancellable_subprocess import run_probe
@@ -69,6 +70,15 @@ def _find_ffprobe(ffmpeg_executable: str | Path | None) -> Path | None:
     return Path(found) if found else None
 
 
+def _frame_rate(value: object) -> float:
+    try:
+        numerator, _, denominator = str(value).partition("/")
+        rate = float(numerator) / float(denominator or 1)
+    except (ValueError, ZeroDivisionError):
+        return 0.0
+    return rate if isfinite(rate) and rate > 0 else 0.0
+
+
 def validate_export_output(
     output_path: str | Path,
     *,
@@ -94,20 +104,15 @@ def validate_export_output(
             completed = run_probe(arguments, cancel_event=cancel_event, timeout=15)
             completed.stdout = completed.stdout.decode("utf-8", "replace")
             completed.stderr = completed.stderr.decode("utf-8", "replace")
+        if completed.returncode:
+            return ExportValidationResult(False, error=(completed.stderr or "FFprobe failed").strip())
         payload = json.loads(completed.stdout or "{}")
         stream = (payload.get("streams") or [{}])[0]
         format_data = payload.get("format") or {}
 
-        def ratio(value: object) -> float:
-            text = str(value or "0")
-            if "/" in text:
-                numerator, denominator = text.split("/", 1)
-                return float(numerator) / max(1.0, float(denominator))
-            return float(text)
-
-        observed_fps = ratio(stream.get("avg_frame_rate") or stream.get("r_frame_rate"))
+        observed_fps = _frame_rate(stream.get("avg_frame_rate")) or _frame_rate(stream.get("r_frame_rate"))
         duration = float(format_data.get("duration") or 0.0)
-        frame_count = int(stream.get("nb_frames") or 0)
+        frame_count = int(stream.get("nb_frames") or 0) if stream.get("nb_frames") != "N/A" else 0
         warnings: list[str] = []
         if int(stream.get("width") or 0) != int(expected_width) or int(stream.get("height") or 0) != int(expected_height):
             warnings.append(f"resolution {stream.get('width')}×{stream.get('height')} (expected {expected_width}×{expected_height})")
@@ -119,9 +124,8 @@ def validate_export_output(
             True, int(stream.get("width") or 0), int(stream.get("height") or 0),
             observed_fps, duration, frame_count, str(stream.get("codec_name") or ""),
             str(stream.get("pix_fmt") or ""), tuple(warnings),
-            "" if completed.returncode == 0 else (completed.stderr or "FFprobe failed").strip(),
         )
-    except (OSError, ValueError, TypeError, json.JSONDecodeError, subprocess.TimeoutExpired) as error:
+    except (OSError, ValueError, TypeError, subprocess.TimeoutExpired) as error:
         return ExportValidationResult(False, error=f"FFprobe failed: {error}")
 
 
@@ -140,6 +144,10 @@ def validate_audio_export_output(
             capture_output=True, text=True, check=False, timeout=15,
             **hidden_process_kwargs(),
         )
+        if completed.returncode:
+            return ExportValidationResult(
+                False, error=(completed.stderr or "FFprobe failed").strip(), audio_only=True,
+            )
         payload = json.loads(completed.stdout or "{}")
         streams = payload.get("streams") or []
         audio = next((item for item in streams if item.get("codec_type") == "audio"), {})
@@ -154,7 +162,6 @@ def validate_audio_export_output(
         return ExportValidationResult(
             True, duration_seconds=duration, codec=str(audio.get("codec_name") or ""),
             warnings=tuple(warnings), audio_only=True,
-            error="" if completed.returncode == 0 else (completed.stderr or "FFprobe failed").strip(),
         )
     except (OSError, ValueError, TypeError, subprocess.TimeoutExpired) as error:
         return ExportValidationResult(False, error=f"FFprobe failed: {error}", audio_only=True)
