@@ -177,7 +177,7 @@ class GpuCompositorOptimizationTests(unittest.TestCase):
             SourceType.PROGRESS_BAR, "Progress", width=1920, height=1200,
         )))
         track = PlaylistTrack("", "Preview", duration_seconds=10)
-        with patch("app.dialogs.export_preview_dialog.load_preview_quality", return_value="resolution"):
+        with patch("app.dialogs.export_preview_dialog.load_preview_quality", return_value="quality"):
             preview = ExportPreviewDialog(scene, [track], Translator(), preferred_backend="cpu")
         self.addCleanup(preview.deleteLater)
         self.addCleanup(preview._stop_preview)
@@ -207,7 +207,7 @@ class GpuCompositorOptimizationTests(unittest.TestCase):
         ):
             scene.addItem(SourceItem(source))
         track = PlaylistTrack("missing.wav", "Preview", duration_seconds=30)
-        with patch("app.dialogs.export_preview_dialog.load_preview_quality", return_value="resolution"):
+        with patch("app.dialogs.export_preview_dialog.load_preview_quality", return_value="quality"):
             preview = ExportPreviewDialog(
                 scene, [track], Translator(), preferred_backend="cpu",
             )
