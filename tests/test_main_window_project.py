@@ -1356,6 +1356,7 @@ class MainWindowProjectTests(MainWindowTestCase):
         dialog.selected_video_paths = []
         dialog.selected_volume_db = 0.0
         dialog.selected_eq_db = []
+        dialog.selected_bass_db = 0.0
 
         with patch("app.ui.main_window.TrackDetailsDialog", return_value=dialog):
             self.window._show_track_details(track.id)
