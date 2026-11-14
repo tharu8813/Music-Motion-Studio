@@ -7,12 +7,14 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+from app.models.project import ProjectSettings
+
 from app.controllers.export_controller import ExportOrchestrator
 
 
 class _Window:
     def __init__(self) -> None:
-        self.project_settings = SimpleNamespace(
+        self.project_settings = ProjectSettings(
             transition_mode="crossfade",
             crossfade_seconds=2.0,
         )
@@ -54,7 +56,7 @@ class ExportAudioStagingRegressionTests(unittest.TestCase):
 
         def fake_prepare(
             _renderer, _tracks, directory, mode, seconds,
-            _settings, _cancel_event, _progress, automix_settings=None,
+            _settings, _cancel_event, _progress, automix_settings=None, *, audio_effects=None,
         ):
             self.assertEqual(mode, "crossfade")
             self.assertEqual(seconds, 2.0)
@@ -115,6 +117,13 @@ class ExportAudioStagingRegressionTests(unittest.TestCase):
 
         self.assertEqual(result, (None, None))
         prepare.assert_not_called()
+
+    def test_effects_prepare_blended_audio_even_without_transitions(self) -> None:
+        self.window.project_settings = ProjectSettings(audio_effects={"eight_d": {"enabled": True}})
+        with patch("app.controllers.export_controller.prepare_audio_for_ui") as prepare:
+            self.window.orchestrator.prepare_transition_audio(object(), [object()], object(), threading.Event())
+        self.assertEqual(prepare.call_args.args[3], "none")
+        self.assertTrue(prepare.call_args.kwargs["audio_effects"]["eight_d"]["enabled"])
 
 
 if __name__ == "__main__":

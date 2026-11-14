@@ -152,7 +152,7 @@ _CANVAS = (
 <li><b>콘텐츠 저장</b>: 프로젝트에 포함(다른 PC에서도 열림) 또는 원본 위치 참조(파일이 작음)</li>
 <li><b>시작 음악(선택)</b>: 음악 파일이나 M3U8 플레이리스트를 고르거나 창으로 끌어 놓기</li>
 </ul>
-<p>여기서 고른 내용은 모두 나중에 <a href='topic:project_settings'>프로젝트 설정</a>에서 바꿀 수 있습니다.</p>
+<p>곡 전환은 <a href='topic:project_settings'>프로젝트 오디오 설정</a>에서, 프로젝트 정보와 화면 크기 등은 프로젝트 설정에서 바꿀 수 있습니다.</p>
 <h2>기본 작업 순서</h2>
 <ol>
 <li><b>음악 추가</b> — 하단 플레이리스트의 <b>+ 음악 추가</b> 또는 파일 끌어 놓기. 이름이 같은 .lrc/.srt/.vtt/.ttml가 있으면 가사로 연결됩니다.</li>
@@ -172,7 +172,7 @@ _CANVAS = (
 <li><b>Content storage</b>: include in the project (opens on any PC) or reference the originals (smaller file)</li>
 <li><b>Starting music (optional)</b>: pick music files or an M3U8 playlist, or drop them on the window</li>
 </ul>
-<p>Everything chosen here can be changed later in <a href='topic:project_settings'>Project settings</a>.</p>
+<p>Change track transitions in <a href='topic:project_settings'>Project audio settings</a>. Use Project settings to change project information and canvas size.</p>
 <h2>Basic workflow</h2>
 <ol>
 <li><b>Add music</b> — <b>+ Add music</b> in the Playlist, or drop files. A .lrc/.srt/.vtt/.ttml with the same name is attached as lyrics.</li>
@@ -515,7 +515,7 @@ _CANVAS = (
 <h2>이전·현재·다음 줄 스타일</h2>
 [[img:lyrics_role_styles]]
 <p><b>편집할 위치</b>에서 이전·현재·다음을 각각 선택하고 <b>크기 배율</b>과 <b>불투명도</b>를 조절합니다. 색상과 글꼴은 속성 패널 및 줄별 스타일에서 설정합니다.</p>
-<p><b>블러 - 글로우</b> 탭에서 줄 블러, 채움 경계 흐림, 실시간 가사의 단어·글자 글로우를 조절합니다. <b>거리별 흐림</b>은 이전·다음 가사의 거리에 따라 블러와 불투명도를 변화시킵니다. 0이면 모두 동일하게, 1이면 현재 가사에 가까운 줄일수록 선명하게 표시합니다. <b>긴 단어·글자만</b>을 선택하면 길게 부르는 음에서 빛이 점점 밝아졌다가 서서히 사라집니다. <b>실시간 가사 미리보기</b>를 켜면 예시 글자나 단어의 지속시간을 바꿔 볼 수 있습니다.</p>
+<p><b>블러 - 글로우</b> 탭에서 줄 블러, 채움 경계 흐림, 실시간 가사의 단어·글자 글로우를 조절합니다. <b>거리별 흐림</b>은 이전·다음 가사의 거리에 따라 블러와 불투명도를 변화시킵니다. 0이면 모두 동일하게, 1이면 현재 가사에 가까운 줄일수록 선명하게 표시합니다. <b>긴 단어·글자만</b>을 선택하면 길게 부르는 음에서 빛이 점점 밝아집니다. <b>글로우 페이드인</b>과 <b>글로우 페이드아웃</b>으로 밝아지고 사라지는 시간을 각각 조절합니다. <b>실시간 가사 미리보기</b>를 켜면 예시 글자나 단어의 지속시간을 바꿔 볼 수 있습니다.</p>
 <div class='note'>고급 줄 스타일을 켜도 <a href='topic:lyrics_line_styles'>줄별 스타일</a>의 색상·굵기·기울임·크기는 계속 편집할 수 있습니다. 설정한 기본·줄별 크기에 고급 크기 배율을 곱합니다. 이전 버전의 고급 색상·글꼴 값은 사용하지 않습니다. 현재 자막의 음악 반응은 <a href='topic:music_reaction'>별도 옵션</a>입니다.</div>
 <h2>예시 미리보기</h2>
 <p>오른쪽에서 실제 렌더러의 전환을 확인하고 <b>다시 재생</b>할 수 있습니다. <b>미리보기 줄 수</b>는 이 창의 예시만 바꿉니다. 영상에 표시할 묶음 수는 줄 배치 탭에서 정하세요. 첫 가사 전·곡 중간 예시는 인트로 탭에서 선택합니다.</p>""",
@@ -536,7 +536,7 @@ _CANVAS = (
 <h2>Previous, current and next styles</h2>
 [[img:lyrics_role_styles]]
 <p>Select a <b>Role</b> and adjust <b>size scale</b> and <b>opacity</b> independently. Set colors and typography in Properties and Per-line styles.</p>
-<p>The <b>Blur - Glow</b> tab contains cue blur, fill edge blur, and real-time word or character glow. <b>Long units only</b> builds the glow during sustained notes and fades it out afterward. Turn on <b>Preview real-time lyrics</b> to change the timing of sample words or characters.</p>
+<p>The <b>Blur - Glow</b> tab contains cue blur, fill edge blur, and real-time word or character glow. <b>Long units only</b> builds the glow during sustained notes. <b>Glow fade-in</b> and <b>Glow fade-out</b> control how quickly the glow brightens and disappears. Turn on <b>Preview real-time lyrics</b> to change the timing of sample words or characters.</p>
 <p><b>Distance falloff</b> is independent for previous and next cues. Zero keeps them uniform; one makes nearby cues clearer and more opaque. That side's blur and opacity define the farthest cue.</p>
 <div class='note'><a href='topic:lyrics_line_styles'>Per-line</a> color, weight, italic and size remain editable with advanced roles enabled. The advanced scale multiplies the base/per-line size. Older advanced color and typography values are ignored. Current subtitles have a <a href='topic:music_reaction'>separate music reaction option</a>.</div>
 <h2>Sample preview</h2>
@@ -1171,7 +1171,7 @@ _LYRICS = (
 _AUTOMIX = (
     _e("automix_editor", "automix", ("AutoMix란?", "What AutoMix does"),
        ("AutoMix,곡 전환,분석", "AutoMix,transitions,analysis"),
-       """<p><b>AutoMix(베타)</b>는 곡과 곡 사이를 템포에 맞춰 DJ처럼 자연스럽게 이어 주는 기능입니다. <b>프로젝트 → 프로젝트 설정 → 곡 전환</b>에서 <b>AutoMix</b>를 고르면 켜집니다(기본값은 꺼짐).</p>
+       """<p><b>AutoMix(베타)</b>는 곡과 곡 사이를 템포에 맞춰 DJ처럼 자연스럽게 이어 주는 기능입니다. <b>프로젝트 → 프로젝트 오디오 설정 → 곡 전환 방식</b>에서 <b>AutoMix</b>를 고르면 켜집니다(기본값은 꺼짐).</p>
 <h2>어떻게 동작하나요</h2>
 <ul>
 <li>곡마다 박자·다운비트·보컬 구간(Beat This!, Open-Unmix), 키·에너지·곡 구조(인트로·아웃트로)를 분석합니다. 모델은 설치본에 들어 있어 인터넷 없이 PC에서 동작합니다.</li>
@@ -1186,7 +1186,7 @@ _AUTOMIX = (
 <li>프로젝트 파일에는 AutoMix 사용 여부와 직접 편집한 전환만 저장됩니다.</li>
 </ul>
 <div class='note'>전환을 직접 다듬고 싶으면 <a href='topic:automix_editor'>AutoMix 편집기</a>를 여세요. 믹스와 미리듣기에는 FFmpeg가 필요합니다.</div>""",
-       """<p><b>AutoMix (beta)</b> joins each song to the next in tempo, like a DJ. Turn it on by choosing <b>AutoMix</b> in <b>Project → Project settings → Transitions</b> (off by default).</p>
+       """<p><b>AutoMix (beta)</b> joins each song to the next in tempo, like a DJ. Turn it on by choosing <b>AutoMix</b> in <b>Project → Project audio settings → Track transitions</b> (off by default).</p>
 <h2>How it works</h2>
 <ul>
 <li>Each song is analyzed for beats, downbeats and vocal sections (Beat This!, Open-Unmix), and for key, energy and structure (intro/outro). The models ship with the app and run locally, offline.</li>
@@ -1690,36 +1690,38 @@ _OTHER = (
         "save open pvsproj json legacy upgrade recent projects autosave recovery crash missing media")),
 
     _e("other", "project_settings", ("프로젝트 설정", "Project settings"),
-       ("프로젝트,곡 전환,캔버스", "project,transitions,canvas"),
-       """<p><b>프로젝트 → 프로젝트 설정</b>에서 현재 프로젝트의 화면, 곡 전환, 저장 방식을 바꿉니다.</p>
+       ("프로젝트,오디오,곡 전환,캔버스", "project,audio,transitions,canvas"),
+       """<p><b>프로젝트 → 프로젝트 설정</b>에서 현재 프로젝트의 화면과 저장 방식을 바꿉니다.</p>
 [[img:project_settings]]
 <ul>
 <li><b>프로젝트 정보</b>: 이름, 작성자, 설명, <b>프로젝트 썸네일</b>(프로젝트 저장 시 캔버스 직접 캡처)</li>
 <li><b>캔버스</b>: 화면 비율과 너비·높이. <b>요소 위치와 크기도 함께 조정(권장)</b> 또는 <b>캔버스만 변경</b>. 바꾸기 전에 확인하며 <code>Ctrl+Z</code>로 되돌릴 수 있습니다.</li>
-<li><b>곡 전환</b>
+<li><b>파일 관리</b>: <b>추가한 콘텐츠를 프로젝트에 포함</b>(이미지·음원·폰트·가사를 패키지에 복사, 다른 PC에서도 안전) 또는 <b>외부 콘텐츠를 프로젝트에서 참조</b>(파일은 작지만 원본을 옮기면 다시 연결 필요)</li>
+</ul>
+<h2>프로젝트 오디오 설정</h2>
+<p><b>프로젝트 → 프로젝트 오디오 설정</b>에서 곡 전환 방식과 전체 믹스에 적용할 효과를 고릅니다.</p>
 <ul><li><b>없음</b>(즉시 전환, 기본값): 앞 곡이 끝나면 다음 곡을 겹침 없이 재생</li>
 <li><b>크로스페이드</b>: 지정한 초(0.5~30초)만큼 앞 곡의 끝과 다음 곡의 시작을 겹쳐 재생. 곡 분석은 필요 없습니다.</li>
 <li><b><a href='topic:automix'>AutoMix</a></b>(베타): 템포를 분석해 전환 위치와 방식을 자동으로 정합니다.</li></ul>
-전환을 쓰면 곡이 겹치는 만큼 전체 길이가 줄어듭니다.</li>
-<li><b>파일 관리</b>: <b>추가한 콘텐츠를 프로젝트에 포함</b>(이미지·음원·폰트·가사를 패키지에 복사, 다른 PC에서도 안전) 또는 <b>외부 콘텐츠를 프로젝트에서 참조</b>(파일은 작지만 원본을 옮기면 다시 연결 필요)</li>
-</ul>
+<p>전환을 쓰면 곡이 겹치는 만큼 전체 길이가 줄어듭니다. 8D 오디오, 오토팬, 바이노럴 회전, 핑퐁 딜레이, 스테레오 확장, 리버브, 코러스는 켠 효과의 조절 항목이 펼쳐집니다. 효과는 프로젝트에 저장되며 FFmpeg를 사용하는 믹스 미리듣기와 영상·오디오 내보내기에 적용됩니다.</p>
 <div class='note'>내보내기 해상도는 출력 품질 설정일 뿐 프로젝트의 화면 비율을 바꾸지 않습니다. 세로형·사용자 지정 비율도 검은 여백 없이 내보내집니다.</div>""",
-       """<p><b>Project → Project settings</b> changes the current project's screen, transitions and storage.</p>
+       """<p><b>Project → Project settings</b> changes the current project's canvas and storage.</p>
 [[img:project_settings]]
 <ul>
 <li><b>Project information</b>: name, author, description and the <b>project thumbnail</b> (captured directly from the canvas on save)</li>
 <li><b>Canvas</b>: aspect ratio, width and height. <b>Also adjust source positions and sizes (recommended)</b> or <b>change only the canvas</b>. You confirm first, and <code>Ctrl+Z</code> undoes it.</li>
-<li><b>Transitions</b>
+<li><b>File management</b>: <b>include added content in the project</b> (images, audio, fonts and lyrics are copied into the package; safe on any PC) or <b>reference external content</b> (smaller, but moved originals must be reconnected)</li>
+</ul>
+<h2>Project audio settings</h2>
+<p>Choose track transitions and effects for the whole mix in <b>Project → Project audio settings</b>.</p>
 <ul><li><b>None</b> (cut, default): the next track starts when the previous ends, no overlap</li>
 <li><b>Crossfade</b>: overlaps the end of one track and the start of the next by the seconds you set (0.5–30 s); no analysis needed</li>
 <li><b><a href='topic:automix'>AutoMix</a></b> (beta): analyzes tempo and chooses where and how to mix</li></ul>
-Transitions shorten the video by the overlaps.</li>
-<li><b>File management</b>: <b>include added content in the project</b> (images, audio, fonts and lyrics are copied into the package; safe on any PC) or <b>reference external content</b> (smaller, but moved originals must be reconnected)</li>
-</ul>
+<p>Transitions shorten the project by the overlaps. Turn on 8D audio, auto pan, binaural rotation, ping-pong delay, stereo widening, reverb, or chorus to reveal its controls. Effects are saved with the project and used by the FFmpeg mix preview and video/audio export.</p>
 <div class='note'>Export resolution is an output quality setting and never changes the project's aspect ratio; portrait and custom ratios export without black bars.</div>""",
        ("automix", "projects", "start"),
-       ("화면 비율 캔버스 크기 곡 전환 없음 크로스페이드 AutoMix 포함 참조 썸네일 작성자 설명",
-        "aspect ratio canvas size transitions none crossfade AutoMix include reference thumbnail author description")),
+       ("화면 비율 캔버스 크기 곡 전환 없음 크로스페이드 AutoMix 오디오 효과 8D 포함 참조 썸네일 작성자 설명",
+        "aspect ratio canvas size transitions none crossfade AutoMix audio effects 8D include reference thumbnail author description")),
 
     _e("other", "export", ("영상·오디오·자막 내보내기", "Exporting video, audio, and subtitles"),
        ("내보내기,자막,LRC,SRT", "export,subtitles,LRC,SRT"),

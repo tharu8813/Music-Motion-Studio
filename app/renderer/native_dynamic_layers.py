@@ -282,6 +282,7 @@ def real_audio_dynamic_frames(
                 active_tracks, Path(temporary_dir),
                 RenderSettings(fps=fps), transition_mode="none",
                 audio_codec="aac", cancel_event=cancel,
+                audio_effects=project.settings.audio_effects,
             )
             origin = "application_export_mixed_audio"
         analyzer = PythonVisualizerRenderer(renderer.executable)

@@ -4,6 +4,7 @@ import os
 import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Event, get_ident
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -11,6 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtMultimedia import QMediaPlayer, QVideoFrame, QVideoFrameFormat
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QEvent
 import shiboken6
@@ -102,7 +104,7 @@ class VideoFrameFilterTests(unittest.TestCase):
 
         signals = VideoFrameFilterSignals()
         results: list[QImage] = []
-        signals.finished.connect(lambda _generation, image: results.append(image))
+        signals.finished.connect(lambda _generation, image, _raw: results.append(image))
         image = QImage(8, 8, QImage.Format.Format_RGBA8888)
         settings = VideoFrameFilterSettings(8, 8, blur=2.0)
         errors = [ValueError("bad shape")] * 100 + [MemoryError("out of memory")]
@@ -169,8 +171,43 @@ class VideoFrameFilterTests(unittest.TestCase):
 
         self.assertIsNotNone(item._video_pending_frame)
         pending, _generation = item._video_pending_frame
-        self.assertEqual(pending.pixelColor(4, 4), QColor(0, 0, 255))
+        self.assertIsInstance(pending, QVideoFrame)
+        self.assertEqual(pending.toImage().pixelColor(4, 4), QColor(0, 0, 255))
         self.assertGreaterEqual(item.video_decoder_stats().dropped_frames, 1)
+
+    def test_cpu_decoder_frame_is_converted_on_worker_while_gui_remains_responsive(self) -> None:
+        from app.video import frame_filter
+
+        item = SourceItem(Source(SourceType.VIDEO, "Worker conversion", width=16, height=16))
+        self.addCleanup(item.release_video_decoder)
+        original = QImage(16, 16, QImage.Format.Format_RGB32)
+        original.fill(QColor("green"))
+        entered, finish = Event(), Event()
+        gui_thread = get_ident()
+        converted_on = []
+        ready_on = []
+        item.video_frame_ready.connect(lambda: ready_on.append(get_ident()))
+
+        def convert(frame):
+            converted_on.append(get_ident())
+            entered.set()
+            finish.wait(2)
+            return frame.toImage()
+
+        with patch.object(frame_filter, "video_frame_to_image", side_effect=convert):
+            try:
+                item._video_frame_changed(QVideoFrame(original))
+                self.assertTrue(entered.wait(2))
+                self.assertNotEqual(converted_on, [gui_thread])
+                self.assertTrue(item.video_preview_frame().isNull())
+            finally:
+                finish.set()
+            for _ in range(100):
+                if ready_on:
+                    break
+                QTest.qWait(10)
+        self.assertEqual(ready_on, [gui_thread])
+        self.assertEqual(item.video_preview_frame().pixelColor(3, 3), QColor("green"))
 
     def test_completed_filtered_video_frame_announces_preview_refresh(self) -> None:
         item = SourceItem(Source(SourceType.VIDEO, "Paused frame"))
@@ -191,7 +228,7 @@ class VideoFrameFilterTests(unittest.TestCase):
         item.release_video_decoder()
         self.assertTrue(item.video_preview_frame().isNull())
 
-    def test_timeline_video_defers_pixmap_until_canvas_paint(self) -> None:
+    def test_timeline_video_paints_without_converting_to_pixmap(self) -> None:
         item = SourceItem(Source(SourceType.VIDEO, "Timeline frame", width=100, height=60))
         frame = QImage(16, 9, QImage.Format.Format_RGBA8888)
         frame.fill(QColor(12, 34, 56, 160))
@@ -214,7 +251,7 @@ class VideoFrameFilterTests(unittest.TestCase):
 
         self.assertTrue(item._pixmap.isNull())
         self.assertEqual(render(), expected)
-        self.assertFalse(item._pixmap.isNull())
+        self.assertTrue(item._pixmap.isNull())
 
     def test_supported_rhi_frame_is_retained_without_calling_to_image(self) -> None:
         class RhiFrame(QVideoFrame):

@@ -15,6 +15,7 @@ import numpy as np
 from PySide6.QtGui import QColor, QImage
 
 from app.automix.renderer import AutoMixRenderError
+from app.models.audio_effects import AUDIO_EFFECTS
 from app.models.playlist import PlaylistTrack
 from app.renderer import loudness
 from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderSettings
@@ -249,6 +250,35 @@ class RenderFixedCrossfadeAudioSegmentsUnitTests(unittest.TestCase):
     "Set PLAYLIST_CANVAS_TEST_FFMPEG to run real FFmpeg AutoMix export checks.",
 )
 class RealAutomixExportIntegrationTests(unittest.TestCase):
+    def test_playlist_effects_keep_duration_and_match_lossless_audio_export(self) -> None:
+        executable = Path(os.environ["PLAYLIST_CANVAS_TEST_FFMPEG"].strip())
+        renderer = FFmpegRenderer(executable)
+
+        def decode(path: Path) -> np.ndarray:
+            result = subprocess.run(
+                [str(executable), "-v", "error", "-i", str(path), "-f", "f32le", "-"],
+                capture_output=True, check=True, **hidden_process_kwargs(),
+            )
+            return np.frombuffer(result.stdout, np.float32).reshape(-1, 2)
+
+        with TemporaryDirectory(prefix="project-audio-effects-") as raw_directory:
+            directory = Path(raw_directory)
+            path = directory / "tone.wav"
+            _write_tone_wav(path, 440, 2.0)
+            tracks = [PlaylistTrack(str(path), "Tone", duration_seconds=2.0)]
+            settings = RenderSettings()
+            dry = decode(renderer.prepare_playlist_audio(tracks, directory, settings, audio_codec="flac"))
+            effects = {effect.key: {"enabled": True} for effect in AUDIO_EFFECTS}
+            wet = decode(renderer.prepare_playlist_audio(
+                tracks, directory, settings, audio_codec="flac", audio_effects=effects,
+            ))
+            self.assertEqual(dry.shape, (96000, 2))
+            self.assertEqual(wet.shape, dry.shape)
+            self.assertGreater(np.max(np.abs(wet[:, 0] - wet[:, 1])), 0.02)
+            output = directory / "export.flac"
+            renderer.render_audio(tracks, output, settings, audio_effects=effects)
+            np.testing.assert_array_equal(decode(output), wet)
+
     def test_automix_export_uses_the_actual_mix_duration(self) -> None:
         executable = Path(os.environ["PLAYLIST_CANVAS_TEST_FFMPEG"].strip())
         with TemporaryDirectory(prefix="automix-export-") as raw_directory:

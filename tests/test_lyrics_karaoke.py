@@ -1,6 +1,7 @@
 """Word timing, Canvas restoration and export motion regressions."""
 
 from copy import deepcopy
+from math import ceil
 import os
 from pathlib import Path
 import unittest
@@ -342,7 +343,7 @@ class KaraokeTests(unittest.TestCase):
     def test_character_glow_strength_rises_without_lighting_other_characters(self):
         scene, item, track = self.scene("HH", subtitle_karaoke_glow_enabled=True)
         masses = []
-        for seconds in (1.4, 2.6, 3.4, 5.0):
+        for seconds in (1.02, 1.10, 3.4, 5.0, 5.4):
             item.source.subtitle_karaoke_glow_enabled = True
             glow = CanvasSnapshot.capture_track(scene, track, 1, 1, 0, elapsed_seconds=seconds, transparent=True)
             item.source.subtitle_karaoke_glow_enabled = False
@@ -356,7 +357,8 @@ class KaraokeTests(unittest.TestCase):
                 self.assertEqual(center < 300, seconds < 3)
         self.assertGreater(masses[1], masses[0] * 2)
         self.assertGreater(masses[2], 0)
-        self.assertEqual(masses[3], 0)
+        self.assertGreater(masses[3], 0)
+        self.assertEqual(masses[4], 0)
         self.assertEqual(item._subtitle_timed_words, {})
 
     def test_edge_blur_lift_and_export_match_at_same_playhead(self):
@@ -471,7 +473,8 @@ class KaraokeTests(unittest.TestCase):
         source.subtitle_karaoke_blur_min_duration = 0.5
         self.assertNotEqual(capture(1.8), active)
         envelope = lyrics_renderer._karaoke_glow_envelope
-        self.assertLess(envelope("long", 0.7, 0.7, 0.5), envelope("long", 1.0, 1.0, 0.5))
+        fades = {"fade_in": 0.1, "fade_out": 0.32}
+        self.assertLess(envelope("long", 0.7, 0.7, 0.5, **fades), envelope("long", 1.0, 1.0, 0.5, **fades))
 
         source.subtitle_karaoke_lift = 8
         source.subtitle_karaoke_lift_unit = "word"
@@ -515,6 +518,40 @@ class KaraokeTests(unittest.TestCase):
                 if before.alpha() == 255:
                     self.assertEqual(glow.pixelColor(x, y), before)
 
+    def test_glow_leaves_unreached_korean_glyphs_unchanged(self):
+        scene, item, track = self.scene("진짜로 받아야겠어 그 목걸이는", subtitle_karaoke_edge_blur=50)
+        source = item.source
+        source.subtitle_accent_color = "#FFFFFF"
+        source.subtitle_karaoke_blur_unit = "word"
+        source.subtitle_karaoke_blur_radius = 12
+        cue = track.lyrics[0]
+        word_start = cue["text"].index("목")
+        cue["words"] = [
+            {"start": 1, "end": 2, "text": cue["text"][:word_start].rstrip(), "offset": 0},
+            {"start": 2, "end": 5, "text": "목걸이는", "offset": word_start},
+        ]
+        seconds = 2.5  # Inside the first character of the last timed word.
+        baseline = CanvasSnapshot.capture_track(scene, track, 1, 1, 0, elapsed_seconds=seconds)
+        key, (positions, _path) = next(iter(item._lyric_reveal_cache.items()))
+        pending_x = ceil(source.width / 2 - key[2] / 2 + positions[word_start + 1])
+        pending_width = baseline.width() - pending_x
+        self.assertGreater(pending_width, 0)
+        for mode, character_glow in (("long", False), ("filling", False), ("continuous", False), ("none", True)):
+            with self.subTest(mode=mode, character_glow=character_glow):
+                source.subtitle_karaoke_blur_mode = mode
+                source.subtitle_karaoke_glow_enabled = character_glow
+                actual = CanvasSnapshot.capture_track(scene, track, 1, 1, 0, elapsed_seconds=seconds)
+                self.assertNotEqual(actual, baseline)
+                self.assertEqual(actual.copy(pending_x, 0, pending_width, baseline.height()),
+                                 baseline.copy(pending_x, 0, pending_width, baseline.height()))
+                capturer = ExportCanvasCapturer(
+                    scene, [track], 8, set(), [(None, None)],
+                    lambda image, duration, _key: RenderFrame(image, duration),
+                    lambda: None, lambda *_: None,
+                )
+                sample = ExportFrameSample(track, 1, 0, 0.1, seconds, seconds)
+                self.assertEqual(capturer.capture(sample).image, actual)
+
     def test_glow_releases_across_adjacent_cues_and_export_samples_the_tail(self):
         scene, item, track = self.scene("HH")
         item.source.subtitle_context_lines = 1
@@ -530,6 +567,35 @@ class KaraokeTests(unittest.TestCase):
                               wraps=lyrics_renderer._paint_lyric_halo) as halo:
                 CanvasSnapshot.capture_track(scene, track, 1, 1, 0, elapsed_seconds=seconds)
                 self.assertEqual(halo.called, visible)
+
+    def test_glow_fade_settings_change_fill_and_export_tail(self):
+        scene, item, track = self.scene("HH", subtitle_karaoke_blur_mode="filling")
+        source = item.source
+        for mode in ("filling", "character"):
+            with self.subTest(mode=mode):
+                source.subtitle_karaoke_glow_enabled = mode == "character"
+                source.subtitle_karaoke_blur_mode = "none" if mode == "character" else mode
+
+                def frame(seconds):
+                    return CanvasSnapshot.capture_track(scene, track, 1, 1, 0, elapsed_seconds=seconds)
+
+                source.subtitle_karaoke_glow_fade_in = 0
+                instant = frame(1.2)
+                source.subtitle_karaoke_glow_fade_in = 1.5
+                self.assertNotEqual(frame(1.2), instant)
+                source.subtitle_karaoke_glow_fade_out = 0
+                no_tail = frame(5.6)
+                source.subtitle_karaoke_glow_fade_out = 1.0
+                tail = frame(5.6)
+                self.assertNotEqual(tail, no_tail)
+                frames = ExportTimelinePlanner.build([track], [source], 30)
+                self.assertGreaterEqual(sum(5 < sample.elapsed_seconds < 6 for sample in frames), 25)
+                capturer = ExportCanvasCapturer(
+                    scene, [track], 8, set(), [(None, None)],
+                    lambda image, duration, _key: RenderFrame(image, duration),
+                    lambda: None, lambda *_: None,
+                )
+                self.assertEqual(capturer.capture(ExportFrameSample(track, 1, 0, 0.1, 5.6, 5.6)).image, tail)
 
     def test_unselected_translation_never_gets_estimated_word_highlights(self):
         scene, item, track = self.scene("Hello\nWorld", subtitle_karaoke_lines=[0])

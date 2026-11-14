@@ -10,7 +10,6 @@ from itertools import pairwise
 from math import ceil
 from typing import Sequence
 
-from app.animation.lyrics import KARAOKE_GLOW_RELEASE_SECONDS
 from app.models.playlist import PlaylistTrack
 from app.models.source import Source, SourceType
 from app.preview.album_art import AMBIENT_FLOW_HZ
@@ -559,9 +558,9 @@ class ExportTimelinePlanner:
                             continue
                         start_time = float(cue["start"]) - offset
                         end_time = float(cue["end"]) - offset
-                        if source.uses_timed_karaoke_glow:
+                        if source.uses_timed_karaoke_glow or source.uses_character_karaoke_glow:
                             cue_end = float(cue["end"]) - track_offset - source.subtitle_timing_offset
-                            end_time = max(end_time, cue_end) + KARAOKE_GLOW_RELEASE_SECONDS
+                            end_time = max(end_time, cue_end) + source.subtitle_karaoke_glow_fade_out
                         intervals.append((start_time, end_time))
                 if source.subtitle_intro_enabled and cues:
                     intervals.append((0.0, float(cues[0]["start"]) - track_offset - source.subtitle_timing_offset))

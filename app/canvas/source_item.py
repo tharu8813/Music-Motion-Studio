@@ -53,7 +53,7 @@ from app.utils.level_meter_painter import paint_level_meter
 from app.utils.particle_painter import paint_particles
 from app.video.frame_mailbox import VideoFrameMailbox
 from app.video.frame_filter import (
-    VideoFrameFilterSettings, VideoFrameFilterSignals, VideoFrameFilterTask,
+    VideoFrameFilterSettings, VideoFrameFilterSignals, VideoFrameFilterTask, video_frame_to_image,
     _rgb_pixels, apply_color_filters,
 )
 from app.video.preview_decoder import (
@@ -160,7 +160,7 @@ class SourceItem(QGraphicsObject):
         self._video_filter_signals = VideoFrameFilterSignals()
         self._video_filter_signals.finished.connect(self._video_filter_finished)
         self._video_filter_busy = False
-        self._video_pending_frame: tuple[QImage, object] | None = None
+        self._video_pending_frame: tuple[QImage | QVideoFrame, tuple[object, ...]] | None = None
         self._video_filter_generation = 0
         self._video_validate_timestamps = False
         self._video_frame_waiting = False
@@ -665,6 +665,9 @@ class SourceItem(QGraphicsObject):
             and not frame.mirrored()
             and int(frame.rotation().value) == 0
         ):
+            if not self._video_presented_gpu_frame.isValid():
+                self._video_filter_generation += 1
+                self._video_pending_frame = None
             self._video_next_frame_deadline = next_deadline
             self._video_accepted_frames += 1
             self._video_presented_gpu_frame = QVideoFrame(frame)
@@ -687,14 +690,22 @@ class SourceItem(QGraphicsObject):
             self.video_frame_ready.emit()
             return
         self._video_presented_gpu_frame = QVideoFrame()
-        image = self._video_frame_to_image(frame)
-        if image.isNull():
+        if not frame.isValid():
             self._video_dropped_frames += 1
             self._video_pressure_drops += 1
             return
+        # GPU-backed fallback may require the decoder's graphics context. CPU
+        # frames can be copied by reference and converted in the filter task.
+        if self._video_gpu_backed_frame:
+            pending_frame = video_frame_to_image(frame)
+            if pending_frame.isNull():
+                self._video_dropped_frames += 1
+                self._video_pressure_drops += 1
+                return
+        else:
+            pending_frame = QVideoFrame(frame)
         self._video_next_frame_deadline = next_deadline
         self._video_accepted_frames += 1
-        self._video_last_raw_frame = QImage(image)
         if self._video_editor_poster_pending and not self._video_timeline_preview_active:
             self._video_editor_poster_pending = False
             if self._video_player is not None:
@@ -713,13 +724,8 @@ class SourceItem(QGraphicsObject):
         if self._video_pending_frame is not None:
             self._video_dropped_frames += 1
             self._video_pressure_drops += 1
-        self._video_pending_frame = (image, generation)
+        self._video_pending_frame = (pending_frame, generation)
         self._start_next_video_filter()
-
-    @staticmethod
-    @timed("video.to_image_seconds")
-    def _video_frame_to_image(frame: QVideoFrame) -> QImage:
-        return frame.toImage()
 
     def _video_filter_key(self) -> tuple[object, ...]:
         return (
@@ -738,12 +744,12 @@ class SourceItem(QGraphicsObject):
     def _start_next_video_filter(self) -> None:
         if self._video_filter_busy or self._video_pending_frame is None:
             return
-        image, generation = self._video_pending_frame
+        frame, generation = self._video_pending_frame
         self._video_pending_frame = None
         settings = self._video_filter_settings(generation)
         self._video_filter_busy = True
         QThreadPool.globalInstance().start(VideoFrameFilterTask(
-            image, settings, generation, self._video_filter_signals,
+            frame, settings, generation, self._video_filter_signals,
         ))
 
     @staticmethod
@@ -759,15 +765,23 @@ class SourceItem(QGraphicsObject):
             blur=float(generation[8]),
         )
 
-    def _video_filter_finished(self, generation: object, image: object) -> None:
+    def _video_filter_finished(self, generation: object, image: QImage, raw: QImage | None = None) -> None:
         self._video_filter_busy = False
         base = generation[:10] if isinstance(generation, tuple) else generation
         current = self._video_last_requested_target_ms
         fresh = not (self._video_validate_timestamps and isinstance(generation, tuple) and len(generation) > 10
                      and current is not None and abs(generation[10]/1000-current) > video_seek_tolerance_ms(self._video_preview_fps))
-        if (base == self._video_filter_key() and fresh
-                and isinstance(image, QImage) and not image.isNull()
-                and not self._video_preview_suppressed and self.isVisible()):
+        if (base != self._video_filter_key() or not fresh
+                or self._video_preview_suppressed or not self.isVisible()):
+            self._start_next_video_filter()
+            return
+        if raw is not None:
+            if raw.isNull():
+                self._video_dropped_frames += 1
+                self._video_pressure_drops += 1
+            else:
+                self._video_last_raw_frame = raw
+        if not image.isNull():
             self._video_presented_frame = QImage(image)
             # GPU layers upload the image directly. Materialize a pixmap only
             # if this timeline frame is painted through the Canvas.
@@ -1841,11 +1855,6 @@ class SourceItem(QGraphicsObject):
         widget: object | None = None,
     ) -> None:
         """Dispatch through the source definition without changing legacy pixels."""
-        if (self.source.source_type is SourceType.VIDEO
-                and self._video_timeline_preview_active
-                and self._pixmap.isNull()
-                and not self._video_presented_frame.isNull()):
-            self._pixmap = QPixmap.fromImage(self._video_presented_frame)
         renderer = source_registry.get(self.source.source_type).renderer
         if renderer is None:
             raise RuntimeError(f"No renderer registered for {self.source.source_type.value}")

@@ -14,7 +14,7 @@ from math import cos, hypot, radians, sin
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QBrush, QColor, QImage, QLinearGradient, QPainter, QPainterPath, QPen
 
 from app.models.source import TEXT_SOURCE_TYPES, SourceType
 from app.utils.mask_shapes import mask_path
@@ -120,10 +120,12 @@ def paint_background(item: "SourceItem", painter: QPainter) -> tuple[QRectF, QBr
     return rect, fill, pen
 
 
-def paint_image_content(item: "SourceItem", painter: QPainter, rect: QRectF, frame_style: str) -> None:
+def paint_image_content(item: "SourceItem", painter: QPainter, rect: QRectF, frame_style: str,
+                        *, image: QImage | None = None) -> None:
     """Draw the item's pixmap clipped to frame_style. Extracted verbatim from
     _paint_legacy's shared image_backed_types branch (frame_style was that
     branch's own SourceType.ALBUM_COVER special case, now a parameter)."""
+    bitmap = item._pixmap if image is None else image
     display_rect = rect
     clip_path = QPainterPath()
     if frame_style == "circle":
@@ -144,7 +146,7 @@ def paint_image_content(item: "SourceItem", painter: QPainter, rect: QRectF, fra
     if item.source.image_fit_mode == "stretch":
         target = display_rect
     else:
-        ratio = item._pixmap.width() / max(1, item._pixmap.height())
+        ratio = bitmap.width() / max(1, bitmap.height())
         rect_ratio = display_rect.width() / max(1, display_rect.height())
         contain = item.source.image_fit_mode == "contain"
         width_limited = ratio > rect_ratio
@@ -154,7 +156,10 @@ def paint_image_content(item: "SourceItem", painter: QPainter, rect: QRectF, fra
         else:
             target = QRectF(display_rect.center().x() - display_rect.height() * ratio / 2, display_rect.top(),
                             display_rect.height() * ratio, display_rect.height())
-    painter.drawPixmap(target, item._pixmap, item._pixmap.rect())
+    if image is None:
+        painter.drawPixmap(target, item._pixmap, item._pixmap.rect())
+    else:
+        painter.drawImage(target, image)
     painter.restore()
     if frame_style == "glass":
         painter.setBrush(QColor(255, 255, 255, 40))

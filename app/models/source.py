@@ -263,6 +263,8 @@ class Source:
     subtitle_karaoke_lines: list[int] = field(default_factory=list)
     subtitle_karaoke_glow_enabled: bool = False
     subtitle_karaoke_glow_strength: float = 0.8
+    subtitle_karaoke_glow_fade_in: float = 0.10
+    subtitle_karaoke_glow_fade_out: float = 0.32
     subtitle_karaoke_edge_blur: float = 15.0
     # Saved names retained when timed glyph blur became a glow.
     subtitle_karaoke_blur_mode: str = "none"
@@ -426,13 +428,17 @@ class Source:
         return ("fill_color",)
 
     @property
+    def uses_character_karaoke_glow(self) -> bool:
+        return self.subtitle_karaoke_enabled and self.subtitle_karaoke_glow_enabled and self.subtitle_karaoke_glow_strength > 0
+
+    @property
     def uses_timed_karaoke_glow(self) -> bool:
         return self.subtitle_karaoke_enabled and self.subtitle_karaoke_blur_mode != "none" and self.subtitle_karaoke_blur_radius > 0
 
     @property
     def uses_karaoke_character_effects(self) -> bool:
         return self.source_type is SourceType.LYRICS and self.subtitle_karaoke_enabled and (
-            (self.subtitle_karaoke_glow_enabled and self.subtitle_karaoke_glow_strength > 0)
+            self.uses_character_karaoke_glow
             or self.subtitle_karaoke_edge_blur > 0 or self.subtitle_karaoke_lift > 0
             or self.uses_timed_karaoke_glow
         )
@@ -647,6 +653,8 @@ class Source:
             "subtitle_karaoke_pending_brightness": (0.0, 1.0),
             "subtitle_karaoke_offset": (-5.0, 5.0),
             "subtitle_karaoke_glow_strength": (0.0, 1.0),
+            "subtitle_karaoke_glow_fade_in": (0.0, 3.0),
+            "subtitle_karaoke_glow_fade_out": (0.0, 3.0),
             "subtitle_karaoke_edge_blur": (0.0, 50.0),
             "subtitle_karaoke_blur_radius": (0.0, 12.0),
             "subtitle_karaoke_blur_min_duration": (0.05, 3.0),

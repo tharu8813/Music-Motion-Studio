@@ -15,11 +15,11 @@ from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QRect, QRectF, QSize, Qt, QUrl
+from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt, QUrl
 from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtMultimedia import QMediaPlayer
-from PySide6.QtWidgets import QApplication, QDialog, QFrame, QMessageBox, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QFrame, QMessageBox, QScrollBar, QWidget
 from app.models.playlist import PlaylistTrack
 from app.models.source import Source, SourceType
 from app.canvas.source_item import SourceItem
@@ -346,7 +346,6 @@ class MainWindowPreviewTests(MainWindowTestCase):
             self.assertIsNone(self.window._preview_gpu_composition_anchor)
 
     def test_embedded_timeline_and_buttons_fit_after_resize_and_panel_drag(self) -> None:
-        from PySide6.QtCore import QPoint
         from app.renderer.ffmpeg_renderer import FFmpegNotFoundError
 
         window = self.window
@@ -373,6 +372,7 @@ class MainWindowPreviewTests(MainWindowTestCase):
                 preview.timeline, preview.play_button, preview.previous_button,
                 preview.next_button, preview.rewind_button, preview.forward_button,
                 preview.volume_slider, preview.preview_close_button,
+                preview.timeline_all_button, preview.timeline_track_button,
             ):
                 self.assertTrue(control.isVisible())
                 child = control
@@ -395,6 +395,11 @@ class MainWindowPreviewTests(MainWindowTestCase):
                     window.workspace_splitter.setSizes([10_000, 1])
                     self.application.processEvents()
                     assert_controls_fit()
+                    preview.timeline_track_button.click()
+                    self.application.processEvents()
+                    assert_controls_fit()
+                    preview.timeline_all_button.click()
+                    self.application.processEvents()
             QTest.mouseClick(
                 preview.timeline, Qt.MouseButton.LeftButton,
                 pos=QPoint(preview.timeline.width() * 3 // 4, preview.timeline.height() // 2),
@@ -406,6 +411,71 @@ class MainWindowPreviewTests(MainWindowTestCase):
             (window.main_splitter.minimumHeight(), window.bottom_workspace_stack.minimumHeight()),
             original_minima,
         )
+
+    def test_current_track_timeline_follows_playhead_and_seeks_within_or_between_tracks(self) -> None:
+        tracks = [PlaylistTrack(f"track-{index}.wav", f"Track {index}", duration_seconds=duration)
+                  for index, duration in enumerate((15.0, 90.0, 25.0), start=1)]
+        preview = ExportPreviewDialog(
+            self.window.canvas.scene_model, tracks, self.window.translator,
+            parent=self.window, preferred_backend="cpu",
+        )
+        self.addCleanup(preview._stop_preview)
+        preview.show()
+        self.application.processEvents()
+        timeline = preview.timeline
+        self.assertTrue(preview.timeline_all_button.isChecked())
+        preview.timeline_track_button.click()
+        self.assertFalse(preview.timeline_card.findChildren(QScrollBar))
+
+        self._play_at(preview, 14.98)
+        with (
+            patch.object(preview.play_clock, "restart", return_value=30),
+            patch.object(preview, "refresh_preview") as render,
+        ):
+            preview._advance_playback()
+            render.assert_not_called()
+            self.assertTrue(preview._refresh_timer.isActive())
+            self.assertGreaterEqual(preview._refresh_timer.interval(), 1)
+        preview._playing = False
+        self.assertGreaterEqual(timeline.value(), 15 * TIMELINE_SCALE)
+        animation = timeline._scroll_animation
+        animation.setCurrentTime(animation.duration() // 4)
+        self.assertGreater(timeline._view_position, 0.0)
+        self.assertLess(timeline._view_position, 0.25)  # ease in before accelerating
+        animation.setCurrentTime(animation.duration() * 3 // 4)
+        self.assertGreater(timeline._view_position, 0.75)  # ease out approaching the center
+        self.assertLess(timeline._view_position, 1.0)
+        animation.setCurrentTime(animation.duration())
+        blocks = list(timeline._focused_blocks())
+        self.assertEqual([row[0] for row in blocks], [0, 1, 2])
+        _, left, span = blocks[1]
+        self.assertAlmostEqual(left + span / 2, timeline.width() / 2)
+
+        def click(x: float) -> None:
+            QTest.mouseClick(timeline, Qt.MouseButton.LeftButton,
+                             pos=QPoint(round(x), timeline.height() // 2))
+
+        click(timeline.width() / 2)
+        self.assertAlmostEqual(timeline.value() / TIMELINE_SCALE, 60.0, delta=0.02)
+        preview._last_playback_render_cost = 0.040
+        with patch.object(preview, "refresh_preview") as render:
+            click(timeline.width() - 13)
+            render.assert_not_called()
+        self.assertGreaterEqual(preview._refresh_timer.interval(), 40)
+        self.assertEqual(timeline.value(), 105 * TIMELINE_SCALE)
+        animation.setCurrentTime(animation.duration())
+        self.assertEqual([row[0] for row in timeline._focused_blocks()], [1, 2])
+        click(13)
+        self.assertEqual(timeline.value(), 15 * TIMELINE_SCALE)
+        animation.setCurrentTime(animation.duration())
+        click(13)
+        self.assertEqual(timeline.value(), 0)
+        animation.setCurrentTime(animation.duration())
+        self.assertEqual([row[0] for row in timeline._focused_blocks()], [0, 1])
+
+        preview.timeline_all_button.click()
+        click(timeline.width() / 2)
+        self.assertAlmostEqual(timeline.value() / TIMELINE_SCALE, 65.0, delta=0.2)
 
     def test_embedded_preview_keeps_complete_transport_controls(self) -> None:
         preview = ExportPreviewDialog(
@@ -1513,7 +1583,7 @@ class MainWindowPreviewTests(MainWindowTestCase):
         self.window.project_settings = replace(self.window.project_settings, transition_mode="automix")
         received = {}
 
-        def fake_prepare(_tracks, _executable, _mode, _seconds, automix_settings=None):
+        def fake_prepare(_tracks, _executable, _mode, _seconds, automix_settings=None, *, audio_effects=None):
             received["settings"] = automix_settings
             return None, None, None
 
@@ -2105,6 +2175,9 @@ class MainWindowPreviewTests(MainWindowTestCase):
         )
         try:
             plan = self._automix_plan(track_a, track_b)
+            preview.timeline.setValue(95 * TIMELINE_SCALE)
+            preview.timeline_track_button.click()
+            self.assertEqual(preview.timeline._view_position, 0.0)
             with (
                 patch.object(preview.media_player, "setSource"),
                 patch.object(preview.media_player, "mediaStatus",
@@ -2120,6 +2193,7 @@ class MainWindowPreviewTests(MainWindowTestCase):
                 preview.timeline._transition_regions,
                 ((90.0, 100.0, TransitionType.AUTOMIX),),
             )
+            self.assertEqual(preview.timeline._view_position, 1.0)
         finally:
             preview._stop_preview()
             preview.deleteLater()

@@ -27,6 +27,7 @@ from PySide6.QtWidgets import QMessageBox, QWidget
 
 from app.dialogs.export_preview_dialog import ExportPreviewDialog, TIMELINE_SCALE
 from app.dialogs.preview_loading_dialog import PreviewLoadingDialog
+from app.models.audio_effects import has_audio_effects
 from app.renderer.ffmpeg_renderer import FFmpegNotFoundError, FFmpegRenderer
 
 if TYPE_CHECKING:
@@ -184,9 +185,10 @@ class PreviewController:
             window.check_ffmpeg_availability()
         transition_mode = window.project_settings.transition_mode
         crossfade_seconds = window.project_settings.crossfade_seconds
+        audio_effects = window.project_settings.audio_effects
         # Per-track volume/EQ only exists in a rendered mix, even without transitions.
         needs_mix = (
-            (transition_mode != "none" or any(track.audio_filter for track in tracks))
+            (transition_mode != "none" or has_audio_effects(audio_effects) or any(track.audio_filter for track in tracks))
             and executable is not None and bool(tracks)
         )
         korean = window.translator.is_korean
@@ -220,6 +222,7 @@ class PreviewController:
             preloaded_blended_audio, blended_audio_controller, blended_audio_temp_dir = (
                 self._prepare_blended_preview_audio(
                     tracks, executable, transition_mode, crossfade_seconds, automix_settings,
+                    audio_effects=audio_effects,
                 )
             )
             loading.advance(loading.current + 1)
@@ -234,6 +237,7 @@ class PreviewController:
             blended_audio_controller=blended_audio_controller,
             blended_audio_temp_dir=blended_audio_temp_dir,
             automix_settings=automix_settings,
+            audio_effects=audio_effects,
         )
         keyframes = window.timeline_panel.keyframe_controller
 
@@ -305,7 +309,7 @@ class PreviewController:
 
     def _prepare_blended_preview_audio(
         self, tracks: list, executable, transition_mode: str, crossfade_seconds: float,
-        automix_settings=None,
+        automix_settings=None, *, audio_effects=None,
     ) -> tuple[tuple[Path, object] | None, object | None, TemporaryDirectory | None]:
         """Start rendering blended preview audio and hand it to Preview without waiting.
 
@@ -353,7 +357,7 @@ class PreviewController:
         controller.audio_ready.connect(on_ready)
         controller.audio_failed.connect(on_failed)
         controller.start(tracks, Path(temp_dir.name), transition_mode, crossfade_seconds,
-                         automix_settings=automix_settings)
+                         automix_settings=automix_settings, audio_effects=audio_effects)
         if getattr(controller, "progressive_ready", None) is not None:
             # Attach as a paused listener at 0 so partial mixes render right away.
             controller.report_playhead(0.0, False)

@@ -22,9 +22,11 @@ from tempfile import TemporaryDirectory, mkstemp
 
 from PySide6.QtGui import QImage, QImageReader
 
+from app.ffmpeg.audio_effects import audio_effect_graph
 from app.ffmpeg.process import (
     FFmpegProcessCancelled, FFmpegProcessError, parse_progress_seconds, run_ffmpeg,
 )
+from app.models.audio_effects import AudioEffectSettings
 from app.models.playlist import PlaylistTrack
 from app.timeline.compiler import compile_playlist
 from app.timeline.render_plan import (
@@ -380,6 +382,7 @@ class FFmpegRenderer:
                compiled_plan: CompiledRenderPlan | None = None,
                prepared_audio_path: Path | None = None,
                automix_settings: "AutoMixTransitionSettings | None" = None,
+               audio_effects: AudioEffectSettings | None = None,
                ) -> RenderResult:
         """Create a static Canvas video whose audio is the ordered enabled playlist.
 
@@ -393,7 +396,7 @@ class FFmpegRenderer:
                 progress_callback=progress_callback, cancel_event=cancel_event,
                 metadata=metadata, storage_path_callback=storage_path_callback,
                 transition_mode=transition_mode, crossfade_seconds=crossfade_seconds,
-                automix_settings=automix_settings,
+                automix_settings=automix_settings, audio_effects=audio_effects,
             )
         if (compiled_plan is None) != (prepared_audio_path is None):
             raise RenderError("Prepared audio and its compiled plan must be supplied together.")
@@ -545,6 +548,7 @@ class FFmpegRenderer:
                     transition_mode=transition_mode, crossfade_seconds=crossfade_seconds,
                     progress_callback=progress_callback, cancel_event=cancel_event,
                     plan_callback=resolved_plans.append, automix_settings=automix_settings,
+                    audio_effects=audio_effects,
                 )
                 compiled_plan = resolved_plans[0]
             compiled_plan = compiled_plan or compile_playlist(active_tracks)
@@ -614,7 +618,7 @@ class FFmpegRenderer:
                 active_tracks, temporary, selected_settings,
                 transition_mode=transition_mode, crossfade_seconds=crossfade_seconds,
                 progress_callback=progress_callback, cancel_event=cancel_event,
-                automix_settings=automix_settings,
+                automix_settings=automix_settings, audio_effects=audio_effects,
             )
             visualizer_inputs: list[list[str]] = []
             if visualizers:
@@ -1322,7 +1326,7 @@ class FFmpegRenderer:
         self, tracks: list[PlaylistTrack], output_path: str | Path, settings: RenderSettings,
         *, progress_callback=None, cancel_event=None, metadata=None,
         storage_path_callback=None, transition_mode="none", crossfade_seconds=3.0,
-        automix_settings=None,
+        automix_settings=None, audio_effects: AudioEffectSettings | None = None,
     ) -> RenderResult:
         """Export the same playlist mix through a lossless intermediate, without visuals."""
         cancel_event = cancel_event or threading.Event()
@@ -1342,7 +1346,7 @@ class FFmpegRenderer:
                 transition_mode=transition_mode, crossfade_seconds=crossfade_seconds,
                 progress_callback=progress_callback, cancel_event=cancel_event,
                 plan_callback=plans.append, automix_settings=automix_settings,
-                audio_codec="flac",
+                audio_codec="flac", audio_effects=audio_effects,
             )
             plan = plans[0]
             duration = plan.duration_seconds
@@ -1595,6 +1599,7 @@ class FFmpegRenderer:
         plan_callback: Callable[[CompiledRenderPlan], None] | None = None,
         automix_settings: "AutoMixTransitionSettings | None" = None,
         audio_codec: str = "aac",
+        audio_effects: AudioEffectSettings | None = None,
     ) -> Path:
         """Prepare audio and report the exact plan actually rendered, including fallback.
 
@@ -1623,7 +1628,8 @@ class FFmpegRenderer:
             )
             if parts is not None:
                 # Mixed in parts on every core: measure, normalize and encode them the same way.
-                self._finish_automix_parts(parts, audio_path, codec_args, progress_callback, cancel_event)
+                self._finish_automix_parts(parts, audio_path, codec_args, progress_callback, cancel_event,
+                                          audio_effects=audio_effects)
                 if plan_callback is not None:
                     plan_callback(resolved_plan)
                 return audio_path
@@ -1692,9 +1698,10 @@ class FFmpegRenderer:
         loudness_filter = self._measure_loudness_filter(combining_input_args, cancel_event, measuring_progress)
         if loudness_filter is not None:
             combining_label = "Normalizing loudness and saving audio"
+            filters = self._playlist_audio_filters(audio_effects, total_duration, loudness_filter)
             try:
                 self._run(
-                    combining_input_args + ["-af", loudness_filter] + combining_output_args,
+                    combining_input_args + filters + combining_output_args,
                     progress_parser=combining_audio_progress, cancel_event=cancel_event,
                 )
             except RenderCancelledError:
@@ -1709,7 +1716,8 @@ class FFmpegRenderer:
                 combining_label = "Combining audio"
         if loudness_filter is None:
             self._run(
-                combining_input_args + combining_output_args,
+                combining_input_args + self._playlist_audio_filters(audio_effects, total_duration)
+                + combining_output_args,
                 progress_parser=combining_audio_progress, cancel_event=cancel_event,
             )
         self._report(
@@ -1728,6 +1736,14 @@ class FFmpegRenderer:
         if plan_callback is not None:
             plan_callback(resolved_plan)
         return audio_path
+
+    @staticmethod
+    def _playlist_audio_filters(effects: AudioEffectSettings | None, duration: float,
+                               loudness_filter: str | None = None) -> list[str]:
+        graph = audio_effect_graph(effects, "0:a", "audio_out", duration, input_filter=loudness_filter)
+        if graph:
+            return ["-filter_complex", graph, "-map", "[audio_out]"]
+        return ["-af", loudness_filter] if loudness_filter else []
 
     def _measure_loudness_filter(
         self, combining_input_args: list[str], cancel_event: threading.Event,
@@ -1942,6 +1958,7 @@ class FFmpegRenderer:
     def _finish_automix_parts(
         self, parts: list, audio_path: Path, codec_args: list[str],
         progress_callback: Callable[[str, float, str], None] | None, cancel_event: threading.Event,
+        *, audio_effects: AudioEffectSettings | None = None,
     ) -> None:
         """Loudness-normalize and encode AutoMix mix parts into ``audio_path`` (see app.automix.parallel_mix)."""
         from app.automix.parallel_mix import finish_parts
@@ -1951,7 +1968,7 @@ class FFmpegRenderer:
             finish_parts(
                 AutoMixAudioPipeline(self.executable), parts, audio_path,
                 [*codec_args, "-ar", "48000", "-ac", "2"],
-                workers=render_workers(), cancel_event=cancel_event,
+                workers=render_workers(), cancel_event=cancel_event, audio_effects=audio_effects,
                 progress=lambda fraction, message: self._report(
                     progress_callback, "Combining audio", 0.53 + fraction * 0.11, message),
             )

@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtGui import QImage, QPainter
+from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import QApplication
 
 from app.canvas.live_canvas import CanvasScene
@@ -120,6 +120,32 @@ class ExportFrameEquivalenceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.application = QApplication.instance() or QApplication([])
+
+    def test_preview_can_paint_full_dirty_region_on_a_cached_base(self) -> None:
+        scene = CanvasScene()
+        scene.set_artboard_size(160, 90)
+        lower = Source(SourceType.SHAPE, "Lower", width=160, height=90,
+                       opacity=0.65, fill_color="#da3075")
+        upper = Source(SourceType.SHAPE, "Upper", x=31, y=17, width=70, height=48,
+                       opacity=0.5, rotation=12, fill_color="#306ad9", z_index=1)
+        for source in (lower, upper):
+            scene.addItem(SourceItem(source))
+        track = PlaylistTrack("preview.wav", "Preview", duration_seconds=10)
+        base = QImage(160, 90, QImage.Format.Format_RGB32)
+        base.fill(QColor("#243628"))
+        original = base.copy()
+        args = (scene, track, 1, 1, 0)
+        layer = CanvasSnapshot.capture_track(*args, transparent=True)
+        expected = base.copy()
+        painter = QPainter(expected)
+        painter.drawImage(0, 0, layer)
+        painter.end()
+        actual = CanvasSnapshot.capture_track(*args, transparent=True, background_image=base)
+
+        self.assertEqual(base, original)
+        # Rasterizing two layers together can round 8-bit alpha at a different step.
+        max_delta = max(abs(left - right) for left, right in zip(actual.constBits(), expected.constBits(), strict=True))
+        self.assertLessEqual(max_delta, 2)
 
     def test_subframe_captures_preserve_every_encoded_pixel_and_duration(self) -> None:
         scene = CanvasScene()

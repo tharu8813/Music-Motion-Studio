@@ -70,6 +70,7 @@ from app.dialogs.audio_metadata_dialog import AudioMetadataDialog
 from app.dialogs.mp3_metadata_editor_dialog import Mp3MetadataEditorDialog
 from app.dialogs.m3u_import_dialog import M3uImportDialog
 from app.dialogs.project_settings_dialog import ProjectSettingsDialog
+from app.dialogs.project_audio_settings_dialog import ProjectAudioSettingsDialog
 from app.dialogs.project_crash_report_dialog import ProjectCrashReportDialog
 from app.dialogs.lrc_generator_dialog import LrcGeneratorDialog
 from app.dialogs.lyrics_search_dialog import LyricsSearchDialog
@@ -1333,6 +1334,11 @@ class MainWindow(QMainWindow):
         self.project_settings_action = QAction(self)
         self.preview_controller.connect_guarded_action(self.project_settings_action, self._show_project_settings)
         self.project_menu.addAction(self.project_settings_action)
+        self.project_audio_settings_action = QAction(self)
+        self.preview_controller.connect_guarded_action(
+            self.project_audio_settings_action, self._show_project_audio_settings,
+        )
+        self.project_menu.addAction(self.project_audio_settings_action)
         self.project_menu.addSeparator()
         self.project_menu.addAction(self.presets_action)
         self.save_preset_action = QAction(self)
@@ -1476,6 +1482,7 @@ class MainWindow(QMainWindow):
             self.save_as_action: "save_as", self.recent_projects_menu.menuAction(): "recent",
             self.import_m3u_action: "import_playlist", self.export_m3u_action: "export_playlist",
             self.exit_action: "exit", self.project_settings_action: "project_settings",
+            self.project_audio_settings_action: "audio",
             self.save_preset_action: "save_preset", self.upgrade_project_action: "upgrade",
             self.cut_action: "cut", self.copy_action: "copy", self.paste_action: "paste",
             self.duplicate_action: "duplicate", self.select_all_action: "select_all",
@@ -4997,6 +5004,13 @@ class MainWindow(QMainWindow):
                 )
             self._schedule_history()
             self._update_project_status()
+
+    def _show_project_audio_settings(self) -> None:
+        dialog = ProjectAudioSettingsDialog(self.project_settings, self.translator, self)
+        if dialog.exec() == dialog.DialogCode.Accepted and dialog.selected_settings != self.project_settings:
+            self.project_settings = dialog.selected_settings
+            self._schedule_history()
+            self._update_project_status()
             self._maybe_start_automix_analysis()
 
     def _resize_project_canvas(
@@ -5287,6 +5301,9 @@ class MainWindow(QMainWindow):
         )
         self.project_settings_action.setText(
             "프로젝트 설정" if self.translator.is_korean else "Project settings"
+        )
+        self.project_audio_settings_action.setText(
+            "프로젝트 오디오 설정" if self.translator.is_korean else "Project audio settings"
         )
         self.upgrade_project_action.setText(
             "레거시 프로젝트 업그레이드…"

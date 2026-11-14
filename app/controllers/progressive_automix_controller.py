@@ -44,6 +44,7 @@ from app.automix.progressive import (
 from app.automix.settings import AutoMixTransitionSettings
 from app.controllers.preview_audio_controller import PreviewAudioController
 from app.models.playlist import PlaylistTrack
+from app.models.audio_effects import AudioEffectSettings
 from app.renderer.ffmpeg_renderer import FFmpegRenderer
 from app.renderer.progress_text import audio_progress_text, clock
 from app.utils.qt_worker_lifecycle import stop_qthread_now
@@ -262,7 +263,8 @@ class _PartialRenderWorker(QThread):
 
     def __init__(self, executable: Path, plan, track_count: int, tracks: list[PlaylistTrack],
                  directory: Path, generation: int, cancel_event: threading.Event,
-                 gain: float | None, parent: QObject | None = None) -> None:
+                 gain: float | None, parent: QObject | None = None, *,
+                 audio_effects: AudioEffectSettings | None = None) -> None:
         super().__init__(parent)
         self._executable = executable
         self._plan = plan
@@ -272,6 +274,7 @@ class _PartialRenderWorker(QThread):
         self._generation = generation
         self._cancel_event = cancel_event
         self._gain = gain
+        self._audio_effects = audio_effects
 
     def run(self) -> None:
         with background_work():
@@ -293,6 +296,7 @@ class _PartialRenderWorker(QThread):
                 progress=lambda _stage, _fraction, message: self.progress.emit(self._generation, message),
                 track_filters={track.id: track.audio_filter for track in self._tracks},
                 workers=render_workers(),
+                audio_effects=self._audio_effects,
             )
         except AutoMixRenderError as error:
             if not self._cancel_event.is_set():
@@ -341,6 +345,7 @@ class ProgressiveAutoMixController(QObject):
         self._ticker.timeout.connect(lambda: self._publish(force=True))
         self._last_publish = -math.inf
         self._gain: float | None = None
+        self._audio_effects: AudioEffectSettings | None = None
         self._progressive_enabled = True
         self._shutting_down = False
         self.render_count = 0
@@ -363,7 +368,8 @@ class ProgressiveAutoMixController(QObject):
 
     def start(self, tracks: list[PlaylistTrack], output_directory: Path,
               transition_mode: str, crossfade_seconds: float,
-              automix_settings: AutoMixTransitionSettings | None = None) -> None:
+              automix_settings: AutoMixTransitionSettings | None = None,
+              audio_effects: AudioEffectSettings | None = None) -> None:
         """A new generation: any running one (e.g. another preset's) is cancelled first."""
         if self._shutting_down or not tracks:
             return
@@ -376,6 +382,7 @@ class ProgressiveAutoMixController(QObject):
         self._titles = {track.id: (track.title or track.filename).strip() for track in self._tracks}
         self._directory = Path(output_directory)
         self._crossfade_seconds = crossfade_seconds
+        self._audio_effects = audio_effects
         # The same resolved preset plans the partial mixes and the final
         # (export-pipeline) mix, so the final Preview plan is the Export plan.
         self._settings = automix_settings or AutoMixTransitionSettings(enabled=True)
@@ -529,7 +536,7 @@ class ProgressiveAutoMixController(QObject):
         worker = _PartialRenderWorker(
             self._renderer.executable, self._plan, self._frontier, self._tracks,
             self._directory / f"partial-{self.render_count}", self._generation, self._cancel_event,
-            self._gain, self,
+            self._gain, self, audio_effects=self._audio_effects,
         )
         worker.ready.connect(self._on_partial_ready)
         worker.failed.connect(self._on_partial_failed)
@@ -584,7 +591,7 @@ class ProgressiveAutoMixController(QObject):
         final.progress.connect(lambda _stage, fraction, message: self._on_final_progress(generation, fraction, message))
         self._final = final
         final.start(self._tracks, self._directory / "final", "automix", self._crossfade_seconds,
-                    automix_settings=self._settings)
+                    automix_settings=self._settings, audio_effects=self._audio_effects)
 
     def _on_final_progress(self, generation: int, fraction: float, message: str) -> None:
         if generation != self._generation:

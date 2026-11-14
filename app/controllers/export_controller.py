@@ -39,6 +39,7 @@ from PySide6.QtGui import QFontDatabase, QImage, QImageReader, QImageWriter
 from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox, QProgressDialog, QStyle, QSystemTrayIcon
 
 from app.automix.settings import automix_settings_for
+from app.models.audio_effects import has_audio_effects
 from app.models.source import Source, SourceType
 from app.timeline.render_plan import visual_segments
 from app.animation.keyframe_render import KeyframeRenderBinding
@@ -214,10 +215,11 @@ class ExportOrchestrator:
         render_settings: RenderSettings, cancel_event: threading.Event,
         progress_callback=None,
     ):
-        """Prepare AutoMix/crossfade audio independently from frame staging."""
+        """Prepare processed audio independently from frame staging."""
         window = self.window
         mode = window.project_settings.transition_mode
-        if mode == "none":
+        effects = window.project_settings.audio_effects
+        if mode == "none" and not has_audio_effects(effects):
             self.clear_audio_staging()
             return None, None
 
@@ -229,6 +231,7 @@ class ExportOrchestrator:
                 mode, window.project_settings.crossfade_seconds,
                 render_settings, cancel_event, progress_callback,
                 automix_settings=automix_settings_for(window.project_settings),
+                audio_effects=effects,
             )
         except Exception:
             self.clear_audio_staging()
@@ -1178,7 +1181,8 @@ class ExportOrchestrator:
                 renderer, active_tracks, render_settings, preparation_cancel,
                 lambda stage, fraction, message: window._export_dialog.set_busy(stage, message),
             )
-            if (compiled_plan is not None and not compiled_plan.audio.transitions
+            if (window.project_settings.transition_mode != "none"
+                    and compiled_plan is not None and not compiled_plan.audio.transitions
                     and sum(track.enabled for track in active_tracks) > 1):
                 # The mix fell back to back-to-back audio (a failed AutoMix
                 # render, or no pair could be blended): say so instead of
@@ -1791,6 +1795,7 @@ class ExportOrchestrator:
             compiled_plan=compiled_plan,
             prepared_audio_path=prepared_audio_path,
             automix_settings=automix_settings_for(window.project_settings),
+            audio_effects=window.project_settings.audio_effects,
         )
         export_dialog = window._export_dialog
         worker.progress.connect(

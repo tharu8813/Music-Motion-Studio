@@ -19,13 +19,17 @@ from weakref import WeakSet
 
 import numpy as np
 
-from PySide6.QtCore import QElapsedTimer, QPointF, QRect, QRectF, QSize, QThread, QTimer, QUrl, Qt, Signal
+from PySide6.QtCore import (
+    QAbstractAnimation, QEasingCurve, QElapsedTimer, QPointF, QRect, QRectF, QSize, QThread, QTimer, QUrl,
+    Qt, QVariantAnimation, Signal,
+)
 from PySide6.QtGui import (
     QColor, QFont, QFontMetrics, QIcon, QImage, QKeySequence, QPainter, QPen, QPixmap, QResizeEvent, QShortcut,
 )
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QDialog,
     QDialogButtonBox,
     QFrame,
@@ -66,6 +70,7 @@ from app.preview.text_template import format_timestamp
 from app.preview.presentation import PreviewPresentationController
 from app.controllers.preview_audio_controller import PreviewAudioController
 from app.widgets.audio_sync_warning import AudioSyncWarning
+from app.models.audio_effects import has_audio_effects
 from app.renderer.ffmpeg_renderer import FFmpegRenderer, VisualizerOverlay
 from app.renderer.python_visualizer import PythonVisualizerRenderer
 from app.services.source_store import SourceStore
@@ -211,10 +216,18 @@ class PlaylistTimeline(QSlider):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(Qt.Orientation.Horizontal, parent)
-        self.schedule = schedule
-        self._transition_regions = _transition_display_regions(transitions)
         self._dragging = False
+        self._drag_span: tuple[float, float, int, int] | None = None
+        self._current_track_mode = False
+        self._focused_track = -1
+        self._view_position = 0.0
         self.setMinimumHeight(46)
+        self._scroll_animation = QVariantAnimation(self)
+        self._scroll_animation.setDuration(420)
+        self._scroll_animation.setEasingCurve(QEasingCurve.Type.InOutSine)
+        self._scroll_animation.valueChanged.connect(self._set_view_position)
+        self.valueChanged.connect(self._follow_current_track)
+        self.set_schedule(schedule, transitions)
 
     def set_schedule(
         self, schedule: tuple[tuple[int, PlaylistTrack, float, float], ...],
@@ -222,8 +235,59 @@ class PlaylistTimeline(QSlider):
     ) -> None:
         """Replace track boundaries and the transition overlay, then repaint."""
         self.schedule = schedule
+        self._starts = tuple(row[2] for row in schedule)
         self._transition_regions = _transition_display_regions(transitions)
+        self._reset_view_position()
+
+    def set_current_track_mode(self, enabled: bool) -> None:
+        self._current_track_mode = enabled
+        self._reset_view_position()
+
+    @property
+    def view_is_scrolling(self) -> bool:
+        return self._scroll_animation.state() == QAbstractAnimation.State.Running
+
+    def _current_track(self) -> int:
+        return max(0, bisect_right(self._starts, self.value() / TIMELINE_SCALE) - 1)
+
+    def _set_view_position(self, position: float) -> None:
+        self._view_position = position
         self.update()
+
+    def _reset_view_position(self) -> None:
+        self._scroll_animation.stop()
+        self._focused_track = self._current_track()
+        self._set_view_position(float(self._focused_track))
+
+    def _follow_current_track(self) -> None:
+        if not self._current_track_mode or self._dragging:
+            return
+        index = self._current_track()
+        if index == self._focused_track:
+            return
+        self._focused_track = index
+        self._scroll_animation.stop()
+        target = float(index)
+        if self._view_position == target:
+            return
+        self._scroll_animation.setStartValue(self._view_position)
+        self._scroll_animation.setEndValue(target)
+        self._scroll_animation.start()
+
+    def _seek_to_track(self, index: int) -> None:
+        # Round up so a fractional mix boundary lands in the selected song.
+        self.setValue(ceil(self.schedule[index][2] * TIMELINE_SCALE - 1e-7))
+
+    def _focused_blocks(self):
+        """Project each nearby track into a slot, allowing its edge to peek in."""
+        position = self._view_position
+        margin = min(80, max(30, self.width() * 0.10))
+        span = max(1.0, self.width() - 2 * margin)
+        stride = span + 8
+        for index in range(max(0, int(position) - 1), min(len(self.schedule), int(position) + 3)):
+            left = margin + (index - position) * stride
+            if left < self.width() - 9 and left + span > 9:
+                yield index, left, span
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
         """One block per track (the playing one outlined, the part heard filled),
@@ -232,63 +296,128 @@ class PlaylistTimeline(QSlider):
         current_seconds = self.value() / TIMELINE_SCALE
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        palette = self.palette()
-        accent = palette.highlight().color()
         usable_width = max(1, self.width() - 18)
 
         def x_at(seconds: float) -> float:
             return 9 + seconds / total * usable_width
 
         top, height = 8.0, max(16.0, self.height() - 18.0)
+        if self._current_track_mode and self.schedule:
+            self._paint_current_track(painter, current_seconds, top, height)
+            painter.end()
+            return
         played_x = x_at(current_seconds)
-        for index, (_schedule_index, track, start, end) in enumerate(self.schedule, start=1):
+        for index, (_schedule_index, track, start, end) in enumerate(self.schedule):
             active = start <= current_seconds < end or (
-                index == len(self.schedule) and current_seconds >= start
+                index == len(self.schedule) - 1 and current_seconds >= start
             )
             block = QRectF(x_at(start) + 1, top, max(2.0, x_at(end) - x_at(start) - 2), height)
-            painter.setPen(QPen(accent, 1.2) if active else Qt.PenStyle.NoPen)
-            painter.setBrush(palette.alternateBase())
-            painter.drawRoundedRect(block, 4, 4)
-            if played_x > block.left():
-                heard = QColor(accent)
-                heard.setAlpha(70 if active else 38)
-                painter.save()
-                painter.setClipRect(QRectF(block.left(), top, played_x - block.left(), height))
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(heard)
-                painter.drawRoundedRect(block, 4, 4)
-                painter.restore()
-            if block.width() >= 28:
-                label = f"{index:02d}  {track.title or Path(track.file_path).stem}"
-                painter.setPen(palette.text().color() if active else palette.placeholderText().color())
-                text_rect = block.adjusted(7, 0, -5, 0)
-                painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-                                 painter.fontMetrics().elidedText(label, Qt.TextElideMode.ElideRight,
-                                                                  int(text_rect.width())))
-        amber = QColor(COLORS["warning"])
+            self._paint_track_block(painter, block, block, index, track, active, played_x)
         for start, end, _transition_type in self._transition_regions:
-            x0, x1 = x_at(start), x_at(end)
-            if x1 - x0 < 1:
-                continue
+            self._paint_transition(painter, x_at(start), x_at(end), top, height)
+        self._paint_playhead(painter, played_x, top, height)
+        painter.end()
+
+    def _paint_current_track(self, painter: QPainter, seconds: float, top: float, height: float) -> None:
+        viewport = QRectF(9, 0, max(1, self.width() - 18), self.height())
+        painter.setClipRect(viewport)
+        active_index = self._current_track()
+        for index, left, span in self._focused_blocks():
+            _, track, start, end = self.schedule[index]
+            active = index == active_index
+            x = left + max(0.0, min(1.0, (seconds - start) / max(0.01, end - start))) * span
+            block = QRectF(left, top, span, height)
+            if not active:
+                block.adjust(0, 5, 0, -5)
+            self._paint_track_block(painter, block, block.intersected(viewport), index, track, active, x,
+                                    focused=True)
+            if end > start:
+                for transition_start, transition_end, _ in self._transition_regions:
+                    if transition_start >= end:
+                        break
+                    first, last = max(start, transition_start), min(end, transition_end)
+                    if last > first:
+                        self._paint_transition(painter, left + (first - start) / (end - start) * span,
+                                               left + (last - start) / (end - start) * span,
+                                               block.top(), block.height())
+            if active:
+                self._paint_playhead(painter, x, top, height)
+
+    def _paint_track_block(self, painter: QPainter, block: QRectF, visible: QRectF, index: int,
+                           track: PlaylistTrack, active: bool, played_x: float, *, focused: bool = False) -> None:
+        palette = self.palette()
+        accent = palette.highlight().color()
+        if active:
+            painter.setPen(QPen(accent, 1.8 if focused else 1.2))
+        else:
+            painter.setPen(QPen(palette.mid().color(), 1) if focused else Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(COLORS["selection"]) if focused and active else palette.alternateBase())
+        painter.drawRoundedRect(block, 4, 4)
+        if played_x > block.left() and (active or not focused):
+            heard = QColor(accent)
+            heard.setAlpha(95 if focused else (70 if active else 38))
+            painter.save()
+            painter.setClipRect(QRectF(block.left(), block.top(), played_x - block.left(), block.height()),
+                                Qt.ClipOperation.IntersectClip)
             painter.setPen(Qt.PenStyle.NoPen)
-            amber.setAlpha(46)
-            painter.setBrush(amber)
-            painter.drawRect(QRectF(x0, top, x1 - x0, height))
-            amber.setAlpha(220)
-            painter.setBrush(amber)
-            painter.drawRoundedRect(QRectF(x0, top + height + 3, x1 - x0, 3), 1.5, 1.5)
+            painter.setBrush(heard)
+            painter.drawRoundedRect(block, 4, 4)
+            painter.restore()
+        painter.setPen(palette.text().color() if active else palette.placeholderText().color())
+        if visible.width() >= 20 and visible.width() < block.width() - 1 and not active:
+            label = f"‹ {index + 1:02d}" if visible.left() > block.left() else f"{index + 1:02d} ›"
+            painter.drawText(visible, Qt.AlignmentFlag.AlignCenter, label)
+        elif visible.width() >= 28:
+            label = f"{index + 1:02d}  {track.title or Path(track.file_path).stem}"
+            text_rect = visible.adjusted(7, 0, -5, 0)
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                             painter.fontMetrics().elidedText(label, Qt.TextElideMode.ElideRight,
+                                                              int(text_rect.width())))
+
+    @staticmethod
+    def _paint_transition(painter: QPainter, x0: float, x1: float, top: float, height: float) -> None:
+        if x1 - x0 < 1:
+            return
+        amber = QColor(COLORS["warning"])
+        painter.setPen(Qt.PenStyle.NoPen)
+        amber.setAlpha(46)
+        painter.setBrush(amber)
+        painter.drawRect(QRectF(x0, top, x1 - x0, height))
+        amber.setAlpha(220)
+        painter.setBrush(amber)
+        painter.drawRoundedRect(QRectF(x0, top + height + 3, x1 - x0, 3), 1.5, 1.5)
+
+    def _paint_playhead(self, painter: QPainter, played_x: float, top: float, height: float) -> None:
+        palette = self.palette()
         painter.setPen(QPen(palette.text().color(), 1.6))
         painter.drawLine(QPointF(played_x, top - 5), QPointF(played_x, top + height + 4))
         painter.setPen(QPen(palette.window().color(), 1.5))
         painter.setBrush(palette.text().color())
         painter.drawEllipse(QPointF(played_x, top - 3), 4.5, 4.5)
-        painter.end()
 
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
         if event.button() == Qt.MouseButton.LeftButton:
+            x_position = event.position().x()
+            if self._current_track_mode and self.schedule:
+                hit = next(((index, left, span) for index, left, span in self._focused_blocks()
+                            if max(9, left) <= x_position <= min(self.width() - 9, left + span)), None)
+                if hit is None:
+                    event.accept()
+                    return
+                index, left, span = hit
+                if index != self._current_track():
+                    self._seek_to_track(index)
+                    event.accept()
+                    return
+                self._scroll_animation.stop()
+                _, _, start, end = self.schedule[index]
+                lower = ceil(start * TIMELINE_SCALE - 1e-7)
+                upper = (ceil(end * TIMELINE_SCALE - 1e-7) - 1
+                         if index + 1 < len(self.schedule) else self.maximum())
+                self._drag_span = (left, span, lower, max(lower, upper))
             self._dragging = True
             self.setSliderDown(True)
-            self._set_value_from_position(event.position().x())
+            self._set_value_from_position(x_position)
             event.accept()
             return
         super().mousePressEvent(event)
@@ -304,12 +433,21 @@ class PlaylistTimeline(QSlider):
         if event.button() == Qt.MouseButton.LeftButton and self._dragging:
             self._set_value_from_position(event.position().x())
             self._dragging = False
+            if self._drag_span is not None:
+                self._drag_span = None
+                self._focused_track = -1
+                self._follow_current_track()
             self.setSliderDown(False)
             event.accept()
             return
         super().mouseReleaseEvent(event)
 
     def _set_value_from_position(self, x_position: float) -> None:
+        if self._drag_span is not None:
+            left, span, lower, upper = self._drag_span
+            value = round(lower + (x_position - left) / span * (upper - lower))
+            self.setValue(max(lower, min(upper, value)))
+            return
         ratio = max(0.0, min(1.0, (x_position - 9) / max(1, self.width() - 18)))
         self.setValue(round(self.minimum() + ratio * (self.maximum() - self.minimum())))
 
@@ -478,7 +616,7 @@ class ExportPreviewDialog(QDialog):
                  preloaded_blended_audio: tuple[Path, CompiledRenderPlan] | None = None,
                  blended_audio_controller: PreviewAudioController | None = None,
                  blended_audio_temp_dir: TemporaryDirectory | None = None,
-                 automix_settings=None) -> None:
+                 automix_settings=None, audio_effects=None) -> None:
         super().__init__(parent)
         self.preview_quality = load_preview_quality()
         self.embedded = embedded
@@ -539,6 +677,7 @@ class ExportPreviewDialog(QDialog):
         self._transition_mode = transition_mode
         self._crossfade_seconds = crossfade_seconds
         self._automix_settings = automix_settings
+        self._audio_effects = audio_effects
         self._remix_count = 0
         self._blended_audio_path: Path | None = (
             preloaded_blended_audio[0] if preloaded_blended_audio is not None else None
@@ -585,7 +724,8 @@ class ExportPreviewDialog(QDialog):
                     level_ready.connect(self._on_playback_level)
                 # Attach right away (paused at 0), so the first transition renders before Play.
                 QTimer.singleShot(0, self, lambda: self._report_playhead(force=True))
-        elif ((self._transition_mode != "none" or any(track.audio_filter for track in self.tracks))
+        elif ((self._transition_mode != "none" or has_audio_effects(audio_effects)
+               or any(track.audio_filter for track in self.tracks))
               and self._preview_proxy_ffmpeg is not None and self.tracks):
             self._blended_audio_temp_dir = TemporaryDirectory(prefix="playlist-preview-audio-", ignore_cleanup_errors=True)
             self._blended_audio_controller = PreviewAudioController(
@@ -597,6 +737,7 @@ class ExportPreviewDialog(QDialog):
             self._blended_audio_controller.start(
                 self.tracks, Path(self._blended_audio_temp_dir.name),
                 self._transition_mode, self._crossfade_seconds, automix_settings=automix_settings,
+                audio_effects=audio_effects,
             )
         self._image = QImage()
         self._base_image = QImage()
@@ -671,7 +812,10 @@ class ExportPreviewDialog(QDialog):
         self._refresh_queued = False
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.setTimerType(Qt.TimerType.PreciseTimer)
         self._refresh_timer.timeout.connect(self._run_scheduled_refresh)
+        self._next_playback_refresh_at = 0.0
+        self._last_playback_render_cost = 0.0
         self._gpu_refresh_deferred = False
         self._video_duration_cache: dict[str, float] = {}
         self._video_probe_queue: list[str] = []
@@ -828,6 +972,12 @@ class ExportPreviewDialog(QDialog):
         self.timeline = PlaylistTimeline(self._track_schedule, self._compiled_plan.audio.transitions)
         self.timeline.setObjectName("previewTimeline")
         self.timeline.setRange(0, max(1, ceil(self._playlist_duration() * TIMELINE_SCALE)))
+        self.timeline_all_button = QPushButton(checkable=True, checked=True, objectName="previewTimelineMode")
+        self.timeline_track_button = QPushButton(checkable=True, objectName="previewTimelineMode")
+        modes = QButtonGroup(self)
+        modes.addButton(self.timeline_all_button)
+        modes.addButton(self.timeline_track_button)
+        self.timeline_track_button.toggled.connect(self.timeline.set_current_track_mode)
         self.time_label = QLabel()
         self.time_label.setObjectName("previewTimeLabel")
         self.time_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -966,13 +1116,20 @@ class ExportPreviewDialog(QDialog):
         self.timeline_card = QFrame()
         self.timeline_card.setObjectName("previewControlCard")
         timeline_layout = QVBoxLayout(self.timeline_card)
-        timeline_layout.setContentsMargins(14, 6, 14, 4)
+        timeline_layout.setContentsMargins(14, 4, 14, 4)
+        timeline_layout.setSpacing(2)
         timeline_header = QHBoxLayout()
         timeline_header.addWidget(self.timeline_title_label)
         timeline_header.addStretch()
         timeline_header.addWidget(self.time_label)
         timeline_layout.addLayout(timeline_header)
         timeline_layout.addWidget(self.timeline)
+        timeline_modes = QHBoxLayout()
+        timeline_modes.setSpacing(3)
+        timeline_modes.addStretch(1)
+        timeline_modes.addWidget(self.timeline_all_button)
+        timeline_modes.addWidget(self.timeline_track_button)
+        timeline_layout.addLayout(timeline_modes)
         layout.addWidget(self.timeline_card)
 
         self.transport_card = QFrame()
@@ -1427,6 +1584,7 @@ class ExportPreviewDialog(QDialog):
         controller.start(
             self.tracks, Path(self._blended_audio_temp_dir.name) / f"remix-{self._remix_count}",
             "automix", self._crossfade_seconds, automix_settings=self._automix_settings,
+            audio_effects=self._audio_effects,
         )
         self._report_playhead(force=True)
 
@@ -1442,21 +1600,24 @@ class ExportPreviewDialog(QDialog):
         panel = getattr(self, "automix_details", None)
         if panel is not None:
             panel.set_playhead(self.timeline.value() / TIMELINE_SCALE)
-        if not self._advancing_playhead:
-            self._playhead_seconds = self.timeline.value() / TIMELINE_SCALE
-            self._force_video_seek = True
-            if self._scrubbing:
-                self._schedule_refresh(preview_interval_ms(self.presentation_fps))
-                return
-            if getattr(self, "_progressive", False):
-                # A user seek restarts audio anyway: the natural moment to take
-                # a waiting mix, and to re-prioritize rendering around the new spot.
-                self._try_apply_pending_swap(force=True)
-                self._report_playhead(force=True)
-            elif self._pending_swap is not None:
-                self._try_apply_pending_swap(force=True)
-        self.refresh_preview()
-        if self._playing and not self._advancing_playhead:
+        if self._advancing_playhead:
+            self._schedule_refresh()
+            return
+        self._playhead_seconds = self.timeline.value() / TIMELINE_SCALE
+        self._force_video_seek = True
+        if self._scrubbing:
+            self._schedule_refresh(preview_interval_ms(self.presentation_fps))
+            return
+        if self._pending_swap is not None:
+            # A seek restarts the audio anyway, so apply a waiting mix here.
+            self._try_apply_pending_swap(force=True)
+        if self._progressive:
+            self._report_playhead(force=True)
+        if self.timeline.view_is_scrolling:
+            self._schedule_refresh()
+        else:
+            self.refresh_preview()
+        if self._playing:
             self._start_audio_at_playhead()
 
     def _start_scrubbing(self) -> None:
@@ -1621,21 +1782,25 @@ class ExportPreviewDialog(QDialog):
             ]
             if video_z_banded:
                 ordered_dynamic_layers.extend(self._video_z_band_layers)
+            regions = (self._dynamic_capture_regions(raster_dynamic_ids)
+                       if raster_dynamic_ids and not full_canvas_ordered_required else ())
+            # A full-size dirty region can paint directly on the cached base,
+            # avoiding a second full-frame raster and alpha blend.
+            compose_on_base = (not use_gpu_layers and len(regions) == 1
+                               and regions[0][1] == self.scene.artboard_rect
+                               and not self._base_image.isNull())
             if not use_gpu_layers:
                 # QImage is implicitly shared, but painting would detach it.
                 # A static frame can therefore reuse the base without a copy.
                 self._image = (
                     self._base_image
-                    if not raster_dynamic_ids
-                    and not self._active_overlay_entries(playlist_seconds)
+                    if compose_on_base or (not raster_dynamic_ids and not audio_overlays)
                     else self._base_image.copy()
                 )
-            if raster_dynamic_ids and not full_canvas_ordered_required:
+            if regions:
                 capture_started = perf_counter()
-                painter = None if use_gpu_layers else QPainter(self._image)
-                for source_ids, capture_rect in self._dynamic_capture_regions(
-                    raster_dynamic_ids,
-                ):
+                painter = None if use_gpu_layers or compose_on_base else QPainter(self._image)
+                for source_ids, capture_rect in regions:
                     buffer_key = frozenset(source_ids)
                     buffer = self._dynamic_region_buffers.get(buffer_key, QImage())
                     buffer = CanvasSnapshot.capture_track(
@@ -1655,7 +1820,11 @@ class ExportPreviewDialog(QDialog):
                         bass_level=bass_level,
                         music_levels=self._music_reaction_levels(track, elapsed),
                         track_tempo=self._track_tempo(track),
+                        background_image=self._base_image if compose_on_base else None,
                     )
+                    if compose_on_base:
+                        self._image = buffer
+                        continue
                     self._dynamic_region_buffers[buffer_key] = buffer
                     target = QRectF(
                         round(capture_rect.left() * self._active_render_scale),
@@ -3351,7 +3520,19 @@ class ExportPreviewDialog(QDialog):
 
     def _schedule_refresh(self, delay_ms: int = 0) -> None:
         """Coalesce worker completions into one GUI-thread preview composition."""
-        if self._closing or self._refresh_queued:
+        if self._closing:
+            return
+        scrolling = self.timeline.view_is_scrolling
+        if self._refresh_queued and not scrolling:
+            return
+        if self._playing and not self._scrubbing:
+            delay_ms = max(delay_ms, ceil((self._next_playback_refresh_at - perf_counter()) * 1000))
+        if scrolling:
+            # During the short slide, preserve time for the ruler's animation
+            # even when the previous scene took longer than a display frame.
+            delay_ms = max(delay_ms, preview_interval_ms(self.presentation_fps),
+                           min(50, ceil(self._last_playback_render_cost * 1000)))
+        if self._refresh_queued and self._refresh_timer.interval() >= delay_ms:
             return
         self._refresh_queued = True
         if PROFILE_ENABLED:
@@ -3360,10 +3541,21 @@ class ExportPreviewDialog(QDialog):
 
     def _run_scheduled_refresh(self) -> None:
         self._refresh_queued = False
-        if not self._closing:
-            if PROFILE_ENABLED:
-                PROFILE.observe("preview.gui_refresh_lateness_seconds", max(0.0, perf_counter() - self._profile_refresh_due))
-            self.refresh_preview()
+        if self._closing:
+            return
+        started = perf_counter()
+        if PROFILE_ENABLED:
+            PROFILE.observe("preview.gui_refresh_lateness_seconds", max(0.0, started - self._profile_refresh_due))
+        self.refresh_preview()
+        if not self._playing or self._scrubbing:
+            return
+        # On a slow CPU, capture/paint consumes the same event loop as the
+        # playhead. Give those widgets a turn between consecutive captures.
+        finished = perf_counter()
+        cost = finished - started
+        self._last_playback_render_cost = cost
+        budget = 1 / self.presentation_fps
+        self._next_playback_refresh_at = finished + min(budget, max(0.0, cost - budget / 2))
 
     def _preview_worker_failed(self, message: str) -> None:
         """Retain a nonfatal worker error for diagnostics without closing playback."""
@@ -4561,10 +4753,12 @@ class ExportPreviewDialog(QDialog):
         self._populate_track_list()
         if getattr(self, "automix_details", None) is not None:
             self.automix_details.retranslate()
-        self.timeline_title_label.setText(
-            ("재생 타임라인" if korean else "Playback timeline")
-            if self.embedded else
-            ("전체 플레이리스트" if korean else "Full playlist")
+        self.timeline_title_label.setText("재생 타임라인" if korean else "Playback timeline")
+        self.timeline_all_button.setText("전체" if korean else "All")
+        self.timeline_track_button.setText("현재 곡" if korean else "Current track")
+        self.timeline_track_button.setToolTip(
+            "현재 곡을 확대합니다. 양옆에 보이는 구간을 눌러 이전·다음 곡으로 이동할 수 있습니다."
+            if korean else "Zoom in on the current track. Click either edge to jump to the neighboring track."
         )
         self.shortcut_hint_label.setText(
             "Space 재생/일시정지  ·  ←/→ 5초 이동  ·  Shift+←/→ 곡 이동  ·  ↑/↓ 볼륨"

@@ -203,12 +203,14 @@ QGroupBox::title { subcontrol-origin: margin; left: 0; padding: 0 8px 0 0; color
 #appSettingsDialog QGroupBox::title, #projectSettingsDialog QGroupBox::title { color: @text; font-size: 13px; font-weight: 600; }
 #appSettingsDialog QLineEdit, #projectSettingsDialog QLineEdit,
 #appSettingsDialog QComboBox, #projectSettingsDialog QComboBox { min-height: 28px; }
-#appSettingsDialog #settingsTabs QTabBar::tab, #projectSettingsDialog #settingsTabs QTabBar::tab { padding: 10px 18px; }
+#appSettingsDialog #settingsTabs QTabBar::tab, #projectSettingsDialog #settingsTabs QTabBar::tab,
+#projectAudioSettingsDialog #settingsTabs QTabBar::tab { padding: 10px 18px; }
 #appSettingsDialog QPushButton:focus, #projectSettingsDialog QPushButton:focus { border: 1px solid @accent; }
 #projectSettingsDialog #thumbnailPreview { background: @window; border: 1px solid @border; border-radius: 4px; }
 
 /* --- Lists, trees & tables -------------------------------------- */
 QScrollArea, QListWidget, QTreeWidget, QTableWidget { background: @panel; color: @text; border: 0; }
+#projectAudioSettingsDialog QScrollArea > QWidget > QWidget { background: @panel; }
 QHeaderView::section { background: @alternate; color: @muted; border: 0; border-bottom: 1px solid @border; padding: 7px 8px; font-weight: 600; }
 /* Keep collection borders stable when focus changes; selection marks the active row. */
 QTableView, QTreeView, QListView { color: @text; background: @field; border: 0; outline: 0; alternate-background-color: @alternate; gridline-color: @border; selection-background-color: @selection; selection-color: @text; }
@@ -454,6 +456,10 @@ QSlider::handle:horizontal:focus { border-color: @accent; }
 /* Preview track rows are painted by PreviewTrackDelegate. */
 QPushButton#previewTransportButton { background: transparent; border-color: transparent; color: @muted; min-width: 22px; padding: 6px 10px; }
 QPushButton#previewTransportButton:hover { background: @hover; border-color: @border; color: @text; }
+QPushButton#previewTimelineMode { min-width: 34px; min-height: 16px; padding: 2px 10px; background: transparent; border-color: transparent; color: @muted; }
+QPushButton#previewTimelineMode:hover { background: @hover; color: @text; }
+QPushButton#previewTimelineMode:checked { background: @selection; border-color: @selection_border; color: @text; }
+QPushButton#previewTimelineMode:focus { border-color: @accent; }
 #previewPlayButton { min-width: 96px; }
 #playlistPreview #previewInfoCard, #embeddedNowPlaying { border-bottom: 1px solid @border; }
 #playlistPreview QPushButton:focus, #embeddedCanvasPreview QPushButton:focus { border: 1px solid @accent; }

@@ -459,9 +459,9 @@ class NewProjectDialog(AdaptiveDialog):
         selected_identifier = self.design_preset_combo.currentData()
         self.setWindowTitle("새 프로젝트" if korean else "New project")
         self.description.setText(
-            "새 프로젝트를 어떻게 시작할지 정하세요. 여기서 고른 내용은 모두 나중에 프로젝트 설정에서 바꿀 수 있습니다."
+            "프로젝트를 시작할 화면과 음악을 고르세요. 곡 전환은 프로젝트 오디오 설정에서 바꿀 수 있습니다."
             if korean else
-            "Choose how the new project starts. Everything here can be changed later in Project Settings."
+            "Choose the starting design and music. You can change transitions in Project audio settings."
         )
         self.identity_group.setTitle("프로젝트 정보" if korean else "Project information")
         self.title_label.setText("이름" if korean else "Name")

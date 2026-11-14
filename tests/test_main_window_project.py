@@ -25,6 +25,7 @@ from app.dialogs.audio_metadata_dialog import AudioMetadataDialog
 from app.dialogs.new_project_dialog import NewProjectDialog
 from app.dialogs.startup_dialog import StartupDialog
 from app.dialogs.project_settings_dialog import ProjectSettingsDialog
+from app.dialogs.project_audio_settings_dialog import ProjectAudioSettingsDialog
 from app.dialogs.project_crash_report_dialog import ProjectCrashReportDialog
 from app.dialogs.lrc_generator_dialog import LrcGeneratorDialog
 from app.dialogs.track_details_dialog import TrackDetailsDialog
@@ -1103,9 +1104,7 @@ class MainWindowProjectTests(MainWindowTestCase):
 
     def test_transition_mode_is_a_per_project_setting(self) -> None:
         self.assertEqual(self.window.project_settings.transition_mode, "none")
-        dialog = ProjectSettingsDialog(
-            self.window.project_settings, self.window.translator, QPixmap(),
-        )
+        dialog = ProjectAudioSettingsDialog(self.window.project_settings, self.window.translator)
         try:
             self.assertTrue(dialog.transition_none_radio.isChecked())
             self.assertFalse(dialog.crossfade_seconds_spin.isEnabled())
@@ -1116,9 +1115,7 @@ class MainWindowProjectTests(MainWindowTestCase):
             self.assertEqual(dialog.selected_settings.transition_mode, "crossfade")
             self.assertEqual(dialog.selected_settings.crossfade_seconds, 5.0)
 
-            dialog2 = ProjectSettingsDialog(
-                dialog.selected_settings, self.window.translator, QPixmap(),
-            )
+            dialog2 = ProjectAudioSettingsDialog(dialog.selected_settings, self.window.translator)
             try:
                 self.assertFalse(hasattr(dialog2, "automix_preset_combo"))  # the style is always automatic
                 dialog2.transition_automix_radio.setChecked(True)
@@ -1128,6 +1125,50 @@ class MainWindowProjectTests(MainWindowTestCase):
                 dialog2.close()
         finally:
             dialog.close()
+
+    def test_project_audio_menu_expands_and_saves_effect_controls(self) -> None:
+        action = self.window.project_audio_settings_action
+        self.assertIn(action, self.window.project_menu.actions())
+
+        def edit(dialog):
+            self.assertEqual([dialog.tabs.tabText(i) for i in range(dialog.tabs.count())],
+                             ["곡 전환 방식", "오디오 효과"])
+            self.assertTrue(dialog.tabs.widget(0).isAncestorOf(dialog.transition_none_radio))
+            dialog.tabs.setCurrentIndex(1)
+            effect_page = dialog.tabs.currentWidget()
+            for enabled, description, _controls in dialog.effect_controls.values():
+                self.assertTrue(effect_page.isAncestorOf(enabled))
+                self.assertTrue(effect_page.isAncestorOf(description))
+                self.assertTrue(description.text())
+                self.assertFalse(description.isHidden())
+            group, description, controls = dialog.effect_controls["eight_d"]
+            speed = controls["period"][1]
+            self.assertTrue(speed.parentWidget().isHidden())
+            group.setChecked(True)
+            self.assertFalse(speed.parentWidget().isHidden())
+            self.assertTrue(speed.isEnabled())
+            speed.setValue(6.5)
+            group.setChecked(False)
+            self.assertTrue(speed.parentWidget().isHidden())
+            self.assertFalse(description.isHidden())
+            group.setChecked(True)
+            dialog.tabs.setCurrentIndex(0)
+            dialog.transition_crossfade_radio.setChecked(True)
+            dialog.crossfade_seconds_spin.setValue(4.5)
+            dialog._accept()
+            return dialog.DialogCode.Accepted
+
+        with patch.object(ProjectAudioSettingsDialog, "exec", edit):
+            action.trigger()
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "audio-effects.pvsproj"
+            ProjectService.save(path, self.window._project_document())
+            saved = ProjectService.load(path)
+        self.assertEqual(saved.settings.transition_mode, "crossfade")
+        self.assertEqual(saved.settings.crossfade_seconds, 4.5)
+        self.assertEqual(saved.settings.audio_effects["eight_d"], {
+            "enabled": True, "period": 6.5, "strength": 70.0, "space": 20.0,
+        })
 
     def test_new_project_can_start_from_scaled_design_preset(self) -> None:
         preset = PresetService.all()[0]
@@ -1197,10 +1238,10 @@ class MainWindowProjectTests(MainWindowTestCase):
         try:
             self.assertLessEqual(dialog.height(), 640)
             content = dialog.scroll_area.widget()
-            self.assertEqual(dialog.tabs.count(), 4)
+            self.assertEqual(dialog.tabs.count(), 3)
             for group in (dialog.identity_group, dialog.thumbnail_group):
                 self.assertTrue(content.isAncestorOf(group))
-            self.assertTrue(dialog.tabs.widget(2).widget().isAncestorOf(dialog.transition_group))
+            self.assertTrue(dialog.tabs.widget(2).widget().isAncestorOf(dialog.content_group))
             self.assertFalse(content.isAncestorOf(dialog.buttons))  # Save/Cancel never scroll away
             # A preset-sized canvas is shown as that preset, not as "Custom".
             self.assertEqual(dialog.canvas_preset_combo.currentText(), "9:16")

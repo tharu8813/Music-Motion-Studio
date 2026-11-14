@@ -10,7 +10,7 @@ from PySide6.QtCore import QPointF, QRectF, QSizeF, QTextBoundaryFinder, Qt
 from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QTextLayout, QTextOption
 
 from app.animation.lyrics import (
-    KARAOKE_GLOW_RELEASE_SECONDS, context_style_at_distance, cue_effect_pose,
+    context_style_at_distance, cue_effect_pose,
     intro_exit_pose, role_style, stagger_progress,
 )
 from app.animation.curves import clamp_progress, ease_in_out_cubic, ease_out_cubic, music_reactive_pose
@@ -692,16 +692,25 @@ def _paint_karaoke_effects(
     key, (positions, path) = _word_geometry(item, painter, row, flags, text)
     graphemes = _grapheme_boundaries(text)
     accent = QColor(source.subtitle_accent_color)
-    glow_strength = source.subtitle_karaoke_glow_strength if source.subtitle_karaoke_glow_enabled else 0.0
+    glow_strength = source.subtitle_karaoke_glow_strength if source.uses_character_karaoke_glow else 0.0
     edge_width = source.subtitle_karaoke_edge_blur if opacity > _VISIBLE else 0.0
     lift_height = source.subtitle_karaoke_lift if lift_active else 0.0
     timed_mode = source.subtitle_karaoke_blur_mode
     timed_radius = source.subtitle_karaoke_blur_radius
+    timed_glow = source.uses_timed_karaoke_glow
+    fade_in = source.subtitle_karaoke_glow_fade_in
+    fade_out = source.subtitle_karaoke_glow_fade_out
     active_radius = max(1.0, min(6.0, painter.font().pixelSize() * 0.075))
     glows, lifts, soft_edges = [], {}, []
 
     def unit_band(first, last):
         return tuple(sorted((_cursor_x(positions, first), _cursor_x(positions, last))))
+
+    def glow_boundary(first, last):
+        if last >= len(text):
+            return None
+        x_end = _cursor_x(positions, last)
+        return x_end, x_end >= _cursor_x(positions, first)
 
     for a, b, age, duration in timed_words:
         start, end = a - offset, b - offset
@@ -727,22 +736,35 @@ def _paint_karaoke_effects(
                     lifts[unit_band(start, graphemes[done])] = lift_height
                 if character_band:
                     lifts[character_band] = lift_height * ease_out_cubic(char[2])
-        if char is not None and glow_strength > 0 and char[2] > 0:
-            glows.append((*character_band, active_radius, opacity * glow_strength * char[2], None))
-        if cue_release is not None and timed_glow_opacity > _VISIBLE:
+        character_targets = []
+        if cue_release is not None and timed_glow_opacity > _VISIBLE and (
+            glow_strength > 0 or (timed_glow and source.subtitle_karaoke_blur_unit == "character")
+        ):
+            character_targets = [
+                (max(start, first), min(end, last),
+                 duration * (min(end, last) - max(start, first)) / (end - start),
+                 age - duration * (max(start, first) - start) / (end - start))
+                for first, last in zip(graphemes, graphemes[1:])
+                if last > start and first < end and fill > max(start, first) and text[first:last].strip()
+            ]
+            if glow_strength > 0:
+                for first, last, seconds, unit_age in character_targets:
+                    strength = _karaoke_glow_envelope(
+                        "filling", seconds, unit_age, 0.0, cue_release,
+                        fade_in=fade_in, fade_out=fade_out,
+                    )
+                    if strength > 0:
+                        brightness = timed_glow_opacity * glow_strength * strength
+                        glows.append((*unit_band(first, last), active_radius, brightness, glow_boundary(first, last)))
+        if cue_release is not None and timed_glow_opacity > _VISIBLE and timed_glow:
             if source.subtitle_karaoke_blur_unit == "word":
                 targets = [(start, end, duration, age)]
             else:
-                targets = [
-                    (max(start, first), min(end, last),
-                     duration * (min(end, last) - max(start, first)) / (end - start),
-                     age - duration * (max(start, first) - start) / (end - start))
-                    for first, last in zip(graphemes, graphemes[1:])
-                    if last > start and first < end and fill > max(start, first) and text[first:last].strip()
-                ]
+                targets = character_targets
             for first, last, seconds, unit_age in targets:
                 strength = _karaoke_glow_envelope(
                     timed_mode, seconds, unit_age, source.subtitle_karaoke_blur_min_duration, cue_release,
+                    fade_in=fade_in, fade_out=fade_out,
                 )
                 if strength > 0:
                     reached = min(last, fill)
@@ -757,8 +779,7 @@ def _paint_karaoke_effects(
                         completed = reached
                     # The full halo ends at the active grapheme. Its own halo
                     # fades in with the fill, keeping untouched glyphs unlit.
-                    x_first, x_end = _cursor_x(positions, first), _cursor_x(positions, active_end)
-                    boundary = (x_end, x_end >= x_first) if active_end < len(text) else None
+                    boundary = glow_boundary(first, active_end)
                     brightness = timed_glow_opacity * strength
                     if completed > first:
                         glows.append((*unit_band(first, completed), timed_radius, brightness, boundary))
@@ -872,13 +893,15 @@ def _paint_lyric_halo(item, painter, row, key, path, color, ratio, radius, left,
     painter.drawPixmap(QPointF(row.left() + left - margin, row.top() - margin - lift), pixmap)
 
 
-def _karaoke_glow_envelope(mode, duration, age, minimum, cue_release=0.0):
+def _karaoke_glow_envelope(mode, duration, age, minimum, cue_release=0.0, *, fade_in, fade_out):
     released_for = cue_release if mode == "continuous" else cue_release + max(0.0, age - duration)
-    fade = 1.0 - ease_in_out_cubic(released_for / KARAOKE_GLOW_RELEASE_SECONDS)
+    if fade_out == 0 and mode != "continuous" and age >= duration:
+        return 0.0
+    fade = 1.0 - ease_in_out_cubic(released_for / fade_out) if fade_out else 1.0
+    attack = ease_out_cubic(min(age, duration) / fade_in) if fade_in else 1.0
     if mode == "long":
         peak = clamp_progress((duration - minimum) / (2 * minimum))
-        return peak * ease_in_out_cubic(age / duration) * fade
-    attack = ease_out_cubic(age / min(0.10, duration))
+        return peak * ease_in_out_cubic(age / duration) * attack * fade
     return attack * fade
 
 

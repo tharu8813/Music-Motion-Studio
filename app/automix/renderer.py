@@ -46,6 +46,8 @@ from app.utils.subprocess_utils import hidden_process_kwargs, lower_thread_if_ba
 from app.ffmpeg.process import (
     FFmpegProcessCancelled, FFmpegProcessError, parse_progress_seconds, run_ffmpeg,
 )
+from app.ffmpeg.audio_effects import audio_effect_graph
+from app.models.audio_effects import AudioEffectSettings
 
 LOGGER = logging.getLogger(__name__)
 
@@ -827,6 +829,7 @@ class AutoMixAudioPipeline:
         resting_dsp: Mapping[str, tuple[bool, bool]] | None = None,
         track_filters: Mapping[str, str] | None = None,
         workers: int = 1,
+        audio_effects: AudioEffectSettings | None = None,
     ) -> PreparedAudio:
         """Render ``plan`` using ``track_paths`` (track_id -> source file) for its clips.
 
@@ -916,6 +919,10 @@ class AutoMixAudioPipeline:
                 clips, plan.transitions, transition_dsp=dsp, ramp_filter=ramp_filter, resting_dsp=resting_dsp,
                 track_filters=track_filters,
             )
+            effects = audio_effect_graph(audio_effects, output_label, "master", expected_duration)
+            if effects:
+                fold = [*fold, effects]
+                output_label = "master"
             if workers <= 1 or len(clips) < 2:
                 self._run(command(sources, ";".join([*(line for lines in per_clip for line in lines), *fold]),
                                   output_label, output_path, codec, container, "automix"),

@@ -45,6 +45,8 @@ from app.automix.renderer import (
     graph_parts,
     transition_dsp_style,
 )
+from app.ffmpeg.audio_effects import audio_effect_graph
+from app.models.audio_effects import AudioEffectSettings
 from app.renderer import loudness
 from app.timeline.render_plan import AudioRenderPlan, TransitionDsp
 from app.utils.subprocess_utils import lower_thread_if_background
@@ -284,6 +286,7 @@ def finish_parts(
     pipeline: AutoMixAudioPipeline, parts: Sequence[MixPart], output: Path, output_args: Sequence[str],
     *, workers: int, cancel_event: threading.Event | None = None,
     progress: Callable[[float, str], None] | None = None,
+    audio_effects: AudioEffectSettings | None = None,
 ) -> str | None:
     """Measure, normalize and encode ``parts`` into ``output``; returns the loudness filter used (None: none)."""
     cancel_event = cancel_event or threading.Event()
@@ -347,8 +350,12 @@ def finish_parts(
             part.path.unlink(missing_ok=True)
         total = sum(part.count for part in parts) / SAMPLE_RATE
         joined = "".join(f"[{k}:a]" for k in range(len(parts))) + f"concat=n={len(parts)}:v=0:a=1[out]"
+        effects = audio_effect_graph(audio_effects, "out", "master", total)
+        if effects:
+            joined += ";" + effects
         pipeline._run(
-            _command(executable, normalized, joined, "out", output, output_args, work / "encode.txt"),
+            _command(executable, normalized, joined, "master" if effects else "out", output, output_args,
+                     work / "encode.txt"),
             cancel_event,
             lambda seconds: say(0.7 + 0.3 * min(1.0, seconds / max(0.01, total)),
                                 f"Saving audio {seconds:.1f}s / {total:.1f}s"),

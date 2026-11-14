@@ -187,6 +187,7 @@ def _export_project_document(
             audio = renderer.prepare_playlist_audio(
                 tracks, Path(directory), settings, transition_mode="none", cancel_event=cancel,
                 progress_callback=preparation_progress_callback,
+                audio_effects=project.settings.audio_effects,
             )
             audio_seconds = monotonic() - audio_started
             _check_cancel(cancel)

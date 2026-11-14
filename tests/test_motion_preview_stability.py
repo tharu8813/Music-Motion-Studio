@@ -75,7 +75,7 @@ class MediaStabilityTests(TestCase):
             filtering.assert_called_once()
             image, generation = item._video_pending_frame
             item._video_pending_frame = None
-        item._video_filter_finished(generation, image)
+        item._video_filter_finished(generation, image.toImage())
         self.assertEqual(item.video_preview_frame().pixelColor(0, 0), QColor("green"))
         self.assertEqual(item.video_frame_state, "synced")
         item._video_last_requested_target_ms = 1500
@@ -101,7 +101,7 @@ class MediaStabilityTests(TestCase):
         item._video_pending_frame = None
         revision = item.video_preview_revision
         item._video_last_requested_target_ms = 1500
-        item._video_filter_finished(generation, image)
+        item._video_filter_finished(generation, image.toImage())
         self.assertEqual(item.video_preview_revision, revision)
         self.assertTrue(item.video_preview_frame().isNull())
 

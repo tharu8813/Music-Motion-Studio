@@ -20,6 +20,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QEventLoop, QObject, QThread, Signal
 
+from app.models.audio_effects import AudioEffectSettings, has_audio_effects
 from app.models.playlist import PlaylistTrack
 from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderCancelledError, RenderError
 from app.timeline.compiler import compile_playlist
@@ -30,11 +31,11 @@ LOGGER = logging.getLogger(__name__)
 
 
 def prepare_audio_for_ui(renderer, tracks, directory, mode, crossfade_seconds,
-                         settings, cancel_event, progress=None, automix_settings=None):
+                         settings, cancel_event, progress=None, automix_settings=None, *, audio_effects=None):
     """Resolve audio and timing together while the caller's modal UI stays responsive."""
     worker = _PreviewAudioWorker(renderer, tracks, directory, mode, crossfade_seconds,
                                  settings=settings, cancel_event=cancel_event,
-                                 automix_settings=automix_settings)
+                                 automix_settings=automix_settings, audio_effects=audio_effects)
     results, errors = [], []
     worker.ready.connect(lambda path, plan: results.append((Path(path), plan)))
     worker.failed.connect(errors.append)
@@ -66,11 +67,13 @@ class _PreviewAudioWorker(QThread):
         transition_mode: str, crossfade_seconds: float, parent: QObject | None = None,
         *, settings=None, cancel_event: threading.Event | None = None, automix_settings=None,
         audio_codec: str = "aac", background: bool = False,
+        audio_effects: AudioEffectSettings | None = None,
     ) -> None:
         super().__init__(parent)
         self._background = background
         """Preview's own mix: yield the CPU to playback (never set for Export)."""
         self._automix_settings = automix_settings
+        self._audio_effects = audio_effects
         self._audio_codec = audio_codec
         self._renderer = renderer
         self._tracks = tracks
@@ -107,6 +110,7 @@ class _PreviewAudioWorker(QThread):
                 progress_callback=self.progress.emit,
                 automix_settings=self._automix_settings,
                 audio_codec=self._audio_codec,
+                audio_effects=self._audio_effects,
             )
         except RenderCancelledError:
             return
@@ -140,21 +144,25 @@ class PreviewAudioController(QObject):
     def start(
         self, tracks: list[PlaylistTrack], output_directory: Path,
         transition_mode: str, crossfade_seconds: float, automix_settings=None,
+        audio_effects: AudioEffectSettings | None = None,
     ) -> None:
         """Render blended preview audio in the background, replacing any run underway."""
         if self._shutting_down:
             return
         self.cancel()
-        if not tracks or transition_mode == "none":
+        if not tracks or (transition_mode == "none" and not (
+            has_audio_effects(audio_effects) or any(track.audio_filter for track in tracks)
+        )):
             return
         if self._worker is not None:
-            self._pending = (tracks, output_directory, transition_mode, crossfade_seconds, automix_settings)
+            self._pending = (tracks, output_directory, transition_mode, crossfade_seconds, automix_settings, audio_effects)
             return
         # Preview plays the export's audio before its AAC encode: same mix, same
         # loudness, lossless, and without the encode (27 s per 40 min of audio).
         worker = _PreviewAudioWorker(
             self._renderer, tracks, output_directory, transition_mode, crossfade_seconds, self,
             automix_settings=automix_settings, audio_codec="flac", background=True,
+            audio_effects=audio_effects,
         )
         worker.ready.connect(
             lambda path, plan: self.audio_ready.emit(path, plan)

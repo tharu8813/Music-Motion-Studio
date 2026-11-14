@@ -61,6 +61,8 @@ class LyricsAnimationDialog(QDialog):
         "subtitle_karaoke_blur_unit": ("빛을 더할 글자 또는 단어·음절을 선택합니다.", "Choose whether characters or timed words and syllables glow."),
         "subtitle_karaoke_blur_radius": ("글자 주변으로 빛이 퍼지는 범위입니다. 0이면 꺼집니다.", "How far the halo spreads around the glyphs. Zero turns it off."),
         "subtitle_karaoke_blur_min_duration": ("이 시간보다 긴 음에만 적용합니다. 부르는 동안 서서히 밝아지고, 긴 음일수록 최대 밝기가 높아집니다.", "Applies to units held longer than this. The glow builds while sung and reaches a higher peak on longer notes."),
+        "subtitle_karaoke_glow_fade_in": ("채우기 시작할 때 글로우가 밝아지는 시간입니다. 0이면 페이드인을 생략합니다.", "Time for the glow to fade in when filling starts. Zero skips the fade-in."),
+        "subtitle_karaoke_glow_fade_out": ("글자나 단어가 채워진 뒤 빛이 사라지는 시간입니다. 현재 줄에 있는 동안 모드에서는 줄이 끝날 때 시작합니다. 0이면 즉시 꺼집니다.", "Time for the glow to fade out after filling. While cue is current starts the fade at cue end. Zero switches the glow off immediately."),
     }
     SETTINGS = (
         "subtitle_animation", "subtitle_animation_duration", "subtitle_flow_direction",
@@ -75,6 +77,7 @@ class LyricsAnimationDialog(QDialog):
     BLUR_SETTINGS = (
         "subtitle_previous_blur", "subtitle_karaoke_edge_blur", "subtitle_karaoke_blur_mode",
         "subtitle_karaoke_blur_unit", "subtitle_karaoke_blur_radius", "subtitle_karaoke_blur_min_duration",
+        "subtitle_karaoke_glow_fade_in", "subtitle_karaoke_glow_fade_out",
     )
     UNIT_LABELS = {"character": ("글자", "Character"), "word": ("단어·음절", "Word or syllable")}
 
@@ -424,6 +427,8 @@ class LyricsAnimationDialog(QDialog):
         self._combo(live, "subtitle_karaoke_blur_unit", "글로우 대상", "Glow target", self.UNIT_LABELS)
         self._spin(live, "subtitle_karaoke_blur_radius", "글로우 반경", "Glow radius", 0, 12, 0.5, " px")
         self._spin(live, "subtitle_karaoke_blur_min_duration", "최소 지속시간", "Minimum duration", 0.05, 3, 0.05, " s")
+        self._spin(live, "subtitle_karaoke_glow_fade_in", "글로우 페이드인", "Glow fade-in", 0, 3, 0.05, " s")
+        self._spin(live, "subtitle_karaoke_glow_fade_out", "글로우 페이드아웃", "Glow fade-out", 0, 3, 0.05, " s")
         note = QLabel(self._tr("단어·음절 타이밍이 있는 실시간 가사에 적용됩니다.",
                                "Applies to real-time lyrics with word or syllable timings."))
         note.setWordWrap(True)

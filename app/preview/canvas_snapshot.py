@@ -276,11 +276,13 @@ class CanvasSnapshot:
     def capture(scene: CanvasScene, output_scale: float = 1.0,
                 z_min: float | None = None, z_max: float | None = None,
                 transparent: bool = False, image_buffer: QImage | None = None,
-                capture_rect: QRectF | None = None) -> QImage:
+                capture_rect: QRectF | None = None, background_image: QImage | None = None) -> QImage:
         """Render all or one Z-index band of the artboard at project resolution.
 
         Transparent Z bands are the basis for interleaving static Canvas content
         with audio-reactive video layers during export.
+        ``background_image`` seeds a full-size preview capture with its cached
+        base. Transparent scene painting leaves that base underneath the items.
         """
         artboard = scene.artboard_rect
         requested_rect = capture_rect if capture_rect is not None else artboard
@@ -327,18 +329,16 @@ class CanvasSnapshot:
                         hidden_items.append(item)
                         item.setVisible(False)
             target = QRectF(0, 0, width, height)
-            accelerated = capture_canvas_opengl(
-                scene, target, source_rect, transparent,
-            )
+            accelerated = (capture_canvas_opengl(scene, target, source_rect, transparent)
+                           if background_image is None else None)
             if accelerated is not None:
                 image = accelerated
             else:
-                image = reusable_image if reusable_image is not None else QImage(
-                    width, height, image_format,
-                )
-                image.fill(
-                    Qt.GlobalColor.transparent if transparent else Qt.GlobalColor.black
-                )
+                if background_image is not None:
+                    image = background_image.copy()
+                else:
+                    image = reusable_image if reusable_image is not None else QImage(width, height, image_format)
+                    image.fill(Qt.GlobalColor.transparent if transparent else Qt.GlobalColor.black)
                 painter = QPainter(image)
                 try:
                     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -870,6 +870,7 @@ class CanvasSnapshot:
                       render_metrics: dict[str, object] | None = None,
                       profile_source_state: bool = False,
                       band_source_items: Sequence[SourceItem] | None = None,
+                      background_image: QImage | None = None,
                       junction: MixJunction | None = None,
                       bass_level: float = 0.0,
                       music_levels: dict[str, float] | None = None,
@@ -1723,6 +1724,7 @@ class CanvasSnapshot:
                 scene, output_scale, z_min=z_min, z_max=z_max, transparent=transparent,
                 image_buffer=(None if used_partial_render else image_buffer),
                 capture_rect=effective_capture_rect,
+                **({"background_image": background_image} if background_image is not None else {}),
             )
             if (used_partial_render and effective_capture_rect is not None
                     and not partial_render_keep_cropped):

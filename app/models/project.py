@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from app import __version__
 from app.automix.overrides import parse_overrides, serialize_overrides
+from app.models.audio_effects import AudioEffectSettings, normalize_audio_effects
 from app.models.playlist import PlaylistTrack
 from app.models.layer import LayerGroup
 from app.models.source import Source
@@ -63,6 +64,7 @@ class ProjectSettings:
     modified_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
+    audio_effects: AudioEffectSettings = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.export_preferences, dict):
@@ -83,6 +85,7 @@ class ProjectSettings:
             )
         # A broken entry (hand-edited file, older build) drops back to automatic.
         self.automix_overrides = serialize_overrides(parse_overrides(self.automix_overrides))
+        self.audio_effects = normalize_audio_effects(self.audio_effects)
 
 
 @dataclass(slots=True)
@@ -161,13 +164,16 @@ class ProjectDocument:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert the document into JSON-compatible data."""
+        settings = asdict(self.settings)
+        if not self.settings.audio_effects:
+            settings.pop("audio_effects")
         return {
             "version": self.version,
             "app_version": self.app_version,
             "canvas": asdict(self.canvas),
             "theme": self.theme,
             "language": self.language,
-            "settings": asdict(self.settings),
+            "settings": settings,
             "content_library": [asdict(item) for item in self.content_library],
             "sources": [source_registry.serialize(source) for source in self.sources],
             "groups": [group.to_dict() for group in self.groups],

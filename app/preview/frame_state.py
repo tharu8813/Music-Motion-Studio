@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from collections.abc import Sequence
 
 from app.animation.curves import ease_in_out_cubic
-from app.animation.lyrics import KARAOKE_GLOW_RELEASE_SECONDS, lyric_progress
+from app.animation.lyrics import lyric_progress
 from app.models.playlist import PlaylistTrack
 from app.models.source import Source
 from app.services.lyrics_service import LyricsService
@@ -384,7 +384,8 @@ def resolve_lyrics_timed_words(
     lyric_clock = elapsed + track.lyrics_timing_offset_seconds + source.subtitle_timing_offset
     clock = max(0.0, lyric_clock + source.subtitle_karaoke_offset)
     current = set(cue_state.active_cue_indices or cue_state.held_cue_indices or (cue_state.cue_index,))
-    release = KARAOKE_GLOW_RELEASE_SECONDS if source.uses_timed_karaoke_glow else 0.0
+    glows = source.uses_timed_karaoke_glow or source.uses_character_karaoke_glow
+    release = source.subtitle_karaoke_glow_fade_out if glows else 0.0
     indices = current.copy()
     if release and cue_state.latest_started_cue_index is not None:
         cutoff = lyric_clock - release
@@ -395,13 +396,13 @@ def resolve_lyrics_timed_words(
         cue = track.lyrics[index]
         if cue.get("format") != "ttml" or not cue.get("words"):
             continue
-        cue_age = max(0.0, lyric_clock - float(cue["end"]))
-        glow_release = cue_age if release and cue_age < release else None
+        cue_age = lyric_clock - float(cue["end"])
+        glow_release = max(0.0, cue_age) if glows and cue_age < release else None
         retain = index in current and source.subtitle_karaoke_lift > 0
         if index not in current and glow_release is None:
             continue
         # Stop attacking at the cue end and fade the brightness reached at that instant.
-        word_clock = max(0, lyric_clock - cue_age + source.subtitle_karaoke_offset) if release else clock
+        word_clock = max(0.0, clock - max(0.0, cue_age)) if glows else clock
         words = LyricsService.timed_word_progress(
             cue, word_clock, line_positions=tuple(source.subtitle_karaoke_lines),
             include_finished=retain or (glow_release is not None and source.subtitle_karaoke_blur_mode == "continuous"),

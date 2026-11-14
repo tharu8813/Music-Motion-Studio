@@ -512,10 +512,16 @@ class LyricsCustomizationTests(unittest.TestCase):
         blur_mode = dialog.controls["subtitle_karaoke_blur_mode"]
         blur_mode.setCurrentIndex(blur_mode.findData("long"))
         self.assertTrue(dialog.controls["subtitle_karaoke_blur_min_duration"].isEnabled())
+        for name, default, value in (("fade_in", 0.10, 0.4), ("fade_out", 0.32, 0.75)):
+            control = dialog.controls[f"subtitle_karaoke_glow_{name}"]
+            self.assertEqual(control.value(), default)
+            control.setValue(value)
         settings = dialog.settings()
         restored = Source.from_dict(source.to_dict() | settings)
         self.assertEqual(restored.subtitle_karaoke_edge_blur, 50)
         self.assertEqual(restored.subtitle_karaoke_blur_mode, "long")
+        self.assertEqual(restored.subtitle_karaoke_glow_fade_in, 0.4)
+        self.assertEqual(restored.subtitle_karaoke_glow_fade_out, 0.75)
         dialog.preview_karaoke.setChecked(True)
         dialog.preview_word_duration.setValue(1.2)
         track, _ = dialog._preview_track()

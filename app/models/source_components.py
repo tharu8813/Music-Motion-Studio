@@ -181,6 +181,8 @@ class LyricsComponent(TextComponent):
     karaoke_lines: list[int] = _legacy("subtitle_karaoke_lines")
     karaoke_glow_enabled: bool = _legacy("subtitle_karaoke_glow_enabled")
     karaoke_glow_strength: float = _legacy("subtitle_karaoke_glow_strength")
+    karaoke_glow_fade_in: float = _legacy("subtitle_karaoke_glow_fade_in")
+    karaoke_glow_fade_out: float = _legacy("subtitle_karaoke_glow_fade_out")
     karaoke_edge_blur: float = _legacy("subtitle_karaoke_edge_blur")
     karaoke_blur_mode: str = _legacy("subtitle_karaoke_blur_mode")
     karaoke_blur_unit: str = _legacy("subtitle_karaoke_blur_unit")

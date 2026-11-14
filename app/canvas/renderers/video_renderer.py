@@ -18,7 +18,10 @@ def render(
     item: "SourceItem", painter: QPainter, option: object, widget: object | None = None,
 ) -> None:
     rect, _fill, _pen = paint_background(item, painter)
-    if not item._pixmap.isNull():
+    frame = item._video_presented_frame
+    if item._video_timeline_preview_active and not frame.isNull():
+        paint_image_content(item, painter, rect, "rounded", image=frame)
+    elif not item._pixmap.isNull():
         paint_image_content(item, painter, rect, "rounded")
     else:
         painter.save()

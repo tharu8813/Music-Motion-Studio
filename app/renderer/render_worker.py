@@ -59,12 +59,13 @@ class RenderWorker(QThread):
                  crossfade_seconds: float = 3.0,
                  compiled_plan=None, prepared_audio_path: Path | None = None,
                  automix_settings=None, native_project=None, native_frame_source=None,
-                 native_scale=1.0, cancel_event=None, native_optimizations=None) -> None:
+                 native_scale=1.0, cancel_event=None, native_optimizations=None, audio_effects=None) -> None:
         super().__init__()
         self.renderer = renderer
         self.transition_mode = transition_mode
         self.crossfade_seconds = crossfade_seconds
         self.automix_settings = automix_settings
+        self.audio_effects = audio_effects
         self.compiled_plan = compiled_plan
         self.prepared_audio_path = prepared_audio_path
         if isinstance(image, (PreparedVideoInput, PipedVideoInput)):
@@ -149,6 +150,7 @@ class RenderWorker(QThread):
                     compiled_plan=self.compiled_plan,
                     prepared_audio_path=self.prepared_audio_path,
                     automix_settings=self.automix_settings,
+                    audio_effects=self.audio_effects,
                 )
         except RenderCancelledError:
             self.cancelled.emit()

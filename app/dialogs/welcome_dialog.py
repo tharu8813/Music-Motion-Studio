@@ -491,10 +491,10 @@ MAIN_GUIDE = (
     ),
     GuidePage(
         ("곡 전환과 AutoMix", "Transitions and AutoMix"),
-        ("<b>프로젝트 설정</b>에서 곡 사이 전환 방식을 고를 수 있습니다. <b>AutoMix(베타)</b>를 켜면 "
+        ("<b>프로젝트 오디오 설정</b>에서 곡 사이 전환 방식을 고를 수 있습니다. <b>AutoMix(베타)</b>를 켜면 "
          "박자와 보컬을 분석해 곡과 곡을 템포에 맞춰 자연스럽게 이어 줍니다.<br><br>"
          "자동 전환을 직접 다듬고 싶다면 <b>도구 → AutoMix 편집기</b>를 여세요.",
-         "Choose how songs join in <b>Project settings</b>. Turn on <b>AutoMix (beta)</b> and it analyzes "
+         "Choose how songs join in <b>Project audio settings</b>. Turn on <b>AutoMix (beta)</b> and it analyzes "
          "beats and vocals to blend each song into the next in tempo.<br><br>"
          "To fine-tune a transition yourself, open <b>Tools → AutoMix Editor</b>."),
         _art_automix,

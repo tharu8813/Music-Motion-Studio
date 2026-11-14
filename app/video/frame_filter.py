@@ -11,6 +11,7 @@ from math import ceil
 import numpy as np
 from PySide6.QtCore import QObject, QRunnable, Qt, Signal, Slot
 from PySide6.QtGui import QImage
+from PySide6.QtMultimedia import QVideoFrame
 
 LOGGER = logging.getLogger(__name__)
 
@@ -31,21 +32,21 @@ class VideoFrameFilterSettings:
 class VideoFrameFilterSignals(QObject):
     """Return a worker result to its GUI-owned SourceItem."""
 
-    finished = Signal(object, object)
+    finished = Signal(object, QImage, QImage)
 
 
 class VideoFrameFilterTask(QRunnable):
-    """Scale and filter one immutable frame outside the GUI thread."""
+    """Convert, scale and filter one immutable frame outside the GUI thread."""
 
     def __init__(
         self,
-        image: QImage,
+        frame: QImage | QVideoFrame,
         settings: VideoFrameFilterSettings,
         generation: object,
         signals: VideoFrameFilterSignals,
     ) -> None:
         super().__init__()
-        self.image = QImage(image)
+        self.frame = QImage(frame) if isinstance(frame, QImage) else QVideoFrame(frame)
         self.settings = settings
         self.generation = generation
         self.signals = signals
@@ -53,13 +54,15 @@ class VideoFrameFilterTask(QRunnable):
 
     @Slot()
     def run(self) -> None:
+        image = QImage()
         try:
-            filtered = filter_video_frame(self.image, self.settings)
+            image = self.frame if isinstance(self.frame, QImage) else video_frame_to_image(self.frame)
+            filtered = filter_video_frame(image, self.settings)
         except Exception as error:  # noqa: BLE001 - a bad frame must not kill Preview
-            _log_filter_failure(error, self.image, self.settings)
+            _log_filter_failure(error, image, self.settings)
             filtered = QImage()
         try:
-            self.signals.finished.emit(self.generation, filtered)
+            self.signals.finished.emit(self.generation, filtered, image)
         except RuntimeError:
             # The owning Canvas may have closed after this bounded task began.
             pass
@@ -67,6 +70,11 @@ class VideoFrameFilterTask(QRunnable):
 
 _LOGGED_FAILURES: set[tuple[str, str]] = set()
 _MAX_LOGGED_FAILURES = 32
+
+
+@timed("video.to_image_seconds")
+def video_frame_to_image(frame: QVideoFrame) -> QImage:
+    return frame.toImage()
 
 
 def _log_filter_failure(
