@@ -11,6 +11,12 @@ import numpy as np
 from PySide6.QtWidgets import QApplication
 
 from app.dialogs.export_preview_dialog import PlaylistTimeline, TIMELINE_SCALE
+from app.widgets.playlist_timeline import (
+    PlaylistTimeline as IsolatedPlaylistTimeline,
+    TIMELINE_SCALE as ISOLATED_TIMELINE_SCALE,
+    _transition_display_regions as isolated_transition_display_regions,
+)
+from app.dialogs.export_preview_dialog import _transition_display_regions
 from app.models.playlist import PlaylistTrack
 from app.preview.timeline_waveform import TimelineWaveformWorker, pcm_peak_bins
 from app.timeline.render_plan import AudioRenderClip, TempoRamp
@@ -20,6 +26,12 @@ class TimelineWaveformTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls._app = QApplication.instance() or QApplication([])
+
+    def test_timeline_widget_keeps_legacy_dialog_import_identity(self) -> None:
+        self.assertIs(PlaylistTimeline, IsolatedPlaylistTimeline)
+        self.assertEqual(TIMELINE_SCALE, ISOLATED_TIMELINE_SCALE)
+        self.assertIs(_transition_display_regions, isolated_transition_display_regions)
+        self.assertEqual(PlaylistTimeline.__module__, "app.widgets.playlist_timeline")
 
     def test_pcm_peaks_include_partial_bucket_and_negative_full_scale(self) -> None:
         raw = np.array(
