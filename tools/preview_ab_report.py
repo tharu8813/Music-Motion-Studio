@@ -82,6 +82,18 @@ def _spread_percent(values: list[float]) -> float | None:
     return round((max(values) - min(values)) * 100 / abs(average), 3) if average else None
 
 
+def _valid_scale_range(bounds: tuple[object, object]) -> bool:
+    lower, upper = bounds
+    return (
+        all(
+            isinstance(value, (int, float)) and not isinstance(value, bool)
+            and isfinite(value) and value > 0
+            for value in (lower, upper)
+        )
+        and lower <= upper
+    )
+
+
 def _stage_percentile(run: dict, stage: str) -> tuple[float, int] | None:
     """Extract an opt-in profile P95 sample without inventing missing stages."""
     profile = run.get("profile")
@@ -157,7 +169,13 @@ def compare(baseline: list[dict], candidate: list[dict]) -> dict:
     scale_ranges = [
         (row.get("canvas_scale_min"), row.get("canvas_scale_max")) for row in runs
     ]
-    quality_scale_equal = all(value == scale_ranges[0] for value in scale_ranges[1:])
+    valid_scale_ranges = all(_valid_scale_range(bounds) for bounds in scale_ranges)
+    # Four absent fields used to compare equal (None == None), incorrectly
+    # claiming matched canvas quality for benchmark records without scale data.
+    quality_scale_equal = (
+        valid_scale_ranges
+        and all(value == scale_ranges[0] for value in scale_ranges[1:])
+    )
     metrics: dict[str, dict] = {}
     for field, unit, higher_is_better in METRICS:
         before = [row.get(field) for row in baseline]
@@ -207,6 +225,7 @@ def compare(baseline: list[dict], candidate: list[dict]) -> dict:
         "method": "A1-B1-B2-A2 paired preview measurement",
         "matched_configuration": {key: runs[0].get(key) for key in MATCH_FIELDS},
         "canvas_scale_ranges_abba": scale_ranges,
+        "valid_canvas_scale_ranges": valid_scale_ranges,
         "same_effective_canvas_scale": quality_scale_equal,
         "metrics": metrics,
         "profile_stage_p95_ms": _stage_latency_report(runs),
@@ -214,6 +233,8 @@ def compare(baseline: list[dict], candidate: list[dict]) -> dict:
         "notes": [
             "No FPS improvement or regression is claimed without inspecting measured differences and noise.",
             "Matching settings and platform strings do not prove the same physical GPU or background workload.",
+            "Missing or invalid adaptive canvas scale readings cannot establish equal-quality FPS comparisons."
+            if not valid_scale_ranges else
             "Changed adaptive canvas scale confounds equal-quality FPS comparisons."
             if not quality_scale_equal else
             "Recorded adaptive canvas scale ranges match, but image-pixel parity must be tested separately.",
