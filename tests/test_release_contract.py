@@ -210,6 +210,16 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertNotIn('Type: filesandordirs; Name: "{app}"', installer)
         self.assertIn('Type: dirifempty; Name: "{app}"', installer)
 
+    def test_installer_ci_verifies_exact_association_and_uninstall_cleanup(self) -> None:
+        script = (ROOT / "scripts/verify_installer_smoke.ps1").read_text(encoding="utf-8")
+        # Registry association must target the *actual* temporary installed EXE,
+        # not just any command line containing an application-like filename.
+        self.assertIn("$expectedOpenCommand = ", script)
+        self.assertIn("[System.StringComparison]::OrdinalIgnoreCase", script)
+        self.assertIn("Uninstallation left a file association", script)
+        self.assertIn("Registry::HKEY_CLASSES_ROOT\\PlaylistCanvas.Project\\shell\\open\\command", script)
+        self.assertIn("restricted to disposable GitHub Actions Windows runners", script)
+
     def test_reinstall_clears_the_shipped_payload_and_checks_deletion(self) -> None:
         installer = (ROOT / "setup.iss").read_text(encoding="utf-8")
         delete_entries = installer.split("[InstallDelete]", 1)[1].split("[Registry]", 1)[0]
