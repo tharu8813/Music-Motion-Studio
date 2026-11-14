@@ -22,6 +22,7 @@ from app.models.source import SUBTITLE_ADVANCED_GROUPS, Source
 from app.preview.canvas_snapshot import CanvasSnapshot
 from app.preview.cadence import preview_interval_ms, screen_preview_fps
 from app.ui.design_system import COLORS
+from app.widgets.visual_preset_combo import VisualPresetComboBox
 from app.ui.form_layout import style_dialog_actions
 from app.utils.i18n import Translator
 
@@ -472,7 +473,13 @@ class LyricsAnimationDialog(QDialog):
             label.setToolTip(text)
 
     def _combo(self, form, key, ko, en, labels):
-        combo = QComboBox()
+        combo = VisualPresetComboBox({
+            "subtitle_animation": "lyric",
+            "subtitle_intro_style": "intro",
+            "subtitle_intro_exit": "intro_exit",
+        }[key]) if key in {
+            "subtitle_animation", "subtitle_intro_style", "subtitle_intro_exit"
+        } else QComboBox()
         for value, pair in labels.items():
             combo.addItem(pair[0 if self._korean else 1], value)
         combo.setCurrentIndex(combo.findData(getattr(self._draft, key)))

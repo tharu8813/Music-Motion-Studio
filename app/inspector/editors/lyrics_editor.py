@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 from app.inspector.editors.base import FieldSection, MotionSection, editing, show_fields
 from app.models.source import Source
 from app.animation.lyrics import LYRIC_EFFECT_LABELS
+from app.widgets.visual_preset_combo import VisualPresetComboBox
 
 if TYPE_CHECKING:
     from app.inspector.source_inspector import SourceInspector
@@ -124,7 +125,7 @@ class LyricsSection(FieldSection):
         self, spin: Callable[[float, float, float], QDoubleSpinBox],
         color_button: Callable[[], QPushButton],
     ) -> None:
-        animation = QComboBox()
+        animation = VisualPresetComboBox("lyric")
         for value, labels in LYRIC_EFFECT_LABELS.items():
             animation.addItem(labels[1], value)
         animation_duration = spin(0.05, 3.0, 0.05)

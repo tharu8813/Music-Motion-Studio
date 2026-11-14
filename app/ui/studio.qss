@@ -599,3 +599,34 @@ QLabel[severity="error"], QLineEdit[invalid="true"] { color: @danger; }
 QLineEdit[invalid="true"] { border-color: @danger; }
 QLabel[severity="warning"] { color: @warning; }
 QTextBrowser { color: @text; background: @field; border: 0; selection-background-color: @selection; selection-color: @text; }
+
+
+/* Visual preset selectors: familiar closed combos, thumbnail grid only on open. */
+QFrame#visualPresetPopup {
+    background: @panel;
+    border: 1px solid @border;
+    border-radius: 7px;
+}
+QListWidget#visualPresetList {
+    background: @panel;
+    color: @text;
+    border: 0;
+    outline: 0;
+}
+QListWidget#visualPresetList::item {
+    background: @field;
+    color: @text;
+    border: 1px solid @border;
+    border-radius: 5px;
+    padding: 4px;
+    margin: 3px;
+}
+QListWidget#visualPresetList::item:hover {
+    background: @hover;
+    border-color: @selection_border;
+}
+QListWidget#visualPresetList::item:selected {
+    background: @selection;
+    border-color: @accent;
+    color: @text;
+}

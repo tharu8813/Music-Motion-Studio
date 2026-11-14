@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QLineEdit, QWidget
 
 from app.inspector.editors.base import FieldSection, editing, show_fields
 from app.models.source import Source
+from app.widgets.visual_preset_combo import VisualPresetComboBox
 
 if TYPE_CHECKING:
     from app.inspector.source_inspector import SourceInspector
@@ -58,10 +59,10 @@ class NowPlayingSection(FieldSection):
     ATTRIBUTES = {"now_playing_exit": "now_playing_exit_animation"}
 
     def __init__(self, spin: Callable[[float, float, float], QDoubleSpinBox]) -> None:
-        style = QComboBox()
+        style = VisualPresetComboBox("now_playing")
         for label, value in (("Card", "card"), ("Minimal", "minimal"), ("Glass", "glass")):
             style.addItem(label, value)
-        exit_combo = QComboBox()
+        exit_combo = VisualPresetComboBox("exit")
         for label, value in (("Fade", "fade"), ("Slide up", "slide_up"), ("Slide down", "slide_down"), ("Zoom", "zoom")):
             exit_combo.addItem(label, value)
         align = QComboBox()

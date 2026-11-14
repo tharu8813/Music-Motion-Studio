@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QPushButton,
 
 from app.inspector.editors.base import FieldSection, editing, show_fields
 from app.models.source import Source
+from app.widgets.visual_preset_combo import VisualPresetComboBox
 
 if TYPE_CHECKING:
     from app.inspector.source_inspector import SourceInspector
@@ -96,7 +97,7 @@ class LevelMeterSection(FieldSection):
         mode = QComboBox()
         for label, value in (("Stereo", "stereo"), ("Mono", "mono")):
             mode.addItem(label, value)
-        style = QComboBox()
+        style = VisualPresetComboBox("meter")
         for label, value in (
             ("Gradient", "gradient"), ("Solid", "solid"), ("LED", "led"), ("Segments", "segments"),
         ):
