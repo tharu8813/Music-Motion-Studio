@@ -35,6 +35,8 @@ def _sample(fps=40.0, *, drops=8, seconds=8.0, scale=0.55):
         "proxy_count": 2,
         "blended_audio_ready": True,
         "seconds": seconds,
+        "requested_seconds": 8.0,
+        "warmup_seconds": 3.0,
         "canvas_scale_min": scale,
         "canvas_scale_max": scale,
         "presented_scene_fps": fps,
@@ -158,6 +160,52 @@ class PreviewAbReportTests(unittest.TestCase):
         self.assertEqual(results["profile_stage_p95_ms"], {})
         self.assertEqual(results["metrics"]["presented_scene_fps"]["baseline_mean"], 31)
         self.assertEqual(results["metrics"]["presented_scene_fps"]["candidate_mean"], 36)
+
+    def test_rejects_different_requested_lengths_or_warmup(self):
+        for field, value in (("requested_seconds", 12.0), ("warmup_seconds", 0.0)):
+            with self.subTest(field=field):
+                mismatch = _sample()
+                mismatch[field] = value
+                with self.assertRaisesRegex(ValueError, "Incompatible"):
+                    compare([_sample(), _sample()], [_sample(), mismatch])
+
+    def test_actual_elapsed_duration_allows_small_drift_but_not_large_gap(self):
+        report = compare(
+            [_sample(seconds=8.0), _sample(seconds=8.2)],
+            [_sample(seconds=8.3), _sample(seconds=8.1)],
+        )
+        self.assertIn("presented_scene_fps", report["metrics"])
+        with self.assertRaisesRegex(ValueError, "measured durations"):
+            compare(
+                [_sample(seconds=8.0), _sample(seconds=8.2)],
+                [_sample(seconds=8.3), _sample(seconds=12.0)],
+            )
+
+    def test_rejects_unusable_elapsed_duration_from_reader_and_comparator(self):
+        for value in (float("nan"), float("inf"), True, -1.0, 0):
+            with self.subTest(value=value):
+                sample = _sample(seconds=value)
+                with self.assertRaisesRegex(ValueError, "invalid real_video_preview"):
+                    compare([_sample(), sample], [_sample(), _sample()])
+                with TemporaryDirectory() as directory:
+                    path = Path(directory) / "preview.json"
+                    path.write_text(json.dumps(sample), encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, "duration"):
+                        _read(path)
+
+    def test_invalid_nan_infinite_or_boolean_metrics_do_not_enter_report(self):
+        baseline = [_sample(), _sample()]
+        candidate = [_sample(), _sample()]
+        candidate[0]["presented_scene_fps"] = float("nan")
+        candidate[1]["rss_peak_bytes"] = float("inf")
+        baseline[0]["heartbeat_max_ms"] = True
+        baseline[1]["decode_drops"] = -1
+        report = compare(baseline, candidate)
+        metrics = report["metrics"]
+        for name in ("presented_scene_fps", "rss_peak_bytes", "heartbeat_max_ms",
+                     "decode_drops_per_second"):
+            self.assertNotIn(name, metrics)
+        self.assertIn("scene_frame_time_p95_ms", metrics)
 
     def test_reader_checks_benchmark_and_duration(self):
         with TemporaryDirectory() as directory:
