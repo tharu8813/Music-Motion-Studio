@@ -27,6 +27,8 @@ from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFormLayout, QLineEdit, QPushButton, QWidget,
 )
 
+from app.widgets.visual_preset_combo import VisualPresetComboBox
+
 from app.models.source import (
     LOOP_MOTIONS, MASK_SHAPES, MUSIC_REACTIVE_EFFECTS, MUSIC_REACTIVE_BANDS,
     MUSIC_REACTIVE_CURVES, TEMPO_SYNC_BEATS, TEMPO_SYNC_OFFSET_LIMIT,
@@ -345,16 +347,16 @@ class MotionSection(FieldSection):
     }
 
     def __init__(self, spin: Callable[[float, float, float], QWidget]) -> None:
-        loop = QComboBox()
+        loop = VisualPresetComboBox("loop")
         for value in LOOP_MOTIONS:
             loop.addItem(value, value)
         beats = QComboBox()
         for value in TEMPO_SYNC_BEATS:
             beats.addItem({0.25: "¼", 0.5: "½"}.get(value, f"{value:g}"), value)
-        mask = QComboBox()
+        mask = VisualPresetComboBox("mask")
         for value in MASK_SHAPES:
             mask.addItem(value, value)
-        reactive = QComboBox()
+        reactive = VisualPresetComboBox("reactive")
         for value in MUSIC_REACTIVE_EFFECTS:
             reactive.addItem(value, value)
         band, curve = QComboBox(), QComboBox()
