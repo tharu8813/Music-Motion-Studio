@@ -6,6 +6,8 @@ from unittest import TestCase
 from unittest.mock import Mock, patch
 
 from app.dialogs.export_preview_dialog import AudioAnalysisWorker, VideoDurationProbeWorker
+from app.dialogs.export_preview_dialog import OverlayFrameWorker
+from app.preview.overlay_frame_worker import OverlayFrameWorker as IsolatedOverlayFrameWorker
 from app.preview.audio_analysis_worker import AudioAnalysisWorker as IsolatedAudioWorker
 from app.video.duration_probe_worker import VideoDurationProbeWorker as IsolatedVideoWorker
 
@@ -14,6 +16,21 @@ class PreviewWorkerModuleTests(TestCase):
     def test_existing_dialog_imports_reexport_identical_worker_types(self):
         self.assertIs(AudioAnalysisWorker, IsolatedAudioWorker)
         self.assertIs(VideoDurationProbeWorker, IsolatedVideoWorker)
+
+    def test_overlay_worker_reexports_same_class_and_cancel_is_nonblocking(self):
+        self.assertIs(OverlayFrameWorker, IsolatedOverlayFrameWorker)
+        self.assertEqual(OverlayFrameWorker.__module__, "app.preview.overlay_frame_worker")
+        overlay = Mock(kind="waveform", width=4, height=4)
+        analysis = {"levels": [[0.0]], "waveform": [[0.0]]}
+        worker = OverlayFrameWorker(
+            "track", 30, 5, 0, 1, (overlay,), (0,), analysis,
+        )
+        ready = []
+        worker.ready.connect(lambda *_args: ready.append(True))
+        worker.cancel()
+        self.assertTrue(worker.cancel_event.is_set())
+        worker.run()  # A cancelled batch must not emit late results.
+        self.assertEqual(ready, [])
 
     def test_cancel_audio_analysis_sets_shared_event(self):
         renderer = Mock()
