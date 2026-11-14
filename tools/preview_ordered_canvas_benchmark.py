@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 from statistics import mean
 from time import perf_counter
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -55,9 +56,13 @@ def run() -> dict:
             {"start": 6.0, "end": 8.0, "text": "조용히 흐르는 시간\nTime moves quietly"},
         ],
     )
-    preview = ExportPreviewDialog(
-        scene, [track], Translator(), preferred_backend="cpu",
-    )
+    # The full-scene reference below is rendered at native (1.0) scale.
+    # The app now defaults to 0.55 balanced, so force the same pixel budget
+    # for the ordered compositor instead of reporting a false speedup.
+    with patch("app.dialogs.export_preview_dialog.load_preview_quality", return_value="quality"):
+        preview = ExportPreviewDialog(
+            scene, [track], Translator(), preferred_backend="cpu",
+        )
     preview._refresh_source_partitions()
     # Use identical playhead values for the old and new raster preparations.
     positions = (1.0, 1.1, 1.2, 2.2, 2.3, 3.2, 4.2, 5.2)
@@ -65,6 +70,8 @@ def run() -> dict:
     layered_ms: list[float] = []
     try:
         preview._adaptive_quality.reset(1.0)
+        if preview._active_render_scale != 1.0:
+            raise RuntimeError("Canvas A/B needs full resolution for both raster paths")
         for seconds in positions:
             preview.timeline.blockSignals(True)
             preview.timeline.setValue(round(seconds * TIMELINE_SCALE))
@@ -97,6 +104,9 @@ def run() -> dict:
         "measurement": "CPU raster preparation, not full GPU presentation FPS",
         "fixture": "1280x720 static background + dynamic bilingual lyrics + higher Z static text",
         "samples": len(improved),
+        "preview_quality": preview.preview_quality,
+        "reference_canvas_scale": 1.0,
+        "ordered_canvas_scale": 1.0,
         "full_canvas_mean_ms": round(mean(original), 3),
         "ordered_zbands_mean_ms": round(mean(improved), 3),
         "ratio_full_over_ordered": round(mean(original) / max(0.001, mean(improved)), 3),

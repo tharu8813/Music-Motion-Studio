@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.utils.performance import timed
 
 from dataclasses import dataclass
+from functools import lru_cache
 import logging
 from math import ceil
 
@@ -131,6 +132,20 @@ def _scale_video_image(image: QImage, width: int, height: int) -> QImage:
     )
 
 
+@lru_cache(maxsize=128)
+def _brightness_contrast_lut(brightness: float, contrast: float) -> np.ndarray:
+    """Memoize the 256-byte affine color transform used on every video frame.
+
+    The filter settings are stable for many consecutive decoder frames. Cache
+    only this tiny, immutable lookup table, never the large frame buffers.
+    """
+    levels = np.arange(256, dtype=np.float32)
+    levels = (levels - 128.0) * (1.0 + float(contrast) / 100.0) + 128.0 + float(brightness) * 2.55
+    table = np.clip(levels, 0.0, 255.0).astype(np.uint8)
+    table.flags.writeable = False
+    return table
+
+
 @timed("video.cpu_color_blur_seconds")
 def apply_color_filters(
     image: QImage,
@@ -157,9 +172,7 @@ def apply_color_filters(
     if (brightness != 0.0 or contrast != 0.0) and saturation == 1.0 and not grayscale:
         # Per-channel only: the same float math on 256 levels, then one lookup per
         # channel -- identical bytes, about three times faster than per pixel.
-        levels = np.arange(256, dtype=np.float32)
-        levels = (levels - 128.0) * (1.0 + float(contrast) / 100.0) + 128.0 + float(brightness) * 2.55
-        table = np.clip(levels, 0.0, 255.0).astype(np.uint8)
+        table = _brightness_contrast_lut(float(brightness), float(contrast))
         pixels = _rgb_pixels(result)
         for channel in range(3):
             pixels[:, :, channel] = table[pixels[:, :, channel]]
