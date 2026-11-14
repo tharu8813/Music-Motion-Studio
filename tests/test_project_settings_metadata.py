@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from datetime import datetime
 from tempfile import TemporaryDirectory
 import unittest
 
@@ -61,6 +62,8 @@ class ProjectSettingsMetadataTests(unittest.TestCase):
                 self.assertIn(".pvsproj", dialog.details_values["project_format"].text())
                 self.assertEqual(dialog.details_values["file_path"].text(), str(path))
                 self.assertNotEqual(dialog.details_values["file_size"].text(), "정보 없음")
+                expected_mtime = datetime.fromtimestamp(path.stat().st_mtime).astimezone().strftime("%Y-%m-%d %H:%M")
+                self.assertEqual(dialog.details_values["modified_at"].text(), expected_mtime)
                 self.assertTrue(bool(dialog.details_values["created_at"].text()))
                 self.assertTrue(dialog.details_values["created_at"].text().startswith("2026-09-"))
                 self.assertTrue(dialog.details_values["created_app_version"].textInteractionFlags()
@@ -96,6 +99,7 @@ class ProjectSettingsMetadataTests(unittest.TestCase):
 
     def test_labels_retranslate_without_mutating_metadata(self) -> None:
         translator = Translator()
+        original_language = translator.language
         dialog = ProjectSettingsDialog(
             ProjectSettings(created_app_version="1.0.0"), translator, QPixmap()
         )
@@ -107,6 +111,7 @@ class ProjectSettingsMetadataTests(unittest.TestCase):
             self.assertEqual(dialog.details_values["created_app_version"].text(), original)
         finally:
             dialog.close()
+            translator.set_language(original_language)
 
 
 if __name__ == "__main__":
