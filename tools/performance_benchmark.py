@@ -768,7 +768,7 @@ def main() -> int:
     parser.add_argument("--width", type=int, default=1920)
     parser.add_argument("--height", type=int, default=1080)
     parser.add_argument("--video-count", type=int, choices=(0, 1, 2, 3, 4), default=1)
-    parser.add_argument("--quality", choices=("resolution", "frames", "power", "quality"), default="resolution")
+    parser.add_argument("--quality", choices=("eco", "balanced", "quality"), default="balanced")
     parser.add_argument("--static-lyrics", action="store_true", help="Use a still bilingual cue with a cover")
     parser.add_argument("--styled", action="store_true", help="Apply color, blur, opacity and rotation to extra videos")
     parser.add_argument("--transport", action="store_true", help="Exercise pause, seek and fullscreen before measuring")
