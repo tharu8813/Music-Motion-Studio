@@ -85,6 +85,44 @@ class PreviewAbReportTests(unittest.TestCase):
         self.assertFalse(report["same_effective_canvas_scale"])
         self.assertIn("confounds", " ".join(report["notes"]))
 
+    def test_missing_canvas_scale_cannot_pass_same_quality_guard(self):
+        for missing in ("both", "one"):
+            with self.subTest(missing=missing):
+                runs = [_sample() for _ in range(4)]
+                for row in (runs if missing == "both" else runs[:1]):
+                    row.pop("canvas_scale_min")
+                    row.pop("canvas_scale_max")
+                result = compare([runs[0], runs[3]], [runs[1], runs[2]])
+                self.assertFalse(result["valid_canvas_scale_ranges"])
+                self.assertFalse(result["same_effective_canvas_scale"])
+                self.assertIn("cannot establish", " ".join(result["notes"]))
+
+    def test_invalid_canvas_scale_ranges_do_not_claim_quality_parity(self):
+        for lower, upper in (
+            (0.0, 0.55),
+            (True, 0.55),
+            (float("nan"), 0.55),
+            (0.55, float("inf")),
+            (0.9, 0.55),
+        ):
+            with self.subTest(lower=lower, upper=upper):
+                runs = [_sample() for _ in range(4)]
+                for row in runs:
+                    row["canvas_scale_min"] = lower
+                    row["canvas_scale_max"] = upper
+                result = compare([runs[0], runs[3]], [runs[1], runs[2]])
+                self.assertFalse(result["valid_canvas_scale_ranges"])
+                self.assertFalse(result["same_effective_canvas_scale"])
+
+    def test_valid_matching_canvas_scale_ranges_still_pass(self):
+        runs = [_sample() for _ in range(4)]
+        for row in runs:
+            row["canvas_scale_min"] = 0.5
+            row["canvas_scale_max"] = 0.7
+        result = compare([runs[0], runs[3]], [runs[1], runs[2]])
+        self.assertTrue(result["valid_canvas_scale_ranges"])
+        self.assertTrue(result["same_effective_canvas_scale"])
+
     def test_optional_missing_percentiles_are_not_fabricated(self):
         runs = [_sample() for _ in range(4)]
         for run in runs:
