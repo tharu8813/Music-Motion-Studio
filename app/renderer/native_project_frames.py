@@ -333,6 +333,14 @@ def produce_complete_project_frames(
                                    for stage, cost in stages.items()}
                         for category, stages in text_stage_costs.items()
                     }
+                if raster_cache.profile_state_setup:
+                    raster_counters["qt_canvas_state_preloop_seconds"] = (
+                        raster_cache.qt_canvas_state_preloop_seconds
+                    )
+                    raster_counters["qt_canvas_source_type_state_setup"] = {
+                        category: dict(cost)
+                        for category, cost in raster_cache.qt_canvas_source_type_state_setup.items()
+                    }
                 raster_counters.update(
                     rasterizations=raster_cache.rasterizations,
                     reuse_hits=raster_cache.hits,

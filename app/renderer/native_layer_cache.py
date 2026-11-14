@@ -169,6 +169,9 @@ class NativeRasterCache:
         self.qt_canvas_capture_seconds = 0.0
         # Nonoverlapping portions of the Qt capture call. No effect on pixels.
         self.qt_canvas_state_setup_seconds = 0.0
+        self.profile_state_setup = bool(optimizations and optimizations.profile_canvas_state_setup)
+        self.qt_canvas_state_preloop_seconds = 0.0
+        self.qt_canvas_source_type_state_setup: dict[str, dict[str, int | float]] = {}
         self.qt_canvas_paint_stage_seconds = 0.0
         self.qt_canvas_state_restore_seconds = 0.0
         self.qt_canvas_inline_bgra_seconds = 0.0
@@ -415,6 +418,7 @@ class NativeRasterCache:
                     timeline_seconds=seconds, output_scale=output_scale,
                     z_min=source.z_index, z_max=source.z_index, transparent=True,
                     band_source_items=(item,), render_metrics=metrics,
+                    profile_source_state=self.profile_state_setup,
                 )
             finally:
                 item.source = source
@@ -481,6 +485,14 @@ class NativeRasterCache:
         bucket["paint_stage_seconds"] += metrics["paint_stage_seconds"]
         bucket["state_restore_seconds"] += metrics["state_restore_seconds"]
         bucket["partial_captures"] += int(bool(metrics.get("partial_render")))
+        if self.profile_state_setup:
+            self.qt_canvas_state_preloop_seconds += metrics.get("state_preloop_seconds", 0.0)
+            for category, cost in metrics.get("state_source_type_costs", {}).items():
+                entry = self.qt_canvas_source_type_state_setup.setdefault(
+                    category, {"calls": 0, "seconds": 0.0},
+                )
+                entry["calls"] += cost["calls"]
+                entry["seconds"] += cost["seconds"]
 
     def record(self, layer, state=None):
         self.rasterizations += 1
