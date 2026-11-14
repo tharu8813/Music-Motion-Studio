@@ -2661,6 +2661,7 @@ class MainWindow(QMainWindow):
                 lyrics_timing_offset_seconds=dialog.selected_timing_offset,
                 volume_db=dialog.selected_volume_db,
                 eq_db=dialog.selected_eq_db,
+                bass_db=dialog.selected_bass_db,
             )
 
     def _edit_translation_style_from_review(self, parent) -> None:
