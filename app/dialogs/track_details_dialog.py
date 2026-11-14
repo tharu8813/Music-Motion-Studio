@@ -864,6 +864,7 @@ class TrackDetailsDialog(QDialog):
         if not self._wanted_filter() or self.ffmpeg_executable is None:
             self.media_player.play()
             return
+        self._resume_after_preview_seek = True
         self._update_audio_source(force_start_ms=self._current_audio_position_ms())
 
     def _update_audio_source(
@@ -946,6 +947,7 @@ class TrackDetailsDialog(QDialog):
                 Path(path).unlink(missing_ok=True)
             return
         if error:
+            self._resume_after_preview_seek = False
             self._eq_error = error
             self._set_eq_state("failed")
             return
