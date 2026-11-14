@@ -171,7 +171,7 @@ class ReleaseContractTests(unittest.TestCase):
                 workflow = (ROOT / relative_path).read_text(encoding="utf-8")
                 self.assertIn("concurrency:", workflow)
                 self.assertIn("github.workflow", workflow)
-                self.assertIn("github.event.pull_request.number || github.ref", workflow)
+                self.assertIn("github.event.pull_request.number || github.run_id", workflow)
                 self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", workflow)
 
     def test_installer_registers_pvsproj_file_association(self) -> None:
