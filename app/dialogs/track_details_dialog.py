@@ -759,11 +759,12 @@ class TrackDetailsDialog(QDialog):
         self.eq_values: list[QLabel] = []
         for frequency, gain in zip(EQ_BANDS_HZ, gains):
             column = QVBoxLayout()
+            column.setSpacing(4)
             value = QLabel()
             value.setObjectName("mutedLabel")
             value.setAlignment(Qt.AlignmentFlag.AlignCenter)
             slider = self._db_slider(Qt.Orientation.Vertical, (-EQ_LIMIT_DB, EQ_LIMIT_DB), gain)
-            slider.setMinimumHeight(160)
+            slider.setMinimumHeight(136)
             name = QLabel(f"{frequency // 1000}k" if frequency >= 1000 else str(frequency))
             name.setAlignment(Qt.AlignmentFlag.AlignCenter)
             column.addWidget(value)
@@ -819,7 +820,12 @@ class TrackDetailsDialog(QDialog):
         layout.addWidget(self.audition_group)
         layout.addWidget(self.audio_help)
         self._refresh_audio_labels()
-        return tab
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(tab)
+        return scroll
 
     def _refresh_audio_labels(self, *_args: object) -> None:
         if not hasattr(self, "reset_audio_button"):
