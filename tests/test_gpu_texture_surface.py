@@ -142,6 +142,83 @@ class GpuTextureSurfaceTests(unittest.TestCase):
     @unittest.skipUnless(
         GPU_TEXTURE_SURFACE_AVAILABLE, "Qt OpenGL widgets are unavailable",
     )
+    def test_empty_scene_submission_clears_previous_gpu_layers(self) -> None:
+        surface = GpuTexturePreviewSurface()
+        self.addCleanup(surface.deleteLater)
+        image = QImage(16, 9, QImage.Format.Format_RGBA8888)
+        image.fill(QColor("#123456"))
+        layer = GpuPreviewLayer("old-frame", image, QRectF(0, 0, 16, 9))
+
+        # Exercise queue transitions without requiring an OpenGL context.
+        with (
+            patch.object(surface, "_upload_layer"),
+            patch.object(surface, "_evict_texture_cache"),
+        ):
+            surface.set_layers(QSize(16, 9), (layer,))
+            self.assertTrue(surface.frame_pending)
+            surface._activate_pending_layers()
+            self.assertFalse(surface.frame_pending)
+            self.assertEqual([entry.key for entry in surface._active_layers], ["old-frame"])
+            first_frame_serial = surface._frame_serial
+
+            # Previously this empty queue was skipped by paintGL, so the
+            # previously active (potentially stale) scene remained visible.
+            surface.set_layers(QSize(), ())
+            self.assertTrue(surface.frame_pending)
+            surface._activate_pending_layers()
+            self.assertFalse(surface.frame_pending)
+            self.assertEqual(surface._active_layers, ())
+            self.assertEqual(surface._active_canvas_size, QSize())
+            self.assertEqual(surface._frame_serial, first_frame_serial + 1)
+
+        surface._on_frame_swapped()
+        self.assertTrue(surface.last_swap_had_new_scene)
+
+    @unittest.skipUnless(
+        GPU_TEXTURE_SURFACE_AVAILABLE, "Qt OpenGL widgets are unavailable",
+    )
+    def test_latest_scene_supersedes_pending_empty_scene(self) -> None:
+        surface = GpuTexturePreviewSurface()
+        self.addCleanup(surface.deleteLater)
+        first = QImage(16, 9, QImage.Format.Format_RGBA8888)
+        first.fill(QColor("#112233"))
+        next_image = QImage(16, 9, QImage.Format.Format_RGBA8888)
+        next_image.fill(QColor("#445566"))
+
+        surface.set_layers(QSize(), ())
+        surface.set_layers(QSize(16, 9), (
+            GpuPreviewLayer("replacement", next_image, QRectF(0, 0, 16, 9)),
+        ))
+        self.assertTrue(surface.frame_pending)
+        self.assertEqual(surface.upload_stats.dropped_pending_frames, 1)
+
+        with (
+            patch.object(surface, "_upload_layer") as upload,
+            patch.object(surface, "_evict_texture_cache"),
+        ):
+            surface._activate_pending_layers()
+            upload.assert_called_once()
+        self.assertFalse(surface.frame_pending)
+        self.assertEqual([layer.key for layer in surface._active_layers], ["replacement"])
+
+        # A new empty submission after a pending image is also a drop, not a
+        # no-op that allows the stale queued texture to be presented.
+        surface.set_layers(QSize(16, 9), (
+            GpuPreviewLayer("queued", first, QRectF(0, 0, 16, 9)),
+        ))
+        surface.set_layers(QSize(), ())
+        self.assertEqual(surface.upload_stats.dropped_pending_frames, 2)
+        with (
+            patch.object(surface, "_upload_layer") as upload,
+            patch.object(surface, "_evict_texture_cache"),
+        ):
+            surface._activate_pending_layers()
+            upload.assert_not_called()
+        self.assertEqual(surface._active_layers, ())
+
+    @unittest.skipUnless(
+        GPU_TEXTURE_SURFACE_AVAILABLE, "Qt OpenGL widgets are unavailable",
+    )
     def test_surface_queue_retains_native_video_frame_without_image_copy(self) -> None:
         surface = GpuTexturePreviewSurface()
         image = QImage(16, 9, QImage.Format.Format_RGBA8888)
