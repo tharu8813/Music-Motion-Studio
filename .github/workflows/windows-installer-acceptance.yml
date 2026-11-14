@@ -20,8 +20,8 @@ permissions:
   contents: read
 
 concurrency:
-  # Cancel obsolete PR-head verification, not main pushes or manual release checks.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # A stable group cancels obsolete PR heads; each main/dispatch run has its own id.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Run on a disposable Windows Actions host. This does not certify a clean
