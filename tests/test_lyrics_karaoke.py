@@ -400,6 +400,24 @@ class KaraokeTests(unittest.TestCase):
         source.subtitle_karaoke_lift = source.subtitle_karaoke_edge_blur = 0
         self.assertEqual(capture(), no_karaoke)
 
+    def test_timed_glow_keeps_edge_blur_on_the_active_final_grapheme(self):
+        # A word halo can reach the final boundary before the word has finished.
+        # The edge blur must still use the active fill grapheme, not that boundary.
+        scene, item, track = self.scene("HH", subtitle_karaoke_edge_blur=12.0)
+        source = item.source
+        source.subtitle_karaoke_blur_mode = "continuous"
+        source.subtitle_karaoke_blur_unit = "word"
+        for seconds in (2.5, 4.5, 2.5):
+            with self.subTest(seconds=seconds), patch.object(
+                lyrics_renderer, "_karaoke_glow_envelope",
+                wraps=lyrics_renderer._karaoke_glow_envelope,
+            ) as glow:
+                preview = CanvasSnapshot.capture_track(
+                    scene, track, 1, 1, 0, elapsed_seconds=seconds, transparent=True,
+                )
+                self.assertFalse(preview.isNull())
+                self.assertGreater(glow.call_count, 0)
+
     def test_character_effects_keep_wrapped_rows_and_overlapping_words_independent(self):
         scene, item, track = self.scene(
             "한글 🎵 e\u0301 테스트", subtitle_auto_wrap=True, subtitle_wrap_to_source=False,
