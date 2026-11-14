@@ -1383,7 +1383,10 @@ class ExportOrchestrator:
         if korean:
             window._export_dialog.setWindowTitle("내보내기 진행 상황")
             window._export_dialog.cancel_button.setText("취소")
-        window._export_dialog.set_busy("Preparing export", "Preparing temporary files")
+        # Preserve the measured preparation result (e.g. 3/3 visual layers)
+        # until the render worker publishes its next progress update. A busy
+        # hand-off here overwrites the last useful progress with a generic
+        # "Preparing temporary files" message.
         window._render_worker = self.create_render_worker(
             renderer, frames, static_layers, output, render_settings,
             visualizers, video_clips, compiled_plan, prepared_audio_path,
