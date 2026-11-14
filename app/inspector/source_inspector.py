@@ -2028,6 +2028,11 @@ class SourceInspector(QScrollArea):
         )
         self._mixed_fields.clear()
         self._dirty_line_fields.clear()
+        # Thumbnails reflect the selected element's colors/options instead of
+        # assuming the application's default look for every project.
+        preview_source = active if active is not None else (sources[-1] if sources else None)
+        for combo in self.findChildren(VisualPresetComboBox):
+            combo.set_preview_source(preview_source)
         self._set_enabled(bool(sources))
         self._show_empty_state(not sources)
         if not sources:
