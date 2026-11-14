@@ -25,6 +25,8 @@ class NativeGpuOptimizations:
     # Only in an explicit developer CLI diagnostic: time actual Qt paint()
     # invocations by SourceType, without modifying normal source items.
     profile_canvas_source_paint: bool = False
+    # Developer-only timing of SourceType state setup before Qt painting.
+    profile_canvas_state_setup: bool = False
     shared_packet_transport: bool = False
     parallel_packet_validation: bool = False
     reuse_canvas_samples: bool = False
