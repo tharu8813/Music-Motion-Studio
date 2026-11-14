@@ -39,8 +39,10 @@ REQUIRED_FILES = (
 
 # PyInstaller emits this manifest after COLLECT. Inno Setup ships it at
 # distribution root; the application also uses it for Maintenance -> Integrity.
-# Verify required paths are represented there, then actually hash critical
-# launch/runtime executables, so a broken build cannot pass as releasable.
+# Verify required paths are represented there AND hash their on-disk bytes.
+# A valid-looking manifest alone cannot detect a corrupted ONNX model, license,
+# translation or help asset after COLLECT; the manifest is not an upstream
+# authenticity guarantee because it was generated from this distribution.
 CRITICAL_HASH_PATHS = (
     Path("Music Motion Studio.exe"),
     Path("_internal/python314.dll"),
@@ -71,11 +73,15 @@ def _verify_integrity_manifest(
         if not isinstance(expected, str) or re.fullmatch(r"[a-fA-F0-9]{64}", expected) is None:
             errors.append(f"integrity.json missing valid SHA-256: {record}")
 
-    for name in CRITICAL_HASH_PATHS:
+    # Hash all required bundled assets, not only the launcher/Python/GPU worker.
+    # This also covers dynamically discovered localized help and native .pyd
+    # files. Invalid manifest entries were reported above; missing files are
+    # reported by the caller's required-file checks.
+    for name in sorted(required):
         expected = records.get(name.as_posix())
         file = distribution / name
         if not file.is_file() or not isinstance(expected, str) or re.fullmatch(r"[a-fA-F0-9]{64}", expected) is None:
-            continue  # The required-file checks above already report this.
+            continue
         try:
             with file.open("rb") as handle:
                 actual = hashlib.file_digest(handle, "sha256").hexdigest()

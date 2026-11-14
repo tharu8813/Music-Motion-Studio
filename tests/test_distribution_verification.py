@@ -89,6 +89,46 @@ class DistributionVerificationTests(unittest.TestCase):
                 for error in verify(distribution, required)
             ))
 
+    def test_tampered_bundled_models_licenses_and_locales_fail_release(self):
+        # Standalone fixture: no 48 MB model files or Windows binary needed.
+        with TemporaryDirectory() as directory:
+            distribution = Path(directory)
+            assets = (
+                "app/automix/analysis/models/beat_this_final0_int8.onnx",
+                "app/automix/analysis/models/umxhq_vocals_int8.onnx",
+                "app/automix/analysis/models/yamnet.onnx",
+                "app/automix/analysis/models/yamnet_class_map.csv",
+                "app/automix/analysis/models/BEAT_THIS_LICENSE.txt",
+                "app/automix/analysis/models/OPEN_UNMIX_LICENSE.txt",
+                "app/automix/analysis/models/YAMNET_LICENSE.txt",
+                "app/automix/analysis/models/YAMNET_NOTICE.md",
+                "app/resources/ko.json",
+                "app/resources/en.json",
+                "app/resources/help/ko/canvas_workspace.png",
+            )
+            required = {Path(name) for name in assets}
+            for critical in verify_distribution.CRITICAL_HASH_PATHS:
+                file = distribution / critical
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_bytes(b"original-release-binary")
+            for name in assets:
+                file = distribution / "_internal" / name
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_bytes(b"original-release-asset")
+            self._write_manifest(distribution)
+            verify = verify_distribution._verify_integrity_manifest
+            self.assertEqual(verify(distribution, required), [])
+            for name in assets:
+                with self.subTest(path=name):
+                    file = distribution / "_internal" / name
+                    file.write_bytes(b"changed-after-manifest")
+                    self.assertIn(
+                        "integrity SHA-256 mismatch: _internal/" + name,
+                        verify(distribution, required),
+                    )
+                    file.write_bytes(b"original-release-asset")
+            self.assertEqual(verify(distribution, required), [])
+
     def test_tampering_with_critical_binary_fails_release_verification(self):
         with TemporaryDirectory() as directory:
             distribution = Path(directory)
