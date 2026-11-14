@@ -498,7 +498,7 @@ _CANVAS = (
 
     _e("canvas", "lyrics_transition", ("자막 전환과 카테고리별 고급 모드", "Subtitle transitions and advanced categories"),
        ("자막,고급 모드,애니메이션,블러", "subtitles,advanced mode,animation,blur"),
-       """<p>가사 / 자막 요소를 선택하고 <b>속성 → 애니메이션 → 자막 전환 고급 설정…</b>을 여세요. 왼쪽 탭은 움직임·줄 배치·줄 스타일·인트로로 나뉘며, 각 탭 안에서 관련 옵션을 묶어 보여 줍니다. 옵션에 마우스를 올리면 툴팁을 볼 수 있습니다.</p>
+       """<p>가사 / 자막 요소를 선택하고 <b>속성 → 애니메이션 → 자막 전환 고급 설정…</b>을 여세요. 왼쪽 탭은 움직임·줄 배치·줄 스타일·인트로·블러 - 글로우로 나뉘며, 각 탭 안에서 관련 옵션을 묶어 보여 줍니다. 옵션에 마우스를 올리면 툴팁을 볼 수 있습니다.</p>
 [[img:lyrics_transition]]
 <h2>기본 설정과 고급 설정의 우선순위</h2>
 <ol>
@@ -515,11 +515,11 @@ _CANVAS = (
 <h2>이전·현재·다음 줄 스타일</h2>
 [[img:lyrics_role_styles]]
 <p><b>편집할 위치</b>에서 이전·현재·다음을 각각 선택하고 <b>크기 배율</b>과 <b>불투명도</b>를 조절합니다. 색상과 글꼴은 속성 패널 및 줄별 스타일에서 설정합니다.</p>
-<p><b>블러 - 글로우</b> 탭에서 줄 블러, 채움 경계 흐림, 실시간 가사의 단어·글자 글로우를 조절합니다. <b>긴 단어·글자만</b>을 선택하면 길게 부르는 음에서 빛이 점점 밝아졌다가 서서히 사라집니다. <b>실시간 가사 미리보기</b>를 켜면 예시 글자나 단어의 지속시간을 바꿔 볼 수 있습니다.</p>
+<p><b>블러 - 글로우</b> 탭에서 줄 블러, 채움 경계 흐림, 실시간 가사의 단어·글자 글로우를 조절합니다. <b>거리별 흐림</b>은 이전·다음 가사의 거리에 따라 블러와 불투명도를 변화시킵니다. 0이면 모두 동일하게, 1이면 현재 가사에 가까운 줄일수록 선명하게 표시합니다. <b>긴 단어·글자만</b>을 선택하면 길게 부르는 음에서 빛이 점점 밝아졌다가 서서히 사라집니다. <b>실시간 가사 미리보기</b>를 켜면 예시 글자나 단어의 지속시간을 바꿔 볼 수 있습니다.</p>
 <div class='note'>고급 줄 스타일을 켜도 <a href='topic:lyrics_line_styles'>줄별 스타일</a>의 색상·굵기·기울임·크기는 계속 편집할 수 있습니다. 설정한 기본·줄별 크기에 고급 크기 배율을 곱합니다. 이전 버전의 고급 색상·글꼴 값은 사용하지 않습니다. 현재 자막의 음악 반응은 <a href='topic:music_reaction'>별도 옵션</a>입니다.</div>
 <h2>예시 미리보기</h2>
 <p>오른쪽에서 실제 렌더러의 전환을 확인하고 <b>다시 재생</b>할 수 있습니다. <b>미리보기 줄 수</b>는 이 창의 예시만 바꿉니다. 영상에 표시할 묶음 수는 줄 배치 탭에서 정하세요. 첫 가사 전·곡 중간 예시는 인트로 탭에서 선택합니다.</p>""",
-       """<p>Select a Lyrics / subtitles source and open <b>Inspector → Animation → Advanced subtitle settings…</b>. The left tabs group options into Motion, Layout, Styles and Intro. Hover any option for its tooltip.</p>
+       """<p>Select a Lyrics / subtitles source and open <b>Inspector → Animation → Advanced subtitle settings…</b>. The left tabs group options into Motion, Layout, Styles, Intro, and Blur - Glow. Hover any option for its tooltip.</p>
 [[img:lyrics_transition]]
 <h2>Basic and advanced priorities</h2>
 <ol>
