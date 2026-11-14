@@ -102,8 +102,12 @@ if ($association.GetValue('') -ne 'PlaylistCanvas.Project') {
     throw 'The .pvsproj file association is not registered to the stable ProgID.'
 }
 $openCommand = (Get-Item -LiteralPath 'Registry::HKEY_CLASSES_ROOT\PlaylistCanvas.Project\shell\open\command' -ErrorAction Stop).GetValue('')
-if (-not $openCommand.Contains('Music Motion Studio.exe') -or -not $openCommand.Contains('%1')) {
-    throw 'The .pvsproj open command is missing the application or file argument.'
+# A substring match can pass if the ProgID points at a stale or unrelated
+# installation. Verify the full, quoted path and project argument instead.
+$expectedOpenCommand = '"' + $executable + '" "%1"'
+if (-not [string]::Equals($openCommand, $expectedOpenCommand,
+                          [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "The .pvsproj open command does not target the installed executable: $openCommand"
 }
 
 $uninstaller = Get-ChildItem -LiteralPath $installDir -Filter 'unins*.exe' -File |
@@ -119,4 +123,13 @@ if (Test-Path -LiteralPath (Join-Path $installDir 'Music Motion Studio.exe')) {
 if (-not (Test-Path -LiteralPath $unowned) -or -not (Test-Path -LiteralPath $userMarker)) {
     throw 'Uninstallation removed user-owned files.'
 }
-Write-Output 'PASS: installer clean install, same-version reinstall, frozen smoke, association and user-data-preserving uninstall.'
+
+# An uninstaller must not leave an Explorer association pointing at its removed
+# launcher. Windows may legitimately keep the empty .pvsproj extension key.
+$remainingCommandKey = Get-Item -LiteralPath 'Registry::HKEY_CLASSES_ROOT\\PlaylistCanvas.Project\\shell\\open\\command' -ErrorAction SilentlyContinue
+if ($remainingCommandKey -and [string]::Equals(
+        [string]$remainingCommandKey.GetValue(''), $expectedOpenCommand,
+        [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Uninstallation left a file association pointing at the removed executable.'
+}
+Write-Output 'PASS: installer clean install, same-version reinstall, frozen smoke, exact file association, association cleanup and user-data-preserving uninstall.'
