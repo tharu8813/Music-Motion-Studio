@@ -128,6 +128,7 @@ class TrackDetailsDialog(QDialog):
         self._eq_rendering_segment = False
         self._eq_rendering_start_ms = 0
         self._eq_clip_offset_ms = 0
+        self._full_audio_duration_ms = max(1, round(track.duration_seconds * 1000))
         self._eq_state = "original"
         self._eq_error = ""
         self._pending_resume: tuple[int, bool] | None = None
@@ -1514,10 +1515,12 @@ class TrackDetailsDialog(QDialog):
         self._update_live_lyrics(position_ms)
 
     def _playback_duration_changed(self, duration_ms: int) -> None:
-        duration = max(1, duration_ms, round(self.track.duration_seconds * 1000))
+        # A fast EQ sample is only 20 s; never let that reduce the song ruler.
+        if not self._eq_playing_segment:
+            self._full_audio_duration_ms = max(self._full_audio_duration_ms, duration_ms)
         for slider in self._position_sliders():
-            slider.setRange(0, duration)
-        self._playback_position_changed(self.media_player.position())
+            slider.setRange(0, self._full_audio_duration_ms)
+        self._player_position_changed(self.media_player.position())
 
     def _playback_state_changed(self, state: QMediaPlayer.PlaybackState) -> None:
         korean = self.translator.is_korean
