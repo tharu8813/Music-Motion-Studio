@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QSpinBox, QWidget
 
 from app.inspector.editors.base import FieldSection, editing, show_fields
 from app.models.source import Source
+from app.widgets.visual_preset_combo import VisualPresetComboBox
 
 if TYPE_CHECKING:
     from app.inspector.source_inspector import SourceInspector
@@ -85,7 +86,7 @@ class VisualizerSection(FieldSection):
     }
 
     def __init__(self, spin: Callable[[float, float, float], QDoubleSpinBox]) -> None:
-        style = QComboBox()
+        style = VisualPresetComboBox("visualizer")
         for label, value in (
             ("Bars", "bars"), ("Wave", "wave"), ("Dots", "dots"),
             ("Line", "line"), ("Mirror", "mirror"), ("Spectrum", "spectrum"),
