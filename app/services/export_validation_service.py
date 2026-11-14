@@ -107,8 +107,16 @@ def validate_export_output(
         if completed.returncode:
             return ExportValidationResult(False, error=(completed.stderr or "FFprobe failed").strip())
         payload = json.loads(completed.stdout or "{}")
-        stream = (payload.get("streams") or [{}])[0]
-        format_data = payload.get("format") or {}
+        if not isinstance(payload, dict):
+            return ExportValidationResult(False, error="FFprobe returned invalid video metadata.")
+        streams = payload.get("streams")
+        if (not isinstance(streams, list) or not streams
+                or not isinstance(streams[0], dict) or not streams[0]):
+            return ExportValidationResult(False, error="FFprobe found no video stream.")
+        stream = streams[0]
+        format_data = payload.get("format")
+        if not isinstance(format_data, dict):
+            format_data = {}
 
         observed_fps = _frame_rate(stream.get("avg_frame_rate")) or _frame_rate(stream.get("r_frame_rate"))
         duration = float(format_data.get("duration") or 0.0)
