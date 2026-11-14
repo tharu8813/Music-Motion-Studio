@@ -58,6 +58,21 @@ class TrackAudioSettingsTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 PlaylistTrack.from_dict({**track.to_dict(), **bad})
 
+    def test_duplicate_preserves_bass_and_eight_band_eq(self) -> None:
+        from app.services.playlist_service import PlaylistService
+
+        service = PlaylistService()
+        original = PlaylistTrack(
+            "a.mp3", "A", eq_db=[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -2.0],
+            bass_db=5.0,
+        )
+        service.replace([original])
+        service.duplicate([original.id])
+        copied = service.tracks[1]
+        self.assertEqual(copied.bass_db, 5.0)
+        self.assertEqual(copied.eq_db, original.eq_db)
+        self.assertNotEqual(copied.id, original.id)
+
     def test_mix_graph_runs_track_filter_before_the_clip(self) -> None:
         clips = [
             AudioRenderClip("c0", "t0", 0.0, 0.0, 1.0),
