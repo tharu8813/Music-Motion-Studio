@@ -22,6 +22,7 @@ MATCH_FIELDS = (
     "lyrics", "integrated", "known_fixture_beats", "track_count",
     "analysis_workers", "python", "qt", "numpy", "platform",
     "gpu_backend", "gpu_active_at_end", "proxy_count",
+    "warmup_seconds", "requested_seconds",
 )
 
 # Each expression is a scalar obtained from one benchmark run. Lower CPU
@@ -56,13 +57,20 @@ METRICS = (
 )
 
 
+def _valid_duration(value: object) -> bool:
+    return (
+        isinstance(value, (int, float)) and not isinstance(value, bool)
+        and isfinite(value) and value > 0
+    )
+
+
 def _read(path: Path) -> dict:
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError(f"{path}: expected a JSON object")
     if data.get("benchmark") != "real_video_preview":
         raise ValueError(f"{path}: not a real_video_preview measurement")
-    if not isinstance(data.get("seconds"), (int, float)) or data["seconds"] <= 0:
+    if not _valid_duration(data.get("seconds")):
         raise ValueError(f"{path}: invalid measurement duration")
     if data.get("integrated") and not data.get("blended_audio_ready"):
         raise ValueError(f"{path}: integrated AutoMix was not ready during measurement")
@@ -126,7 +134,7 @@ def compare(baseline: list[dict], candidate: list[dict]) -> dict:
         raise ValueError("A-B-B-A needs two baseline and two candidate measurements")
     runs = [baseline[0], candidate[0], candidate[1], baseline[1]]
     for index, row in enumerate(runs):
-        if row.get("benchmark") != "real_video_preview" or not isinstance(row.get("seconds"), (float, int)) or row["seconds"] <= 0:
+        if row.get("benchmark") != "real_video_preview" or not _valid_duration(row.get("seconds")):
             raise ValueError(f"run {index + 1}: invalid real_video_preview result")
         if row.get("integrated") and not row.get("blended_audio_ready"):
             raise ValueError(f"run {index + 1}: AutoMix not ready")
@@ -139,6 +147,12 @@ def compare(baseline: list[dict], candidate: list[dict]) -> dict:
         raise ValueError("Incompatible benchmark configurations: " + json.dumps(
             mismatches, ensure_ascii=False, sort_keys=True,
         ))
+    # The benchmark records actual elapsed wall time (which may drift
+    # slightly from --seconds when the GUI event loop stalls). Disallow
+    # materially different runs: P95 and RSS peaks depend on sample length.
+    elapsed = [row["seconds"] for row in runs]
+    if max(elapsed) > min(elapsed) * 1.10:
+        raise ValueError("Incompatible measured durations across A-B-B-A runs")
 
     scale_ranges = [
         (row.get("canvas_scale_min"), row.get("canvas_scale_max")) for row in runs
@@ -148,7 +162,11 @@ def compare(baseline: list[dict], candidate: list[dict]) -> dict:
     for field, unit, higher_is_better in METRICS:
         before = [row.get(field) for row in baseline]
         after = [row.get(field) for row in candidate]
-        if any(not isinstance(value, (int, float)) for value in before + after):
+        if any(
+            not isinstance(value, (int, float)) or isinstance(value, bool)
+            or not isfinite(value)
+            for value in before + after
+        ):
             continue
         before_mean = mean(before)
         after_mean = mean(after)
@@ -167,7 +185,11 @@ def compare(baseline: list[dict], candidate: list[dict]) -> dict:
     # not count as more dropped frames simply because it ran longer.
     before_drops = [row.get("decode_drops") for row in baseline]
     after_drops = [row.get("decode_drops") for row in candidate]
-    if all(isinstance(value, (int, float)) for value in before_drops + after_drops):
+    if all(
+        isinstance(value, (int, float)) and not isinstance(value, bool)
+        and isfinite(value) and value >= 0
+        for value in before_drops + after_drops
+    ):
         a = [row["decode_drops"] / row["seconds"] for row in baseline]
         b = [row["decode_drops"] / row["seconds"] for row in candidate]
         a_mean, b_mean = mean(a), mean(b)
@@ -197,6 +219,7 @@ def compare(baseline: list[dict], candidate: list[dict]) -> dict:
             "Recorded adaptive canvas scale ranges match, but image-pixel parity must be tested separately.",
             "GPU utilization samples, if present, describe the whole device, not the application.",
             "A/B timing must exclude other concurrent benchmark or background-intensive tasks.",
+            "Requested duration and warm-up must match; actual measurement lengths must remain within 10%.",
             "Profile stage P95 values are inclusive per-call wall times: nested stages overlap and must not be summed.",
             "OpenGL submission times are not GPU execution times; compare stage counts and per-run spread before assigning bottlenecks.",
         ],
