@@ -98,6 +98,44 @@ class VideoFrameFilterTests(unittest.TestCase):
         self.assertEqual((blurred.width(), blurred.height()), (1920, 1080))
         self.assertLess(elapsed, 0.12)
 
+    def test_brightness_contrast_table_is_reused_and_pixel_exact(self) -> None:
+        import numpy as np
+        from app.video import frame_filter
+
+        lut = frame_filter._brightness_contrast_lut
+        lut.cache_clear()
+        self.addCleanup(lut.cache_clear)
+        image = QImage(16, 16, QImage.Format.Format_RGBA8888)
+        for y in range(image.height()):
+            for x in range(image.width()):
+                image.setPixelColor(x, y, QColor(x * 15, y * 15, (x + y) * 7, 91))
+
+        for brightness, contrast in ((10.0, 20.0), (-35.0, 60.0)):
+            filtered = frame_filter.apply_color_filters(
+                image, brightness=brightness, contrast=contrast,
+            )
+            for x, y in ((0, 0), (3, 7), (10, 12), (15, 15)):
+                original = image.pixelColor(x, y)
+                actual = filtered.pixelColor(x, y)
+                expected = [
+                    int(np.clip(
+                        (np.float32(value) - 128.0) * (1.0 + contrast / 100.0)
+                        + 128.0 + brightness * 2.55,
+                        0.0, 255.0,
+                    ))
+                    for value in (original.red(), original.green(), original.blue())
+                ]
+                self.assertEqual((actual.red(), actual.green(), actual.blue()), tuple(expected))
+                self.assertEqual(actual.alpha(), 91)
+
+        self.assertEqual(lut.cache_info().misses, 2)
+        for _ in range(10):
+            frame_filter.apply_color_filters(image, brightness=10.0, contrast=20.0)
+        self.assertEqual(lut.cache_info().misses, 2)
+        self.assertGreaterEqual(lut.cache_info().hits, 10)
+        self.assertFalse(lut(10.0, 20.0).flags.writeable)
+        self.assertEqual(lut.cache_info().maxsize, 128)
+
     def test_task_failure_emits_empty_frame_and_logs_each_error_once(self) -> None:
         from app.video import frame_filter
         from app.video.frame_filter import VideoFrameFilterSignals, VideoFrameFilterTask
