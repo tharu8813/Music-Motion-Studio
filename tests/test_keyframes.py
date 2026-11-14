@@ -129,6 +129,75 @@ class KeyframeEngineTests(TestCase):
             self.assertEqual(binding.values(time), evaluate(self.source, time, owner.track_id, local))
 
 
+    def test_render_binding_uses_indexed_owner_for_long_playlists_and_gaps(self):
+        from app.timeline.render_plan import PresentationWindow
+
+        class NoIterationWindows(tuple):
+            def __iter__(self):
+                raise AssertionError("Render binding must not scan all windows")
+
+            def __reversed__(self):
+                raise AssertionError("Render binding must not reverse-scan all windows")
+
+        self.source.keyframes.mode = "per_track"
+        self.source.keyframes.per_track_curves = {
+            f"track-{i}": {
+                "x": [Keyframe(0, float(i)), Keyframe(20, float(i + 20))]
+            }
+            for i in range(512)
+        }
+        # Each window has two seconds of silence following it; odd tracks
+        # use an offset playback clock, matching trimmed or sped-up clips.
+        windows = NoIterationWindows(
+            PresentationWindow(
+                f"track-{i}", i * 10.0, i * 10.0 + 8.0,
+                source_time_at_start=1.5 if i % 2 else 0.0,
+                playback_rate=1.25 if i % 2 else 1.0,
+            )
+            for i in range(512)
+        )
+        binding = KeyframeRenderBinding(self.source, windows)
+        self.assertEqual(binding.values(-0.001), {})
+        self.assertEqual(binding.values(5120.0), {})
+        for i in (0, 1, 15, 127, 255, 510, 511):
+            start = i * 10.0
+            window = windows[i]
+            for seconds in (start, start + 2.25, start + 7.999):
+                local = window.source_time_at_start + (
+                    seconds - window.timeline_start
+                ) * window.playback_rate
+                expected = evaluate(self.source, seconds, window.track_id, local)
+                self.assertEqual(binding.values(seconds), expected)
+            self.assertEqual(binding.values(start + 8.0), {})
+            self.assertEqual(binding.values(start + 9.999), {})
+
+    def test_render_binding_empty_windows_and_crossfade_boundaries(self):
+        self.source.keyframes.mode = "per_track"
+        self.source.keyframes.per_track_curves = {
+            self.a.id: {"x": [Keyframe(0, 100)]},
+            self.b.id: {"x": [Keyframe(0, 200, "linear"), Keyframe(20, 400)]},
+        }
+        self.assertEqual(KeyframeRenderBinding(self.source, ()).values(0.0), {})
+        plan = compile_crossfade([self.a, self.b], 2)
+        binding = KeyframeRenderBinding.build(self.source, plan)
+        windows = keyframe_windows(plan)
+        for seconds in (-1.0, 0.0, 7.999, 8.0, 8.999, 9.0, 9.001,
+                        10.0, 27.999, 28.0):
+            window = next(
+                (entry for entry in reversed(windows)
+                 if entry.timeline_start <= seconds < entry.timeline_end),
+                None,
+            )
+            expected = evaluate(
+                self.source, seconds, window.track_id if window else "",
+                (
+                    window.source_time_at_start
+                    + (seconds - window.timeline_start) * window.playback_rate
+                    if window else None
+                ),
+            )
+            self.assertEqual(binding.values(seconds), expected)
+
     def test_preview_keyframe_windows_use_random_access_not_per_frame_scanning(self):
         from types import SimpleNamespace
         from app.dialogs.export_preview_dialog import ExportPreviewDialog
