@@ -502,16 +502,22 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             )
             automatic = NativeGpuOptimizations.for_profile("automatic")
             baseline_report = {}
-            baseline = list(produce_complete_project_frames(
-                project, **common, optimizations=automatic,
-                raster_counters=baseline_report,
-            ))
+            baseline = [
+                frame.resolve() if hasattr(frame, "resolve") else frame
+                for frame in produce_complete_project_frames(
+                    project, **common, optimizations=automatic,
+                    raster_counters=baseline_report,
+                )
+            ]
             profile_report = {}
-            profiled = list(produce_complete_project_frames(
-                project, **common,
-                optimizations=replace(automatic, profile_canvas_state_setup=True),
-                raster_counters=profile_report,
-            ))
+            profiled = [
+                frame.resolve() if hasattr(frame, "resolve") else frame
+                for frame in produce_complete_project_frames(
+                    project, **common,
+                    optimizations=replace(automatic, profile_canvas_state_setup=True),
+                    raster_counters=profile_report,
+                )
+            ]
             self.assertEqual(profiled, baseline)
             self.assertEqual(len(profiled), 30)
             self.assertEqual(project.to_dict(), before)
