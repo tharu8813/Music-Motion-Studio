@@ -7,6 +7,8 @@ alias two Canvas layers in the native by-id render path.
 
 from __future__ import annotations
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
 from app.models.source import Source, SourceType
@@ -38,6 +40,57 @@ class NativeGpuSourceIdentityTests(unittest.TestCase):
                 validate_project_for_gpu_capture(
                     project, scale=0.25, source_policy="dynamic-audio",
                 )
+
+    def test_missing_image_background_asset_fails_before_native_capture(self):
+        project = project_fixture()
+        background = Source(
+            SourceType.BACKGROUND, "Wallpaper", background_mode="image",
+        )
+        project.sources.append(background)
+        for policy in ("strict", "dynamic-audio", "canvas-only"):
+            with self.subTest(policy=policy), self.assertRaisesRegex(
+                TimelineValidationError, "Image asset not found",
+            ):
+                validate_project_for_gpu_capture(
+                    project, scale=0.25, source_policy=policy,
+                )
+
+        with TemporaryDirectory(prefix="native-background-asset-") as temp:
+            background.content_path = str(Path(temp) / "missing.png")
+            with self.assertRaisesRegex(TimelineValidationError, background.id):
+                validate_project_for_gpu_capture(
+                    project, scale=0.25, source_policy="dynamic-audio",
+                )
+            Path(background.content_path).write_bytes(b"file exists")
+            self.assertEqual(
+                validate_project_for_gpu_capture(
+                    project, scale=0.25, source_policy="dynamic-audio",
+                ), [],
+            )
+
+    def test_color_or_album_art_background_does_not_need_an_image_path(self):
+        for mode in ("color", "album_art"):
+            project = project_fixture()
+            background = Source(SourceType.BACKGROUND, "Backdrop", background_mode=mode)
+            background.content_path = ""
+            project.sources.append(background)
+            with self.subTest(mode=mode):
+                self.assertEqual(
+                    validate_project_for_gpu_capture(
+                        project, scale=0.25, source_policy="dynamic-audio",
+                    ), [],
+                )
+
+    def test_hidden_missing_image_background_is_not_an_export_layer(self):
+        project = project_fixture()
+        background = Source(SourceType.BACKGROUND, "Hidden", background_mode="image")
+        background.visible = False
+        project.sources.append(background)
+        self.assertEqual(
+            validate_project_for_gpu_capture(
+                project, scale=0.25, source_policy="dynamic-audio",
+            ), [],
+        )
 
     def test_hidden_duplicate_does_not_affect_visible_export_capture(self):
         project = project_fixture()
