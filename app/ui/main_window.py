@@ -4992,6 +4992,13 @@ class MainWindow(QMainWindow):
         dialog = ProjectSettingsDialog(
             self.project_settings, self.translator, thumbnail, self,
             canvas_size=original_canvas_size,
+            project_path=self.current_project_path,
+            project_counts={
+                "tracks": len(self.playlist_service.tracks),
+                "sources": len(self.store.sources()),
+                "groups": len(self.store.groups()),
+                "library": len(self.project_content_service.items),
+            },
         )
         if dialog.exec() == dialog.DialogCode.Accepted:
             self.project_settings = dialog.selected_settings
