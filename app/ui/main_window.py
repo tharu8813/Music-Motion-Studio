@@ -4992,6 +4992,8 @@ class MainWindow(QMainWindow):
         dialog = ProjectSettingsDialog(
             self.project_settings, self.translator, thumbnail, self,
             canvas_size=original_canvas_size,
+            project_document=self._project_document(),
+            project_path=self.current_project_path or self._legacy_project_path,
         )
         if dialog.exec() == dialog.DialogCode.Accepted:
             self.project_settings = dialog.selected_settings
