@@ -79,7 +79,7 @@ class ExportValidationServiceTests(unittest.TestCase):
             with self.subTest(streams=streams):
                 payload = {"streams": streams, "format": {"duration": "2.0"}}
                 completed = CompletedProcess([], 0, json.dumps(payload), "")
-                with patch("app.services.export_validation_service._find_ffprobe", return_value=Path("ffprobe")), \\
+                with patch("app.services.export_validation_service._find_ffprobe", return_value=Path("ffprobe")), \
                      patch("app.services.export_validation_service.subprocess.run", return_value=completed):
                     result = validate_export_output(
                         "no-video.mp4", expected_width=640, expected_height=360,
@@ -91,7 +91,7 @@ class ExportValidationServiceTests(unittest.TestCase):
 
     def test_video_probe_rejects_unexpected_json_root(self):
         completed = CompletedProcess([], 0, "[]", "")
-        with patch("app.services.export_validation_service._find_ffprobe", return_value=Path("ffprobe")), \\
+        with patch("app.services.export_validation_service._find_ffprobe", return_value=Path("ffprobe")), \
              patch("app.services.export_validation_service.subprocess.run", return_value=completed):
             result = validate_export_output("bad-video.mp4", expected_width=640,
                                             expected_height=360, expected_fps=30)
