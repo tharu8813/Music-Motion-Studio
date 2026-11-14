@@ -54,15 +54,21 @@ class ProjectExportPreferencesTests(TestCase):
             )
             self.assertEqual(loaded.settings.export_preferences["fps"], 60)
 
-    def test_creation_version_is_preserved_for_old_projects(self) -> None:
+    def test_missing_creation_version_is_not_inferred_from_last_writer(self) -> None:
         data = ProjectDocument().to_dict()
         data["app_version"] = "1.1.0"
         data["settings"].pop("created_app_version")
+        data["settings"].pop("created_at")
+        data["settings"].pop("modified_at")
         loaded = ProjectDocument.from_dict(data)
-        self.assertEqual(loaded.settings.created_app_version, "1.1.0")
+        self.assertEqual(loaded.app_version, "1.1.0")
+        self.assertEqual(loaded.settings.created_app_version, "")
+        self.assertEqual(loaded.settings.created_at, "")
+        self.assertEqual(loaded.settings.modified_at, "")
+        again = ProjectDocument.from_dict(loaded.to_dict())
         self.assertEqual(
-            ProjectDocument.from_dict(loaded.to_dict()).settings.created_app_version,
-            "1.1.0",
+            (again.settings.created_app_version, again.settings.created_at, again.settings.modified_at),
+            ("", "", ""),
         )
 
     def test_thumbnail_always_captures_canvas_even_with_custom_thumbnail_selected(self) -> None:

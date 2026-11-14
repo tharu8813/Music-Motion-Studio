@@ -207,6 +207,8 @@ QGroupBox::title { subcontrol-origin: margin; left: 0; padding: 0 8px 0 0; color
 #projectAudioSettingsDialog #settingsTabs QTabBar::tab { padding: 10px 18px; }
 #appSettingsDialog QPushButton:focus, #projectSettingsDialog QPushButton:focus { border: 1px solid @accent; }
 #projectSettingsDialog #thumbnailPreview { background: @window; border: 1px solid @border; border-radius: 4px; }
+#projectSettingsDialog #projectThumbnailHeader { background: @panel; border: 1px solid @border; border-radius: 6px; }
+#projectSettingsDialog #projectThumbnailName { color: @text; font-size: 16px; font-weight: 600; }
 
 /* --- Lists, trees & tables -------------------------------------- */
 QScrollArea, QListWidget, QTreeWidget, QTableWidget { background: @panel; color: @text; border: 0; }
