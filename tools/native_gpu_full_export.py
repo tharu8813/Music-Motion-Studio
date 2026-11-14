@@ -72,6 +72,7 @@ def export_complete_project(
     smoke_seconds: float | None = None, report_path: Path | None = None,
     gpu_profile: str | None = None,
     gpu_profile_qt_paint: bool = False,
+    gpu_profile_qt_state: bool = False,
     gpu_shared_packet_transport: bool | None = None,
     gpu_parallel_packet_validation: bool | None = None,
     gpu_text: bool = False,
@@ -103,6 +104,10 @@ def export_complete_project(
         if gpu_profile != "automatic":
             raise ValueError("--gpu-profile-qt-paint requires --gpu-profile automatic")
         optimizations = replace(optimizations, profile_canvas_source_paint=True)
+    if gpu_profile_qt_state:
+        if gpu_profile != "automatic":
+            raise ValueError("--gpu-profile-qt-state requires --gpu-profile automatic")
+        optimizations = replace(optimizations, profile_canvas_state_setup=True)
     if gpu_shared_packet_transport is not None:
         if gpu_profile != "automatic":
             raise ValueError("--gpu-shared-packet-transport requires --gpu-profile automatic")
@@ -190,6 +195,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Developer-only Qt SourceItem.paint timing by source type (adds profiling overhead)",
     )
     parser.add_argument(
+        "--gpu-profile-qt-state", action="store_true",
+        help="Developer-only SourceType state setup timing (adds profiling overhead)",
+    )
+    parser.add_argument(
         "--gpu-shared-packet-transport", action=argparse.BooleanOptionalAction,
         help="Developer A/B: send frame packets through bounded Windows shared memory",
     )
@@ -229,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
             fps=args.fps, scale=args.scale, ffmpeg=args.ffmpeg,
             smoke_seconds=args.smoke_seconds, report_path=args.report,
             gpu_profile=args.gpu_profile, gpu_profile_qt_paint=args.gpu_profile_qt_paint,
+            gpu_profile_qt_state=args.gpu_profile_qt_state,
             gpu_shared_packet_transport=args.gpu_shared_packet_transport,
             gpu_parallel_packet_validation=args.gpu_parallel_packet_validation,
             gpu_text=args.gpu_text,
