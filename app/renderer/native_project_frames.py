@@ -88,10 +88,12 @@ class _ProfiledNativeSourceItem(SourceItem):
     """
 
     def __init__(self, source, paint_costs: dict[str, dict[str, int | float]],
-                 text_stage_costs: dict[str, dict[str, dict[str, int | float]]] | None = None):
+                 text_stage_costs: dict[str, dict[str, dict[str, int | float]]] | None = None,
+                 shadow_cache_costs: dict[str, dict[str, dict[str, int | float]]] | None = None):
         super().__init__(source)
         self._native_paint_costs = paint_costs
         self._native_text_stage_costs = text_stage_costs
+        self._native_shadow_cache_costs = shadow_cache_costs
 
     def _measure_text_stage(self, stage, callable_, *args):
         # The SourceItem base constructor may call a text helper before
@@ -126,9 +128,29 @@ class _ProfiledNativeSourceItem(SourceItem):
         )
 
     def _draw_glyph_shadow(self, painter, rect, flags, text, stroke):
-        return self._measure_text_stage(
-            "glyph_shadow", super()._draw_glyph_shadow, painter, rect, flags, text, stroke,
-        )
+        cache_costs = getattr(self, "_native_shadow_cache_costs", None)
+        if cache_costs is None:
+            return self._measure_text_stage(
+                "glyph_shadow", super()._draw_glyph_shadow, painter, rect, flags, text, stroke,
+            )
+        # SourceItem caches a new pixmap only on a raster miss; on reaching
+        # its 64-entry cap it clears then inserts, so the size changes even
+        # for the eviction case. No private cache keys or pixels are copied.
+        entries_before = len(self._text_shadow_cache)
+        started = monotonic()
+        try:
+            return self._measure_text_stage(
+                "glyph_shadow", super()._draw_glyph_shadow, painter, rect, flags, text, stroke,
+            )
+        finally:
+            kind = (
+                "rasterized" if len(self._text_shadow_cache) != entries_before
+                else "reused_or_empty"
+            )
+            stages = cache_costs.setdefault(self.source.source_type.value, {})
+            cost = stages.setdefault(kind, {"calls": 0, "seconds": 0.0})
+            cost["calls"] += 1
+            cost["seconds"] += monotonic() - started
 
     def paint(self, painter, option, widget=None):
         category = self.source.source_type.value
@@ -193,12 +215,13 @@ def produce_complete_project_frames(
     )
     paint_costs: dict[str, dict[str, int | float]] = {}
     text_stage_costs: dict[str, dict[str, dict[str, int | float]]] = {}
+    shadow_cache_costs: dict[str, dict[str, dict[str, int | float]]] = {}
     try:
         scene.set_artboard_size(project.canvas.width, project.canvas.height)
         scene.show_grid = False
         for source in sorted(included, key=lambda item: item.z_index):
             scene.addItem(
-                _ProfiledNativeSourceItem(source, paint_costs, text_stage_costs)
+                _ProfiledNativeSourceItem(source, paint_costs, text_stage_costs, shadow_cache_costs)
                 if profile_paint else SourceItem(source)
             )
         layer_limit = (optimizations.canvas_layer_limit if gpu_video and optimizations is not None
@@ -336,6 +359,11 @@ def produce_complete_project_frames(
                         category: {stage: dict(cost)
                                    for stage, cost in stages.items()}
                         for category, stages in text_stage_costs.items()
+                    }
+                    raster_counters["qt_canvas_glyph_shadow_cache_costs"] = {
+                        category: {stage: dict(cost)
+                                   for stage, cost in stages.items()}
+                        for category, stages in shadow_cache_costs.items()
                     }
                 if raster_cache.profile_state_setup:
                     raster_counters["qt_canvas_state_preloop_seconds"] = (
