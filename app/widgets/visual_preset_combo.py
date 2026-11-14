@@ -12,7 +12,7 @@ from math import cos, pi, sin
 from time import monotonic
 
 from PySide6.QtCore import QEvent, QPoint, QRectF, QSize, Qt, QTimer
-from PySide6.QtGui import QColor, QCursor, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QBrush, QColor, QCursor, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QFrame, QListView,
     QListWidget, QListWidgetItem, QVBoxLayout, QWidget,
@@ -185,7 +185,7 @@ def _preview_icon(kind: str, value: object, seconds: float, source: Source | Non
         image_fill = QLinearGradient(art.topLeft(), art.bottomRight())
         image_fill.setColorAt(0, QColor("#3B6566"))
         image_fill.setColorAt(1, QColor("#9BBEB1"))
-        p.fillRect(art, image_fill)
+        p.fillRect(art, QBrush(image_fill))
         p.setPen(QPen(QColor("#DDE9E2"), 2.5))
         p.drawLine(int(art.left() + 6), int(art.bottom() - 13),
                    int(art.center().x()), int(art.top() + 16))
