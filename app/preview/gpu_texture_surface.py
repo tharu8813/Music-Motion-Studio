@@ -148,6 +148,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
             self._pending_image = QImage()
             self._pending_canvas_size = QSize()
             self._pending_layers: tuple[GpuPreviewLayer, ...] = ()
+            self._pending_submission = False
             self._active_canvas_size = QSize()
             self._active_layers: tuple[GpuPreviewLayer, ...] = ()
             self._textures: dict[Hashable, _TextureEntry] = {}
@@ -206,7 +207,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
         @property
         def frame_pending(self) -> bool:
             """Return whether a newer scene is waiting for the next GL paint."""
-            return bool(self._pending_layers)
+            return self._pending_submission
 
         @property
         def upload_stats(self) -> GpuUploadStats:
@@ -249,7 +250,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
             self._submitted_frames += 1
             if PROFILE_ENABLED:
                 self._pending_since = perf_counter()
-            if self._pending_layers:
+            if self._pending_submission:
                 self._dropped_pending_frames += 1
             self._pending_canvas_size = QSize(canvas_size)
             self._pending_layers = tuple(
@@ -268,6 +269,9 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                     or (layer.video_frame is not None and layer.video_frame.isValid())
                 )
             )
+            # Even an empty scene is a real submission: it must clear the last
+            # displayed layers instead of leaving an old frame on screen.
+            self._pending_submission = True
             self.update()
 
         def _on_frame_swapped(self) -> None:
@@ -324,7 +328,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                 )
                 self._functions.glClearColor(0.066, 0.094, 0.125, 1.0)
                 self._functions.glClear(0x00004000)  # GL_COLOR_BUFFER_BIT
-                if self._pending_layers:
+                if self._pending_submission:
                     self._activate_pending_layers()
                 if not self._active_layers or self._active_canvas_size.isEmpty():
                     return
@@ -405,6 +409,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
             canvas_size = QSize(self._pending_canvas_size)
             self._pending_layers = ()
             self._pending_canvas_size = QSize()
+            self._pending_submission = False
             active_keys = {layer.key for layer in layers}
             self._frame_serial += 1
             self._active_since, self._pending_since = self._pending_since, None
@@ -802,6 +807,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                     self._destroy_texture(key)
                 self._active_layers = ()
                 self._pending_layers = ()
+                self._pending_submission = False
                 self._pending_image = QImage()
                 if self._blitter is not None:
                     self._blitter.destroy()
