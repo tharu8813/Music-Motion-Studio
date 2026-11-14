@@ -11,9 +11,9 @@ from math import cos, pi, sin
 from time import monotonic
 
 from PySide6.QtCore import QEvent, QPoint, QRectF, QSize, Qt, QTimer
-from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QCursor, QIcon, QLinearGradient, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QFrame, QGridLayout, QListView,
+    QAbstractItemView, QComboBox, QFrame, QListView,
     QListWidget, QListWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -246,14 +246,19 @@ class VisualPresetComboBox(QComboBox):
         self._popup: QFrame | None = None
         self._list: QListWidget | None = None
         self._started = 0.0
+        self._suppress_next_open = False
         self._timer = QTimer(self)
-        self._timer.setInterval(90)
+        self._timer.setInterval(120)
         self._timer.timeout.connect(self._refresh_icons)
 
     def showPopup(self) -> None:
+        if self._suppress_next_open:
+            self._suppress_next_open = False
+            return
         if not self.isEnabled() or self.count() == 0:
             return
         if self._popup is not None:
+            self.hidePopup()
             return
         popup = QFrame(self, Qt.WindowType.Popup)
         popup.setObjectName("visualPresetPopup")
@@ -291,12 +296,32 @@ class VisualPresetComboBox(QComboBox):
         self._popup = popup
         self._list = view
 
+        # IconMode uses the VIEWPORT width, not the outer window width, to
+        # calculate wrapping. Reserve space for its scrollbar and frame:
+        # otherwise a nominal 3-column popup silently wraps to two and
+        # leaves a column-sized empty strip (especially on Windows/DPI).
         screen = self.screen()
         bounds = screen.availableGeometry() if screen is not None else self.geometry()
-        cols = min(3, self.count(), max(1, (bounds.width() - 24) // _TILE_SIZE.width()))
-        width = cols * _TILE_SIZE.width() + 18
+        margin = layout.contentsMargins()
+        outer_width = margin.left() + margin.right() + 2  # popup border
+        scrollbar_width = max(18, view.verticalScrollBar().sizeHint().width() + 4)
+        cols = min(3, self.count(), max(
+            1, (bounds.width() - 24 - outer_width - scrollbar_width) // _TILE_SIZE.width()
+        ))
         rows = (self.count() + cols - 1) // cols
-        height = min(rows * _TILE_SIZE.height() + 18, 480, bounds.height() - 24)
+        max_height = max(120, min(480, bounds.height() - 24))
+        desired_height = rows * _TILE_SIZE.height() + margin.top() + margin.bottom() + 2
+        needs_scrollbar = desired_height > max_height
+        width = cols * _TILE_SIZE.width() + outer_width + (
+            scrollbar_width if needs_scrollbar else 4
+        )
+        height = min(desired_height, max_height)
+        # Extra viewport pixels are deliberate breathing room, not a spare
+        # (blank) preset column; all columns have enough room to wrap.
+        view.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded if needs_scrollbar
+            else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         origin = self.mapToGlobal(QPoint(0, self.height()))
         x = max(bounds.left(), min(origin.x(), bounds.right() - width + 1))
         y = origin.y() if origin.y() + height <= bounds.bottom() else (
@@ -309,6 +334,22 @@ class VisualPresetComboBox(QComboBox):
         view.setFocus()
         if self.preview_kind in _MOTION_KINDS | {"visualizer", "waveform", "meter", "particle"}:
             self._timer.start()
+
+    def hidePopup(self) -> None:
+        if self._popup is not None:
+            self._popup.close()
+
+    def mousePressEvent(self, event) -> None:
+        # The parent QComboBox remains clickable while its own Qt.Popup is
+        # open, but should TOGGLE it rather than immediately reopening it.
+        if self._popup is not None:
+            self.hidePopup()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def _reset_reopen_guard(self) -> None:
+        self._suppress_next_open = False
 
     def _choose(self, item: QListWidgetItem) -> None:
         index = item.data(Qt.ItemDataRole.UserRole)
@@ -323,13 +364,21 @@ class VisualPresetComboBox(QComboBox):
             self._timer.stop()
             return
         seconds = monotonic() - self._started
+        viewport = self._list.viewport().rect()
         for i in range(self._list.count()):
-            self._list.item(i).setIcon(
-                _preview_icon(self.preview_kind, self.itemData(i), seconds)
-            )
+            item = self._list.item(i)
+            if self._list.visualItemRect(item).intersects(viewport):
+                item.setIcon(_preview_icon(self.preview_kind, self.itemData(i), seconds))
 
     def eventFilter(self, watched, event):
         if watched is self._popup and event.type() == QEvent.Type.Hide:
+            # Windows may close the Popup before dispatching the *same* click
+            # to the combo. Suppress only that click; next deliberate clicks
+            # must work normally.
+            over_combo = self.rect().contains(self.mapFromGlobal(QCursor.pos()))
+            if over_combo:
+                self._suppress_next_open = True
+                QTimer.singleShot(0, self._reset_reopen_guard)
             self._timer.stop()
             self._list = None
             self._popup = None
