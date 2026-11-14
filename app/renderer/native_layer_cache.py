@@ -172,6 +172,7 @@ class NativeRasterCache:
         self.profile_state_setup = bool(optimizations and optimizations.profile_canvas_state_setup)
         self.qt_canvas_state_preloop_seconds = 0.0
         self.qt_canvas_source_type_state_setup: dict[str, dict[str, int | float]] = {}
+        self.qt_canvas_state_detail_costs: dict[str, dict[str, dict[str, int | float]]] = {}
         self.qt_canvas_paint_stage_seconds = 0.0
         self.qt_canvas_state_restore_seconds = 0.0
         self.qt_canvas_inline_bgra_seconds = 0.0
@@ -493,6 +494,12 @@ class NativeRasterCache:
                 )
                 entry["calls"] += cost["calls"]
                 entry["seconds"] += cost["seconds"]
+            for category, stages in metrics.get("state_detail_costs", {}).items():
+                aggregate = self.qt_canvas_state_detail_costs.setdefault(category, {})
+                for stage, cost in stages.items():
+                    entry = aggregate.setdefault(stage, {"calls": 0, "seconds": 0.0})
+                    entry["calls"] += cost["calls"]
+                    entry["seconds"] += cost["seconds"]
 
     def record(self, layer, state=None):
         self.rasterizations += 1

@@ -496,6 +496,17 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             audio = root / "sine.wav"
             sample_wav(audio)
             project = dynamic_project(audio)
+            # Real artwork exercises the source-type background album-art
+            # capture stage without writing to the original project.
+            artwork = root / "artwork.png"
+            cover = QImage(48, 48, QImage.Format.Format_RGB32)
+            cover.fill(QColor("#325d8e"))
+            self.assertTrue(cover.save(str(artwork)))
+            project.playlist[0].cover_path = str(artwork)
+            project.sources.insert(0, Source(
+                SourceType.BACKGROUND, "Background", width=1280, height=720,
+                z_index=-1, background_mode="album_art",
+            ))
             before = project.to_dict()
             common = dict(
                 fps=30, scale=0.25, prepared_audio=audio, ffmpeg=str(ffmpeg),
@@ -523,6 +534,7 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             self.assertEqual(project.to_dict(), before)
             self.assertNotIn("qt_canvas_source_type_state_setup", baseline_report)
             self.assertNotIn("qt_canvas_state_preloop_seconds", baseline_report)
+            self.assertNotIn("qt_canvas_state_detail_costs", baseline_report)
             self.assertIn("qt_canvas_source_type_state_setup", profile_report)
             by_type = profile_report["qt_canvas_source_type_state_setup"]
             self.assertTrue(by_type)
@@ -544,6 +556,20 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             self.assertLessEqual(
                 profile_report["qt_canvas_state_preloop_seconds"], setup + 0.2,
             )
+            detail = profile_report["qt_canvas_state_detail_costs"]
+            self.assertIn("background", detail)
+            self.assertIn("lyrics", detail)
+            for category, stage_name in (
+                ("background", "album_art"),
+                ("lyrics", "cue_state"),
+            ):
+                with self.subTest(category=category, stage=stage_name):
+                    cost = detail[category][stage_name]
+                    self.assertGreater(cost["calls"], 0)
+                    self.assertGreater(cost["seconds"], 0)
+                    self.assertLessEqual(
+                        cost["seconds"], by_type[category]["seconds"] + 0.2,
+                    )
 
     def test_alpha_trim_flag_is_developer_only(self):
         self.assertFalse(NativeGpuOptimizations.for_profile("automatic").trim_transparent_bands)

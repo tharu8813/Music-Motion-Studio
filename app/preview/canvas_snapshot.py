@@ -983,6 +983,7 @@ class CanvasSnapshot:
         state_type_costs = (
             {} if profile_source_state and render_metrics is not None else None
         )
+        state_detail_costs = {} if state_type_costs is not None else None
         if state_type_costs is not None:
             render_metrics["state_preloop_seconds"] = monotonic() - phase_started
         for graphics_item in source_items:
@@ -1048,6 +1049,7 @@ class CanvasSnapshot:
                 )
                 graphics_item.update()
             if source.source_type is SourceType.LYRICS:
+                lyrics_started = monotonic() if state_detail_costs is not None else None
                 original_text.append((graphics_item, source.text))
                 original_subtitle_lines.append((
                     graphics_item, source.subtitle_current_line,
@@ -1361,6 +1363,11 @@ class CanvasSnapshot:
                         * line_height * (1.0 - eased) if previous_line_count else 0.0
                     )
                 graphics_item.update()
+                if state_detail_costs is not None:
+                    details = state_detail_costs.setdefault("lyrics", {})
+                    cost = details.setdefault("cue_state", {"calls": 0, "seconds": 0.0})
+                    cost["calls"] += 1
+                    cost["seconds"] += monotonic() - lyrics_started
             if source.source_type is SourceType.TRACK_LIST:
                 original_text.append((graphics_item, source.text))
                 original_track_list_rows.append(
@@ -1458,6 +1465,7 @@ class CanvasSnapshot:
                 )
                 graphics_item.update()
             if source.source_type is SourceType.BACKGROUND and source.background_mode == "album_art":
+                background_started = monotonic() if state_detail_costs is not None else None
                 original_backgrounds.append((graphics_item, QPixmap(graphics_item._pixmap)))
                 if source.background_ambient:
                     ambient_motion = max(0.0, min(3.0, source.background_ambient_motion))
@@ -1527,6 +1535,11 @@ class CanvasSnapshot:
                         previous_background, graphics_item._pixmap, blend,
                     )
                 graphics_item.update()
+                if state_detail_costs is not None:
+                    details = state_detail_costs.setdefault("background", {})
+                    cost = details.setdefault("album_art", {"calls": 0, "seconds": 0.0})
+                    cost["calls"] += 1
+                    cost["seconds"] += monotonic() - background_started
             if source.personal_color_enabled and personal_color.isValid():
                 fields = source.personal_color_fields
                 original = {field: str(getattr(source, field)) for field in fields}
@@ -1666,6 +1679,7 @@ class CanvasSnapshot:
             render_metrics["state_setup_seconds"] = monotonic() - phase_started
             if state_type_costs is not None:
                 render_metrics["state_source_type_costs"] = state_type_costs
+                render_metrics["state_detail_costs"] = state_detail_costs
             phase_started = monotonic()
         try:
             if render_prepared_band is not None:
