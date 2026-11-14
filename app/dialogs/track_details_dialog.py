@@ -131,6 +131,7 @@ class TrackDetailsDialog(QDialog):
         self._eq_state = "original"
         self._eq_error = ""
         self._pending_resume: tuple[int, bool] | None = None
+        self._resume_after_preview_seek = False
         self._eq_timer = QTimer(self)
         self._eq_timer.setSingleShot(True)
         self._eq_timer.setInterval(400)
@@ -960,7 +961,11 @@ class TrackDetailsDialog(QDialog):
         segment: bool = False,
     ) -> None:
         """Swap decoded audio without losing its absolute playhead or play/pause state."""
-        playing = self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+        playing = (
+            self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+            or self._resume_after_preview_seek
+        )
+        self._resume_after_preview_seek = False
         absolute_position = self._current_audio_position_ms()
         self._pending_resume = (max(0, absolute_position - clip_offset_ms), playing)
         previous = self.media_player.source().toLocalFile()
@@ -1483,6 +1488,9 @@ class TrackDetailsDialog(QDialog):
                 or target >= self._eq_clip_offset_ms + round((EQ_PREVIEW_SECONDS - 2) * 1000)
             )
             if audition and needs_segment:
+                self._resume_after_preview_seek = (
+                    self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+                )
                 self.media_player.pause()
                 self._update_audio_source(force_start_ms=target)
             else:
