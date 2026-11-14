@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QPushButton, QSpinBox, 
 
 from app.inspector.editors.base import FieldSection, editing, show_fields
 from app.models.source import Source
+from app.widgets.visual_preset_combo import VisualPresetComboBox
 
 if TYPE_CHECKING:
     from app.inspector.source_inspector import SourceInspector
@@ -80,7 +81,7 @@ class ParticleSection(FieldSection):
         self, spin: Callable[[float, float, float], QDoubleSpinBox],
         color_button: Callable[[], QPushButton],
     ) -> None:
-        style = QComboBox()
+        style = VisualPresetComboBox("particle")
         for label, value in (
             ("Dust", "dust"), ("Neon", "neon"), ("Noise", "noise"),
             ("Snow", "snow"), ("Stars", "stars"), ("Bokeh", "bokeh"),
