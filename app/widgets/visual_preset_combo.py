@@ -90,21 +90,30 @@ def _preview_icon(kind: str, value: object, seconds: float) -> QIcon:
         p.drawPath(path)
     elif kind in {"progress", "knob"}:
         track = QRectF(13, 30, 86, 10)
+        if kind == "progress" and key == "youtube":
+            track = QRectF(13, 33, 86, 5)
+        elif kind == "progress" and key == "apple":
+            track = QRectF(13, 32, 86, 6)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor(COLORS["border"]))
-        p.drawRoundedRect(track, 5, 5)
-        fill = QRectF(13, 30, 62, 10)
+        p.drawRoundedRect(track, track.height() / 2, track.height() / 2)
+        fill = QRectF(track.x(), track.y(), track.width() * .69, track.height())
         brush = QLinearGradient(fill.topLeft(), fill.topRight())
-        brush.setColorAt(0.0, accent)
-        brush.setColorAt(1.0, QColor("#7AA6B6") if key in {"gradient", "apple"} else accent)
+        brush.setColorAt(0.0, QColor("#8ACFA7") if key == "spotify" else accent)
+        brush.setColorAt(1.0, QColor("#6D9EBF") if key == "gradient" else (
+            QColor("#E4E9E7") if key == "apple" else accent
+        ))
         p.setBrush(brush)
-        p.drawRoundedRect(fill, 5, 5)
+        p.drawRoundedRect(fill, fill.height() / 2, fill.height() / 2)
         if kind == "knob" and key in {"circle", "bar", "auto"}:
             p.setBrush(QColor(COLORS["text"]))
             if key == "bar":
-                p.drawRoundedRect(QRectF(71, 25, 4, 20), 2, 2)
+                p.drawRoundedRect(QRectF(70, 25, 4, 20), 2, 2)
             else:
                 p.drawEllipse(QRectF(69, 27, 16, 16))
+        elif kind == "progress" and key in {"spotify", "apple"}:
+            p.setBrush(QColor("#F3F5F4"))
+            p.drawEllipse(QRectF(68, 27, 16, 16))
     elif kind == "album_frame":
         box = QRectF(34, 11, 44, 48)
         if key == "polaroid":
@@ -123,15 +132,27 @@ def _preview_icon(kind: str, value: object, seconds: float) -> QIcon:
         p.drawLine(44, 35, 54, 26)
         p.drawLine(54, 26, 68, 37)
     elif kind in {"visualizer", "waveform", "meter"}:
+        from PySide6.QtCore import QPointF
+        from PySide6.QtGui import QPainterPath
+
         p.setPen(QPen(accent, 2))
         heights = [12 + (0.5 + 0.5 * sin(i * .75 + seconds * 4)) * 30 for i in range(13)]
-        if key in {"wave", "line"} or kind == "waveform":
-            from PySide6.QtCore import QPointF
-            points = [QPointF(11 + i * 7.5, 51 - y) for i, y in enumerate(heights)]
+        points = [QPointF(11 + i * 7.5, 51 - y) for i, y in enumerate(heights)]
+        if kind == "waveform" or key in {"wave", "line"}:
+            path = QPainterPath(points[0])
+            for point in points[1:]:
+                path.lineTo(point)
+            if key in {"filled", "mirror"}:
+                path.lineTo(points[-1].x(), 53)
+                path.lineTo(points[0].x(), 53)
+                path.closeSubpath()
+                color = QColor(accent)
+                color.setAlpha(120)
+                p.fillPath(path, color)
+            p.setPen(QPen(accent, 2))
             for start, end in zip(points, points[1:]):
                 p.drawLine(start, end)
-            if key == "mirror":
-                for start, end in zip(points, points[1:]):
+                if key == "mirror":
                     p.drawLine(QPointF(start.x(), 72 - start.y()),
                                QPointF(end.x(), 72 - end.y()))
         elif key in {"radial", "arc"}:
@@ -151,6 +172,9 @@ def _preview_icon(kind: str, value: object, seconds: float) -> QIcon:
                 if key == "dots":
                     for d in range(0, int(height), 7):
                         p.drawEllipse(QRectF(9 + 7 * i, 52 - d, 4, 4))
+                elif key in {"led", "segments"}:
+                    for d in range(0, int(height), 7):
+                        p.drawRoundedRect(QRectF(10 + i * 7, 52 - d, 4, 5), 1, 1)
                 else:
                     p.drawRoundedRect(QRectF(10 + i * 7, 53 - height, 4, height), 2, 2)
     elif kind == "particle":
@@ -309,4 +333,5 @@ class VisualPresetComboBox(QComboBox):
             self._timer.stop()
             self._list = None
             self._popup = None
+            watched.deleteLater()
         return super().eventFilter(watched, event)
