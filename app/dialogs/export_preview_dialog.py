@@ -20,7 +20,7 @@ from weakref import WeakSet
 import numpy as np
 
 from PySide6.QtCore import (
-    QAbstractAnimation, QEasingCurve, QElapsedTimer, QPointF, QRect, QRectF, QSize, QThread, QTimer, QUrl,
+    QAbstractAnimation, QEasingCurve, QElapsedTimer, QLineF, QPointF, QRect, QRectF, QSize, QThread, QTimer, QUrl,
     Qt, QVariantAnimation, Signal,
 )
 from PySide6.QtGui import (
@@ -79,6 +79,7 @@ from app.services.playlist_service import PlaylistService
 from app.timeline.compiler import compile_playlist
 from app.timeline.crossfade import compile_crossfade
 from app.preview.live_mix_player import LiveMixPlayer
+from app.preview.timeline_waveform import TimelineWaveformWorker
 from app.timeline.models import TransitionType
 from app.timeline.render_plan import (
     AudioRenderTransition, CompiledRenderPlan, reactive_layer_windows, visual_segment_at,
@@ -221,6 +222,8 @@ class PlaylistTimeline(QSlider):
         self._current_track_mode = False
         self._focused_track = -1
         self._view_position = 0.0
+        self._waveforms: dict[int, np.ndarray] = {}
+        self._waveform_columns_cache: dict[int, tuple[int, tuple[float, ...]]] = {}
         self.setMinimumHeight(46)
         self._scroll_animation = QVariantAnimation(self)
         self._scroll_animation.setDuration(420)
@@ -238,6 +241,33 @@ class PlaylistTimeline(QSlider):
         self._starts = tuple(row[2] for row in schedule)
         self._transition_regions = _transition_display_regions(transitions)
         self._reset_view_position()
+
+    def set_waveform(self, index: int, peaks: np.ndarray) -> None:
+        """Add display-only source-audio peaks without changing seek or mix timing."""
+        if not 0 <= index < len(self.schedule):
+            return
+        values = np.asarray(peaks, dtype=np.float32)
+        if values.ndim != 1 or values.size == 0:
+            return
+        self._waveforms[index] = np.clip(np.nan_to_num(values, nan=0.0), 0.0, 1.0)
+        self._waveform_columns_cache.pop(index, None)
+        self.update()
+
+    def _waveform_columns(self, index: int, width: int) -> tuple[float, ...]:
+        """Cache max-pooled bars per pixel width, not per playback frame."""
+        cached = self._waveform_columns_cache.get(index)
+        if cached is not None and cached[0] == width:
+            return cached[1]
+        peaks = self._waveforms.get(index)
+        if peaks is None or not len(peaks) or width < 2:
+            return ()
+        count = min(len(peaks), max(1, width // 2))
+        edges = [i * len(peaks) // count for i in range(count + 1)]
+        columns = tuple(
+            float(peaks[edges[i]:edges[i + 1]].max()) for i in range(count)
+        )
+        self._waveform_columns_cache[index] = (width, columns)
+        return columns
 
     def set_current_track_mode(self, enabled: bool) -> None:
         self._current_track_mode = enabled
@@ -363,6 +393,7 @@ class PlaylistTimeline(QSlider):
             painter.setBrush(heard)
             painter.drawRoundedRect(block, 4, 4)
             painter.restore()
+        self._paint_waveform(painter, block, index, played_x)
         painter.setPen(palette.text().color() if active else palette.placeholderText().color())
         if visible.width() >= 20 and visible.width() < block.width() - 1 and not active:
             label = f"‹ {index + 1:02d}" if visible.left() > block.left() else f"{index + 1:02d} ›"
@@ -373,6 +404,36 @@ class PlaylistTimeline(QSlider):
             painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
                              painter.fontMetrics().elidedText(label, Qt.TextElideMode.ElideRight,
                                                               int(text_rect.width())))
+
+    def _paint_waveform(self, painter: QPainter, block: QRectF, index: int, played_x: float) -> None:
+        """Draw subtle symmetric audio peaks behind the readable track label."""
+        if block.width() < 12:
+            return
+        columns = self._waveform_columns(index, round(block.width()))
+        if not columns:
+            return
+        center = block.center().y()
+        height = max(1.0, (block.height() - 10) * 0.48)
+        step = block.width() / len(columns)
+        played, remaining = [], []
+        for i, amplitude in enumerate(columns):
+            x = block.left() + (i + 0.5) * step
+            # Subtle dynamic-range compression keeps quiet sections visible.
+            extent = max(0.5, height * amplitude ** 0.65)
+            line = QLineF(x, center - extent, x, center + extent)
+            (played if x <= played_x else remaining).append(line)
+        painter.save()
+        painter.setClipRect(block.adjusted(2, 2, -2, -2))
+        accent = self.palette().highlight().color()
+        accent.setAlpha(90)
+        painter.setPen(QPen(accent, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        if remaining:
+            painter.drawLines(remaining)
+        accent.setAlpha(175)
+        painter.setPen(QPen(accent, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        if played:
+            painter.drawLines(played)
+        painter.restore()
 
     @staticmethod
     def _paint_transition(painter: QPainter, x0: float, x1: float, top: float, height: float) -> None:
@@ -1180,6 +1241,18 @@ class ExportPreviewDialog(QDialog):
         self._cover_worker = PreviewCoverWorker(self.tracks, self)
         self._cover_worker.ready.connect(self._store_track_cover)
         QTimer.singleShot(0, self, self._start_cover_loading)
+        self._waveform_worker: TimelineWaveformWorker | None = None
+        if self._preview_proxy_ffmpeg is not None:
+            waveform_tracks = [
+                (index, str(track.file_path)) for index, track in enumerate(self.tracks)
+                if Path(track.file_path).is_file()
+            ]
+            if waveform_tracks:
+                self._waveform_worker = TimelineWaveformWorker(
+                    self._preview_proxy_ffmpeg, waveform_tracks, self,
+                )
+                self._waveform_worker.ready.connect(self._store_timeline_waveform)
+                QTimer.singleShot(0, self, self._start_waveform_loading)
 
     def build_embedded_controls_page(self) -> QWidget:
         """Build editor-native Canvas stage and bottom transport arrangements."""
@@ -1398,6 +1471,14 @@ class ExportPreviewDialog(QDialog):
     def _start_cover_loading(self) -> None:
         if not self._closing:
             self._cover_worker.start()
+
+    def _start_waveform_loading(self) -> None:
+        if not self._closing and self._waveform_worker is not None:
+            self._waveform_worker.start()
+
+    def _store_timeline_waveform(self, index: int, peaks: np.ndarray) -> None:
+        if not self._closing:
+            self.timeline.set_waveform(index, peaks)
 
     def _store_track_cover(self, index: int, image: QImage) -> None:
         if not self._closing:
@@ -4522,6 +4603,13 @@ class ExportPreviewDialog(QDialog):
         self._invalidate_preview_render_cache()
         self._image = QImage()
         self.presentation_controller.shutdown()
+        if self._waveform_worker is not None:
+            self._waveform_worker.cancel()
+            if self._waveform_worker.isRunning():
+                self._finish_or_detach_worker(self._waveform_worker)
+            else:
+                self._waveform_worker.deleteLater()
+            self._waveform_worker = None
         self._cover_worker.requestInterruption()
         if self._cover_worker.isRunning():
             self._finish_or_detach_worker(self._cover_worker)
