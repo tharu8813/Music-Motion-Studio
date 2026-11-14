@@ -883,6 +883,10 @@ _PREVIEW = (
     _e("preview", "preview_quality", ("미리보기 성능과 렌더러", "Preview performance and renderer"),
        ("미리보기,성능", "preview,performance"),
        """<p><b>성능 정보</b> 버튼을 켜면 미리보기 위에 렌더링 상태가 표시됩니다: 렌더 배율, GPU 메모리·텍스처, 화면 표시 지연, 영상 디코더 부하 등.</p>
+<h2>미리보기 품질</h2>
+<ul><li><b>절전</b>: 최대 24 FPS, 360p 영상 프록시, 40% 캔버스 배율</li>
+<li><b>균형</b>: 기존 절전과 같은 최대 30 FPS, 480p 영상 프록시, 55% 캔버스 배율</li>
+<li><b>최상</b>: 원본 영상과 100% 캔버스 해상도, 높은 자원 사용 가능</li></ul>
 <h2>GPU 레이어와 CPU 모드</h2>
 <ul>
 <li><b>GPU 레이어(권장)</b>: 정적 캔버스와 움직이는 요소를 GPU 텍스처로 유지하고 레이어 순서대로 합성합니다. 부하에 따라 렌더 해상도와 영상 디코더 해상도·FPS를 자동으로 조절합니다.</li>
@@ -894,6 +898,10 @@ _PREVIEW = (
 <li>큰 영상 요소가 많으면 프록시 준비가 끝날 때까지 기다립니다.</li></ul>
 <div class='note'>미리보기의 화질·해상도는 최종 내보내기에 영향을 주지 않습니다.</div>""",
        """<p>The <b>Performance</b> button shows a rendering status bar above Preview: render scale, GPU memory and textures, present latency, video decoder load and so on.</p>
+<h2>Preview quality</h2>
+<ul><li><b>Power saving</b>: up to 24 FPS, 360p video proxies, 40% canvas scale</li>
+<li><b>Balanced</b>: former Power saving behavior, up to 30 FPS, 480p proxies, 55% canvas scale</li>
+<li><b>Maximum quality</b>: original video, 100% canvas resolution, potentially higher load</li></ul>
 <h2>GPU layers and CPU mode</h2>
 <ul>
 <li><b>GPU layers (recommended)</b>: keeps the static canvas and moving sources as GPU textures and composes them in layer order, adjusting render resolution and video decoder resolution/FPS to the load.</li>

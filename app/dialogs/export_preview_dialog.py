@@ -4491,10 +4491,10 @@ class ExportPreviewDialog(QDialog):
         )
         self.performance_scale_label.setToolTip(
             ("캔버스 원본 크기 기준의 미리보기 전용 배율입니다. "
-             "해상도 우선·품질 모드는 100%를 유지하고, 프레임 우선·절전 모드는 부하에 따라 조절합니다.")
+             "최상 모드는 100% 해상도를 유지하고, 절전·균형 모드는 부하에 따라 조절합니다.")
             if korean else
             ("Preview-only scale relative to the original canvas dimensions. "
-             "Resolution and quality modes keep 100%; frame and power modes may adapt.")
+             "Maximum quality stays at 100%; Power saving and Balanced may adapt to load.")
         )
         stats = (
             getattr(self.gpu_surface, "upload_stats", None)

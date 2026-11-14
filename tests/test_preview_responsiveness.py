@@ -30,7 +30,10 @@ class PreviewResponsivenessTests(unittest.TestCase):
         return preview
 
     def test_display_refresh_controls_playback_and_decoder_but_not_audio_analysis(self):
-        preview = self.preview()
+        # This test checks uncapped monitor refresh, which belongs to the
+        # maximum-quality preset rather than the new 30 FPS balanced default.
+        with patch("app.dialogs.export_preview_dialog.load_preview_quality", return_value="quality"):
+            preview = self.preview()
         original_sampling_fps = preview.preview_fps
         self.assertEqual(original_sampling_fps, 60)
         self.assertEqual(preview._active_render_scale, 1.0)
@@ -161,10 +164,10 @@ class PreviewResponsivenessTests(unittest.TestCase):
             def restart(self):
                 pass
 
-        # Adaptive downscaling belongs to frame/power modes; the default
-        # resolution preset deliberately keeps the canvas at 100%.
+        # Balanced and power-saving previews adapt under load; maximum
+        # quality deliberately retains the full canvas resolution.
         with patch("app.dialogs.export_preview_dialog.save_preview_quality", side_effect=lambda v: v):
-            preview.set_preview_quality("frames")
+            preview.set_preview_quality("balanced")
         rect = preview.scene.artboard_rect
         base = preview.preview_render_scale
         preview._playing = True

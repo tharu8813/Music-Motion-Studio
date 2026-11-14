@@ -149,10 +149,12 @@ class GpuCompositorOptimizationTests(unittest.TestCase):
     def test_ordered_canvas_uses_crop_coordinates_for_gpu_layers(self):
         scene = CanvasScene()
         scene.set_artboard_size(640, 360)
-        preview = ExportPreviewDialog(
-            scene, [PlaylistTrack("missing.wav", "Preview", duration_seconds=30)],
-            Translator(), preferred_backend="cpu",
-        )
+        # Crop coordinates below are asserted in native canvas pixels.
+        with patch("app.dialogs.export_preview_dialog.load_preview_quality", return_value="quality"):
+            preview = ExportPreviewDialog(
+                scene, [PlaylistTrack("missing.wav", "Preview", duration_seconds=30)],
+                Translator(), preferred_backend="cpu",
+            )
         self.addCleanup(preview.deleteLater)
         self.addCleanup(preview._stop_preview)
         preview._cached_source_items = ()
@@ -177,7 +179,7 @@ class GpuCompositorOptimizationTests(unittest.TestCase):
             SourceType.PROGRESS_BAR, "Progress", width=1920, height=1200,
         )))
         track = PlaylistTrack("", "Preview", duration_seconds=10)
-        with patch("app.dialogs.export_preview_dialog.load_preview_quality", return_value="resolution"):
+        with patch("app.dialogs.export_preview_dialog.load_preview_quality", return_value="quality"):
             preview = ExportPreviewDialog(scene, [track], Translator(), preferred_backend="cpu")
         self.addCleanup(preview.deleteLater)
         self.addCleanup(preview._stop_preview)
@@ -207,7 +209,7 @@ class GpuCompositorOptimizationTests(unittest.TestCase):
         ):
             scene.addItem(SourceItem(source))
         track = PlaylistTrack("missing.wav", "Preview", duration_seconds=30)
-        with patch("app.dialogs.export_preview_dialog.load_preview_quality", return_value="resolution"):
+        with patch("app.dialogs.export_preview_dialog.load_preview_quality", return_value="quality"):
             preview = ExportPreviewDialog(
                 scene, [track], Translator(), preferred_backend="cpu",
             )
@@ -277,7 +279,9 @@ class GpuCompositorOptimizationTests(unittest.TestCase):
         for source in (backdrop, direct, foreground):
             scene.addItem(SourceItem(source))
         track = PlaylistTrack("", "Preview", duration_seconds=10)
-        preview = ExportPreviewDialog(scene, [track], Translator(), preferred_backend="cpu")
+        # Pixel positions must be compared at 1:1 scale.
+        with patch("app.dialogs.export_preview_dialog.load_preview_quality", return_value="quality"):
+            preview = ExportPreviewDialog(scene, [track], Translator(), preferred_backend="cpu")
         self.addCleanup(preview.deleteLater)
         self.addCleanup(preview._stop_preview)
         audio = VisualizerOverlay(35, 25, 70, 70, "bars", "#ffff00", z_index=1)
