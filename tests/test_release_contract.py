@@ -189,7 +189,7 @@ class ReleaseContractTests(unittest.TestCase):
             with self.subTest(workflow=path.name):
                 content = path.read_text(encoding="utf-8")
                 for action in ("checkout", "setup-python", "upload-artifact"):
-                    for version in re.findall(r"actions/" + action + r"@v(\\d+)", content):
+                    for version in re.findall(r"actions/" + action + r"@v(\d+)", content):
                         self.assertEqual(
                             int(version), 6,
                             f"{path.name}: actions/{action}@v{version} must use Node.js 24",
