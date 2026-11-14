@@ -100,6 +100,65 @@ class PreviewAbReportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid real_video_preview"):
             compare([invalid, _sample()], [_sample(), _sample()])
 
+    def test_stage_p95_reports_real_samples_and_nonadditive_timings(self):
+        runs = [_sample() for _ in range(4)]
+        for run, capture_ms, upload_ms, count in zip(
+            runs, (12.0, 9.0, 8.0, 11.0), (5.0, 3.0, 4.0, 5.0),
+            (100, 110, 120, 130),
+        ):
+            run["profile"] = {
+                "canvas.capture_seconds": {
+                    "count": count, "recent_p95": capture_ms / 1000.0,
+                },
+                "preview.texture_prepare_upload_seconds": {
+                    "count": count + 30, "recent_p95": upload_ms / 1000.0,
+                },
+            }
+        result = compare([runs[0], runs[3]], [runs[1], runs[2]])
+        stages = result["profile_stage_p95_ms"]
+        capture = stages["canvas.capture_seconds"]
+        self.assertEqual(capture["unit"], "ms")
+        self.assertEqual(capture["baseline_p95_mean_ms"], 11.5)
+        self.assertEqual(capture["candidate_p95_mean_ms"], 8.5)
+        self.assertEqual(capture["sample_counts_abba"], [100, 110, 120, 130])
+        self.assertEqual(
+            stages["preview.texture_prepare_upload_seconds"]["candidate_p95_mean_ms"],
+            3.5,
+        )
+        self.assertIn("must not be summed", " ".join(result["notes"]))
+        self.assertNotIn("video.cpu_filter_seconds", stages)
+
+    def test_stage_p95_does_not_fabricate_missing_or_unusable_samples(self):
+        runs = [_sample() for _ in range(4)]
+        for row in runs:
+            row["profile"] = {
+                "video.cpu_filter_seconds": {"count": 1, "recent_p95": 0.02},
+            }
+        runs[2]["profile"]["video.cpu_filter_seconds"]["recent_p95"] = float("nan")
+        self.assertEqual(
+            compare([runs[0], runs[3]], [runs[1], runs[2]])["profile_stage_p95_ms"],
+            {},
+        )
+        runs[2]["profile"]["video.cpu_filter_seconds"]["recent_p95"] = 0.01
+        runs[1]["profile"]["video.cpu_filter_seconds"]["count"] = 0
+        self.assertEqual(
+            compare([runs[0], runs[3]], [runs[1], runs[2]])["profile_stage_p95_ms"],
+            {},
+        )
+        runs[1]["profile"]["video.cpu_filter_seconds"]["count"] = 1
+        self.assertEqual(
+            compare([runs[0], runs[3]], [runs[1], runs[2]])["profile_stage_p95_ms"][
+                "video.cpu_filter_seconds"
+            ]["baseline_p95_mean_ms"],
+            20.0,
+        )
+
+    def test_legacy_preview_results_without_profiles_keep_existing_metrics(self):
+        results = compare([_sample(30), _sample(32)], [_sample(35), _sample(37)])
+        self.assertEqual(results["profile_stage_p95_ms"], {})
+        self.assertEqual(results["metrics"]["presented_scene_fps"]["baseline_mean"], 31)
+        self.assertEqual(results["metrics"]["presented_scene_fps"]["candidate_mean"], 36)
+
     def test_reader_checks_benchmark_and_duration(self):
         with TemporaryDirectory() as directory:
             target = Path(directory) / "result.json"
