@@ -84,6 +84,22 @@ class ProjectModelValidationTests(unittest.TestCase):
         self.assertTrue(restored.background_bass_reactive)
         self.assertEqual(restored.background_bass_strength, 0.09)
 
+    def test_legacy_missing_creation_details_stay_unknown_without_changing_new_defaults(self) -> None:
+        new_settings = ProjectSettings()
+        self.assertTrue(new_settings.created_app_version)
+        self.assertTrue(new_settings.created_at)
+        self.assertTrue(new_settings.modified_at)
+        payload = ProjectDocument().to_dict()
+        payload["settings"].pop("created_at")
+        payload["settings"].pop("modified_at")
+        payload["settings"].pop("created_app_version")
+        payload["app_version"] = "0.9.5"
+        restored = ProjectDocument.from_dict(payload)
+        self.assertEqual(restored.settings.created_at, "")
+        self.assertEqual(restored.settings.modified_at, "")
+        self.assertEqual(restored.settings.created_app_version, "")
+        self.assertEqual(restored.app_version, "0.9.5")
+
     def test_legacy_project_without_app_version_remains_compatible(self) -> None:
         payload = ProjectDocument().to_dict()
         payload.pop("app_version")
