@@ -114,6 +114,37 @@ class LargePlaylistPreviewTests(unittest.TestCase):
         for index in range(3):
             self.assertFalse(preview.track_list.item(index).icon().isNull())
 
+    def test_compiled_plan_lookups_do_not_scan_large_playlist_per_frame(self):
+        preview = self.preview(300)
+        tracks = list(preview.tracks)
+        self.assertEqual(len(preview._track_index_by_id), len(tracks))
+
+        class IndexedOnly(list):
+            def __iter__(self):
+                raise AssertionError("Per-frame owner lookup must not scan playlist")
+
+        # Once the preview is built, both audio ownership and Canvas handover
+        # must use indexed access even for the final track in a large mix.
+        with patch.object(preview, "tracks", IndexedOnly(tracks)):
+            owner = preview._compiled_plan.presentation.windows[-1]
+            position = owner.timeline_start + 15.0
+            for _ in range(10):
+                audio = preview._track_at(position)
+                visual, _junction = preview._visual_track_at(position)
+                self.assertEqual(audio[0], len(tracks) - 1)
+                self.assertIs(audio[1], tracks[-1])
+                self.assertEqual(visual[0], len(tracks) - 1)
+                self.assertIs(visual[1], tracks[-1])
+
+        # A new compiled AutoMix/crossfade plan retains the same stable track
+        # identity mapping, without requiring an extra per-frame rebuild.
+        from app.timeline.crossfade import compile_crossfade
+        preview._compiled_plan = compile_crossfade(tracks, 6)
+        with patch.object(preview, "tracks", IndexedOnly(tracks)):
+            owner = preview._compiled_plan.presentation.windows[-1]
+            visual, _junction = preview._visual_track_at(owner.timeline_start + 15)
+            self.assertEqual(visual[0], len(tracks) - 1)
+
     def test_cover_errors_do_not_abort_remaining_tracks(self):
         tracks = [PlaylistTrack("broken.wav", "Broken"), PlaylistTrack("ok.wav", "OK")]
         worker = PreviewCoverWorker(tracks)
