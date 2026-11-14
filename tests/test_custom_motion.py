@@ -135,6 +135,98 @@ class MotionModelTests(TestCase):
         self.assertEqual(source_motion(restored, 0, False).opacity, 1)
         self.assertEqual(restored.keyframes.global_curves["x"], [Keyframe(0, 900)])
 
+    def test_render_binding_custom_motion_window_lookup_is_random_access(self):
+        from app.animation.curves import AnimationPose
+        from app.animation.custom_motion_render import CustomMotionRenderBinding
+
+        class NoIterationWindows(tuple):
+            def __iter__(self):
+                raise AssertionError("Custom motion may not iterate over all windows")
+
+            def __reversed__(self):
+                raise AssertionError("Custom motion may not reverse-scan windows")
+
+        source = Source(
+            SourceType.SHAPE, "Custom motion", animation_in="custom",
+            animation_out="custom", animation_in_duration=1.5,
+            animation_out_duration=1.25,
+        )
+        # Include gaps and a long playlist, so the owner selection must
+        # preserve the old before-first / between / after-last policy.
+        plain = tuple(
+            (i * 10.0 + 2.0, i * 10.0 + 9.0, 1.5, 1.25)
+            for i in range(512)
+        )
+        binding = CustomMotionRenderBinding(source, NoIterationWindows(plain))
+
+        def linear_reference(seconds):
+            window = next(
+                (w for w in reversed(plain) if seconds >= w[0]), plain[0],
+            )
+            start, end, intro, outro = window
+            if seconds < start + intro:
+                return CustomMotion.default(True).at(
+                    max(0, min(1, (seconds - start) / intro)),
+                )
+            if seconds >= end - outro:
+                return CustomMotion.default(False).at(
+                    max(0, min(1, (seconds - end + outro) / outro)),
+                )
+            return CustomMotion.default(True).at(1)
+
+        for i in (0, 1, 63, 127, 255, 510, 511):
+            start, end, intro, outro = plain[i]
+            times = (
+                start - 0.01, start, start + intro * 0.5,
+                start + intro, end - outro, end - 0.01,
+                end, end + 0.01, start + 9.99,
+            )
+            for seconds in times:
+                with self.subTest(index=i, seconds=seconds):
+                    self.assertEqual(binding.pose(seconds), linear_reference(seconds))
+        for seconds in (-100.0, -0.001, 0.0, 1.999, 5115.0, 6000.0):
+            self.assertEqual(binding.pose(seconds), linear_reference(seconds))
+        self.assertEqual(
+            CustomMotionRenderBinding(source, ()).pose(0.0), AnimationPose(),
+        )
+
+    def test_custom_motion_bisect_follows_crossfade_handover(self):
+        from app.animation.custom_motion_render import CustomMotionRenderBinding
+        from app.timeline.crossfade import compile_crossfade
+
+        tracks = [
+            PlaylistTrack("", f"Clip {i}", duration_seconds=8)
+            for i in range(3)
+        ]
+        source = Source(
+            SourceType.SHAPE, "Custom crossfade", animation_in="custom",
+            animation_out="custom", animation_fit_mix=True,
+            custom_intro_keyframes=CustomMotion.default(True),
+            custom_outro_keyframes=CustomMotion.default(False),
+        )
+        binding = CustomMotionRenderBinding.build(source, compile_crossfade(tracks, 2))
+        self.assertEqual(len(binding.windows), 3)
+        for index, window in enumerate(binding.windows):
+            start, end, intro, outro = window
+            for seconds in (
+                start - 0.001, start, start + intro * 0.5,
+                start + intro, end - outro, end, end + 0.001,
+            ):
+                expected_window = next(
+                    (w for w in reversed(binding.windows) if seconds >= w[0]),
+                    binding.windows[0],
+                )
+                a, b, in_length, out_length = expected_window
+                expected = (
+                    source.custom_intro_keyframes.at(max(0, min(1, (seconds - a) / in_length)))
+                    if in_length > 0 and seconds < a + in_length else
+                    source.custom_outro_keyframes.at(max(0, min(1, (seconds - b + out_length) / out_length)))
+                    if out_length > 0 and seconds >= b - out_length else
+                    source.custom_intro_keyframes.at(1)
+                )
+                with self.subTest(index=index, seconds=seconds):
+                    self.assertEqual(binding.pose(seconds), expected)
+
     def test_entrance_end_pose_holds_until_exit_without_rewriting_base(self):
         motion = CustomMotion((MotionPoint(0, opacity=0), MotionPoint(1, dx=30, scale=1.2)))
         source = Source(SourceType.SHAPE, "Hold", x=400, animation_in="custom", custom_intro_keyframes=motion)
