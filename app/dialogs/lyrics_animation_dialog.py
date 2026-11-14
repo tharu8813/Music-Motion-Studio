@@ -482,6 +482,8 @@ class LyricsAnimationDialog(QDialog):
         } else QComboBox()
         for value, pair in labels.items():
             combo.addItem(pair[0 if self._korean else 1], value)
+        if isinstance(combo, VisualPresetComboBox):
+            combo.set_preview_source(self._draft)
         combo.setCurrentIndex(combo.findData(getattr(self._draft, key)))
         self.controls[key] = combo
         form.addRow(self._tr(ko, en), combo)
