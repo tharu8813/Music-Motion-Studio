@@ -868,6 +868,7 @@ class CanvasSnapshot:
                       partial_render_pixel_aligned: bool = False,
                       partial_render_keep_cropped: bool = False,
                       render_metrics: dict[str, object] | None = None,
+                      profile_source_state: bool = False,
                       band_source_items: Sequence[SourceItem] | None = None,
                       junction: MixJunction | None = None,
                       bass_level: float = 0.0,
@@ -977,10 +978,18 @@ class CanvasSnapshot:
                 if key not in personal_color_cache:
                     personal_color_cache[key] = extract_track_personal_color(*key)
                 personal_color = personal_color_cache[key]
+        # Per-type state timing is developer-only; no source IDs, text or Qt
+        # objects are retained in the diagnostic counters.
+        state_type_costs = (
+            {} if profile_source_state and render_metrics is not None else None
+        )
+        if state_type_costs is not None:
+            render_metrics["state_preloop_seconds"] = monotonic() - phase_started
         for graphics_item in source_items:
             if not isinstance(graphics_item, SourceItem):
                 continue
             source = graphics_item.source
+            state_item_started = monotonic() if state_type_costs is not None else None
             hidden_for_capture = source.id in hidden_source_ids
             timing_end = source.timeline_start + source.timeline_duration
             outside_timing = (
@@ -993,6 +1002,12 @@ class CanvasSnapshot:
                 # A split preview pass deliberately excludes this source.  Do
                 # not also expand templates, recreate cover backgrounds, or
                 # mutate its animation state only to restore it immediately.
+                if state_type_costs is not None:
+                    bucket = state_type_costs.setdefault(
+                        source.source_type.value, {"calls": 0, "seconds": 0.0},
+                    )
+                    bucket["calls"] += 1
+                    bucket["seconds"] += monotonic() - state_item_started
                 continue
             if getattr(graphics_item, "_editor_keyframe_pose", False):
                 original_transforms.append((graphics_item, graphics_item.pos(), graphics_item.scale(),
@@ -1618,8 +1633,16 @@ class CanvasSnapshot:
                         QTransform().translate(center_x, 0.0).scale(pose.scale_x, 1.0)
                         .translate(-center_x, 0.0),
                     )
+            if state_type_costs is not None:
+                bucket = state_type_costs.setdefault(
+                    source.source_type.value, {"calls": 0, "seconds": 0.0},
+                )
+                bucket["calls"] += 1
+                bucket["seconds"] += monotonic() - state_item_started
         if render_metrics is not None:
             render_metrics["state_setup_seconds"] = monotonic() - phase_started
+            if state_type_costs is not None:
+                render_metrics["state_source_type_costs"] = state_type_costs
             phase_started = monotonic()
         try:
             if render_prepared_band is not None:
