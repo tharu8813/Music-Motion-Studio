@@ -21,7 +21,7 @@ from app.preview.album_art import AMBIENT_FLOW_HZ
 from app.preview.canvas_snapshot import CanvasSnapshot
 from app.preview.frame_state import (
     resolve_edge_animation, resolve_lyrics_cue_state, resolve_lyrics_intro_state, resolve_now_playing_exit_state,
-    resolve_lyrics_active_words, resolve_lyrics_overlapping_word_ranges,
+    resolve_lyrics_timed_words, resolve_lyrics_overlapping_word_ranges,
     resolve_lyrics_word_reveal, resolve_timeline_window_phase,
 )
 from app.preview.text_template import expand_track_template
@@ -269,7 +269,7 @@ class ExportCanvasCapturer:
                 resolve_lyrics_overlapping_word_ranges(
                     sample.track, source, sample.elapsed_seconds, cue_state, intro_state, word_reveal=word_reveal,
                 ) if source.uses_karaoke_character_effects else (),
-                resolve_lyrics_active_words(sample.track, source, sample.elapsed_seconds, cue_state, intro_state),
+                resolve_lyrics_timed_words(sample.track, source, sample.elapsed_seconds, cue_state, intro_state),
             )
         elif source.source_type is SourceType.TRACK_LIST:
             content_state = ("track_list", sample.track_number)

@@ -33,7 +33,7 @@ class LyricsSection(FieldSection):
     ADVANCED_BASIC_FIELDS = {
         "motion": TRANSITION_KEYS,
         "layout": ("subtitle_context_lines", "subtitle_next_lines", "subtitle_line_spacing", "subtitle_cue_spacing", "text_alignment"),
-        "styles": ("subtitle_previous_opacity", "subtitle_previous_blur", "subtitle_current_scale"),
+        "styles": ("subtitle_previous_opacity", "subtitle_current_scale"),
         "intro": (),
     }
 
@@ -49,7 +49,6 @@ class LyricsSection(FieldSection):
         ("subtitle_line_spacing", "sub_layout"),
         ("subtitle_cue_spacing", "sub_layout"),
         ("subtitle_previous_opacity", "sub_prev"),
-        ("subtitle_previous_blur", "sub_prev"),
         ("subtitle_current_scale", "sub_current"),
         ("subtitle_karaoke_enabled", "sub_karaoke"),
         ("subtitle_karaoke_lines", "sub_karaoke"),
@@ -61,7 +60,6 @@ class LyricsSection(FieldSection):
         ("subtitle_karaoke_offset", "sub_karaoke"),
         ("subtitle_karaoke_glow_enabled", "sub_karaoke_effects"),
         ("subtitle_karaoke_glow_strength", "sub_karaoke_effects"),
-        ("subtitle_karaoke_edge_blur", "sub_karaoke_effects"),
         ("subtitle_karaoke_lift", "sub_karaoke_effects"),
         ("subtitle_karaoke_lift_unit", "sub_karaoke_effects"),
         ("subtitle_timing_offset", None),
@@ -79,7 +77,6 @@ class LyricsSection(FieldSection):
         "subtitle_line_spacing": ("묶음 안 줄 간격", "Lines within a cue"),
         "subtitle_cue_spacing": ("가사 묶음 간격", "Between lyric cues"),
         "subtitle_previous_opacity": ("이전 가사 불투명도", "Previous lyric opacity"),
-        "subtitle_previous_blur": ("이전 가사 블러", "Previous lyric blur"),
         "subtitle_timing_offset": ("전체 가사 시간 보정 (초)", "All lyric timing offset (s)"),
         "subtitle_current_scale": ("현재 줄 크기", "Current line size"),
         "subtitle_accent_enabled": ("현재 줄 강조 색", "Current line accent"),
@@ -92,7 +89,6 @@ class LyricsSection(FieldSection):
         "subtitle_karaoke_pending_brightness": ("부르기 전 밝기", "Pending brightness"),
         "subtitle_karaoke_glow_enabled": ("글자 글로우", "Character glow"),
         "subtitle_karaoke_glow_strength": ("글로우 강도", "Glow strength"),
-        "subtitle_karaoke_edge_blur": ("채움 경계 흐림", "Fill edge blur"),
         "subtitle_karaoke_lift": ("위로 뜨는 높이", "Lift height"),
         "subtitle_karaoke_lift_unit": ("움직임 단위", "Lift unit"),
         "subtitle_line_styles": ("줄별 스타일", "Per-line styles"),
@@ -120,7 +116,6 @@ class LyricsSection(FieldSection):
         "line_spacing": ("같은 시간의 가사 묶음 안에서 원래 줄바꿈 사이의 여백입니다. 원문과 자동 번역문 사이는 이 값보다 조금 좁게 표시하며, 자동 줄바꿈은 추가 여백을 넣지 않습니다.", "Gap between original lines within one timed cue. Automatic translations sit slightly closer; wrapped continuations have no extra gap."),
         "cue_spacing": ("이전·현재·다음 가사 묶음 사이의 여백입니다. 묶음 안 줄 간격과 별도로 조절하며, 가로 이동에서는 가사 영역 사이의 여백입니다.", "Gap between previous, current and next cue groups, independent of inner line spacing. In horizontal flow, this is the gap between cue columns."),
         "previous_opacity": ("지나간 가사 줄을 얼마나 흐리게 표시할지 정합니다.", "Controls how faint previous lyric lines appear."),
-        "previous_blur": ("지나간 가사 줄에 적용할 흐림 정도입니다.", "Blur applied to previous lyric lines."),
         "timing_offset": ("모든 곡의 가사를 초 단위로 앞당기거나 늦추는 공통 보정입니다. 곡별 보정값과 합산됩니다.", "Global timing adjustment for lyrics on every track. It is added to each track's individual offset."),
         "current_scale": ("앞뒤 가사 줄에 비해 현재 줄을 얼마나 크게 표시할지 정합니다. 1이면 모든 줄이 같은 크기입니다.", "How much larger the current line is than the surrounding lines. 1 keeps every line the same size."),
         "accent_enabled": ("현재 줄만 별도의 강조 색으로 표시합니다. 줄이 바뀔 때 색이 부드럽게 넘어갑니다.", "Shows the current line in its own accent color, blending smoothly as lines change."),
@@ -133,8 +128,7 @@ class LyricsSection(FieldSection):
         "karaoke_pending_brightness": ("도달한 가사 색 대비 밝기입니다. 0은 검정, 1은 도달한 가사와 같은 밝기입니다. 불투명도는 유지합니다.", "Brightness relative to the reached lyric color: 0 is black, 1 is unchanged. Opacity is preserved."),
         "karaoke_glow_enabled": ("TTML에서 현재 채워지는 글자에 빛을 더합니다. 글자가 채워질수록 빛이 강해집니다.", "Add a halo to the character filling in timed TTML lyrics. The halo grows brighter as the character fills."),
         "karaoke_glow_strength": ("글자가 거의 다 채워졌을 때의 최대 밝기입니다.", "Maximum halo brightness as a character approaches full fill."),
-        "karaoke_edge_blur": ("부른 가사 색과 아직 부르지 않은 가사 색 사이를 부드럽게 섞습니다. 0이면 경계가 선명합니다.", "Feather the boundary between sung and pending colors. Zero keeps the boundary sharp."),
-        "karaoke_lift": ("부르는 중에 글자나 단어가 살짝 올라갔다 내려오는 높이입니다. 0이면 움직임을 끕니다.", "How far the active character or word rises before returning to its baseline. Zero turns the motion off."),
+        "karaoke_lift": ("부르는 중에 올라가고 현재 가사 줄이 유지되는 동안 그 높이를 유지합니다. 0이면 움직임을 끕니다.", "Rise as the text fills, then stay raised while the cue is current. Zero turns the motion off."),
         "karaoke_lift_unit": ("글자마다 움직이거나 TTML에 기록된 단어·음절 단위로 함께 움직입니다.", "Lift individual characters or move each timed TTML word or syllable together."),
         "line_styles": ("다중행 가사 큐의 2번째 줄부터 줄 위치별 색상과 글꼴을 설정합니다.", "Sets color and typography from the second physical line inside each multi-line lyric cue."),
     }
@@ -182,7 +176,6 @@ class LyricsSection(FieldSection):
             "subtitle_line_spacing": spin(0, 120, 1),
             "subtitle_cue_spacing": spin(0, 120, 1),
             "subtitle_previous_opacity": spin(0.05, 0.9, 0.05),
-            "subtitle_previous_blur": spin(0, 8, 0.5),
             "subtitle_current_scale": spin(1.0, 2.0, 0.02),
             "subtitle_karaoke_enabled": QCheckBox(),
             "subtitle_karaoke_lines": lines,
@@ -194,7 +187,6 @@ class LyricsSection(FieldSection):
             "subtitle_karaoke_offset": spin(-5, 5, 0.01),
             "subtitle_karaoke_glow_enabled": QCheckBox(),
             "subtitle_karaoke_glow_strength": spin(0, 1, 0.05),
-            "subtitle_karaoke_edge_blur": spin(0, 16, 0.5),
             "subtitle_karaoke_lift": spin(0, 16, 0.5),
             "subtitle_karaoke_lift_unit": lift_unit,
             "subtitle_timing_offset": spin(-5.0, 5.0, 0.01),
@@ -233,7 +225,6 @@ class LyricsSection(FieldSection):
             "subtitle_wrap_to_source": source.subtitle_auto_wrap,
             "subtitle_wrap_width": source.subtitle_auto_wrap and not source.subtitle_wrap_to_source,
             "subtitle_previous_opacity": shows_previous,
-            "subtitle_previous_blur": shows_previous,
             "subtitle_accent_color": source.subtitle_accent_enabled or source.subtitle_karaoke_enabled,
             "subtitle_accent_enabled": not source.subtitle_karaoke_enabled,
             "subtitle_karaoke_lines": source.subtitle_karaoke_enabled,
@@ -243,7 +234,6 @@ class LyricsSection(FieldSection):
             "subtitle_karaoke_pending_brightness": source.subtitle_karaoke_enabled and source.subtitle_karaoke_pending_mode == "dim",
             "subtitle_karaoke_glow_enabled": source.subtitle_karaoke_enabled,
             "subtitle_karaoke_glow_strength": source.subtitle_karaoke_enabled and source.subtitle_karaoke_glow_enabled,
-            "subtitle_karaoke_edge_blur": source.subtitle_karaoke_enabled,
             "subtitle_karaoke_lift": source.subtitle_karaoke_enabled,
             "subtitle_karaoke_lift_unit": source.subtitle_karaoke_enabled and source.subtitle_karaoke_lift > 0,
         }
@@ -261,7 +251,6 @@ class LyricsSection(FieldSection):
         self.widgets["subtitle_accent_enabled"].setText("사용" if korean else "Enabled")
         self.widgets["subtitle_karaoke_enabled"].setText("사용" if korean else "Enabled")
         self.widgets["subtitle_karaoke_glow_enabled"].setText("사용" if korean else "Enabled")
-        self.widgets["subtitle_karaoke_edge_blur"].setSuffix(" px")
         self.widgets["subtitle_karaoke_lift"].setSuffix(" px")
         lift_unit = self.widgets["subtitle_karaoke_lift_unit"]
         lift_unit.setItemText(0, "글자" if korean else "Character")

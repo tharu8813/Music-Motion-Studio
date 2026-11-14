@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from dataclasses import replace
+import re
 
 from PySide6.QtCore import QElapsedTimer, QTimer, Qt
 from PySide6.QtGui import QColor, QPixmap
@@ -13,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from app.animation.lyrics import INTRO_EXIT_LABELS, INTRO_STYLE_LABELS, LYRIC_EFFECT_LABELS, role_style
 from app.canvas.live_canvas import CanvasScene
+from app.canvas.renderers.lyrics_renderer import _grapheme_boundaries
 from app.canvas.source_item import SourceItem
 from app.dialogs.help_dialog import install_help_shortcut
 from app.models.playlist import PlaylistTrack
@@ -53,6 +55,12 @@ class LyricsAnimationDialog(QDialog):
         "role_scale": ("기본 또는 줄별 글꼴 크기에 곱할 배율입니다. 1이면 원래 크기를 유지합니다.", "Multiplier for the base or per-line font size. One preserves the original size."),
         "role_opacity": ("0은 투명, 1은 불투명입니다. 거리별 흐림을 켜면 이전·다음의 가장 먼 가사 값으로 사용합니다.", "Zero is transparent, one opaque. With falloff, this sets the farthest previous or upcoming cue."),
         "role_blur": ("글자 흐림 반경입니다. 0은 선명합니다. 거리별 흐림을 켜면 가까운 가사의 블러가 더 약해집니다.", "Glyph blur radius. Zero is sharp; distance falloff reduces blur on nearby cues."),
+        "subtitle_previous_blur": ("줄 스타일 고급 모드가 꺼져 있을 때 이전 가사에 적용할 블러입니다.", "Blur on previous cues when advanced role styles are off."),
+        "subtitle_karaoke_edge_blur": ("채워진 색과 대기 중인 색을 섞는 경계의 너비입니다. 0이면 경계가 선명합니다.", "Width of the blend between sung and pending colors. Zero keeps the edge sharp."),
+        "subtitle_karaoke_blur_mode": ("긴 음, 채우는 동안, 또는 채운 뒤 현재 줄에 있는 동안 빛을 더합니다. 효과가 끝나면 서서히 사라집니다.", "Add a halo to sustained units, while filling, or through the rest of the current cue. The halo fades out when the effect ends."),
+        "subtitle_karaoke_blur_unit": ("빛을 더할 글자 또는 단어·음절을 선택합니다.", "Choose whether characters or timed words and syllables glow."),
+        "subtitle_karaoke_blur_radius": ("글자 주변으로 빛이 퍼지는 범위입니다. 0이면 꺼집니다.", "How far the halo spreads around the glyphs. Zero turns it off."),
+        "subtitle_karaoke_blur_min_duration": ("이 시간보다 긴 음에만 적용합니다. 부르는 동안 서서히 밝아지고, 긴 음일수록 최대 밝기가 높아집니다.", "Applies to units held longer than this. The glow builds while sung and reaches a higher peak on longer notes."),
     }
     SETTINGS = (
         "subtitle_animation", "subtitle_animation_duration", "subtitle_flow_direction",
@@ -64,6 +72,11 @@ class LyricsAnimationDialog(QDialog):
         "subtitle_intro_enabled", "subtitle_intro_midtrack", "subtitle_intro_style", "subtitle_intro_exit",
         "subtitle_intro_gap", "subtitle_intro_period", "subtitle_intro_scale",
     )
+    BLUR_SETTINGS = (
+        "subtitle_previous_blur", "subtitle_karaoke_edge_blur", "subtitle_karaoke_blur_mode",
+        "subtitle_karaoke_blur_unit", "subtitle_karaoke_blur_radius", "subtitle_karaoke_blur_min_duration",
+    )
+    UNIT_LABELS = {"character": ("글자", "Character"), "word": ("단어·음절", "Word or syllable")}
 
     def __init__(self, source: Source, translator: Translator, parent=None):
         super().__init__(parent)
@@ -128,7 +141,6 @@ class LyricsAnimationDialog(QDialog):
         motion = self._group(motion_page, "크기와 글로우", "Scale and glow")
         self._spin(motion, "subtitle_zoom_amount", "크기 변화 세기", "Zoom amount", 0, 0.5, 0.05)
         self._spin(motion, "subtitle_glow_strength", "글로우 세기", "Glow strength", 0, 1, 0.05)
-        self._spin(motion, "subtitle_glow_radius", "글로우 반경", "Glow radius", 0, 30, 0.5, " px")
 
         layout_page = self._page(tabs, "layout", "줄 배치", "Layout")
         layout_form = self._group(layout_page, "기준 위치와 정렬", "Position and alignment")
@@ -175,34 +187,19 @@ class LyricsAnimationDialog(QDialog):
         role_form = self._group(role_page, "크기 배율", "Size scale")
         role_form.addRow(self._tr("크기 배율", "Size scale"), self.role_scale)
         self._help(role_form, "role_scale", self.role_scale)
-        role_form = self._group(role_page, "불투명도와 블러", "Opacity and blur")
-        for ko, en, key, widget in (("불투명도", "Opacity", "role_opacity", self.role_opacity),
-                                     ("블러", "Blur", "role_blur", self.role_blur)):
-            role_form.addRow(self._tr(ko, en), widget)
-            self._help(role_form, key, widget)
-        role_form = self._group(role_page, "거리에 따른 흐림", "Distance falloff")
-        self.distance_group = role_form.parentWidget()
-        self.distance_labels = {}
-        for role in ("previous", "next"):
-            key = f"subtitle_{role}_distance_fade"
-            self._spin(role_form, key, "거리별 흐림 강도", "Distance falloff", 0, 1, 0.05)
-            self.distance_labels[role] = role_form.labelForField(self.controls[key])
-        self.distance_hint = QLabel(self._tr(
-            "현재 가사에 가까울수록 블러는 약해지고 선명해집니다. 위 불투명도·블러는 선택한 쪽의 가장 먼 가사 값입니다. 0은 모든 줄에 동일하게, 1은 거리별로 적용합니다. 이전·다음은 각각 설정됩니다.",
-            "Closer cues become clearer. Opacity and blur above set the farthest cue on this side. 0 keeps cues uniform; 1 varies them by distance. Previous and next are configured separately.",
-        ))
-        self.distance_hint.setObjectName("mutedLabel")
-        self.distance_hint.setWordWrap(True)
-        role_form.addRow(self.distance_hint)
+        role_form = self._group(role_page, "불투명도", "Opacity")
+        role_form.addRow(self._tr("불투명도", "Opacity"), self.role_opacity)
+        self._help(role_form, "role_opacity", self.role_opacity)
         role_hint = QLabel(self._tr(
-            "여기서는 크기 배율·불투명도·블러만 조절합니다. 색상과 글꼴은 속성 패널 및 줄별 스타일에서 설정하며, 고급 모드를 켜도 계속 편집할 수 있습니다.",
-            "Only size scale, opacity and blur are set here. Colors and typography remain editable in Properties and Per-line styles, even with advanced mode on.",
+            "색상과 글꼴은 속성 패널 및 줄별 스타일에서 설정합니다.",
+            "Set colors and fonts in Properties and Per-line styles.",
         ))
         role_hint.setObjectName("mutedLabel")
         role_hint.setWordWrap(True)
         role_page.addWidget(role_hint)
 
         intro_page = self._page(tabs, "intro", "인트로", "Intro")
+        self._intro_tab = tabs.count() - 1
         intro = self._group(intro_page, "표시 조건", "When to show")
         for key, ko, en in (
             ("subtitle_intro_enabled", "첫 가사 전 대기 표시", "Show before the first lyric"),
@@ -237,6 +234,9 @@ class LyricsAnimationDialog(QDialog):
         intro_preview.addRow(self._tr("미리보기 구간", "Preview segment"), self.intro_preview_mode)
         self.intro_preview_mode.setToolTip(self._tr("미리보기 예시만 바꿉니다. 곡의 실제 가사나 분석 구간은 변경하지 않습니다.",
                                                    "Changes only the preview sample, not the track lyrics or analyzed intervals."))
+
+        blur_page = self._page(tabs, "blur", "블러 - 글로우", "Blur - Glow", advanced=False)
+        self._build_blur_page(blur_page)
 
         preview_column = QVBoxLayout()
         caption = QLabel(self._tr("실시간 미리보기", "Live preview"))
@@ -288,6 +288,28 @@ class LyricsAnimationDialog(QDialog):
         playback.addWidget(self.preview_multiline)
         playback.addStretch()
         preview_column.addLayout(playback)
+        self.preview_timing = QWidget()
+        timing = QFormLayout(self.preview_timing)
+        timing.setContentsMargins(0, 0, 0, 0)
+        self.preview_karaoke = QCheckBox(self._tr("실시간 가사 미리보기", "Preview real-time lyrics"))
+        self.preview_karaoke.setChecked(source.subtitle_karaoke_enabled)
+        timing.addRow(self.preview_karaoke)
+        self.preview_unit = QComboBox()
+        for unit, labels in self.UNIT_LABELS.items():
+            self.preview_unit.addItem(self._tr(*labels), unit)
+        self.preview_unit.setCurrentIndex(self.preview_unit.findData("word"))
+        timing.addRow(self._tr("예시 타이밍 단위", "Sample timing unit"), self.preview_unit)
+        self.preview_character_duration = self._number(0.05, 1.5, 0.05)
+        self.preview_word_duration = self._number(0.1, 3, 0.05)
+        for editor, duration, label in (
+            (self.preview_character_duration, 0.25, self._tr("글자당 지속시간", "Time per character")),
+            (self.preview_word_duration, 0.65, self._tr("단어당 지속시간", "Time per word")),
+        ):
+            editor.setSuffix(self._tr(" 초", " s"))
+            editor.setValue(duration)
+            timing.addRow(label, editor)
+        self.preview_timing.setToolTip(self._tr("이 설정은 예시 가사에만 적용됩니다.", "These settings affect only the sample lyrics."))
+        preview_column.addWidget(self.preview_timing)
         body.addLayout(preview_column, 1)
         root.addLayout(body, 1)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -304,6 +326,7 @@ class LyricsAnimationDialog(QDialog):
         self._preview_source = replace(self._draft, x=0, y=0, width=680, height=300, scale=1,
                                        rotation=0, opacity=1, timeline_start=0, timeline_duration=0,
                                        animation_in="none", animation_out="none", loop_motion="none",
+                                       subtitle_timing_offset=0, subtitle_karaoke_offset=0,
                                        personal_color_enabled=False)
         self._item = SourceItem(self._preview_source)
         self._scene.addItem(self._item)
@@ -314,6 +337,7 @@ class LyricsAnimationDialog(QDialog):
         self._preview_texts[len(self._preview_texts) // 2] = self._tr(
             "♪ 쉿, 이 줄을 찾은 당신은 가사 장인 ♪", "♪ Secret unlocked: you are a lyric wizard ♪",
         )
+        self._sample_key = None
         self._clock = QElapsedTimer()
         self._elapsed_offset = 0.0
         self._paused_seconds = 0.0
@@ -327,14 +351,19 @@ class LyricsAnimationDialog(QDialog):
             signal = widget.currentIndexChanged if isinstance(widget, QComboBox) else (
                 widget.toggled if isinstance(widget, QCheckBox) else widget.valueChanged)
             signal.connect(self._changed)
-        tabs.currentChanged.connect(self._refresh_preview)
+        tabs.currentChanged.connect(self._switch_preview)
         self.intro_preview_mode.currentIndexChanged.connect(self._refresh_preview)
         self.preview_count.valueChanged.connect(self._change_preview_count)
         for toggle in self.category_toggles.values():
             toggle.toggled.connect(self._changed)
         self.role.currentIndexChanged.connect(self._load_role)
+        self.blur_role.currentIndexChanged.connect(self.role.setCurrentIndex)
         for widget in (self.role_scale, self.role_opacity, self.role_blur):
             widget.valueChanged.connect(self._store_role)
+        self.preview_karaoke.toggled.connect(self._changed)
+        self.preview_unit.currentIndexChanged.connect(self._changed)
+        self.preview_character_duration.valueChanged.connect(self._changed)
+        self.preview_word_duration.valueChanged.connect(self._changed)
         self._loading = False
         self._load_role()
         self._changed()
@@ -351,13 +380,18 @@ class LyricsAnimationDialog(QDialog):
         spin.setKeyboardTracking(False)
         return spin
 
-    def _page(self, tabs, category, ko, en):
+    def _page(self, tabs, category, ko, en, *, advanced=True):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(10, 16, 10, 10)
+        if not advanced:
+            layout.setSpacing(12)
+            scroll.setWidget(page)
+            tabs.addTab(scroll, self._tr(ko, en))
+            return layout
         toggle = QCheckBox(self._tr(f"{ko} 고급 모드", f"Advanced {en.lower()}"))
         toggle.setChecked(category in self._basic.subtitle_advanced_categories)
         toggle.setToolTip(self._tr("켜면 이 카테고리의 아래 값만 우선 적용되고, 속성 패널의 관련 기본 설정만 잠깁니다. 끄면 기본 값으로 돌아가며 고급 값은 보관됩니다.",
@@ -379,6 +413,47 @@ class LyricsAnimationDialog(QDialog):
         scroll.setWidget(page)
         tabs.addTab(scroll, self._tr(ko, en))
         return groups
+
+    def _build_blur_page(self, page):
+        live = self._group(page, "실시간 가사", "Real-time lyrics")
+        self._spin(live, "subtitle_karaoke_edge_blur", "채움 경계 흐림", "Fill edge blur", 0, 50, 1, " px")
+        self._combo(live, "subtitle_karaoke_blur_mode", "글로우 적용 방식", "Glow mode", {
+            "none": ("끄기", "Off"), "long": ("긴 단어·글자만", "Long units only"),
+            "filling": ("채우는 동안", "While filling"), "continuous": ("현재 줄에 있는 동안", "While cue is current"),
+        })
+        self._combo(live, "subtitle_karaoke_blur_unit", "글로우 대상", "Glow target", self.UNIT_LABELS)
+        self._spin(live, "subtitle_karaoke_blur_radius", "글로우 반경", "Glow radius", 0, 12, 0.5, " px")
+        self._spin(live, "subtitle_karaoke_blur_min_duration", "최소 지속시간", "Minimum duration", 0.05, 3, 0.05, " s")
+        note = QLabel(self._tr("단어·음절 타이밍이 있는 실시간 가사에 적용됩니다.",
+                               "Applies to real-time lyrics with word or syllable timings."))
+        note.setWordWrap(True)
+        live.addRow(note)
+        context = self._group(page, "줄 블러", "Cue blur")
+        self._spin(context, "subtitle_previous_blur", "이전 가사 블러", "Previous lyric blur", 0, 8, 0.5, " px")
+        self.blur_role = QComboBox()
+        for index in range(self.role.count()):
+            self.blur_role.addItem(self.role.itemText(index), self.role.itemData(index))
+        context.addRow(self._tr("고급 줄 블러 대상", "Advanced cue blur target"), self.blur_role)
+        self.blur_role.setToolTip(self._tr("줄 스타일 고급 모드를 켜면 이 블러가 적용됩니다.",
+                                          "This blur applies when Advanced role styles is on."))
+        context.addRow(self._tr("고급 줄 블러", "Advanced cue blur"), self.role_blur)
+        self._help(context, "role_blur", self.role_blur)
+        distance = self._group(page, "거리에 따른 흐림", "Distance falloff")
+        self.distance_group = distance.parentWidget()
+        self.distance_labels = {}
+        for role in ("previous", "next"):
+            key = f"subtitle_{role}_distance_fade"
+            self._spin(distance, key, "거리별 흐림 강도", "Distance falloff", 0, 1, 0.05)
+            self.distance_labels[role] = distance.labelForField(self.controls[key])
+        self.distance_hint = QLabel(self._tr(
+            "줄 스타일 고급 모드를 켜면 현재 줄에 가까운 가사의 블러가 약해집니다.",
+            "With Advanced role styles on, blur softens on cues closer to the current lyric.",
+        ))
+        self.distance_hint.setWordWrap(True)
+        distance.addRow(self.distance_hint)
+        transition = self._group(page, "전환 글로우", "Transition glow")
+        self._spin(transition, "subtitle_glow_radius", "글로우 반경", "Glow radius", 0, 30, 0.5, " px")
+        page.addStretch()
 
     def _group(self, page, ko, en):
         group = QGroupBox(self._tr(ko, en))
@@ -429,8 +504,12 @@ class LyricsAnimationDialog(QDialog):
         return values
 
     def settings(self):
-        return {"subtitle_advanced_categories": [key for key, toggle in self.category_toggles.items() if toggle.isChecked()],
-                "subtitle_advanced_settings": self._values()}
+        values = self._values()
+        return {
+            "subtitle_advanced_categories": [key for key, toggle in self.category_toggles.items() if toggle.isChecked()],
+            "subtitle_advanced_settings": {key: value for key, value in values.items() if key not in self.BLUR_SETTINGS},
+            **{key: values[key] for key in self.BLUR_SETTINGS},
+        }
 
     def _changed(self, *_args):
         if self._loading:
@@ -449,7 +528,7 @@ class LyricsAnimationDialog(QDialog):
             f"영상에 적용: {effect_name} · {direction} · 이전 {previous} / 다음 {upcoming}\n미리보기 줄 수는 확인용이며 영상의 줄 배치를 바꾸지 않습니다.",
             f"Video: {effect_name} · {direction} · Previous {previous} / next {upcoming}\nPreview cue count does not change the video's layout."
         ))
-        for key in self.SETTINGS:
+        for key in (*self.SETTINGS, *self.BLUR_SETTINGS):
             setattr(self._preview_source, key, deepcopy(getattr(effective, key)))
         for key, panel in self.category_panels.items():
             active = self.category_toggles[key].isChecked()
@@ -469,6 +548,11 @@ class LyricsAnimationDialog(QDialog):
         self.controls["subtitle_zoom_amount"].setEnabled(effect in {"glow", "zoom"})
         for key in ("subtitle_glow_strength", "subtitle_glow_radius"):
             self.controls[key].setEnabled(effect == "glow")
+        self.controls["subtitle_previous_blur"].setEnabled(not self.category_toggles["styles"].isChecked())
+        glow_mode = self._draft.subtitle_karaoke_blur_mode
+        for key in ("subtitle_karaoke_blur_unit", "subtitle_karaoke_blur_radius"):
+            self.controls[key].setEnabled(glow_mode != "none")
+        self.controls["subtitle_karaoke_blur_min_duration"].setEnabled(glow_mode == "long")
         count = self.preview_count.value()
         if count:
             self._preview_source.subtitle_context_lines = (count - 1) // 2
@@ -480,10 +564,12 @@ class LyricsAnimationDialog(QDialog):
         self._item.apply_source()
         cue_height = self._item._lyric_line_height() * (2 if self.preview_multiline.isChecked() else 1)
         cue_height += self._preview_source.subtitle_cue_spacing - self._preview_source.subtitle_line_spacing
-        self._preview_source.height = max(300, (2 * max(previous, upcoming) + 1) * cue_height + 24) if not horizontal else 300
+        self._normal_preview_height = max(300, (2 * max(previous, upcoming) + 1) * cue_height + 24) if not horizontal else 300
+        self._preview_source.height = self._normal_preview_height
         self._item.apply_source()
         self._scene.set_artboard_size(self._preview_source.width, self._preview_source.height)
         self._load_role()
+        self._sync_preview_controls()
         self._refresh_timer.start(0)
 
     def _change_preview_count(self, count):
@@ -492,6 +578,7 @@ class LyricsAnimationDialog(QDialog):
     def _load_role(self, *_args):
         self._loading = True
         role = self.role.currentData()
+        self.blur_role.setCurrentIndex(self.role.currentIndex())
         for side in ("previous", "next"):
             distance_control = self.controls[f"subtitle_{side}_distance_fade"]
             distance_control.setVisible(role == side)
@@ -548,6 +635,61 @@ class LyricsAnimationDialog(QDialog):
         else:
             self._replay()
 
+    def _sync_preview_controls(self):
+        normal = self.tabs.currentIndex() != self._intro_tab
+        self.preview_timing.setVisible(normal)
+        timed = self.preview_karaoke.isChecked()
+        self.preview_unit.setEnabled(timed)
+        by_character = self.preview_unit.currentData() == "character"
+        self.preview_character_duration.setEnabled(timed and by_character)
+        self.preview_word_duration.setEnabled(timed and not by_character)
+
+    def _switch_preview(self, _index):
+        was_intro = self.preview_timing.isHidden()
+        self._sync_preview_controls()
+        if was_intro != self.preview_timing.isHidden():
+            self._render_preview()
+
+    def _preview_track(self):
+        timed = self.preview_karaoke.isChecked()
+        unit = self.preview_unit.currentData()
+        duration = (self.preview_character_duration if unit == "character" else self.preview_word_duration).value()
+        multiline = self.preview_multiline.isChecked()
+        interval = max(1.8, self._preview_source.subtitle_animation_duration + 0.5)
+        key = (timed, unit, duration, multiline, interval)
+        if key == self._sample_key:
+            return self._sample_track, self._sample_interval
+        second = self._tr("같은 묶음의 두 번째 줄", "Second line in the same cue")
+        texts = [f"{text}\n{second}" if multiline else text for text in self._preview_texts]
+        spans = []
+        for text in texts:
+            lines, offset = [], 0
+            for line in text.splitlines():
+                if unit == "word":
+                    units = [(offset + word.start(), word.group()) for word in re.finditer(r"\S+", line)]
+                else:
+                    edges = _grapheme_boundaries(line)
+                    units = [(offset + a, line[a:b]) for a, b in zip(edges, edges[1:]) if line[a:b].strip()]
+                lines.append(units)
+                offset += len(line) + 1
+            spans.append(lines)
+        if timed:
+            interval = max(interval, max(len(line) for lines in spans for line in lines) * duration + 0.35)
+        cues = []
+        for index, (text, lines) in enumerate(zip(texts, spans)):
+            start = index * interval
+            cue = {"start": start, "end": (index + 1) * interval, "text": text}
+            if timed:
+                cue.update(format="ttml", words=[
+                    {"start": start + number * duration, "end": start + (number + 1) * duration,
+                     "text": value, "offset": offset}
+                    for units in lines for number, (offset, value) in enumerate(units)
+                ])
+            cues.append(cue)
+        self._sample_track = PlaylistTrack("", "Preview", duration_seconds=interval * len(cues), lyrics=cues)
+        self._sample_key, self._sample_interval = key, interval
+        return self._sample_track, interval
+
     def _preview_scale(self):
         return min(1.0, max(1, self.preview.width()) / self._preview_source.width,
                    max(1, self.preview.height()) / self._preview_source.height)
@@ -556,20 +698,19 @@ class LyricsAnimationDialog(QDialog):
         interval = preview_interval_ms(screen_preview_fps(self.screen()))
         if interval != self._timer.interval():
             self._timer.setInterval(interval)
-        if self.tabs.currentIndex() == 3:
+        if self.tabs.currentIndex() == self._intro_tab:
+            self._preview_source.subtitle_karaoke_enabled = self._basic.subtitle_karaoke_enabled
             self._render_intro_preview(elapsed)
             return
-        interval = max(1.8, self._preview_source.subtitle_animation_duration + 0.5)
-        texts = self._preview_texts
-        if self.preview_multiline.isChecked():
-            texts = [text + "\n" + self._tr("같은 묶음의 두 번째 줄", "Second line in the same cue") for text in texts]
-        track = PlaylistTrack("", "Preview", duration_seconds=interval * len(texts), lyrics=[
-            {"start": index * interval, "end": (index + 1) * interval, "text": text}
-            for index, text in enumerate(texts)
-        ])
+        if self._preview_source.height != self._normal_preview_height:
+            self._preview_source.height = self._normal_preview_height
+            self._item.apply_source()
+            self._scene.set_artboard_size(self._preview_source.width, self._normal_preview_height)
+        self._preview_source.subtitle_karaoke_enabled = self.preview_karaoke.isChecked()
+        track, interval = self._preview_track()
         first = max(1, self._preview_source.subtitle_context_lines)
         offset = interval * first
-        elapsed = (self._preview_seconds() % (interval * (len(texts) - first)) + offset) if elapsed is None else elapsed + offset
+        elapsed = (self._preview_seconds() % (interval * (len(track.lyrics) - first)) + offset) if elapsed is None else elapsed + offset
         image = CanvasSnapshot.capture_track(self._scene, track, 1, 1, 0, elapsed_seconds=elapsed,
                                              output_scale=self._preview_scale())
         self.preview.setPixmap(QPixmap.fromImage(image).scaled(

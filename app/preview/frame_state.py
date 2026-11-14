@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from collections.abc import Sequence
 
 from app.animation.curves import ease_in_out_cubic
-from app.animation.lyrics import lyric_progress
+from app.animation.lyrics import KARAOKE_GLOW_RELEASE_SECONDS, lyric_progress
 from app.models.playlist import PlaylistTrack
 from app.models.source import Source
 from app.services.lyrics_service import LyricsService
@@ -373,29 +373,43 @@ def resolve_lyrics_overlapping_word_ranges(
     return tuple(result)
 
 
-def resolve_lyrics_active_words(
+def resolve_lyrics_timed_words(
     track: PlaylistTrack, source: Source, elapsed: float,
     cue_state: LyricsCueState, intro_state: LyricsIntroState | None,
-) -> tuple[tuple[tuple[int, int, float], ...], ...]:
-    """Align active TTML spans with the displayed rows, including grouped translations."""
+) -> tuple[tuple[int, float | None, tuple[tuple[tuple[int, int, float, float], ...], ...]], ...]:
+    """Resolve active and fading TTML effects by original cue index."""
     if (not source.uses_karaoke_character_effects or cue_state.cue_index is None or cue_state.before_first
             or (intro_state is not None and not intro_state.exiting)):
         return ()
-    clock = max(0.0, elapsed + track.lyrics_timing_offset_seconds
-                + source.subtitle_timing_offset + source.subtitle_karaoke_offset)
-    rows = []
-    for index in (cue_state.active_cue_indices or cue_state.held_cue_indices or (cue_state.cue_index,)):
+    lyric_clock = elapsed + track.lyrics_timing_offset_seconds + source.subtitle_timing_offset
+    clock = max(0.0, lyric_clock + source.subtitle_karaoke_offset)
+    current = set(cue_state.active_cue_indices or cue_state.held_cue_indices or (cue_state.cue_index,))
+    release = KARAOKE_GLOW_RELEASE_SECONDS if source.uses_timed_karaoke_glow else 0.0
+    indices = current.copy()
+    if release and cue_state.latest_started_cue_index is not None:
+        cutoff = lyric_clock - release
+        indices.update(index for index in range(cue_state.latest_started_cue_index + 1)
+                       if float(track.lyrics[index]["end"]) > cutoff)
+    results = []
+    for index in sorted(indices):
         cue = track.lyrics[index]
-        if cue.get("format") == "ttml" and cue.get("words"):
-            rows.extend(LyricsService.active_word_spans(
-                cue, clock, line_positions=tuple(source.subtitle_karaoke_lines),
-            ))
-        else:
-            rows.extend(() for line in LyricsService.decode_line_breaks(cue.get("text", "")).splitlines()
-                        if line.strip())
-        if source.subtitle_translation_enabled:
-            rows.extend(() for line in approved_translation(cue).splitlines() if line.strip())
-    return tuple(rows)
+        if cue.get("format") != "ttml" or not cue.get("words"):
+            continue
+        cue_age = max(0.0, lyric_clock - float(cue["end"]))
+        glow_release = cue_age if release and cue_age < release else None
+        retain = index in current and source.subtitle_karaoke_lift > 0
+        if index not in current and glow_release is None:
+            continue
+        # Stop attacking at the cue end and fade the brightness reached at that instant.
+        word_clock = max(0, lyric_clock - cue_age + source.subtitle_karaoke_offset) if release else clock
+        words = LyricsService.timed_word_progress(
+            cue, word_clock, line_positions=tuple(source.subtitle_karaoke_lines),
+            include_finished=retain or (glow_release is not None and source.subtitle_karaoke_blur_mode == "continuous"),
+            release_seconds=release if glow_release is not None else 0.0,
+        )
+        if any(words):
+            results.append((index, glow_release, words))
+    return tuple(results)
 
 
 @dataclass(slots=True, frozen=True)

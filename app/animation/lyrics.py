@@ -5,6 +5,8 @@ from typing import NamedTuple
 from app.animation.curves import clamp_progress, ease_in_out_cubic, ease_out_quint
 from app.models.source import Source
 
+KARAOKE_GLOW_RELEASE_SECONDS = 0.32
+
 LYRIC_EFFECT_LABELS = {
     "glow": ("글로우", "Glow"), "rise": ("라이즈", "Rise"),
     "crossfade": ("페이드", "Fade"), "slide": ("슬라이드", "Slide"),

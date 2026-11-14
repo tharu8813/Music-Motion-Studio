@@ -155,13 +155,15 @@ class LyricsService:
         return tuple(result)
 
     @classmethod
-    def active_word_spans(
+    def timed_word_progress(
         cls, cue: dict[str, object], elapsed: float, *, line_positions: tuple[int, ...] | None = None,
-    ) -> tuple[tuple[tuple[int, int, float], ...], ...]:
-        """Per-line (start character, end character, progress) for timed spans filling now."""
+        include_finished: bool = False, release_seconds: float = 0.0,
+    ) -> tuple[tuple[tuple[int, int, float, float], ...], ...]:
+        """Per-line (first character, end character, elapsed seconds, duration)."""
         return tuple(
-            tuple((a, b, (elapsed - start) / (end - start))
-                  for a, b, start, end in spans if start < elapsed < end)
+            tuple((a, b, min(elapsed - start, end - start + release_seconds), end - start)
+                  for a, b, start, end in spans
+                  if end > start and start < elapsed and (include_finished or elapsed < end + release_seconds))
             for spans in cls._cue_reveal_spans(cue, line_positions)
         )
 

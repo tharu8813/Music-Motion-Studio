@@ -12,7 +12,7 @@
 #define MyAppComments "ChatGPT Codex와 Claude Code를 활용해 제작한 프로그램입니다."
 #define MyAppURL "https://github.com/tharu8813/Music-Motion-Studio"
 #define MyAppExeName "Music Motion Studio.exe"
-#define PreviousAppName "Playlist Canvas"
+#define PreviousAppName "Music Motion Studio"
 ; 최초 공개 설치본부터 이 GUID를 변경하지 않아야 이후 버전이 정상 업그레이드됩니다.
 #define MyAppGUID "{{28b780ab-d9ec-420a-88d8-17d364505722}"
 

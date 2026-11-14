@@ -59,9 +59,9 @@ class LyricsOverlapTests(unittest.TestCase):
     def observe(self, scene, item, track, elapsed):
         observations = []
         paint = lyrics_renderer.paint_word_reveal
-        def record(graphics, painter, rect, flags, text, revealed):
+        def record(graphics, painter, rect, flags, text, revealed, **kwargs):
             observations.append((text, revealed, painter.opacity(), painter.worldTransform().mapRect(rect)))
-            paint(graphics, painter, rect, flags, text, revealed)
+            paint(graphics, painter, rect, flags, text, revealed, **kwargs)
         with patch.object(lyrics_renderer, "paint_word_reveal", side_effect=record):
             image = CanvasSnapshot.capture_track(scene, track, 1, 1, 0,
                 elapsed_seconds=elapsed, transparent=True)

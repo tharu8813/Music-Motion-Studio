@@ -514,8 +514,8 @@ _CANVAS = (
 <p>현재 가사의 기준 위치, 글자 정렬, 이전·다음 가사 묶음 수와 간격을 정합니다. 묶음 하나에 원문·번역 등 여러 텍스트 줄이 있을 수 있습니다. 줄 수 <b>자동</b>은 요소 크기에 맞추고, 0은 해당 쪽 가사를 숨깁니다.</p>
 <h2>이전·현재·다음 줄 스타일</h2>
 [[img:lyrics_role_styles]]
-<p><b>편집할 위치</b>에서 이전·현재·다음을 각각 선택하고 <b>크기 배율·불투명도·블러</b>만 조절합니다. 블러 0은 선명하고 불투명도 1은 불투명합니다. 색상과 글꼴은 속성 패널 및 줄별 스타일에서 설정합니다.</p>
-<p><b>거리별 흐림 강도</b>는 이전·다음에 각각 적용합니다. 0은 같은 흐림, 1은 현재 가사에 가까울수록 선명하고 불투명한 모습입니다. 해당 쪽의 블러와 불투명도는 가장 먼 가사의 기준값이 됩니다.</p>
+<p><b>편집할 위치</b>에서 이전·현재·다음을 각각 선택하고 <b>크기 배율</b>과 <b>불투명도</b>를 조절합니다. 색상과 글꼴은 속성 패널 및 줄별 스타일에서 설정합니다.</p>
+<p><b>블러 - 글로우</b> 탭에서 줄 블러, 채움 경계 흐림, 실시간 가사의 단어·글자 글로우를 조절합니다. <b>긴 단어·글자만</b>을 선택하면 길게 부르는 음에서 빛이 점점 밝아졌다가 서서히 사라집니다. <b>실시간 가사 미리보기</b>를 켜면 예시 글자나 단어의 지속시간을 바꿔 볼 수 있습니다.</p>
 <div class='note'>고급 줄 스타일을 켜도 <a href='topic:lyrics_line_styles'>줄별 스타일</a>의 색상·굵기·기울임·크기는 계속 편집할 수 있습니다. 설정한 기본·줄별 크기에 고급 크기 배율을 곱합니다. 이전 버전의 고급 색상·글꼴 값은 사용하지 않습니다. 현재 자막의 음악 반응은 <a href='topic:music_reaction'>별도 옵션</a>입니다.</div>
 <h2>예시 미리보기</h2>
 <p>오른쪽에서 실제 렌더러의 전환을 확인하고 <b>다시 재생</b>할 수 있습니다. <b>미리보기 줄 수</b>는 이 창의 예시만 바꿉니다. 영상에 표시할 묶음 수는 줄 배치 탭에서 정하세요. 첫 가사 전·곡 중간 예시는 인트로 탭에서 선택합니다.</p>""",
@@ -535,7 +535,8 @@ _CANVAS = (
 <p>Set the current cue anchor, text alignment, previous/upcoming cue counts and spacing. A cue can contain several text lines, such as original text and a translation. <b>Auto</b> fits the source size; zero hides that side.</p>
 <h2>Previous, current and next styles</h2>
 [[img:lyrics_role_styles]]
-<p>Select a <b>Role</b> and adjust only <b>size scale, opacity and blur</b> independently. Blur zero is sharp; opacity one is opaque. Set colors and typography in Properties and Per-line styles.</p>
+<p>Select a <b>Role</b> and adjust <b>size scale</b> and <b>opacity</b> independently. Set colors and typography in Properties and Per-line styles.</p>
+<p>The <b>Blur - Glow</b> tab contains cue blur, fill edge blur, and real-time word or character glow. <b>Long units only</b> builds the glow during sustained notes and fades it out afterward. Turn on <b>Preview real-time lyrics</b> to change the timing of sample words or characters.</p>
 <p><b>Distance falloff</b> is independent for previous and next cues. Zero keeps them uniform; one makes nearby cues clearer and more opaque. That side's blur and opacity define the farthest cue.</p>
 <div class='note'><a href='topic:lyrics_line_styles'>Per-line</a> color, weight, italic and size remain editable with advanced roles enabled. The advanced scale multiplies the base/per-line size. Older advanced color and typography values are ignored. Current subtitles have a <a href='topic:music_reaction'>separate music reaction option</a>.</div>
 <h2>Sample preview</h2>
@@ -1102,7 +1103,7 @@ _LYRICS = (
 <p>글꼴 자동 감소와 단어 단위 줄바꿈은 <a href="topic:lyrics_wrapping">글꼴 크기와 자동 줄바꿈</a>을 참고하세요. 다음 가사는 매 큐 전환 직전부터 바깥에서 들어오고 전환 후 같은 위치에서 이어집니다. 전환 효과를 없음으로 설정하면 즉시 바뀝니다.</p><h2>가사 요소의 속성 설정</h2>
 <ul>
 <li><b>속성 → 애니메이션</b>: 글로우·라이즈·페이드·슬라이드·줌·순차 이동·바운스 등의 기본 전환과 <a href='topic:lyrics_transition'>자막 전환 설정</a>. 이동 방향·줄 배치·이전/현재/다음 스타일·인트로는 카테고리별 고급 모드로 조절합니다.</li>
-<li><b>문맥 줄</b>: 이전·다음 묶음 수, 이전 가사의 불투명도·블러. <b>묶음 안 줄 간격</b>은 같은 시간의 여러 줄 사이, <b>가사 묶음 간격</b>은 이전·현재·다음 묶음 사이의 여백입니다. 원문과 자동 번역문은 조금 더 가깝게 표시됩니다. 자막 전환 설정의 <b>줄 배치</b>에서도 두 간격을 별도로 조절할 수 있습니다. 거리별 흐림은 고급 줄 스타일에서 이전·다음 각각 설정합니다.</li>
+<li><b>문맥 줄</b>: 이전·다음 묶음 수와 이전 가사의 불투명도를 조절합니다. <b>묶음 안 줄 간격</b>은 같은 시간의 여러 줄 사이, <b>가사 묶음 간격</b>은 이전·현재·다음 묶음 사이의 여백입니다. 원문과 자동 번역문은 조금 더 가깝게 표시됩니다. 자막 전환 설정의 <b>줄 배치</b>에서도 두 간격을 조절할 수 있습니다. 줄 블러와 거리별 흐림은 <b>블러 - 글로우</b> 탭에서 설정합니다.</li>
 <li><b>줄별 스타일</b>: 각 묶음 안의 2번째 텍스트 줄부터 원문·번역의 글꼴과 크기를 다르게 정합니다. <a href='topic:lyrics_line_styles'>사용 방법</a></li>
 <li><b>음악에 맞춰 반응</b>: 현재 가사 묶음만 음악에 맞춰 확대하거나 움직입니다. <a href='topic:music_reaction'>반응 조절</a></li>
 <li><b>대체 문구</b>: 가사가 없는 곡에 보여 줄 문구. 이전·현재·다음 가사에 지정한 블러와 불투명도는 적용하지 않고 선명하게 표시합니다.</li>
@@ -1116,7 +1117,7 @@ _LYRICS = (
 <h2>Lyrics source settings in the inspector</h2>
 <ul>
 <li><b>Inspector → Animation</b>: basic transitions such as Glow, Rise, Fade, Slide, Zoom, Staggered flow and Bounce, plus <a href='topic:lyrics_transition'>Subtitle transition settings</a>. Advanced mode is independent for motion, layout, role styles and intro.</li>
-<li><b>Context lines</b>: previous/next cue counts and previous opacity/blur. <b>Lines within a cue</b> controls the gap between lines sharing one timestamp, while <b>Between lyric cues</b> controls the gap between groups. Automatic translations sit slightly closer to the original. Both gaps are also available under <b>Subtitle transition settings → Layout</b>. Advanced styles add separate distance falloff for previous and next cues.</li>
+<li><b>Context lines</b> sets previous and next cue counts and previous cue opacity. <b>Lines within a cue</b> controls the gap between lines sharing a timestamp, and <b>Between lyric cues</b> controls the gap between groups. Automatic translations sit slightly closer to the original. Both gaps are also available under <b>Subtitle transition settings → Layout</b>. Set cue blur and distance falloff in the <b>Blur - Glow</b> tab.</li>
 <li><b>Per-line styles</b>: different fonts and sizes for original text and translations, starting with text line 2 in each cue. <a href='topic:lyrics_line_styles'>Instructions</a></li>
 <li><b>React to music</b>: only the current cue scales or moves with the audio. <a href='topic:music_reaction'>Tuning the response</a></li>
 <li><b>Fallback text</b>: what to show for tracks without lyrics. It stays sharp and does not inherit previous/current/next cue blur or opacity.</li>
@@ -1136,7 +1137,7 @@ _LYRICS = (
 <li>검색 결과를 선택해 내용을 확인하고 <b>가사 텍스트 복사</b>로 시간 정보를 제외한 글자만 복사하거나 <b>파일로 저장</b>으로 원본 TTML/LRC 파일을 저장할 수 있습니다. <b>곡에 적용</b>으로 선택한 곡에 연결하며 기존 가사가 있으면 비교 후 교체합니다. 시간 정보 없는 가사는 TXT로 저장하거나 텍스트를 복사할 수 있습니다. 결과 내 검색은 Ctrl+Shift+F로 이용할 수 있습니다.</li>
 <li><b>실시간 가사 설정</b>: 캔버스의 <b>가사/자막 요소 → 속성 → 실시간 가사</b>에서 사용 여부, 강조할 줄, 색상과 단어 강조 보정을 설정합니다. 해당 요소에 표시되는 모든 곡에 공통으로 적용되며, 곡별 파일 연결과 타이밍 보정은 <b>곡 정보/설정 → 가사 설정</b>에서 관리합니다.</li>
 <li><b>실시간 가사</b>: LRC·SRT·VTT는 각 가사 시작 시간에 줄 전체를 활성화하고 다음 가사 시간에 전환합니다. 첫 가사 시작 전에는 다음 가사 스타일로 대기하며, 대기 표시를 켜면 인트로 임시 줄이 표시됩니다. TTML은 파일의 줄·단어·음절 시간을 사용합니다. 음악을 분석하거나 단어 시간을 추정하지 않습니다.</li>
-<li><b>실시간 가사 · 글자 효과</b>: 단어·음절 시간이 들어 있는 TTML에서 <b>글자 글로우</b>를 켜면 채워지는 글자가 점점 밝게 빛납니다. <b>채움 경계 흐림</b>으로 부른 부분과 대기 중인 부분을 부드럽게 연결하고, <b>위로 뜨는 높이</b>와 <b>움직임 단위</b>로 글자 또는 단어·음절이 살짝 올라갔다 내려오게 할 수 있습니다. 흐림과 높이는 0이면 꺼집니다.</li>
+<li><b>실시간 가사 · 글자 효과</b>: 단어·음절 시간이 들어 있는 TTML에서 <b>글자 글로우</b>를 켜면 채워지는 글자가 점점 밝게 빛납니다. <b>위로 뜨는 높이</b>로 글자나 단어·음절이 올라간 위치를 유지하게 할 수 있습니다. 채움 경계 흐림과 글자·단어 글로우는 <b>자막 전환 설정 → 블러 - 글로우</b>에서 조절합니다.</li>
 <li>TTML 가사는 종료 시간까지 현재 상태를 유지합니다. 동시에 진행되는 가사는 한 묶음으로 중앙에 표시합니다. 가사 사이 공백에서는 마지막에 끝난 줄의 블러만 해제하고, 다음 가사가 시작하면 전환 시간에 맞춰 블러를 복원합니다. 전체 가사가 끝난 뒤에는 마지막 줄에도 이전 가사 블러를 적용합니다.</li>
 <li>같은 곡의 가사 파일이 여러 개면 자동 연결 설정이 '항상 함께 추가'여도 파일 선택창이 나타납니다. 취소하면 가사를 연결하지 않습니다.</li>
 <li><b>자동 연결</b>: 음악을 추가할 때 같은 폴더에 이름이 같은 가사 파일이 있으면 함께 연결합니다. <b>도구 → 설정 → 콘텐츠 → 가사·자막 파일 자동 연결</b>에서 항상 함께 추가(권장) · 물어보기 · 추가하지 않음을 고릅니다. 이름이 비슷한 파일은 설정과 관계없이 물어봅니다.</li>
@@ -1150,7 +1151,7 @@ _LYRICS = (
 <li>Choose a result to preview, use <b>Copy lyrics text</b> for words without timestamps, or <b>Save file</b> for the original TTML/LRC file. <b>Attach to track</b> connects it to the chosen song, comparing existing lyrics before replacement. Untimed lyrics can be copied or saved as TXT. Ctrl+Shift+F filters the existing results.</li>
 <li><b>Real-time lyric settings</b>: select the canvas <b>Lyrics/Subtitles element → Properties → Real-time lyrics</b> to set enabled state, highlighted lines, colors and word highlight offset. These settings apply to every track displayed by that element. Manage individual lyric attachments and timing offsets in <b>Track information/settings → Lyrics settings</b>.</li>
 <li><b>Real-time lyrics</b>: LRC, SRT and VTT activate each complete line at its start time and switch at the next cue. Before the first cue, lyrics use the upcoming style; enabling the wait indicator displays a temporary intro row. TTML uses the file's line, word and syllable timings. No audio analysis or word timing estimation is used.</li>
-<li><b>Real-time lyrics · Character effects</b>: With word- or syllable-timed TTML, <b>Character glow</b> brightens as each character fills. <b>Fill edge blur</b> softens the transition between sung and pending colors. <b>Lift height</b> and <b>Lift unit</b> make a character or a timed word/syllable rise and settle as it is sung. Set edge blur or lift height to 0 to turn that effect off.</li>
+<li><b>Real-time lyrics · Character effects</b>: With word- or syllable-timed TTML, <b>Character glow</b> brightens as each character fills. <b>Lift height</b> and <b>Lift unit</b> make each character or timed word rise and stay raised. Edit the fill edge blur and word or character glow in <b>Subtitle transition settings → Blur - Glow</b>.</li>
 <li>TTML lyrics stay current until their end times. Overlapping lyrics form one centered group. In gaps, only the last completed group's blur is disabled; it returns over the transition duration when the next cue starts. After all lyrics end, the final group also uses the previous-lyric blur.</li>
 <li>Multiple lyric files for one song always open a file chooser, even when automatic attachment is set to Always. Cancel leaves lyrics unattached.</li>
 <li><b>Automatic</b>: when you add music, a lyric file with the same name in the same folder is attached. Choose always (recommended), ask, or never in <b>Tools → Settings → Content → Attach lyric and subtitle files</b>. Similarly named files are always asked about.</li>

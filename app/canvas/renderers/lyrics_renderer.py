@@ -1,6 +1,6 @@
 """Cue motion and typography shared by Canvas preview and video export."""
 
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from functools import lru_cache
 from math import cos, pi, sin
 import re
@@ -9,8 +9,11 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QPointF, QRectF, QSizeF, QTextBoundaryFinder, Qt
 from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QTextLayout, QTextOption
 
-from app.animation.lyrics import context_style_at_distance, cue_effect_pose, intro_exit_pose, role_style, stagger_progress
-from app.animation.curves import music_reactive_pose
+from app.animation.lyrics import (
+    KARAOKE_GLOW_RELEASE_SECONDS, context_style_at_distance, cue_effect_pose,
+    intro_exit_pose, role_style, stagger_progress,
+)
+from app.animation.curves import clamp_progress, ease_in_out_cubic, ease_out_cubic, music_reactive_pose
 from app.canvas.renderers.base import device_pixel_ratio, paint_background, paint_selection_guide
 
 if TYPE_CHECKING:
@@ -494,7 +497,10 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
             new_visible = new_first <= slot < new_last
             if not old_visible and not new_visible:
                 continue
-        if max(alpha, karaoke_alpha) <= _VISIBLE:
+        cue_release, timed_words = item._subtitle_timed_words.get(original_index, (None, ()))
+        if max(alpha, karaoke_alpha) <= _VISIBLE and (
+            cue_release is None or not was_current
+        ):
             continue
 
         scroll = source.subtitle_scroll_offset
@@ -599,7 +605,7 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         painter.translate(pivot)
         painter.scale(scale, scale)
         painter.translate(-pivot)
-        revealed, highlights, active_words = 0.0, None, ()
+        revealed, highlights = 0.0, None
         if karaoke_alpha > _VISIBLE:
             revealed = max(0.0, item._subtitle_word_reveal[original_inner] - offsets[index])
             highlights = (item._subtitle_word_highlight_ranges[original_inner]
@@ -612,8 +618,8 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
                     for a, b in highlights
                     if b > offsets[index] and a < offsets[index] + len(line)
                 )
-            if original_inner < len(item._subtitle_active_words):
-                active_words = item._subtitle_active_words[original_inner]
+        held_lift = (not has_current and anchored and slot == anchor_slot and karaoke_line
+                     and source.subtitle_karaoke_lift > 0)
 
         row_blurs = []
         for radius, opacity in (
@@ -651,9 +657,12 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
                     paint_word_reveal(item, painter, row, flags, line, revealed, highlight_ranges=highlights)
 
         row_offset = offsets[index]
-        if any(b > row_offset and a < row_offset + len(line) for a, b, _ in active_words):
-            _paint_karaoke_effects(item, painter, row, flags, line, row_offset, active_words,
-                                   base_opacity * karaoke_alpha, paint_row)
+        if any(b > row_offset and a < row_offset + len(line) for a, b, _, _ in timed_words):
+            _paint_karaoke_effects(item, painter, row, flags, line, row_offset, timed_words,
+                                   base_opacity * karaoke_alpha, paint_row,
+                                   lift_active=karaoke_current or held_lift,
+                                   timed_glow_opacity=base_opacity * float(active["opacity"]),
+                                   cue_release=cue_release)
         else:
             paint_row()
         painter.restore()
@@ -675,77 +684,144 @@ def _grapheme_boundaries(text: str) -> tuple[int, ...]:
     return tuple(boundaries)
 
 
-def _paint_karaoke_effects(item, painter, row, flags, text, offset, active_words, opacity, paint_row):
+def _paint_karaoke_effects(
+    item, painter, row, flags, text, offset, timed_words, opacity, paint_row, *,
+    lift_active, timed_glow_opacity, cue_release,
+):
     source = item.source
     key, (positions, path) = _word_geometry(item, painter, row, flags, text)
     graphemes = _grapheme_boundaries(text)
     accent = QColor(source.subtitle_accent_color)
     glow_strength = source.subtitle_karaoke_glow_strength if source.subtitle_karaoke_glow_enabled else 0.0
-    edge_width = source.subtitle_karaoke_edge_blur
-    lift_height = source.subtitle_karaoke_lift
-    glows, lifts, soft_edges = [], [], []
-    for a, b, progress in active_words:
+    edge_width = source.subtitle_karaoke_edge_blur if opacity > _VISIBLE else 0.0
+    lift_height = source.subtitle_karaoke_lift if lift_active else 0.0
+    timed_mode = source.subtitle_karaoke_blur_mode
+    timed_radius = source.subtitle_karaoke_blur_radius
+    active_radius = max(1.0, min(6.0, painter.font().pixelSize() * 0.075))
+    glows, lifts, soft_edges = [], {}, []
+
+    def unit_band(first, last):
+        return tuple(sorted((_cursor_x(positions, first), _cursor_x(positions, last))))
+
+    for a, b, age, duration in timed_words:
         start, end = a - offset, b - offset
         if end <= 0 or start >= len(text):
             continue
+        progress = min(1.0, age / duration)
         fill = start + (end - start) * progress
         char = None
-        if 0 <= fill < len(text):
+        if progress < 1 and 0 <= fill < len(text):
             index = bisect_right(graphemes, fill) - 1
             first, last = graphemes[index:index + 2]
             if text[first:last].strip():
                 first, last = max(start, first), min(end, last)
                 char = first, last, (fill - first) / (last - first)
-        lift = 0.0
+        word_band = unit_band(start, end)
+        character_band = unit_band(*char[:2]) if char else None
         if lift_height > 0:
-            unit = (start, end, progress) if source.subtitle_karaoke_lift_unit == "word" else char
-            if unit is not None:
-                first, last, phase = unit
-                x1, x2 = _cursor_x(positions, first), _cursor_x(positions, last)
-                if abs(x2 - x1) > 0.01:
-                    lift = lift_height * sin(pi * phase)
-                    lifts.append((min(x1, x2), max(x1, x2), lift))
+            if source.subtitle_karaoke_lift_unit == "word":
+                lifts[word_band] = lift_height * ease_out_cubic(progress)
+            else:
+                done = bisect_right(graphemes, min(fill, end)) - 1
+                if done >= 0 and graphemes[done] > max(0, start):
+                    lifts[unit_band(start, graphemes[done])] = lift_height
+                if character_band:
+                    lifts[character_band] = lift_height * ease_out_cubic(char[2])
         if char is not None and glow_strength > 0 and char[2] > 0:
-            first, last, phase = char
-            x1, x2 = _cursor_x(positions, first), _cursor_x(positions, last)
-            if abs(x2 - x1) > 0.01:
-                glows.append((min(x1, x2), max(x1, x2), phase, lift))
-        if edge_width > 0 and 0 < fill < len(text):
+            glows.append((*character_band, active_radius, opacity * glow_strength * char[2], None))
+        if cue_release is not None and timed_glow_opacity > _VISIBLE:
+            if source.subtitle_karaoke_blur_unit == "word":
+                targets = [(start, end, duration, age)]
+            else:
+                targets = [
+                    (max(start, first), min(end, last),
+                     duration * (min(end, last) - max(start, first)) / (end - start),
+                     age - duration * (max(start, first) - start) / (end - start))
+                    for first, last in zip(graphemes, graphemes[1:])
+                    if last > start and first < end and fill > max(start, first) and text[first:last].strip()
+                ]
+            for first, last, seconds, unit_age in targets:
+                strength = _karaoke_glow_envelope(
+                    timed_mode, seconds, unit_age, source.subtitle_karaoke_blur_min_duration, cue_release,
+                )
+                if strength > 0:
+                    reached = min(last, fill)
+                    if reached <= first:
+                        continue
+                    index = min(len(graphemes) - 1, bisect_left(graphemes, reached))
+                    active_end = min(last, graphemes[index])
+                    completed = min(reached, max(first, graphemes[max(0, index - 1)]))
+                    if reached == active_end:
+                        completed = reached
+                    # The full halo ends at the active grapheme. Its own halo
+                    # fades in with the fill, keeping untouched glyphs unlit.
+                    x_first, x_end = _cursor_x(positions, first), _cursor_x(positions, active_end)
+                    boundary = (x_end, x_end >= x_first) if active_end < len(text) else None
+                    brightness = timed_glow_opacity * strength
+                    if completed > first:
+                        glows.append((*unit_band(first, completed), timed_radius, brightness, boundary))
+                    if active_end > completed:
+                        fraction = (reached - completed) / (active_end - completed)
+                        glows.append((*unit_band(completed, active_end), timed_radius, brightness * fraction, boundary))
+        if edge_width > 0 and progress < 1 and 0 < fill < len(text):
             x = _cursor_x(positions, fill)
             # Follow the local writing direction (which may change within a span).
             first, last = graphemes[index:index + 2]
             glyph_start, glyph_end = _cursor_x(positions, first), _cursor_x(positions, last)
             direction = 1 if glyph_end >= glyph_start else -1
-            word_start, word_end = _cursor_x(positions, start), _cursor_x(positions, end)
-            before = min(edge_width / 2, max(0.0, direction * (x - word_start)))
-            after = min(edge_width / 2, max(0.0, direction * (word_end - x)))
+            row_start, row_end = positions[0], positions[-1]
+            before = min(edge_width / 2, max(0.0, direction * (x - row_start)))
+            after = min(edge_width / 2, max(0.0, direction * (row_end - x)))
             if before > 0.01 and after > 0.01:
                 soft_edges.append((x - direction * before, x + direction * after,
                                    before / (before + after)))
 
+    segments = []
+    if lifts:
+        edges = sorted({edge for band in lifts for edge in band})
+        for left, right in zip(edges, edges[1:]):
+            lift = max((height for (a, b), height in lifts.items() if a <= left and right <= b), default=0.0)
+            if lift > 0 and right - left > 0.01:
+                if segments and segments[-1][1:] == (left, lift):
+                    segments[-1] = (segments[-1][0], right, lift)
+                else:
+                    segments.append((left, right, lift))
     if glows:
-        radius = max(1.0, min(6.0, painter.font().pixelSize() * 0.075))
         ratio = device_pixel_ratio(painter)
-        for left, right, phase, lift in glows:
-            glow_key = ("karaoke glow", key, left, right, accent.rgba(), radius, ratio)
-            cached = item._lyric_ghost_cache.pop(glow_key, None)
-            if cached is None:
-                if len(item._lyric_ghost_cache) >= 96:
-                    item._lyric_ghost_cache.pop(next(iter(item._lyric_ghost_cache)))
-
-                def paint_glyph(raster):
-                    raster.translate(-left, 0)
-                    raster.setClipRect(QRectF(left, 0, right - left, row.height()))
-                    raster.fillPath(path, accent)
-
-                cached = item._blurred_raster(
-                    paint_glyph, QSizeF(right - left, row.height()), radius, ratio, solid_color=accent,
-                )
-            item._lyric_ghost_cache[glow_key] = cached
-            pixmap, margin = cached
-            painter.setOpacity(opacity * glow_strength * phase)
-            painter.drawPixmap(QPointF(row.left() + left - margin, row.top() - margin - lift), pixmap)
-    if not lifts:
+        glow_layers = {}
+        for left, right, radius, brightness, boundary in glows:
+            key_at_fill = (left, right, radius, boundary)
+            glow_layers[key_at_fill] = max(brightness, glow_layers.get(key_at_fill, 0.0))
+        for (left, right, radius, boundary), brightness in glow_layers.items():
+            if right - left <= 0.01 or brightness <= _VISIBLE:
+                continue
+            painter.save()
+            if boundary is not None:
+                x, forward = boundary
+                padding = radius * 3 + lift_height + 2
+                clip = row.adjusted(-padding, -padding, padding, padding)
+                if forward:
+                    clip.setRight(row.left() + x)
+                else:
+                    clip.setLeft(row.left() + x)
+                painter.setClipRect(clip, Qt.ClipOperation.IntersectClip)
+            cursor = left
+            for start, end, lift in segments:
+                if start >= right:
+                    break
+                if end <= cursor:
+                    continue
+                if start > cursor:
+                    _paint_lyric_halo(item, painter, row, key, path, accent, ratio, radius,
+                                      cursor, start, 0.0, brightness)
+                cursor = min(end, right)
+                _paint_lyric_halo(item, painter, row, key, path, accent, ratio, radius,
+                                  max(left, start), cursor, lift, brightness)
+            if cursor < right:
+                _paint_lyric_halo(item, painter, row, key, path, accent, ratio, radius,
+                                  cursor, right, 0.0, brightness)
+            painter.restore()
+    if not segments:
         paint_row(soft_edges)
         return
 
@@ -754,7 +830,7 @@ def _paint_karaoke_effects(item, painter, row, flags, text, offset, active_words
     bounds.adjust(-margin, -margin, margin, margin)
     rest = QPainterPath()
     rest.addRect(bounds)
-    for left, right, _lift in lifts:
+    for left, right, _lift in segments:
         band = QPainterPath()
         band.addRect(QRectF(row.left() + left, bounds.top(), right - left, bounds.height()))
         rest = rest.subtracted(band)
@@ -762,13 +838,46 @@ def _paint_karaoke_effects(item, painter, row, flags, text, offset, active_words
     painter.setClipPath(rest, Qt.ClipOperation.IntersectClip)
     paint_row(soft_edges)
     painter.restore()
-    for left, right, lift in lifts:
+    for left, right, lift in segments:
         painter.save()
-        painter.setClipRect(QRectF(row.left() + left, bounds.top(), right - left, bounds.height()),
-                            Qt.ClipOperation.IntersectClip)
+        band = QRectF(row.left() + left, bounds.top(), right - left, bounds.height())
+        painter.setClipRect(band, Qt.ClipOperation.IntersectClip)
         painter.translate(0, -lift)
         paint_row(soft_edges)
         painter.restore()
+
+
+def _paint_lyric_halo(item, painter, row, key, path, color, ratio, radius, left, right, lift, opacity):
+    if right - left <= 0.01:
+        return
+    glow_key = ("karaoke glow", key, left, right, color.rgba(), radius, ratio)
+    cached = item._lyric_ghost_cache.pop(glow_key, None)
+    if cached is None:
+        if len(item._lyric_ghost_cache) >= 96:
+            item._lyric_ghost_cache.pop(next(iter(item._lyric_ghost_cache)))
+
+        def paint_glyph(raster):
+            raster.translate(-left, 0)
+            raster.setClipRect(QRectF(left, 0, right - left, row.height()))
+            raster.fillPath(path, color)
+
+        cached = item._blurred_raster(
+            paint_glyph, QSizeF(right - left, row.height()), radius, ratio, solid_color=color,
+        )
+    item._lyric_ghost_cache[glow_key] = cached
+    pixmap, margin = cached
+    painter.setOpacity(opacity)
+    painter.drawPixmap(QPointF(row.left() + left - margin, row.top() - margin - lift), pixmap)
+
+
+def _karaoke_glow_envelope(mode, duration, age, minimum, cue_release=0.0):
+    released_for = cue_release if mode == "continuous" else cue_release + max(0.0, age - duration)
+    fade = 1.0 - ease_in_out_cubic(released_for / KARAOKE_GLOW_RELEASE_SECONDS)
+    if mode == "long":
+        peak = clamp_progress((duration - minimum) / (2 * minimum))
+        return peak * ease_in_out_cubic(age / duration) * fade
+    attack = ease_out_cubic(age / min(0.10, duration))
+    return attack * fade
 
 
 def _qtextline_cursor_x(line, cursor: int) -> float:

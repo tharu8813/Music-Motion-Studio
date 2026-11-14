@@ -441,13 +441,14 @@ class LyricsCustomizationTests(unittest.TestCase):
         self.assertEqual(source.subtitle_animation_duration, 0.6)
         store.update(source.id, subtitle_advanced_categories=["styles", "layout"])
         self.assertTrue(inspector.lyrics.widgets["subtitle_animation"].isEnabled())
-        self.assertFalse(inspector.lyrics.widgets["subtitle_previous_blur"].isEnabled())
+        self.assertFalse(inspector.lyrics.widgets["subtitle_previous_opacity"].isEnabled())
+        self.assertNotIn("subtitle_previous_blur", inspector.lyrics.widgets)
         self.assertFalse(inspector.text_alignment_combo.isEnabled())
         self.assertTrue(inspector.font_size_spin.isEnabled())
         translator.set_language(Language.ENGLISH)
         self.assertIn("Advanced mode", inspector.lyrics_mode_note.text())
         store.update(source.id, subtitle_advanced_categories=[])
-        self.assertTrue(inspector.lyrics.widgets["subtitle_previous_blur"].isEnabled())
+        self.assertTrue(inspector.lyrics.widgets["subtitle_previous_opacity"].isEnabled())
         self.assertTrue(inspector.text_alignment_combo.isEnabled())
         self.assertEqual(source.subtitle_animation_duration, 0.6)
 
@@ -500,6 +501,40 @@ class LyricsCustomizationTests(unittest.TestCase):
             reopened = LyricsAnimationDialog(Source.from_dict(self.source().to_dict() | dialog.settings()), translator)
             self.addCleanup(reopened.close)
             self.assertFalse(any(toggle.isChecked() for toggle in reopened.category_toggles.values()))
+
+    def test_blur_tab_saves_effects_and_non_intro_tabs_share_sample_clock(self):
+        source = self.source()
+        dialog = LyricsAnimationDialog(source, Translator())
+        self.addCleanup(dialog.close)
+        edge = dialog.controls["subtitle_karaoke_edge_blur"]
+        self.assertEqual((edge.value(), edge.maximum()), (15, 50))
+        edge.setValue(50)
+        blur_mode = dialog.controls["subtitle_karaoke_blur_mode"]
+        blur_mode.setCurrentIndex(blur_mode.findData("long"))
+        self.assertTrue(dialog.controls["subtitle_karaoke_blur_min_duration"].isEnabled())
+        settings = dialog.settings()
+        restored = Source.from_dict(source.to_dict() | settings)
+        self.assertEqual(restored.subtitle_karaoke_edge_blur, 50)
+        self.assertEqual(restored.subtitle_karaoke_blur_mode, "long")
+        dialog.preview_karaoke.setChecked(True)
+        dialog.preview_word_duration.setValue(1.2)
+        track, _ = dialog._preview_track()
+        self.assertEqual(track.lyrics[0]["format"], "ttml")
+        self.assertAlmostEqual(track.lyrics[0]["words"][0]["end"], 1.2)
+        dialog.preview_unit.setCurrentIndex(dialog.preview_unit.findData("character"))
+        dialog.preview_character_duration.setValue(0.4)
+        track, _ = dialog._preview_track()
+        self.assertAlmostEqual(track.lyrics[0]["words"][0]["end"], 0.4)
+        self.assertEqual(dialog.settings(), settings)
+        with patch.object(dialog, "_render_preview", wraps=dialog._render_preview) as render:
+            dialog.tabs.setCurrentIndex(1)
+            dialog.tabs.setCurrentIndex(dialog.tabs.count() - 1)
+            render.assert_not_called()
+            dialog.tabs.setCurrentIndex(dialog._intro_tab)
+            self.assertTrue(dialog.preview_timing.isHidden())
+            dialog.tabs.setCurrentIndex(0)
+            self.assertFalse(dialog.preview_timing.isHidden())
+            self.assertEqual(render.call_count, 2)
 
 
 if __name__ == "__main__":

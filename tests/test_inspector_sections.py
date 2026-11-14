@@ -80,7 +80,7 @@ class LyricsSectionTests(unittest.TestCase):
         hidden = self.section.hidden_when_off(Source(SourceType.LYRICS, "L", subtitle_context_lines=0))
         self.assertEqual(hidden, {
             "subtitle_wrap_to_source": False, "subtitle_wrap_width": False,
-            "subtitle_previous_opacity": False, "subtitle_previous_blur": False,
+            "subtitle_previous_opacity": False,
             "subtitle_accent_color": False,
             "subtitle_accent_enabled": True,
             "subtitle_karaoke_lines": False,
@@ -88,7 +88,7 @@ class LyricsSectionTests(unittest.TestCase):
             "subtitle_karaoke_pending_mode": False, "subtitle_karaoke_pending_color": False,
             "subtitle_karaoke_pending_brightness": False,
             "subtitle_karaoke_glow_enabled": False, "subtitle_karaoke_glow_strength": False,
-            "subtitle_karaoke_edge_blur": False, "subtitle_karaoke_lift": False,
+            "subtitle_karaoke_lift": False,
             "subtitle_karaoke_lift_unit": False,
         })
 

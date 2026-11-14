@@ -40,7 +40,7 @@ from app.preview.album_art import (
 )
 from app.preview.frame_state import (
     MixJunction, resolve_edge_animation, resolve_lyrics_cue_state, resolve_lyrics_intro_state,
-    resolve_lyrics_word_reveal, resolve_lyrics_overlapping_word_ranges, resolve_lyrics_active_words,
+    resolve_lyrics_word_reveal, resolve_lyrics_overlapping_word_ranges, resolve_lyrics_timed_words,
     lyrics_display_groups,
     resolve_now_playing_exit_state, resolve_timeline_window_phase,
 )
@@ -1050,7 +1050,7 @@ class CanvasSnapshot:
                     graphics_item._subtitle_intro_state,
                     graphics_item._subtitle_word_reveal,
                     graphics_item._subtitle_word_highlight_ranges,
-                    graphics_item._subtitle_active_words,
+                    graphics_item._subtitle_timed_words,
                     graphics_item._subtitle_overlap_prior_rows,
                     graphics_item._subtitle_gap_unblurred,
                     graphics_item._subtitle_before_first,
@@ -1111,9 +1111,13 @@ class CanvasSnapshot:
                     track, source, elapsed_seconds, cue_state, graphics_item._subtitle_intro_state,
                     word_reveal=graphics_item._subtitle_word_reveal,
                 )
-                graphics_item._subtitle_active_words = resolve_lyrics_active_words(
-                    track, source, elapsed_seconds, cue_state, graphics_item._subtitle_intro_state,
-                )
+                graphics_item._subtitle_timed_words = {}
+                timed_cues = {
+                    index: (release, rows)
+                    for index, release, rows in resolve_lyrics_timed_words(
+                        track, source, elapsed_seconds, cue_state, graphics_item._subtitle_intro_state,
+                    )
+                }
                 # The newest overlapping phrase owns the normal current-line
                 # position. Older active phrases remain visible and highlighted
                 # above it until their own end, without changing stored timings.
@@ -1235,6 +1239,25 @@ class CanvasSnapshot:
                         for slot, line_count in enumerate(block_line_counts)
                         for line_index in range(line_count)
                     )
+                    if timed_cues:
+                        row_offset = 0
+                        for display_index, line_count in zip(range(first, last), block_line_counts):
+                            cue = display_cues[display_index]
+                            originals = cue.get("display_cue_indices", (display_index,))
+                            if not any(index in timed_cues for index in originals):
+                                row_offset += line_count
+                                continue
+                            for index in originals:
+                                if index in timed_cues:
+                                    release, rows = timed_cues[index]
+                                    graphics_item._subtitle_timed_words.update(
+                                        (row_offset + row, (release, words))
+                                        for row, words in enumerate(rows) if words
+                                    )
+                                original = track.lyrics[index]
+                                displayed = display_cue(original) if source.subtitle_translation_enabled else original
+                                rows = lyric_display_lines(LyricsService.decode_line_breaks(displayed.get("text", "")))
+                                row_offset += max(1, len(rows))
                     source.text = "\n".join(block for block in blocks if block) or source.subtitle_fallback
                     relative_index = max(0, cue_index - first)
                     intro_state = graphics_item._subtitle_intro_state
@@ -1722,7 +1745,7 @@ class CanvasSnapshot:
                 graphics_item._subtitle_intro_state = intro_state
                 graphics_item._subtitle_word_reveal = word_reveal
                 graphics_item._subtitle_word_highlight_ranges = word_highlight_ranges
-                graphics_item._subtitle_active_words = active_words
+                graphics_item._subtitle_timed_words = active_words
                 graphics_item._subtitle_overlap_prior_rows = overlap_prior_rows
                 graphics_item._subtitle_gap_unblurred = gap_unblurred
                 graphics_item._subtitle_before_first = before_first

@@ -231,7 +231,7 @@ class MetadataStyleDialogTests(unittest.TestCase):
             self.assertTrue(inspector._field_widgets[key].isEnabled(), key)
             self.assertNotIn(key, inspector._lyrics_locked_fields)
         self.assertEqual(inspector._lyrics_locked_fields,
-                         {"subtitle_previous_opacity", "subtitle_previous_blur", "subtitle_current_scale"})
+                         {"subtitle_previous_opacity", "subtitle_current_scale"})
 
 
 if __name__ == "__main__":

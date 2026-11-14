@@ -263,7 +263,12 @@ class Source:
     subtitle_karaoke_lines: list[int] = field(default_factory=list)
     subtitle_karaoke_glow_enabled: bool = False
     subtitle_karaoke_glow_strength: float = 0.8
-    subtitle_karaoke_edge_blur: float = 0.0
+    subtitle_karaoke_edge_blur: float = 15.0
+    # Saved names retained when timed glyph blur became a glow.
+    subtitle_karaoke_blur_mode: str = "none"
+    subtitle_karaoke_blur_unit: str = "character"
+    subtitle_karaoke_blur_radius: float = 4.0
+    subtitle_karaoke_blur_min_duration: float = 0.25
     subtitle_karaoke_lift: float = 0.0
     subtitle_karaoke_lift_unit: str = "character"
     # Optional overrides by physical line position inside each multi-line cue.
@@ -421,10 +426,15 @@ class Source:
         return ("fill_color",)
 
     @property
+    def uses_timed_karaoke_glow(self) -> bool:
+        return self.subtitle_karaoke_enabled and self.subtitle_karaoke_blur_mode != "none" and self.subtitle_karaoke_blur_radius > 0
+
+    @property
     def uses_karaoke_character_effects(self) -> bool:
         return self.source_type is SourceType.LYRICS and self.subtitle_karaoke_enabled and (
             (self.subtitle_karaoke_glow_enabled and self.subtitle_karaoke_glow_strength > 0)
             or self.subtitle_karaoke_edge_blur > 0 or self.subtitle_karaoke_lift > 0
+            or self.uses_timed_karaoke_glow
         )
 
     @property
@@ -604,6 +614,8 @@ class Source:
             ("subtitle_intro_exit", ("shrink", "fade", "drift", "spread", "wipe")),
             ("subtitle_karaoke_pending_mode", ("custom", "dim")),
             ("subtitle_karaoke_lift_unit", ("character", "word")),
+            ("subtitle_karaoke_blur_unit", ("character", "word")),
+            ("subtitle_karaoke_blur_mode", ("none", "long", "filling", "continuous")),
         ):
             if getattr(source, name) not in allowed:
                 raise ValueError(f"Source '{source.name}' has an invalid {name}.")
@@ -635,7 +647,9 @@ class Source:
             "subtitle_karaoke_pending_brightness": (0.0, 1.0),
             "subtitle_karaoke_offset": (-5.0, 5.0),
             "subtitle_karaoke_glow_strength": (0.0, 1.0),
-            "subtitle_karaoke_edge_blur": (0.0, 16.0),
+            "subtitle_karaoke_edge_blur": (0.0, 50.0),
+            "subtitle_karaoke_blur_radius": (0.0, 12.0),
+            "subtitle_karaoke_blur_min_duration": (0.05, 3.0),
             "subtitle_karaoke_lift": (0.0, 16.0),
             "subtitle_animation_duration": (0.05, 3.0),
             "subtitle_motion_distance": (0.0, 200.0),
