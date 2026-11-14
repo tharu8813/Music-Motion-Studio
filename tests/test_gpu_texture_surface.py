@@ -44,6 +44,54 @@ class GpuTextureSurfaceTests(unittest.TestCase):
         self.assertEqual([call.args[0] for call in destroy.call_args_list], ["canvas", ("video", 1)])
 
     @unittest.skipUnless(GPU_TEXTURE_SURFACE_AVAILABLE, "Qt OpenGL unavailable")
+    def test_texture_cache_in_budget_only_evicts_expired_inactive_layers(self) -> None:
+        surface = GpuTexturePreviewSurface()
+        self.addCleanup(surface.deleteLater)
+        surface._frame_serial = 100
+        # Deliberately insert newest first, then oldest: the fast path should
+        # not sort by age when all entries fit within the budget.
+        surface._textures = {
+            "recent": _TextureEntry(None, 0, 1, 1, 4, 99),
+            "expired-newer": _TextureEntry(None, 0, 1, 1, 4, 9),
+            "expired-older": _TextureEntry(None, 0, 1, 1, 4, 0),
+            "active-expired": _TextureEntry(None, 0, 1, 1, 4, 0),
+        }
+        surface._allocated_bytes = 16
+        with patch.object(surface, "_destroy_texture") as destroy:
+            surface._evict_texture_cache({"active-expired"})
+        self.assertEqual(
+            [call.args[0] for call in destroy.call_args_list],
+            ["expired-newer", "expired-older"],
+        )
+        self.assertTrue(all(call.kwargs.get("evicted") for call in destroy.call_args_list))
+
+    @unittest.skipUnless(GPU_TEXTURE_SURFACE_AVAILABLE, "Qt OpenGL unavailable")
+    def test_texture_cache_over_budget_preserves_oldest_first_eviction(self) -> None:
+        surface = GpuTexturePreviewSurface(texture_budget_bytes=1024 * 1024)
+        self.addCleanup(surface.deleteLater)
+        surface._frame_serial = 10
+        allocation = 512 * 1024
+        surface._textures = {
+            "newer": _TextureEntry(None, 0, 1, 1, allocation, 9),
+            "active-old": _TextureEntry(None, 0, 1, 1, allocation, 0),
+            "oldest": _TextureEntry(None, 0, 1, 1, allocation, 1),
+        }
+        surface._allocated_bytes = allocation * 3
+        removed = []
+
+        def destroy(key, *, evicted=False):
+            self.assertTrue(evicted)
+            removed.append(key)
+            entry = surface._textures.pop(key)
+            surface._allocated_bytes -= entry.allocated_bytes
+
+        with patch.object(surface, "_destroy_texture", side_effect=destroy):
+            surface._evict_texture_cache({"active-old"})
+        self.assertEqual(removed, ["oldest"])
+        self.assertEqual(surface._allocated_bytes, allocation * 2)
+        self.assertEqual(set(surface._textures), {"newer", "active-old"})
+
+    @unittest.skipUnless(GPU_TEXTURE_SURFACE_AVAILABLE, "Qt OpenGL unavailable")
     def test_repaint_swaps_do_not_count_as_new_scene_frames(self) -> None:
         surface = GpuTexturePreviewSurface()
         surface._frame_serial = 1
