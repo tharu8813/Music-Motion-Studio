@@ -1,4 +1,5 @@
 """Relative short motions on the existing dynamic-layer FFmpeg adapter."""
+from bisect import bisect_right
 from copy import deepcopy
 from dataclasses import dataclass
 
@@ -49,7 +50,11 @@ class CustomMotionRenderBinding:
         source = self.source
         if not self.windows:
             return AnimationPose()
-        window = next((w for w in reversed(self.windows) if seconds >= w[0]), self.windows[0])
+        # Windows are sorted by visual-owner start. Preserve the previous
+        # selection policy in gaps and outside the timeline (first before
+        # the first start, last after the final start) without O(N) scanning.
+        index = max(0, bisect_right(self.windows, seconds, key=lambda w: w[0]) - 1)
+        window = self.windows[index]
         start, end, intro, outro = window
         if source.animation_in == "custom" and intro > 0 and seconds < start + intro:
             return self.motion(True).at(max(0, min(1, (seconds - start) / intro)))
