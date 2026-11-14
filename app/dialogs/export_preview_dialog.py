@@ -692,6 +692,13 @@ class ExportPreviewDialog(QDialog):
             self.setWindowFlags(Qt.WindowType.Widget)
         self.scene = scene
         self.tracks = tracks
+        # A compiled PresentationPlan stores track IDs, not list positions.
+        # Both playback and visual-handover paths query that owner on every
+        # frame. Index once instead of scanning a large playlist each time.
+        # setdefault preserves the old first-match semantics for duplicate IDs.
+        self._track_index_by_id: dict[str, int] = {}
+        for index, track in enumerate(tracks):
+            self._track_index_by_id.setdefault(track.id, index)
         # A caller that already ran the AutoMix/crossfade preparation dialog
         # to completion hands over the final plan directly, so the timeline
         # and track boundaries below are final from the very first frame
@@ -1365,7 +1372,11 @@ class ExportPreviewDialog(QDialog):
         plan = getattr(self, "_compiled_plan", None)
         if plan is not None and plan.presentation.windows:
             window = plan.presentation._window_at(playlist_seconds)
-            index = next(i for i, track in enumerate(self.tracks) if track.id == window.track_id)
+            indexes = getattr(self, "_track_index_by_id", None)
+            index = (
+                indexes[window.track_id] if indexes is not None
+                else next(i for i, track in enumerate(self.tracks) if track.id == window.track_id)
+            )
             return index, self.tracks[index], plan.presentation.local_time(playlist_seconds), window.timeline_start
         schedule = getattr(self, "_track_schedule", None)
         starts = getattr(self, "_track_schedule_starts", None)
@@ -1407,7 +1418,11 @@ class ExportPreviewDialog(QDialog):
             cached = self._visual_segments_cache = (plan, visual_segments(plan))
         segment = visual_segment_at(cached[1], playlist_seconds)
         window = plan.presentation.windows[segment.window_index]
-        index = next(i for i, track in enumerate(self.tracks) if track.id == window.track_id)
+        indexes = getattr(self, "_track_index_by_id", None)
+        index = (
+            indexes[window.track_id] if indexes is not None
+            else next(i for i, track in enumerate(self.tracks) if track.id == window.track_id)
+        )
         clamped = min(max(playlist_seconds, window.timeline_start), window.timeline_end)
         elapsed = window.source_time_at_start + (clamped - window.timeline_start) * window.playback_rate
         return (
