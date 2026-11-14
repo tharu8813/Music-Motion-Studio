@@ -19,6 +19,11 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # A stable group cancels obsolete PR heads; each main/dispatch run has its own id.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 # Run on a disposable Windows Actions host. This does not certify a clean
 # consumer Windows 11 session, but does exercise the actual Setup executable.
 jobs:

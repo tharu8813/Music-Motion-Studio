@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # A stable group cancels obsolete PR heads; each main/dispatch run has its own id.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   verify-windows-build:
     runs-on: windows-latest

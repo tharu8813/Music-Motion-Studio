@@ -162,6 +162,18 @@ class ReleaseContractTests(unittest.TestCase):
         ]
         self.assertEqual(missing, [])
 
+    def test_windows_ci_cancels_only_superseded_pull_request_runs(self) -> None:
+        for relative_path in (
+            ".github/workflows/deployment.yml",
+            ".github/workflows/windows-installer-acceptance.yml",
+        ):
+            with self.subTest(workflow=relative_path):
+                workflow = (ROOT / relative_path).read_text(encoding="utf-8")
+                self.assertIn("concurrency:", workflow)
+                self.assertIn("github.workflow", workflow)
+                self.assertIn("github.event.pull_request.number || github.run_id", workflow)
+                self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", workflow)
+
     def test_installer_registers_pvsproj_file_association(self) -> None:
         installer = (ROOT / "setup.iss").read_text(encoding="utf-8")
         self.assertIn("ChangesAssociations=yes", installer)
