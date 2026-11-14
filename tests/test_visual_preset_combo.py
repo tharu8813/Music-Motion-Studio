@@ -6,9 +6,11 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QComboBox, QListWidget
 
 from app.widgets.visual_preset_combo import VisualPresetComboBox, _preview_icon
+from app.models.source import Source, SourceType
 
 
 class VisualPresetComboTests(unittest.TestCase):
@@ -63,6 +65,50 @@ class VisualPresetComboTests(unittest.TestCase):
         self.assertEqual(combo.currentData(), "slide_left")
         self.assertFalse(combo._timer.isActive())
         self.assertIsNone(combo._list)
+
+    def test_five_option_grid_has_three_real_columns(self):
+        combo = VisualPresetComboBox("progress")
+        self.addCleanup(combo.deleteLater)
+        for value in ("rounded", "spotify", "apple", "youtube", "gradient"):
+            combo.addItem(value, value)
+        combo.show()
+        combo.showPopup()
+        self.app.processEvents()
+        view = combo._list
+        self.assertIsNotNone(view)
+        positions = [view.visualItemRect(view.item(i)) for i in range(5)]
+        # Windows previously made a three-column popup with a two-column
+        # viewport due to missing scrollbar width, wasting a whole strip.
+        self.assertEqual(positions[0].top(), positions[2].top())
+        self.assertGreater(positions[2].left(), positions[1].left())
+        self.assertGreaterEqual(view.viewport().width(), view.gridSize().width() * 3)
+        combo.hidePopup()
+
+    def test_click_again_closes_and_subsequent_click_reopens(self):
+        combo = self.make_combo()
+        combo.show()
+        combo.showPopup()
+        self.assertIsNotNone(combo._popup)
+        QTest.mouseClick(combo, Qt.MouseButton.LeftButton)
+        self.app.processEvents()
+        self.assertIsNone(combo._popup)
+        QTest.mouseClick(combo, Qt.MouseButton.LeftButton)
+        self.app.processEvents()
+        self.assertIsNotNone(combo._popup)
+        combo.hidePopup()
+
+    def test_previews_use_selected_source_colors_and_real_styles(self):
+        source = Source(SourceType.PROGRESS_BAR, "Example", fill_color="#44FF00")
+        image = _preview_icon("progress", "rounded", 0, source).pixmap(112, 72).toImage()
+        self.assertEqual(image.pixelColor(36, 35).name(), "#44ff00")
+        self.assertNotEqual(
+            _preview_icon("visualizer", "radial", .4).pixmap(112, 72).toImage(),
+            _preview_icon("visualizer", "arc", .4).pixmap(112, 72).toImage(),
+        )
+        self.assertNotEqual(
+            _preview_icon("now_playing", "minimal", 0).pixmap(112, 72).toImage(),
+            _preview_icon("now_playing", "glass", 0).pixmap(112, 72).toImage(),
+        )
 
     def test_previews_are_illustrations_and_have_valid_pixmaps(self):
         for kind, value in (
