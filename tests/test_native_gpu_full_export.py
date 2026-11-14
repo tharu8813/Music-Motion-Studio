@@ -470,6 +470,75 @@ class NativeGpuFullProjectTests(unittest.TestCase):
                         gpu_profile_qt_paint=True,
                     )
 
+    def test_qt_state_profiler_flag_is_developer_only(self):
+        self.assertFalse(
+            NativeGpuOptimizations.for_profile("automatic").profile_canvas_state_setup
+        )
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "project.json"
+            source.write_text("{}", encoding="utf8")
+            for profile in (None, "standard", "accelerated", "cpu_parallel"):
+                with self.subTest(profile=profile), self.assertRaisesRegex(
+                    ValueError, "--gpu-profile-qt-state requires --gpu-profile automatic",
+                ):
+                    export_complete_project(
+                        source, root / "out.mp4", gpu_profile=profile,
+                        gpu_profile_qt_state=True,
+                    )
+
+    def test_native_qt_source_state_report_matches_unprofiled_bgra(self):
+        ffmpeg = os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG") or shutil.which("ffmpeg")
+        if not ffmpeg or not Path(ffmpeg).is_file():
+            self.skipTest("Verified FFmpeg required for state profiling")
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            audio = root / "sine.wav"
+            sample_wav(audio)
+            project = dynamic_project(audio)
+            before = project.to_dict()
+            common = dict(
+                fps=30, scale=0.25, prepared_audio=audio, ffmpeg=str(ffmpeg),
+            )
+            automatic = NativeGpuOptimizations.for_profile("automatic")
+            baseline_report = {}
+            baseline = list(produce_complete_project_frames(
+                project, **common, optimizations=automatic,
+                raster_counters=baseline_report,
+            ))
+            profile_report = {}
+            profiled = list(produce_complete_project_frames(
+                project, **common,
+                optimizations=replace(automatic, profile_canvas_state_setup=True),
+                raster_counters=profile_report,
+            ))
+            self.assertEqual(profiled, baseline)
+            self.assertEqual(len(profiled), 30)
+            self.assertEqual(project.to_dict(), before)
+            self.assertNotIn("qt_canvas_source_type_state_setup", baseline_report)
+            self.assertNotIn("qt_canvas_state_preloop_seconds", baseline_report)
+            self.assertIn("qt_canvas_source_type_state_setup", profile_report)
+            by_type = profile_report["qt_canvas_source_type_state_setup"]
+            self.assertTrue(by_type)
+            self.assertTrue(set(by_type).issubset({
+                source.source_type.value for source in project.sources
+            }))
+            self.assertGreater(sum(entry["calls"] for entry in by_type.values()), 0)
+            self.assertTrue(all(
+                entry["seconds"] >= 0 and entry["calls"] > 0
+                for entry in by_type.values()
+            ))
+            setup = profile_report["qt_canvas_state_setup_seconds"]
+            self.assertGreater(setup, 0)
+            self.assertLessEqual(
+                sum(entry["seconds"] for entry in by_type.values()),
+                setup + 0.2,
+            )
+            self.assertGreaterEqual(profile_report["qt_canvas_state_preloop_seconds"], 0)
+            self.assertLessEqual(
+                profile_report["qt_canvas_state_preloop_seconds"], setup + 0.2,
+            )
+
     def test_alpha_trim_flag_is_developer_only(self):
         self.assertFalse(NativeGpuOptimizations.for_profile("automatic").trim_transparent_bands)
         self.assertFalse(NativeGpuOptimizations.for_profile("automatic").reuse_equal_pixels)
