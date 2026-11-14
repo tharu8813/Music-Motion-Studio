@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QPushButton,
 
 from app.inspector.editors.base import FieldSection, editing, show_fields
 from app.models.source import Source
+from app.widgets.visual_preset_combo import VisualPresetComboBox
 
 if TYPE_CHECKING:
     from app.inspector.source_inspector import SourceInspector
@@ -92,7 +93,7 @@ class TrackListSection(FieldSection):
     ) -> None:
         count = QSpinBox()
         count.setRange(0, 15)  # 0 = automatic
-        style = QComboBox()
+        style = VisualPresetComboBox("track_list")
         for label, value in (
             ("Compact", "compact"), ("Cards", "cards"), ("Queue", "queue"),
             ("Minimal", "minimal"), ("Scroll / fade", "scroll"),
