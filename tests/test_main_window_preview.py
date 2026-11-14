@@ -1463,13 +1463,13 @@ class MainWindowPreviewTests(MainWindowTestCase):
                 pass
 
         with patch("app.dialogs.export_preview_dialog.save_preview_quality", side_effect=lambda v: v):
-            preview.set_preview_quality("frames")
+            preview.set_preview_quality("balanced")
         selected_scale = preview.preview_render_scale
         preview.gpu_surface = SurfaceStub()
         preview.gpu_preview_enabled = True
         preview._playing = True
         preview._frame_stats_clock = ClockStub()
-        preview._scene_cadence_target = 60  # Simulate a continuously animated scene.
+        preview._scene_cadence_target = 30  # Simulate a continuously animated scene.
         preview._base_image = QImage(64, 36, QImage.Format.Format_RGBA8888)
         for _ in range(2):
             preview._presented_frames = 5
