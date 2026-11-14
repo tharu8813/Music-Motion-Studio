@@ -69,6 +69,7 @@ from app.inspector.navigation import CATEGORY_LABELS, CATEGORY_OWNER, consolidat
 from app.utils.font_loader import load_application_font
 from app.utils.i18n import Translator
 from app.widgets.token_text_editor import TokenLineEdit
+from app.widgets.visual_preset_combo import VisualPresetComboBox
 
 
 class _CollapsibleGroup(QWidget):
@@ -303,10 +304,10 @@ class SourceInspector(QScrollArea):
         self.video_settings_button = QPushButton()
         self._add_labeled_row(content_form, "video_settings", self.video_settings_button)
 
-        self.shape_kind_combo = QComboBox()
+        self.shape_kind_combo = VisualPresetComboBox("shape")
         for value in SHAPE_KINDS:
             self.shape_kind_combo.addItem(value, value)
-        self.progress_style_combo = QComboBox()
+        self.progress_style_combo = VisualPresetComboBox("progress")
         for label, value in (
             ("Rounded", "rounded"), ("Spotify", "spotify"), ("Apple Music", "apple"),
             ("YouTube", "youtube"), ("Gradient", "gradient"),
@@ -342,11 +343,11 @@ class SourceInspector(QScrollArea):
         self.progress_mode_combo = QComboBox()
         for label, value in (("Current track", "track"), ("Whole video", "video")):
             self.progress_mode_combo.addItem(label, value)
-        self.progress_knob_combo = QComboBox()
+        self.progress_knob_combo = VisualPresetComboBox("knob")
         for label, value in (("Style default", "auto"), ("None", "none"),
                              ("Circle", "circle"), ("Bar", "bar")):
             self.progress_knob_combo.addItem(label, value)
-        self.album_frame_combo = QComboBox()
+        self.album_frame_combo = VisualPresetComboBox("album_frame")
         for label, value in (("Rounded", "rounded"), ("Circle", "circle"), ("Polaroid", "polaroid"), ("Glass", "glass")):
             self.album_frame_combo.addItem(label, value)
         self.track_list = TrackListSection(self._spin, self._color_button)
@@ -360,7 +361,7 @@ class SourceInspector(QScrollArea):
         self.typography = TypographySection(self._spin)
         self.motion = MotionSection(self._spin)
         self.visualizer_center_cover_button = QPushButton()
-        self.waveform_style_combo = QComboBox()
+        self.waveform_style_combo = VisualPresetComboBox("waveform")
         for label, value in (("Line", "line"), ("Filled", "filled"), ("Mirror", "mirror")):
             self.waveform_style_combo.addItem(label, value)
         self.level_meter = LevelMeterSection(self._spin, self._color_button)
@@ -489,8 +490,8 @@ class SourceInspector(QScrollArea):
         self.shadow_y_spin = self._spin(-100, 100, 1)
         self._slider_spin_editor(self.shadow_opacity_spin)
         self._slider_spin_editor(self.shadow_blur_spin)
-        self.animation_in_combo = QComboBox()
-        self.animation_out_combo = QComboBox()
+        self.animation_in_combo = VisualPresetComboBox("entrance")
+        self.animation_out_combo = VisualPresetComboBox("exit")
         self.animation_in_edit_button = QPushButton()
         self.animation_out_edit_button = QPushButton()
         for combo in (self.animation_in_combo, self.animation_out_combo):
