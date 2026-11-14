@@ -38,6 +38,18 @@ python -m tools.preview_ab_report --baseline build/preview-A1.json build/preview
 - NVIDIA 전체 GPU 사용률은 공유 장치 수치로, 해당 프로그램의 GPU 점유율 증거가 아니다.
 - `performance_only=true`: 어떤 결과도 자동으로 품질·타이밍·배포 검증 통과를 뜻하지 않는다.
 
+## 렌더링 단계별 P95 확인
+
+A-B-B-A 보고서의 `profile_stage_p95_ms`에는 프로파일이 활성화된 실행의 **Canvas 캡처, Qt 장면 페인트, GPU 레이어 준비/업로드, 영상 CPU 필터·블러, GL 제출, GUI 지연** 등 이미 기록된 개별 단계가 포함된다.
+
+- `baseline_p95_mean_ms` / `candidate_p95_mean_ms`: A1·A2와 B1·B2 각각의 단계별 최근 95백분위 호출 시간을 평균한 값. **실시간 전체 프레임의 P95와 다르다.**
+- `sample_counts_abba`: A1 → B1 → B2 → A2에서 실제로 그 단계를 관측한 횟수. 캐시·프록시 사용 방식이나 장면이 달라 호출 빈도가 변하면 시간 수치만 단독으로 해석하지 않는다.
+- `candidate_change_percent`와 `*_pair_spread_percent`를 함께 보고 재현 가능한 차이인지 판단한다.
+- 모든 결과에서 동일한 단계가 기록되지 않았거나 유효 표본이 없으면 해당 항목은 **생략**한다. 누락을 0ms나 최적화 성공으로 간주하지 않는다.
+- 단계별 계측은 **포함 관계가 있는 wall time**이다. 예컨대 Canvas 전체 캡처 안에 장면 페인트가 포함될 수 있으므로 숫자를 합치지 않는다. GL 호출 시간은 GPU 칩 내부 실행 시간이 아니다.
+
+이 도구는 원인 후보를 좁히기 위한 진단 수단이다. 변경 전후 화면 픽셀, 타임스탬프, 음원 동기, GPU 드라이버 안정성은 여전히 별도로 검증한다.
+
 ## 장면별 후속 검증
 
 기존 [미리보기 실기기 검증](2026-11-04-preview-rendering-validation.md)의 A~F 장면과 비교할 때는 **과거 원본 코드/품질 모드가 현재와 다름**을 유의한다. 새로운 기준 A1/B1/B2/A2는 최신 baseline과 후보를 **동일 모드**로 다시 측정해야 한다.
