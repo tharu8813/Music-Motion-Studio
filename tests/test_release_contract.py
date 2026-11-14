@@ -217,7 +217,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("$expectedOpenCommand = ", script)
         self.assertIn("[System.StringComparison]::OrdinalIgnoreCase", script)
         self.assertIn("Uninstallation left a file association", script)
-        self.assertIn("Registry::HKEY_CLASSES_ROOT\\\\PlaylistCanvas.Project\\\\shell\\\\open\\\\command", script)
+        self.assertIn("Registry::HKEY_CLASSES_ROOT\\PlaylistCanvas.Project\\shell\\open\\command", script)
         self.assertIn("restricted to disposable GitHub Actions Windows runners", script)
 
     def test_reinstall_clears_the_shipped_payload_and_checks_deletion(self) -> None:
