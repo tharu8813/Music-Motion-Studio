@@ -276,7 +276,8 @@ class CanvasSnapshot:
     def capture(scene: CanvasScene, output_scale: float = 1.0,
                 z_min: float | None = None, z_max: float | None = None,
                 transparent: bool = False, image_buffer: QImage | None = None,
-                capture_rect: QRectF | None = None, background_image: QImage | None = None) -> QImage:
+                capture_rect: QRectF | None = None, background_image: QImage | None = None,
+                capture_stage_metrics: dict[str, float] | None = None) -> QImage:
         """Render all or one Z-index band of the artboard at project resolution.
 
         Transparent Z bands are the basis for interleaving static Canvas content
@@ -284,6 +285,7 @@ class CanvasSnapshot:
         ``background_image`` seeds a full-size preview capture with its cached
         base. Transparent scene painting leaves that base underneath the items.
         """
+        capture_started = monotonic() if capture_stage_metrics is not None else None
         artboard = scene.artboard_rect
         requested_rect = capture_rect if capture_rect is not None else artboard
         source_rect = requested_rect.intersected(artboard)
@@ -334,15 +336,23 @@ class CanvasSnapshot:
             if accelerated is not None:
                 image = accelerated
             else:
+                image_started = monotonic() if capture_stage_metrics is not None else None
                 if background_image is not None:
                     image = background_image.copy()
                 else:
                     image = reusable_image if reusable_image is not None else QImage(width, height, image_format)
                     image.fill(Qt.GlobalColor.transparent if transparent else Qt.GlobalColor.black)
+                if capture_stage_metrics is not None:
+                    capture_stage_metrics["image_prepare_seconds"] = monotonic() - image_started
                 painter = QPainter(image)
                 try:
                     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-                    CanvasSnapshot._paint_scene(scene, painter, target, source_rect)
+                    scene_started = monotonic() if capture_stage_metrics is not None else None
+                    try:
+                        CanvasSnapshot._paint_scene(scene, painter, target, source_rect)
+                    finally:
+                        if capture_stage_metrics is not None:
+                            capture_stage_metrics["scene_render_seconds"] = monotonic() - scene_started
                 finally:
                     painter.end()
             for item in selected_items:
@@ -355,6 +365,8 @@ class CanvasSnapshot:
             scene.guide_y = guide_y
             scene.suppress_render_background = background_suppressed
             scene.blockSignals(False)
+        if capture_stage_metrics is not None:
+            capture_stage_metrics["capture_total_seconds"] = monotonic() - capture_started
         return image
 
     @staticmethod
@@ -869,6 +881,7 @@ class CanvasSnapshot:
                       partial_render_keep_cropped: bool = False,
                       render_metrics: dict[str, object] | None = None,
                       profile_source_state: bool = False,
+                      profile_capture_paint: bool = False,
                       band_source_items: Sequence[SourceItem] | None = None,
                       background_image: QImage | None = None,
                       junction: MixJunction | None = None,
@@ -1720,11 +1733,16 @@ class CanvasSnapshot:
                             ) if partial_render_pixel_aligned else candidate
                         )
                         used_partial_render = True
+            capture_stage_metrics = (
+                {} if profile_capture_paint and render_metrics is not None else None
+            )
             captured = CanvasSnapshot.capture(
                 scene, output_scale, z_min=z_min, z_max=z_max, transparent=transparent,
                 image_buffer=(None if used_partial_render else image_buffer),
                 capture_rect=effective_capture_rect,
                 **({"background_image": background_image} if background_image is not None else {}),
+                **({"capture_stage_metrics": capture_stage_metrics}
+                   if capture_stage_metrics is not None else {}),
             )
             if (used_partial_render and effective_capture_rect is not None
                     and not partial_render_keep_cropped):
@@ -1735,6 +1753,8 @@ class CanvasSnapshot:
                     output_scale,
                 )
             if render_metrics is not None:
+                if capture_stage_metrics is not None:
+                    render_metrics["capture_stage_costs"] = capture_stage_metrics
                 render_metrics["partial_render"] = used_partial_render
                 render_metrics["capture_rect"] = effective_capture_rect
                 render_metrics["paint_stage_seconds"] = monotonic() - phase_started

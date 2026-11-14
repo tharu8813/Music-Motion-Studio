@@ -324,6 +324,10 @@ def produce_complete_project_frames(
             # Record resident bytes before clear() drops cache allocations.
             if raster_counters is not None:
                 if profile_paint:
+                    raster_counters["qt_canvas_capture_stage_costs"] = {
+                        stage: dict(cost)
+                        for stage, cost in raster_cache.qt_canvas_capture_stage_costs.items()
+                    }
                     raster_counters["qt_canvas_source_type_paint"] = {
                         category: dict(costs)
                         for category, costs in paint_costs.items()

@@ -175,8 +175,7 @@ class AutoMixDetailsPanelTests(unittest.TestCase):
 
     def test_settings_show_only_controls_and_help_for_selected_mode(self) -> None:
         from PySide6.QtCore import QObject, Signal
-        from PySide6.QtGui import QPixmap
-        from app.dialogs.project_settings_dialog import ProjectSettingsDialog
+        from app.dialogs.project_audio_settings_dialog import ProjectAudioSettingsDialog
         from app.models.project import ProjectSettings
 
         class TranslatorStub(QObject):
@@ -184,7 +183,7 @@ class AutoMixDetailsPanelTests(unittest.TestCase):
             is_korean = False
 
         translator = TranslatorStub()
-        dialog = ProjectSettingsDialog(ProjectSettings(), translator, QPixmap())
+        dialog = ProjectAudioSettingsDialog(ProjectSettings(), translator)
         self.addCleanup(dialog.deleteLater)
         self.assertTrue(dialog.crossfade_row.isHidden())
         dialog.transition_crossfade_radio.setChecked(True)

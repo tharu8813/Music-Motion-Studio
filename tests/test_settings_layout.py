@@ -8,6 +8,7 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication
 from app.dialogs.settings_dialog import SettingsDialog
 from app.dialogs.project_settings_dialog import ProjectSettingsDialog
+from app.dialogs.project_audio_settings_dialog import ProjectAudioSettingsDialog
 from app.models.project import ProjectSettings
 from app.services.app_settings_service import AppSettings
 from app.services.theme_service import Theme
@@ -44,12 +45,13 @@ class SettingsLayoutTests(unittest.TestCase):
                 translator.set_language(language)
                 settings = SettingsDialog(AppSettings(), language, Theme.AUTO, translator)
                 project = ProjectSettingsDialog(ProjectSettings(), translator, QPixmap())
+                audio = ProjectAudioSettingsDialog(ProjectSettings(), translator)
                 try:
                     settings.crf_spin.setValue(19)
                     project.title_edit.setText("Edited project")
-                    project.transition_crossfade_radio.setChecked(True)
-                    project.crossfade_seconds_spin.setValue(5.5)
-                    for dialog in (settings, project):
+                    audio.transition_crossfade_radio.setChecked(True)
+                    audio.crossfade_seconds_spin.setValue(5.5)
+                    for dialog in (settings, project, audio):
                         dialog.resize(dialog.minimumWidth(), dialog.minimumHeight())
                         dialog.show()
                         for index in range(dialog.tabs.count()):
@@ -60,11 +62,13 @@ class SettingsLayoutTests(unittest.TestCase):
                     self.assertEqual(settings.app_settings.crf, 19)
                     project._accept()
                     self.assertEqual(project.selected_settings.title, "Edited project")
-                    self.assertEqual(project.selected_settings.crossfade_seconds, 5.5)
-                    self.assertEqual(project.selected_settings.transition_mode, "crossfade")
+                    audio._accept()
+                    self.assertEqual(audio.selected_settings.crossfade_seconds, 5.5)
+                    self.assertEqual(audio.selected_settings.transition_mode, "crossfade")
                 finally:
                     settings.close()
                     project.close()
+                    audio.close()
         finally:
             translator.set_language(original)
 

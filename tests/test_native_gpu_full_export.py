@@ -609,7 +609,9 @@ class NativeGpuFullProjectTests(unittest.TestCase):
                 raster_counters=metrics,
             )
             seen = 0
+            profiled = []
             for frame in frames:
+                profiled.append(frame.resolve() if hasattr(frame, "resolve") else frame)
                 seen += 1
                 self.assertEqual((frame.width, frame.height), (320, 180))
                 if seen == 1:
@@ -620,6 +622,30 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             self.assertEqual(project.to_dict(), snapshot)
             self.assertEqual(metrics["retained_bytes"], 0)
             self.assertIn("qt_canvas_band_timing", metrics)
+            stages = metrics["qt_canvas_capture_stage_costs"]
+            for stage in ("image_prepare_seconds", "scene_render_seconds", "capture_total_seconds"):
+                self.assertIn(stage, stages)
+                self.assertGreater(stages[stage]["calls"], 0)
+                self.assertGreater(stages[stage]["seconds"], 0)
+                self.assertLessEqual(
+                    stages[stage]["seconds"],
+                    metrics["qt_canvas_paint_stage_seconds"] + 0.2,
+                )
+            self.assertLessEqual(
+                stages["scene_render_seconds"]["seconds"],
+                stages["capture_total_seconds"]["seconds"] + 0.2,
+            )
+            baseline_report = {}
+            baseline = [
+                frame.resolve() if hasattr(frame, "resolve") else frame
+                for frame in produce_complete_project_frames(
+                    project, fps=30, scale=0.25, prepared_audio=audio,
+                    ffmpeg=str(ffmpeg), optimizations=NativeGpuOptimizations.for_profile("automatic"),
+                    raster_counters=baseline_report,
+                )
+            ]
+            self.assertEqual(profiled, baseline)
+            self.assertNotIn("qt_canvas_capture_stage_costs", baseline_report)
             self.assertIn("qt_canvas_source_type_paint", metrics)
             by_type = metrics["qt_canvas_source_type_paint"]
             self.assertTrue(by_type)
