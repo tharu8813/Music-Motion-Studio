@@ -748,9 +748,11 @@ def _paint_karaoke_effects(
                     reached = min(last, fill)
                     if reached <= first:
                         continue
-                    index = min(len(graphemes) - 1, bisect_left(graphemes, reached))
-                    active_end = min(last, graphemes[index])
-                    completed = min(reached, max(first, graphemes[max(0, index - 1)]))
+                    # Do not overwrite the fill's grapheme index: edge blur below
+                    # still needs it, even when the glow reaches the last boundary.
+                    glow_boundary_index = min(len(graphemes) - 1, bisect_left(graphemes, reached))
+                    active_end = min(last, graphemes[glow_boundary_index])
+                    completed = min(reached, max(first, graphemes[max(0, glow_boundary_index - 1)]))
                     if reached == active_end:
                         completed = reached
                     # The full halo ends at the active grapheme. Its own halo
