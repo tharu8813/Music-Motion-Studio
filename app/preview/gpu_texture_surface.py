@@ -766,6 +766,21 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
 
         def _evict_texture_cache(self, active_keys: set[Hashable]) -> None:
             """Retain recent textures briefly, then enforce the VRAM budget."""
+            if self._allocated_bytes <= self._texture_budget_bytes:
+                # Most preview frames are within budget. Only age matters in
+                # that case; sorting every cached texture adds needless work.
+                # Materialize keys before destruction to avoid dict mutation
+                # while walking it. Keep oldest-first eviction below for
+                # frames that genuinely exceed the VRAM budget.
+                expired = [
+                    key for key, entry in self._textures.items()
+                    if key not in active_keys
+                    and self._frame_serial - entry.last_used_frame
+                    >= self._texture_retention_frames
+                ]
+                for key in expired:
+                    self._destroy_texture(key, evicted=True)
+                return
             candidates = sorted(
                 (
                     (entry.last_used_frame, key)
