@@ -15,11 +15,34 @@ from PySide6.QtWidgets import QApplication
 
 from app.canvas.live_canvas import CanvasScene
 from app.dialogs.export_preview_dialog import ExportPreviewDialog, PreviewCoverWorker
+from app.dialogs.export_preview_dialog import (
+    PreviewTrackDelegate, TRACK_ROW_ROLE, _track_details,
+)
+from app.widgets.preview_track_delegate import (
+    PreviewTrackDelegate as IsolatedPreviewTrackDelegate,
+    TRACK_ROW_ROLE as ISOLATED_TRACK_ROW_ROLE,
+    _track_details as isolated_track_details,
+)
 from app.models.playlist import PlaylistTrack
 from app.utils.i18n import Translator
 
 
 class LargePlaylistPreviewTests(unittest.TestCase):
+    def test_track_delegate_isolated_from_dialog_and_keeps_legacy_import(self):
+        self.assertIs(PreviewTrackDelegate, IsolatedPreviewTrackDelegate)
+        self.assertEqual(TRACK_ROW_ROLE, ISOLATED_TRACK_ROW_ROLE)
+        self.assertIs(_track_details, isolated_track_details)
+        self.assertEqual(PreviewTrackDelegate.__module__, "app.widgets.preview_track_delegate")
+        track = PlaylistTrack("a.mp3", "Song", duration_seconds=20)
+        self.assertEqual(_track_details(track, " / "), "a.mp3")
+
+        preview = self.preview(2)
+        self.assertIsInstance(preview.track_list.itemDelegate(), IsolatedPreviewTrackDelegate)
+        self.assertEqual(
+            preview.track_list.item(0).data(TRACK_ROW_ROLE)[1],
+            "03:00",
+        )
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
