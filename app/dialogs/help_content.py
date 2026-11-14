@@ -1677,7 +1677,8 @@ _OTHER = (
        """<p><b>프로젝트 → 프로젝트 설정</b>에서 현재 프로젝트의 화면과 저장 방식을 바꿉니다.</p>
 [[img:project_settings]]
 <ul>
-<li><b>프로젝트 정보</b>: 이름, 작성자, 설명, <b>프로젝트 썸네일</b>(프로젝트 저장 시 캔버스 직접 캡처)</li>
+<li><b>상단 캔버스 미리보기</b>: 현재 화면을 보기 전용으로 표시합니다. 프로젝트 저장 시 캔버스가 썸네일로 캡처됩니다.</li>
+<li><b>프로젝트 정보</b>: 이름, 작성자, 설명 수정 및 생성일·생성 프로그램 버전·저장 형식·파일 경로/크기·콘텐츠 개수 확인. 과거 파일에 없는 기록은 정보 없음으로 표시합니다.</li>
 <li><b>캔버스</b>: 화면 비율과 너비·높이. <b>요소 위치와 크기도 함께 조정(권장)</b> 또는 <b>캔버스만 변경</b>. 바꾸기 전에 확인하며 <code>Ctrl+Z</code>로 되돌릴 수 있습니다.</li>
 <li><b>파일 관리</b>: <b>추가한 콘텐츠를 프로젝트에 포함</b>(이미지·음원·폰트·가사를 패키지에 복사, 다른 PC에서도 안전) 또는 <b>외부 콘텐츠를 프로젝트에서 참조</b>(파일은 작지만 원본을 옮기면 다시 연결 필요)</li>
 </ul>
@@ -1691,7 +1692,8 @@ _OTHER = (
        """<p><b>Project → Project settings</b> changes the current project's canvas and storage.</p>
 [[img:project_settings]]
 <ul>
-<li><b>Project information</b>: name, author, description and the <b>project thumbnail</b> (captured directly from the canvas on save)</li>
+<li><b>Canvas preview at the top</b>: a read-only view of the current canvas, captured as the thumbnail when the project is saved.</li>
+<li><b>Project information</b>: edit the name, author and description; view the created date, originating app version, file format, path/size and content counts. Missing legacy metadata is shown as unknown.</li>
 <li><b>Canvas</b>: aspect ratio, width and height. <b>Also adjust source positions and sizes (recommended)</b> or <b>change only the canvas</b>. You confirm first, and <code>Ctrl+Z</code> undoes it.</li>
 <li><b>File management</b>: <b>include added content in the project</b> (images, audio, fonts and lyrics are copied into the package; safe on any PC) or <b>reference external content</b> (smaller, but moved originals must be reconnected)</li>
 </ul>
