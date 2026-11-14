@@ -140,6 +140,33 @@ def _stage_latency_report(runs: list[dict]) -> dict[str, dict]:
     return stages
 
 
+def _video_pts_absolute_report(runs: list[dict]) -> dict | None:
+    """Report magnitude of eligible video PTS drift, not a CPU/GPU stage."""
+    samples = [
+        _stage_percentile(run, "video.eligible_pts_abs_error_seconds")
+        for run in runs
+    ]
+    if any(sample is None for sample in samples):
+        return None
+    # A1, B1, B2, A2: keep the same pairing as all other A/B metrics.
+    durations = [sample[0] for sample in samples]
+    before, after = [durations[0], durations[3]], [durations[1], durations[2]]
+    baseline_mean, candidate_mean = mean(before), mean(after)
+    return {
+        "unit": "ms",
+        "measurement": "eligible video-frame absolute PTS-to-target error recent P95",
+        "baseline_p95_mean_ms": round(baseline_mean, 4),
+        "candidate_p95_mean_ms": round(candidate_mean, 4),
+        "candidate_change_percent": (
+            round((candidate_mean - baseline_mean) * 100 / baseline_mean, 3)
+            if baseline_mean else None
+        ),
+        "baseline_pair_spread_percent": _spread_percent(before),
+        "candidate_pair_spread_percent": _spread_percent(after),
+        "sample_counts_abba": [sample[1] for sample in samples],
+    }
+
+
 def compare(baseline: list[dict], candidate: list[dict]) -> dict:
     """Compare exactly two baseline and two candidate runs in A1-B1-B2-A2."""
     if len(baseline) != 2 or len(candidate) != 2:
@@ -229,6 +256,7 @@ def compare(baseline: list[dict], candidate: list[dict]) -> dict:
         "same_effective_canvas_scale": quality_scale_equal,
         "metrics": metrics,
         "profile_stage_p95_ms": _stage_latency_report(runs),
+        "video_pts_abs_p95_ms": _video_pts_absolute_report(runs),
         "performance_only": True,
         "notes": [
             "No FPS improvement or regression is claimed without inspecting measured differences and noise.",
@@ -243,6 +271,7 @@ def compare(baseline: list[dict], candidate: list[dict]) -> dict:
             "Requested duration and warm-up must match; actual measurement lengths must remain within 10%.",
             "Profile stage P95 values are inclusive per-call wall times: nested stages overlap and must not be summed.",
             "OpenGL submission times are not GPU execution times; compare stage counts and per-run spread before assigning bottlenecks.",
+            "Video PTS absolute P95 covers only eligible decoded frames, not rejected frames or final A/V audio synchronization.",
         ],
     }
 
