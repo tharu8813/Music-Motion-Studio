@@ -341,6 +341,10 @@ def produce_complete_project_frames(
                         category: dict(cost)
                         for category, cost in raster_cache.qt_canvas_source_type_state_setup.items()
                     }
+                    raster_counters["qt_canvas_state_detail_costs"] = {
+                        category: {stage: dict(cost) for stage, cost in stages.items()}
+                        for category, stages in raster_cache.qt_canvas_state_detail_costs.items()
+                    }
                 raster_counters.update(
                     rasterizations=raster_cache.rasterizations,
                     reuse_hits=raster_cache.hits,
