@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.animation.curves import animation_pose, loop_pose, music_reactive_pose
+from app.canvas.renderers.base import linear_gradient
 from app.animation.lyrics import cue_effect_pose, intro_exit_pose, stagger_progress
 from app.models.source import Source, SourceType
 from app.ui.design_system import COLORS
@@ -137,7 +138,7 @@ def _preview_icon(kind: str, value: object, seconds: float, source: Source | Non
         p.drawRoundedRect(track, radius, radius)
         fill = color
         if source is not None and source.gradient.enabled and not source.text_gradient:
-            gradient = QLinearGradient(track.topLeft(), track.topRight())
+            gradient = linear_gradient(track, source.gradient.angle)
             gradient.setColorAt(0, QColor(source.gradient.start_color))
             gradient.setColorAt(1, QColor(source.gradient.end_color))
             fill = gradient
@@ -262,7 +263,7 @@ def _preview_icon(kind: str, value: object, seconds: float, source: Source | Non
         p.setPen(Qt.PenStyle.NoPen)
         radius = 4.4
         spacing = radius * 4.8
-        phase = t
+        phase = (seconds / (source.subtitle_intro_period if source else 3.0)) % 1.0
         if key == "orbit":
             for index in range(3):
                 angle = 2 * pi * (phase + index / 3)
