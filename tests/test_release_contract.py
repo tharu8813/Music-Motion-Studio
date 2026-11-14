@@ -162,6 +162,24 @@ class ReleaseContractTests(unittest.TestCase):
         ]
         self.assertEqual(missing, [])
 
+    def test_release_workflows_use_node24_official_actions(self) -> None:
+        # Node.js 20 actions on Windows runners emit deprecation warnings.
+        # v6 official actions use Node.js 24 on GitHub-hosted runners.
+        for relative_path in (
+            ".github/workflows/deployment.yml",
+            ".github/workflows/windows-installer-acceptance.yml",
+        ):
+            with self.subTest(workflow=relative_path):
+                workflow = (ROOT / relative_path).read_text(encoding="utf-8")
+                for action in ("checkout", "setup-python", "upload-artifact"):
+                    self.assertIn(f"actions/{action}@v6", workflow)
+                for stale_action in (
+                    "actions/checkout@v4",
+                    "actions/setup-python@v5",
+                    "actions/upload-artifact@v4",
+                ):
+                    self.assertNotIn(stale_action, workflow)
+
     def test_windows_ci_cancels_only_superseded_pull_request_runs(self) -> None:
         for relative_path in (
             ".github/workflows/deployment.yml",

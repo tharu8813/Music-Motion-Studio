@@ -21,10 +21,10 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python 3.14
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version-file: '.python-version'
           cache: pip
@@ -103,7 +103,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Qt Canvas NVENC replay report failed validation' }
       - name: Upload real Qt Canvas and D3D11 GPU replay diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: qt-canvas-native-gpu-replay
           path: |
@@ -157,7 +157,7 @@ jobs:
 
       - name: Upload preview rendering benchmark
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: preview-zband-benchmark
           path: preview-zband-benchmark.json
@@ -225,7 +225,7 @@ jobs:
 
       - name: Upload time-varying Qt GPU pixel parity reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: qt-dynamic-nvenc-parity
           path: |
@@ -280,7 +280,7 @@ jobs:
 
       - name: Upload actual lyric-cue GPU parity reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: qt-real-track-lyrics-parity
           path: |
@@ -349,7 +349,7 @@ jobs:
 
       - name: Upload real project GPU timeline diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: real-project-gpu-parity
           path: |
@@ -432,10 +432,10 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python 3.14
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version-file: '.python-version'
           cache: pip
@@ -477,7 +477,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: windows-python-${{ matrix.group }}
           path: test-results.json
