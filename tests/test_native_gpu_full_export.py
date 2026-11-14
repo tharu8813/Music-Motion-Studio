@@ -14,14 +14,15 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt, QRectF
 from PySide6.QtWidgets import QApplication
-from PySide6.QtGui import QImage, QColor, QPainter
+from PySide6.QtGui import QImage, QColor, QFont, QPainter
 
 from app.animation.keyframes import Keyframe
 from app.canvas.live_canvas import CanvasScene
 from app.canvas.source_item import SourceItem
 from app.models.playlist import PlaylistTrack
-from app.models.source import Source, SourceType
+from app.models.source import Shadow, Source, SourceType
 from app.preview.export_canvas_capture import ExportCanvasCapturer
 from app.preview.native_canvas_layer_packets import NativeCanvasParticleLayer, straight_bgra_bytes
 from app.renderer.export_timeline import ExportTimelinePlanner
@@ -30,6 +31,7 @@ from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderFrame, RenderResu
 from app.renderer.native_dynamic_layers import prepare_project_frame_audio
 from app.renderer.python_visualizer import PythonVisualizerRenderer
 from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
+from app.renderer.native_project_frames import _ProfiledNativeSourceItem
 from app.timeline.compiler import compile_playlist
 from tests.test_native_canvas_dynamic_overlays import dynamic_project, sample_wav
 from tools.native_gpu_full_export import (
@@ -588,6 +590,45 @@ class NativeGpuFullProjectTests(unittest.TestCase):
                         gpu_trim_transparent_bands=True,
                     )
 
+    def test_developer_glyph_shadow_cache_profile_separates_raster_misses_and_reuse(self):
+        paint_costs, text_costs, shadow_cache_costs = {}, {}, {}
+        source = Source(
+            SourceType.TEXT, "Shadow test", width=230, height=65,
+            text="Shadow test", font_size=26, text_shadow_glyph=True,
+            shadow=Shadow(enabled=True, blur_radius=5.0, opacity=0.8),
+        )
+        item = _ProfiledNativeSourceItem(
+            source, paint_costs, text_costs, shadow_cache_costs,
+        )
+
+        def draw(text: str) -> bytes:
+            image = QImage(260, 100, QImage.Format.Format_ARGB32_Premultiplied)
+            image.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(image)
+            try:
+                painter.setFont(QFont("Arial", 24))
+                painter.setPen(QColor("#ffffff"))
+                item._draw_glyph_shadow(
+                    painter, QRectF(8, 8, 230, 65),
+                    int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter),
+                    text, 0.0,
+                )
+            finally:
+                painter.end()
+            return straight_bgra_bytes(image)
+
+        first = draw("Stable title")
+        repeated = draw("Stable title")
+        changed = draw("Changed title")
+        self.assertEqual(first, repeated)
+        self.assertNotEqual(first, changed)
+        stats = shadow_cache_costs["text"]
+        self.assertEqual(stats["rasterized"]["calls"], 2)
+        self.assertEqual(stats["reused_or_empty"]["calls"], 1)
+        self.assertGreater(stats["rasterized"]["seconds"], 0)
+        self.assertGreater(stats["reused_or_empty"]["seconds"], 0)
+        self.assertEqual(text_costs["text"]["glyph_shadow"]["calls"], 3)
+
     def test_native_qt_source_paint_report_counts_real_rendered_types(self):
         ffmpeg = os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG") or shutil.which("ffmpeg")
         if not ffmpeg or not Path(ffmpeg).is_file():
@@ -646,6 +687,8 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             ]
             self.assertEqual(profiled, baseline)
             self.assertNotIn("qt_canvas_capture_stage_costs", baseline_report)
+            self.assertNotIn("qt_canvas_glyph_shadow_cache_costs", baseline_report)
+            self.assertIn("qt_canvas_glyph_shadow_cache_costs", metrics)
             self.assertIn("qt_canvas_source_type_paint", metrics)
             by_type = metrics["qt_canvas_source_type_paint"]
             self.assertTrue(by_type)
