@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QSize
-from PySide6.QtGui import QImage, QPainter, QPixmap
+from PySide6.QtGui import QImage, QImageReader, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
 
@@ -27,3 +27,15 @@ def load_pixmap(path: str | Path) -> QPixmap:
     renderer.render(painter)
     painter.end()
     return QPixmap.fromImage(image)
+
+
+def can_load_canvas_image(path: str | Path) -> bool:
+    """Lightweight preflight using the same Qt image plugins/SVG fallback as Canvas.
+
+    Checks that the file has a readable image header, without creating a
+    QPixmap off the GUI thread or fully decoding large export images.
+    """
+    image_path = Path(path)
+    if QImageReader(str(image_path)).canRead():
+        return True
+    return image_path.suffix.lower() == ".svg" and QSvgRenderer(str(image_path)).isValid()
