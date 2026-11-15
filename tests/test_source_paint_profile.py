@@ -41,8 +41,8 @@ class SourcePaintProfilingTests(unittest.TestCase):
                 stage, elapsed = observe.call_args.args
                 self.assertEqual(stage, f"canvas.source_{kind.value}_paint_seconds")
                 self.assertGreaterEqual(elapsed, 0.0)
-                self.assertNotIn("Sensitive", stage)
-                self.assertNotIn("lyric", stage if kind is SourceType.TEXT else "ignored")
+                self.assertNotIn("Sensitive title", stage)
+                self.assertNotIn("Do not log this lyric", stage)
 
     def test_normal_paint_and_unrelated_sources_have_no_timing_overhead(self) -> None:
         for kind, enabled in ((SourceType.TEXT, False), (SourceType.LYRICS, False),
