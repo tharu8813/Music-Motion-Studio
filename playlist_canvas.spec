@@ -47,7 +47,7 @@ numpy_datas, numpy_binaries, numpy_hiddenimports = collect_all("numpy", filter_s
 # must fail instead.
 import importlib.util
 
-AUTOMIX_PACKAGES = ("librosa", "numba", "llvmlite", "scipy", "sklearn", "soundfile", "sonara")
+AUTOMIX_PACKAGES = ("librosa", "numba", "llvmlite", "scipy", "sklearn", "soundfile", "soxr", "sonara")
 TRANSLATION_PACKAGES = ("ctranslate2", "sentencepiece")
 HEAVY_ANALYZER_PACKAGES = (
     "torch", "torchaudio", "beat_this", "rotary_embedding_torch", "demucs", "julius",

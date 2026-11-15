@@ -65,6 +65,10 @@ wheel and its current APIs. Finished EXEs include the compiled extension;
 Rust is not required on the user's machine. The NumPy fallback remains for
 runtime recovery and explicit A/B comparisons.
 
+The same extension exposes Windows Media Foundation decoding for AAC and M4A
+to the app's PCM reader, independently of the Rust export analysis switch.
+The app can use FFmpeg when Windows cannot decode a particular file.
+
 ## Release safety and verification
 
 The Windows deployment workflow builds the Rust extension, runs A/B parity

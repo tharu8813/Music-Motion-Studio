@@ -127,7 +127,7 @@ class BeatThisAnalysisProvider:
     "7": basic "7" (YAMNet genre/mood tags). "8": basic "8" (acoustic curves)."""
 
     def __init__(
-        self, ffmpeg_executable: Path, *,
+        self, ffmpeg_executable: Path | None, *,
         device: str | None = None, checkpoint: str = DEFAULT_CHECKPOINT,
     ) -> None:
         self._basic = BasicAnalysisProvider(ffmpeg_executable)
@@ -157,9 +157,7 @@ class BeatThisAnalysisProvider:
         # too-short handling, key/energy/vocal-activity estimation, and
         # TrackAnalysis validation -- only the rhythm fields below are ever
         # replaced (see module docstring).
-        # One FFmpeg decode feeds both: Beat This's own file loader
-        # (torchaudio/soundfile) cannot read AAC/M4A, which real libraries are
-        # full of -- every such track silently fell back to the basic beats.
+        # One shared decode feeds both models, with FFmpeg available for AAC/M4A.
         if progress is not None:
             progress(0.0, STEP_DECODE)
         signal = self._basic._decode_mono_pcm(Path(track.file_path), cancel_event)

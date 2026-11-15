@@ -7,6 +7,7 @@ deliver the resulting immutable analysis payload back to the GUI owner.
 from __future__ import annotations
 
 import threading
+from concurrent.futures import CancelledError
 from pathlib import Path
 import numpy as np
 from PySide6.QtCore import QThread, Signal
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import QWidget
 from app.models.playlist import PlaylistTrack
 from app.renderer.ffmpeg_renderer import VisualizerOverlay
 from app.renderer.python_visualizer import PythonVisualizerRenderer
+from app.services.audio_decode import AudioDecodeError, read_pcm
 from app.services.track_tempo_service import analyze_track_tempos
 
 class AudioAnalysisWorker(QThread):
@@ -69,17 +71,27 @@ class AudioAnalysisWorker(QThread):
 
     def _analyze_audio(self) -> dict:
         needs_meter = any(overlay.kind == "level_meter" for overlay in self.overlays)
-        stereo = (
-            self.renderer._decode_stereo_audio(
-                Path(self.track.file_path), self.cancel_event,
-            )
-            if needs_meter else None
-        )
-        samples = (
-            np.mean(stereo, axis=1, dtype=np.float32)
-            if stereo is not None else
-            self.renderer._decode_mono_audio(Path(self.track.file_path), self.cancel_event)
-        )
+        path = Path(self.track.file_path)
+        channels = 2 if needs_meter else 1
+        try:
+            pcm = read_pcm(path, self.cancel_event, sample_rate=self.renderer.sample_rate, channels=channels)
+        except AudioDecodeError:
+            if self.cancel_event.is_set():
+                raise CancelledError()
+            if self.renderer.ffmpeg_executable is None:
+                raise
+            pcm = (self.renderer._decode_stereo_audio(path, self.cancel_event) if needs_meter else
+                   self.renderer._decode_mono_audio(path, self.cancel_event)[:, None])
+        else:
+            if not len(pcm):
+                pcm = np.zeros((1, channels), dtype=np.float32)
+            # Preserve the sample range and resolution of the FFmpeg s16le preview path.
+            pcm *= 32768.0
+            np.rint(pcm, out=pcm)
+            np.clip(pcm, -32768.0, 32767.0, out=pcm)
+            pcm /= 32768.0
+        stereo = pcm if needs_meter else None
+        samples = pcm.mean(axis=1, dtype=np.float32) if needs_meter else pcm[:, 0]
         levels = self.renderer._analyze_levels(samples, self.fps, self.bands, self.cancel_event)
         waveform = (
             self.renderer._analyze_waveform(samples, self.fps, max(32, self.bands), self.cancel_event)

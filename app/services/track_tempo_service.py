@@ -25,7 +25,7 @@ def track_tempo(analysis: TrackAnalysis) -> TrackTempo | None:
 
 
 def analyze_track_tempos(
-    tracks: Sequence[PlaylistTrack], ffmpeg: Path, cancel_event: Event,
+    tracks: Sequence[PlaylistTrack], ffmpeg: Path | None, cancel_event: Event,
 ) -> dict[str, TrackTempo]:
     from app.automix.analysis.registry import create_analysis_provider
     from app.automix.analysis.service import AnalysisService

@@ -193,7 +193,7 @@ class ExportPreviewDialog(QDialog):
         self._tempo_sync = False
         self.visualizer_renderer = (
             PythonVisualizerRenderer(ffmpeg_executable)
-            if ffmpeg_executable and (self.overlays or self._bass_reactive) else None
+            if self.overlays or self._bass_reactive else None
         )
         self._preview_proxy_ffmpeg = (
             Path(ffmpeg_executable)
@@ -1924,10 +1924,7 @@ class ExportPreviewDialog(QDialog):
         self._bass_reactive = bass_reactive
         self._tempo_sync = any(item.source.uses_tempo_sync and item.source.loop_motion_amount > 0
                                for item in source_items)
-        if (
-            (bass_reactive or self._tempo_sync) and self.visualizer_renderer is None
-            and self._visualizer_ffmpeg_executable is not None
-        ):
+        if (bass_reactive or self._tempo_sync) and self.visualizer_renderer is None:
             self.visualizer_renderer = PythonVisualizerRenderer(
                 self._visualizer_ffmpeg_executable
             )
@@ -3277,6 +3274,8 @@ class ExportPreviewDialog(QDialog):
         needs_levels = bool(self.overlays or self._bass_reactive)
         needs_tempo = self._tempo_sync
         if self.visualizer_renderer is None or (not needs_levels and not needs_tempo):
+            return
+        if not track.file_path and (not isinstance(cached, dict) or "levels" not in cached):
             return
         if (isinstance(cached, dict) and (not needs_levels or "levels" in cached)
                 and (not needs_tempo or "tempo" in cached)

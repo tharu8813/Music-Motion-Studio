@@ -20,7 +20,7 @@ from app.automix.models import TrackAnalysis
 from app.models.playlist import PlaylistTrack
 from app.models.source import Source
 from app.preview.frame_state import lyric_instrumental_windows
-from app.renderer.ffmpeg_renderer import FFmpegRenderer
+from app.renderer.ffmpeg_renderer import FFmpegNotFoundError, FFmpegRenderer
 from app.utils.subprocess_utils import lower_thread_if_background
 
 LOGGER = logging.getLogger(__name__)
@@ -150,10 +150,14 @@ def _measure(track, windows, configured):
             return tuple(map(tuple, fields["vocal_coverage"] or ())), tuple(map(tuple, fields["vocal_activity"]))
         if not model_path(ONNX_MODEL_NAME).is_file():
             raise RuntimeError("The bundled vocal model is missing")
-        if _detector is None or _detector_configured != configured:
-            decode = BasicAnalysisProvider(FFmpegRenderer.find_executable(configured or None))._decode_mono_pcm
+        try:
+            fallback = FFmpegRenderer.find_executable(configured or None)
+        except FFmpegNotFoundError:
+            fallback = None
+        if _detector is None or _detector_configured != fallback:
+            decode = BasicAnalysisProvider(fallback)._decode_mono_pcm
             _detector = OnnxVocalDetector(decode, model_path(ONNX_MODEL_NAME))
-            _detector_configured = configured
+            _detector_configured = fallback
         blocked, measured = [], []
         # ponytail: gap-only separation, 12-second chunks bound memory/cancel latency.
         # Analyze full songs only if a future feature needs their vocal timeline.

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import struct
 import threading
 import unittest
@@ -230,17 +229,12 @@ class DecayStartTests(unittest.TestCase):
         self.assertIsNone(decay_start(np.zeros(SAMPLE_RATE, dtype=np.float32), 1.0))
 
 
-@unittest.skipUnless(
-    os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG", "").strip(),
-    "Set PLAYLIST_CANVAS_TEST_FFMPEG to run real FFmpeg decode + analysis checks.",
-)
-class RealFFmpegBasicAnalysisProviderTests(unittest.TestCase):
+class RealAudioBasicAnalysisProviderTests(unittest.TestCase):
     def test_real_decode_and_analysis_of_a_click_track(self) -> None:
-        executable = Path(os.environ["PLAYLIST_CANVAS_TEST_FFMPEG"].strip())
         with TemporaryDirectory(prefix="automix-basic-real-") as directory:
             source = Path(directory) / "click.wav"
             _write_click_wav(source, bpm=128.0, duration=10.0)
-            provider = BasicAnalysisProvider(executable)
+            provider = BasicAnalysisProvider(None)
             result = provider.analyze(_track(source, 10.0), cancel_event=threading.Event())
             self.assertIsNotNone(result.bpm)
             candidates = (128.0, 64.0, 256.0)

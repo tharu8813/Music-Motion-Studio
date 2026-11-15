@@ -1624,7 +1624,7 @@ _TRACK = (
 <li><b>원본과 비교(볼륨/베이스/EQ 끄기)</b>: 켜면 원래 소리를 들려줍니다.</li>
 </ul>
 <p>이 곡에만 적용되며 미리보기와 내보내기에 반영됩니다.</p>
-<div class='note'>EQ 미리듣기에는 FFmpeg가 필요합니다. 없으면 원본으로 재생합니다.</div>""",
+<div class='note'>일부 파일이나 긴 전체 곡의 EQ 미리듣기에는 FFmpeg가 필요할 수 있습니다.</div>""",
        """[[img:track_audio]]
 <ul>
 <li><b>Track volume</b> (dB): how loud this track is relative to the others. The whole mix is still normalized to −14 LUFS.</li>
@@ -1634,7 +1634,7 @@ _TRACK = (
 <li><b>Compare with original (bypass volume/bass/EQ)</b>: hear the untouched sound.</li>
 </ul>
 <p>It affects only this track, in both Preview and Export.</p>
-<div class='note'>The EQ preview needs FFmpeg; without it the original plays.</div>""",
+<div class='note'>EQ preview may need FFmpeg for some files or long full-track previews.</div>""",
        ("track_details", "preview_mix"),
        ("볼륨 음량 dB EQ 이퀄라이저 저음 고음 LUFS 원본과 비교 미리듣기",
         "volume loudness dB EQ equalizer bass treble LUFS compare original listen")),
@@ -1852,7 +1852,7 @@ _OTHER = (
 
     _e("other", "ffmpeg", ("FFmpeg 설치와 확인", "Installing and checking FFmpeg"),
        ("FFmpeg,설정,내보내기", "FFmpeg,settings,export"),
-       """<p>FFmpeg는 영상과 음성을 읽고 합쳐 최종 동영상 파일로 만드는 오픈 소스 엔진입니다. 편집은 FFmpeg 없이도 되지만 <b>내보내기, 믹스 미리보기, AutoMix 분석·미리듣기, EQ 미리듣기</b>에는 필요합니다. 프로그램에 기본 포함되지 않습니다.</p>
+       """<p>FFmpeg는 영상과 음성을 읽고 합쳐 최종 동영상 파일로 만드는 오픈 소스 엔진입니다. <b>내보내기와 믹스 미리보기</b>에 필요하며, 일부 오디오 파일의 분석이나 미리듣기에도 사용합니다. 프로그램에 기본 포함되지 않습니다.</p>
 <h2>자동 설치(권장)</h2>
 <ol><li><b>도구 → 설정 → FFmpeg</b>를 엽니다.</li>
 <li>설치 버전 목록에서 <b>(권장)</b> 버전을 고르고 <b>선택 버전 다운로드 및 설치</b>를 누릅니다.</li>
@@ -1862,7 +1862,7 @@ _OTHER = (
 <p>이미 설치된 <code>ffmpeg.exe</code>가 있으면 <b>FFmpeg 경로</b>에서 선택하고 <b>확인</b>을 누릅니다.</p>
 <h2>비디오 인코더 자동 선택</h2>
 <p><b>자동 선택(권장)</b>은 NVIDIA GPU가 있으면 H.264 NVENC를 실제 출력 설정으로 먼저 검사하고, 없으면 CPU H.264를 씁니다. NVENC 검사에 실패하면 긴 준비를 시작하기 전에 원인과 함께 CPU로 계속할지 묻습니다.</p>""",
-       """<p>FFmpeg is an open-source engine that reads, combines and compresses audio and video into the final file. You can edit without it, but <b>Export, mixed Preview, AutoMix analysis and listening, and the EQ preview</b> need it. It is not bundled.</p>
+       """<p>FFmpeg is an open-source engine that reads, combines and compresses audio and video into the final file. <b>Export and mixed Preview</b> need it, and the app uses it to analyze or preview some audio files. It is not bundled.</p>
 <h2>Automatic install (recommended)</h2>
 <ol><li>Open <b>Tools → Settings → FFmpeg</b>.</li>
 <li>Pick the <b>(recommended)</b> version and choose <b>Download and install the selected version</b>.</li>

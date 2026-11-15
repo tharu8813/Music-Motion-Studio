@@ -57,6 +57,8 @@ from app.widgets.track_lyrics_preview import KaraokeLyricLabel, fit_context_lyri
 from app.ui.design_system import COLORS
 from app.dialogs.lrc_generator_dialog import LrcGeneratorDialog
 from app.dialogs.ttml_edit_dialog import TtmlRowsDialog, choose_ttml_edit_mode, line_cues
+from app.services.audio_decode import AudioDecodeError
+from app.services.eq_preview import EqPreviewAudio
 from app.services.lyrics_service import LyricsError, LyricsService
 from app.services.preview_audio_settings import preview_volume, save_preview_volume
 from app.preview.album_art import extract_track_cover
@@ -121,6 +123,7 @@ class TrackDetailsDialog(QDialog):
         # EQ preview: the player swaps to a copy of the track rendered with the
         # current volume/EQ (Qt Multimedia cannot filter audio itself).
         self.ffmpeg_executable = ffmpeg_executable
+        self._eq_preview = EqPreviewAudio()
         self._eq_dir: TemporaryDirectory | None = None
         self._eq_cancel = threading.Event()
         self._eq_generation = 0
@@ -869,7 +872,7 @@ class TrackDetailsDialog(QDialog):
         """Audition the edited sound from the playhead, avoiding a full-track export."""
         if not self._audio_available:
             return
-        if not self._wanted_filter() or self.ffmpeg_executable is None:
+        if not self._wanted_filter():
             self.media_player.play()
             return
         self._resume_after_preview_seek = True
@@ -909,8 +912,6 @@ class TrackDetailsDialog(QDialog):
         if not wanted:
             self._swap_source(Path(self.track.file_path), "")
             self._set_eq_state("original")
-        elif self.ffmpeg_executable is None:
-            self._set_eq_state("no_ffmpeg")
         else:
             if self._eq_dir is None:
                 self._eq_dir = TemporaryDirectory(prefix="track-eq-", ignore_cleanup_errors=True)
@@ -927,6 +928,35 @@ class TrackDetailsDialog(QDialog):
         start_ms: int, segment: bool, cancel: threading.Event,
     ) -> None:
         """Worker thread: only the playhead window in Audio, full source in Lyrics."""
+        try:
+            try:
+                self._eq_preview.render(
+                    Path(self.track.file_path), output, audio_filter, start_ms / 1000 if segment else 0,
+                    EQ_PREVIEW_SECONDS if segment else None, cancel,
+                )
+                error = ""
+            except AudioDecodeError:
+                if self.ffmpeg_executable is None:
+                    raise
+                error = self._render_eq_ffmpeg(audio_filter, output, start_ms, segment, cancel)
+            if cancel.is_set():
+                raise CancelledError()
+        except CancelledError:
+            try:
+                output.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return
+        except (AudioDecodeError, OSError, subprocess.TimeoutExpired) as exc:
+            error = str(exc)
+        try:
+            self.eq_rendered.emit(generation, audio_filter, "" if error else str(output), error)
+        except RuntimeError:
+            pass  # the dialog closed meanwhile
+
+    def _render_eq_ffmpeg(
+        self, audio_filter: str, output: Path, start_ms: int, segment: bool, cancel: threading.Event,
+    ) -> str:
         command = [
             str(self.ffmpeg_executable), "-hide_banner", "-loglevel", "error", "-nostdin",
         ]
@@ -939,23 +969,10 @@ class TrackDetailsDialog(QDialog):
         if segment:
             command.extend(("-t", str(EQ_PREVIEW_SECONDS)))
         command.extend(("-c:a", "flac", "-compression_level", "0", "-y", str(output)))
-        try:
-            result = run_probe(command, cancel_event=cancel)
-            error = "" if result.returncode == 0 else (
-                result.stderr.decode("utf-8", "replace").strip().splitlines()
-                or [f"FFmpeg exited with {result.returncode}"])[-1]
-        except CancelledError:
-            try:
-                output.unlink(missing_ok=True)
-            except OSError:
-                pass
-            return
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            error = str(exc)
-        try:
-            self.eq_rendered.emit(generation, audio_filter, "" if error else str(output), error)
-        except RuntimeError:
-            pass  # the dialog closed meanwhile
+        result = run_probe(command, cancel_event=cancel)
+        return "" if result.returncode == 0 else (
+            result.stderr.decode("utf-8", "replace").strip().splitlines()
+            or [f"FFmpeg exited with {result.returncode}"])[-1]
 
     def _eq_render_finished(self, generation: int, audio_filter: str, path: str, error: str) -> None:
         if generation != self._eq_generation:
@@ -963,8 +980,11 @@ class TrackDetailsDialog(QDialog):
                 Path(path).unlink(missing_ok=True)
             return
         if error:
-            self._eq_requested_position_ms = None
-            self._resume_after_preview_seek = False
+            if self.ffmpeg_executable is None:
+                self._swap_source(Path(self.track.file_path), "")
+            else:
+                self._eq_requested_position_ms = None
+                self._resume_after_preview_seek = False
             self._eq_error = error
             self._set_eq_state("failed")
             return
@@ -1028,8 +1048,6 @@ class TrackDetailsDialog(QDialog):
             ("볼륨/베이스/EQ 적용" if korean else "With volume/bass/EQ"),
             "failed": (f"EQ 미리듣기 실패: {self._eq_error}" if korean
                        else f"EQ preview failed: {self._eq_error}"),
-            "no_ffmpeg": ("FFmpeg가 없어 원본으로 재생합니다" if korean
-                          else "No FFmpeg: playing the original"),
         }[state])
 
     def _refresh_header(self, *_args: object) -> None:
@@ -1502,10 +1520,7 @@ class TrackDetailsDialog(QDialog):
         target = slider.value()
         if self._audio_available:
             wanted = self._wanted_filter()
-            audition = (
-                self.tabs.currentWidget() is self.audio_tab and wanted
-                and self.ffmpeg_executable is not None
-            )
+            audition = self.tabs.currentWidget() is self.audio_tab and wanted
             needs_segment = (
                 not self._eq_playing_segment
                 or wanted != self._eq_playing_filter

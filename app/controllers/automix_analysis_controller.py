@@ -57,7 +57,7 @@ class _AutoMixAnalysisWorker(QThread):
     """track_id -> error message for the tracks the analyzer could not read."""
 
     def __init__(
-        self, tracks: list[PlaylistTrack], ffmpeg_executable: Path, parent: QObject | None = None,
+        self, tracks: list[PlaylistTrack], ffmpeg_executable: Path | None, parent: QObject | None = None,
         *, provider_id: str = "basic", enable_structure_analysis: bool = False,
     ) -> None:
         super().__init__(parent)
@@ -195,7 +195,7 @@ class AutoMixAnalysisController(QObject):
         return dict(self._stages)
 
     def start(
-        self, tracks: list[PlaylistTrack], ffmpeg_executable: Path, *, provider_id: str = "basic",
+        self, tracks: list[PlaylistTrack], ffmpeg_executable: Path | None, *, provider_id: str = "basic",
         enable_structure_analysis: bool = False,
     ) -> None:
         """Analyze ``tracks`` in the background, replacing any run already underway.

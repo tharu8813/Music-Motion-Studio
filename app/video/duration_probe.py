@@ -1,8 +1,8 @@
-"""Bounded, allocation-light MP4 container duration reader for live previews.
+"""Bounded, allocation-light MP4 timing reader for previews and audio decoding.
 
-Read only the top-level `moov/mvhd` atom. This works with video-only MP4s
-that may report zero duration to audio tag readers. It never reads/decodes
-media samples. Unsupported or malformed files defer to the existing FFprobe.
+Inspect container metadata without reading or decoding media samples.
+The movie duration also works with video-only MP4s that report zero
+duration to audio tag readers.
 """
 
 from __future__ import annotations
@@ -82,3 +82,65 @@ def mp4_container_duration(path: Path) -> float | None:
     except (OSError, OverflowError, struct.error):
         return None
     return None
+
+
+def m4a_audio_edit(path: Path) -> tuple[float, float | None]:
+    """Return the start and length of the first audio track's simple edit."""
+    with path.open("rb") as stream:
+        file_end = stream.seek(0, 2)
+        movie = next(((start, end) for kind, start, end in _boxes(stream, 0, file_end)
+                      if kind == b"moov"), None)
+        if movie is None:
+            return 0.0, None
+        movie_boxes = list(_boxes(stream, *movie))
+        for kind, start, end in movie_boxes:
+            if kind != b"trak":
+                continue
+            track = {name: (first, stop) for name, first, stop in _boxes(stream, start, end)}
+            if b"mdia" not in track:
+                continue
+            media = {name: (first, stop) for name, first, stop in _boxes(stream, *track[b"mdia"])}
+            if b"hdlr" not in media or _box_prefix(stream, media[b"hdlr"], 12)[8:] != b"soun":
+                continue
+            if b"edts" not in track:
+                return 0.0, None
+            edit = next(((first, stop) for name, first, stop in _boxes(stream, *track[b"edts"])
+                         if name == b"elst"), None)
+            if edit is None:
+                return 0.0, None
+            payload = _box_prefix(stream, edit, 28)
+            if len(payload) < 8:
+                raise ValueError("Incomplete M4A edit list.")
+            edits = struct.unpack_from(">I", payload, 4)[0]
+            if edits == 0:
+                return 0.0, None
+            if edits != 1:
+                raise ValueError("The M4A file uses a complex audio edit list.")
+            version = payload[0]
+            if version not in (0, 1):
+                raise ValueError("Unsupported M4A edit version.")
+            length, offset, speed = struct.unpack_from(">IiI" if version == 0 else ">QqI", payload, 8)
+            if speed != 65536 or offset < 0:
+                raise ValueError("Unsupported M4A audio edit.")
+            movie_header = next(((first, stop) for name, first, stop in movie_boxes if name == b"mvhd"), None)
+            if movie_header is None or b"mdhd" not in media:
+                raise ValueError("Missing M4A time scale.")
+            duration = length / _timescale(stream, movie_header)
+            return offset / _timescale(stream, media[b"mdhd"]), duration or None
+    return 0.0, None
+
+
+def _box_prefix(stream, box: tuple[int, int], count: int) -> bytes:
+    first, end = box
+    stream.seek(first)
+    return stream.read(min(count, end - first))
+
+
+def _timescale(stream, box: tuple[int, int]) -> int:
+    payload = _box_prefix(stream, box, 24)
+    if len(payload) < 16 or payload[0] not in (0, 1):
+        raise ValueError("Invalid M4A time scale.")
+    value = struct.unpack_from(">I", payload, 20 if payload[0] == 1 else 12)[0]
+    if not value:
+        raise ValueError("Invalid M4A time scale.")
+    return value

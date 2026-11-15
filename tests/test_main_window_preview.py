@@ -61,13 +61,13 @@ from tests.main_window_base import MainWindowTestCase, accept_ffmpeg_export
 
 
 class MainWindowPreviewTests(MainWindowTestCase):
-    def test_missing_ffmpeg_notice_explains_reactions_and_opens_install_settings(self) -> None:
+    def test_missing_ffmpeg_notice_explains_when_it_is_used_and_opens_install_settings(self) -> None:
         from app.renderer.ffmpeg_renderer import FFmpegNotFoundError
         with patch("app.ui.main_window.FFmpegRenderer.find_executable", side_effect=FFmpegNotFoundError("missing")), \
              patch.object(self.window, "_show_settings") as settings:
             self.assertFalse(self.window.check_ffmpeg_availability())
             notice = self.window._ffmpeg_notice
-            self.assertIn("음악에 맞춰 반응", notice.informativeText())
+            self.assertIn("믹스 미리보기와 내보내기", notice.informativeText())
             self.assertFalse(self.window.check_ffmpeg_availability())
             self.assertIs(self.window._ffmpeg_notice, notice)
             install = next(button for button in notice.buttons() if notice.buttonRole(button) == QMessageBox.ButtonRole.AcceptRole)
@@ -1616,6 +1616,17 @@ class MainWindowPreviewTests(MainWindowTestCase):
         with patch.object(self.window.automix_analysis_controller, "start") as start:
             self.window._maybe_start_automix_analysis()
         start.assert_not_called()
+
+    def test_automix_analysis_can_start_without_ffmpeg(self) -> None:
+        from app.renderer.ffmpeg_renderer import FFmpegNotFoundError
+
+        self.window.project_settings = replace(self.window.project_settings, transition_mode="automix")
+        self.window.playlist_service.replace([PlaylistTrack("a.wav", "A", duration_seconds=30.0)])
+        with patch.object(FFmpegRenderer, "find_executable", side_effect=FFmpegNotFoundError("missing")), \
+             patch.object(self.window.automix_analysis_controller, "start") as start:
+            self.window._maybe_start_automix_analysis()
+        start.assert_called_once_with(self.window.playlist_service.tracks, None, provider_id="auto",
+                                      enable_structure_analysis=True)
 
     def test_automix_analysis_starts_when_enabled_with_tracks_and_ffmpeg(self) -> None:
         self.window.project_settings = replace(self.window.project_settings, transition_mode="automix")
