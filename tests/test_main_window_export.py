@@ -52,7 +52,7 @@ from app.services.video_encoder_service import (
     VideoEncoderAdvisor,
 )
 from app.renderer.static_video_stream import DirectVideoEncodingProfile, StaticVideoStreamResult
-from tests.main_window_base import MainWindowTestCase
+from tests.main_window_base import MainWindowTestCase, accept_ffmpeg_export, accept_native_gpu_export
 
 
 class MainWindowExportTests(MainWindowTestCase):
@@ -204,6 +204,29 @@ class MainWindowExportTests(MainWindowTestCase):
             self.assertIn("프로젝트 비율", dialog.resolution_combo.currentText())
             self.assertEqual(dialog.app_settings.preview_backend, "cpu")
             self.assertEqual(dialog.app_settings.work_mode, WORK_MODE_MAX_SPEED)
+        finally:
+            dialog.close()
+
+    def test_export_settings_modal_requires_explicit_stub_and_engine_selection(self) -> None:
+        # Never allow a real QDialog.exec() to trap headless Windows CI.
+        with self.assertRaisesRegex(
+            AssertionError, r"ExportSettingsDialog[.]exec[(][)] is unmocked",
+        ):
+            ExportSettingsDialog.exec(None)
+
+        dialog = ExportSettingsDialog(
+            AppSettings(), 1, 15.0, self.window.translator,
+            Path("explicit-engine-test.mp4"), canvas_size=(640, 360),
+        )
+        try:
+            self.assertEqual(
+                accept_ffmpeg_export(dialog), QDialog.DialogCode.Accepted,
+            )
+            self.assertEqual(dialog.engine_combo.currentData(), "ffmpeg")
+            self.assertEqual(
+                accept_native_gpu_export(dialog), QDialog.DialogCode.Accepted,
+            )
+            self.assertEqual(dialog.engine_combo.currentData(), "native_gpu")
         finally:
             dialog.close()
 
