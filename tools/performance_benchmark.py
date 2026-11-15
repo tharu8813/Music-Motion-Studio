@@ -27,6 +27,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import tests  # Isolate preview caches, presets and settings from the running app.
 
 
+def _nearest_rank_ms(sorted_seconds: list[float], fraction: float) -> float | None:
+    """Use the same nearest-rank percentile as the bounded profile sampler.
+
+    Input is sorted once by the caller so p50/p95/p99 do not repeatedly sort
+    potentially thousands of measured scene frame intervals.
+    """
+    if not sorted_seconds:
+        return None
+    return sorted_seconds[max(0, min(len(sorted_seconds) - 1,
+                                    ceil(len(sorted_seconds) * fraction) - 1))] * 1000
+
+
 def plane_benchmark(iterations: int) -> dict:
     import numpy as np
     import PySide6
@@ -455,6 +467,8 @@ def preview_benchmark(args) -> dict:
             scenes = list(scene_times)
             intervals = [b - a for a, b in zip(callbacks, callbacks[1:])]
             scene_intervals = [b - a for a, b in zip(scenes, scenes[1:])]
+            sorted_scene_intervals = sorted(scene_intervals)
+            sorted_intervals = sorted(intervals)
             pulse_intervals = [b - a for a, b in zip(pulses, pulses[1:])]
             analysis = future.result() if future is not None and future.done() else None
             result = {
@@ -494,9 +508,9 @@ def preview_benchmark(args) -> dict:
                 "average_fps": presentation_count / elapsed,
                 "presented_scene_fps": scene_count / elapsed,
                 "scene_frame_time_mean_ms": statistics.mean(scene_intervals) * 1000 if scene_intervals else None,
-                "scene_frame_time_p95_ms": sorted(scene_intervals)[max(0, int(len(scene_intervals) * .95) - 1)] * 1000 if scene_intervals else None,
-                "scene_frame_time_p50_ms": sorted(scene_intervals)[max(0, ceil(len(scene_intervals) * .5) - 1)] * 1000 if scene_intervals else None,
-                "scene_frame_time_p99_ms": sorted(scene_intervals)[max(0, ceil(len(scene_intervals) * .99) - 1)] * 1000 if scene_intervals else None,
+                "scene_frame_time_p95_ms": _nearest_rank_ms(sorted_scene_intervals, .95),
+                "scene_frame_time_p50_ms": _nearest_rank_ms(sorted_scene_intervals, .50),
+                "scene_frame_time_p99_ms": _nearest_rank_ms(sorted_scene_intervals, .99),
                 "late_scene_intervals": sum(interval > 1.5 / args.fps for interval in scene_intervals),
                 "decoder_fps": (decoder_end.get("accepted_frames", 0) - decoder_start.get("accepted_frames", 0)) / elapsed,
                 "decode_drops": sum(end["dropped_frames"] - start["dropped_frames"]
@@ -509,7 +523,7 @@ def preview_benchmark(args) -> dict:
                     for start, end in zip(decoder_starts, decoder_ends, strict=True)
                 ],
                 "frame_time_mean_ms": statistics.mean(intervals) * 1000 if intervals else None,
-                "frame_time_p95_ms": sorted(intervals)[max(0, int(len(intervals) * .95) - 1)] * 1000 if intervals else None,
+                "frame_time_p95_ms": _nearest_rank_ms(sorted_intervals, .95),
                 "late_intervals": sum(interval > 1.5 / args.fps for interval in intervals),
                 "heartbeat_max_ms": max(pulse_intervals, default=0) * 1000,
                 "decoder_start": decoder_start, "decoder_end": decoder_end,
