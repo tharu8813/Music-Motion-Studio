@@ -1,6 +1,7 @@
 """Project GPU capture eligibility and complete timeline resolution."""
 from math import isfinite
 from pathlib import Path
+from app.utils.image_loader import can_load_canvas_image
 from app.models.playlist import PlaylistTrack
 from app.models.project import ProjectDocument
 from app.models.source import SourceType
@@ -129,6 +130,10 @@ def validate_project_for_gpu_capture(
         ):
             raise TimelineValidationError(
                 f"Image asset not found for project source {source.id}"
+            )
+        if requires_image and not can_load_canvas_image(source.content_path):
+            raise TimelineValidationError(
+                f"Image asset cannot be decoded for project source {source.id}"
             )
     # Production Qt Canvas capture supports upscaling as well as downscaling.
     # The final even output dimensions remain bounded to 3840x2160 below.

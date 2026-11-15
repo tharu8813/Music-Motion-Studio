@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from PySide6.QtGui import QImage
 
 from app.models.source import Source, SourceType
 from app.renderer.native_project_support import TimelineValidationError, validate_project_for_gpu_capture
@@ -61,12 +62,54 @@ class NativeGpuSourceIdentityTests(unittest.TestCase):
                 validate_project_for_gpu_capture(
                     project, scale=0.25, source_policy="dynamic-audio",
                 )
-            Path(background.content_path).write_bytes(b"file exists")
+            valid = QImage(2, 2, QImage.Format.Format_RGB32)
+            valid.fill(0xff304050)
+            self.assertTrue(valid.save(background.content_path))
             self.assertEqual(
                 validate_project_for_gpu_capture(
                     project, scale=0.25, source_policy="dynamic-audio",
                 ), [],
             )
+
+    def test_existing_but_unreadable_images_fail_before_native_capture(self):
+        for kind in (SourceType.IMAGE, SourceType.LOGO, SourceType.WATERMARK, SourceType.BACKGROUND):
+            with self.subTest(kind=kind), TemporaryDirectory(prefix="bad-canvas-asset-") as temp:
+                project = project_fixture()
+                path = Path(temp) / "looks-like-image.png"
+                path.write_bytes(b"not actually a PNG image")
+                source = Source(
+                    kind, "Damaged picture", content_path=str(path),
+                    **({"background_mode": "image"} if kind is SourceType.BACKGROUND else {}),
+                )
+                project.sources.append(source)
+                with self.assertRaisesRegex(
+                    TimelineValidationError, "Image asset cannot be decoded",
+                ):
+                    validate_project_for_gpu_capture(
+                        project, scale=0.25, source_policy="dynamic-audio",
+                    )
+
+    def test_valid_png_and_svg_canvas_images_pass_preflight(self):
+        with TemporaryDirectory(prefix="valid-canvas-asset-") as temp:
+            png = Path(temp) / "valid.png"
+            svg = Path(temp) / "valid.svg"
+            image = QImage(3, 3, QImage.Format.Format_ARGB32)
+            image.fill(0xff112233)
+            self.assertTrue(image.save(str(png)))
+            svg.write_text(
+                '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8">'
+                '<rect width="8" height="8" fill="#abcdef"/></svg>',
+                encoding="utf-8",
+            )
+            for kind, path in ((SourceType.IMAGE, png), (SourceType.LOGO, svg)):
+                with self.subTest(kind=kind):
+                    project = project_fixture()
+                    project.sources.append(Source(kind, "Valid", content_path=str(path)))
+                    self.assertEqual(
+                        validate_project_for_gpu_capture(
+                            project, scale=0.25, source_policy="dynamic-audio",
+                        ), [],
+                    )
 
     def test_color_or_album_art_background_does_not_need_an_image_path(self):
         for mode in ("color", "album_art"):
