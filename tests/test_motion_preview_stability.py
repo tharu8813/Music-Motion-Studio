@@ -81,6 +81,36 @@ class MediaStabilityTests(TestCase):
         item._video_last_requested_target_ms = 1500
         self.assertEqual(item.video_frame_state, "loading")
 
+    def test_pts_profile_records_signed_and_absolute_eligible_frame_error(self):
+        from app.canvas import source_item
+
+        for start_time, expected_signed in (
+            (1_080_000, 0.08),
+            (930_000, -0.07),
+        ):
+            with self.subTest(start_time=start_time):
+                item = self.item()
+                frame = QVideoFrame(self.image("green"))
+                frame.setStartTime(start_time)
+                with (
+                    patch.object(source_item, "PROFILE_ENABLED", True),
+                    patch.object(source_item.PROFILE, "observe") as observe,
+                    patch.object(item, "_start_next_video_filter"),
+                ):
+                    item._video_frame_changed(frame)
+                records = {
+                    call.args[0]: call.args[1]
+                    for call in observe.call_args_list
+                }
+                self.assertAlmostEqual(
+                    records["video.eligible_pts_error_seconds"],
+                    expected_signed,
+                )
+                self.assertAlmostEqual(
+                    records["video.eligible_pts_abs_error_seconds"],
+                    abs(expected_signed),
+                )
+
     def test_loop_and_latest_pending_seek_invalidate_prior_generation(self):
         item = self.item()
         player = Mock()

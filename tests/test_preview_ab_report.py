@@ -245,6 +245,52 @@ class PreviewAbReportTests(unittest.TestCase):
             self.assertNotIn(name, metrics)
         self.assertIn("scene_frame_time_p95_ms", metrics)
 
+    def test_video_pts_absolute_p95_reports_magnitude_not_signed_stage_time(self):
+        runs = [_sample() for _ in range(4)]
+        for run, ms, count in zip(runs, (70.0, 40.0, 50.0, 60.0), (10, 20, 30, 40)):
+            run["profile"] = {
+                "video.eligible_pts_abs_error_seconds": {
+                    "count": count, "recent_p95": ms / 1000,
+                },
+                "video.eligible_pts_error_seconds": {
+                    "count": count, "recent_p95": -ms / 1000,
+                },
+            }
+        report = compare([runs[0], runs[3]], [runs[1], runs[2]])
+        pts = report["video_pts_abs_p95_ms"]
+        self.assertEqual(pts["baseline_p95_mean_ms"], 65.0)
+        self.assertEqual(pts["candidate_p95_mean_ms"], 45.0)
+        self.assertAlmostEqual(pts["candidate_change_percent"], -30.769, places=3)
+        self.assertEqual(pts["sample_counts_abba"], [10, 20, 30, 40])
+        self.assertNotIn("video.eligible_pts_abs_error_seconds", report["profile_stage_p95_ms"])
+        self.assertIn("not rejected frames", " ".join(report["notes"]))
+
+    def test_video_pts_p95_is_unknown_when_any_run_lacks_eligible_frames(self):
+        runs = [_sample() for _ in range(4)]
+        for row in runs:
+            row["profile"] = {
+                "video.eligible_pts_abs_error_seconds": {
+                    "count": 5, "recent_p95": 0.04,
+                },
+            }
+        for unusable in (None, 0, float("nan"), -0.01):
+            with self.subTest(unusable=unusable):
+                if unusable is None:
+                    runs[2]["profile"].pop("video.eligible_pts_abs_error_seconds", None)
+                elif unusable == 0:
+                    runs[2]["profile"]["video.eligible_pts_abs_error_seconds"] = {
+                        "count": 0, "recent_p95": 0.04,
+                    }
+                else:
+                    runs[2]["profile"]["video.eligible_pts_abs_error_seconds"] = {
+                        "count": 5, "recent_p95": unusable,
+                    }
+                result = compare([runs[0], runs[3]], [runs[1], runs[2]])
+                self.assertIsNone(result["video_pts_abs_p95_ms"])
+        self.assertIsNone(
+            compare([_sample(), _sample()], [_sample(), _sample()])["video_pts_abs_p95_ms"]
+        )
+
     def test_reader_checks_benchmark_and_duration(self):
         with TemporaryDirectory() as directory:
             target = Path(directory) / "result.json"
