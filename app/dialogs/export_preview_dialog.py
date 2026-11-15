@@ -95,6 +95,7 @@ from app.video.duration_probe_worker import VideoDurationProbeWorker
 from app.preview.overlay_frame_cache import OverlayFrameCache, OverlaySignature
 from app.preview.overlay_frame_worker import OverlayFrameWorker
 from app.preview.cover_worker import PreviewCoverWorker
+from app.preview.worker_lifecycle import finish_or_detach_worker
 from app.video.timeline import resolve_video_position, source_video_paths
 from app.video.frame_filter import VideoFrameFilterSettings, filter_video_frame
 from app.video.decoder_backpressure import VideoDecoderBackpressure
@@ -4293,22 +4294,8 @@ class ExportPreviewDialog(QDialog):
 
     @staticmethod
     def _finish_or_detach_worker(worker: QThread) -> None:
-        """Detach a still-running worker instead of blocking the UI thread on it.
-
-        The caller already requested cancellation, but that is not always
-        enough to stop ``run()`` promptly: ``VideoDurationProbeWorker`` calls
-        FFprobe through a blocking ``subprocess.run(..., timeout=15)`` with no
-        way to interrupt it early, so a synchronous ``wait()`` here could
-        freeze the whole window for up to 15 seconds every time Preview closed
-        while a probe was in flight. Reparenting to the application keeps Qt
-        from deleting a QThread while it is still running; the worker's own
-        ``finished`` signal cleans it up once it actually exits, decoupled
-        from the dialog's lifetime.
-        """
-        application = QApplication.instance()
-        if application is not None:
-            worker.setParent(application)
-        worker.finished.connect(worker.deleteLater)
+        """Legacy entry point for Qt worker shutdown ownership."""
+        finish_or_detach_worker(worker)
 
     def retranslate(self) -> None:
         korean = self.translator.is_korean
