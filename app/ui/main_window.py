@@ -3712,15 +3712,33 @@ class MainWindow(QMainWindow):
                 snapshot = self.autosave.save(self._project_document(), self.current_project_path, dirty=self.project_session.dirty)
                 if snapshot.path != recovery_path:
                     snapshot.path.replace(recovery_path)
-                ready_path.unlink(missing_ok=True)
             except (ProjectError, OSError) as error:
                 self._pending_update_installer = None
                 self._show_project_error(ProjectError(str(error)))
                 return
-            self._pending_update_installer = None
             self._update_install_authorized = True
-            self.close()
-            return
+            if self.close():
+                self._pending_update_installer = None
+                try:
+                    ready_path.unlink(missing_ok=True)
+                except OSError:
+                    LOGGER.warning("Could not delete the update-ready signal", exc_info=True)
+                # A hidden dialog or notification window must not keep the old
+                # process alive while the installer waits for UPDATEPID.
+                if not self.isVisible():
+                    application = QApplication.instance()
+                    if application is not None:
+                        application.quit()
+                return
+            # Some closeEvent guards (e.g. ongoing audio import) can reject
+            # shutdown even after the initial busy check. Keep the snapshot
+            # and ready signal so the next poll can retry safely.
+            self._update_install_authorized = False
+            self.statusBar().showMessage(
+                "진행 중인 작업이 종료되면 업데이트를 다시 시도합니다."
+                if self.translator.is_korean else
+                "Waiting for background work to finish before retrying the update."
+            )
         if attempts <= 0:
             self._pending_update_installer = None
             self.statusBar().showMessage(

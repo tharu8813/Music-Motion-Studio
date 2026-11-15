@@ -257,6 +257,23 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertNotIn('Type: filesandordirs; Name: "{app}"', installer)
         self.assertIn('Type: dirifempty; Name: "{app}"', installer)
 
+    def test_stuck_updater_never_terminates_an_unverified_process(self) -> None:
+        installer = (ROOT / "setup.iss").read_text(encoding="utf-8")
+        # This is an *installer-side* fix for a running 1.4.0.1 editor.
+        # No PID from command-line input is trusted without an image-path check.
+        self.assertIn("QueryFullProcessImageNameW", installer)
+        self.assertIn("function IsExpectedUpdateEditor(ProcessHandle: THandle)", installer)
+        self.assertIn("ExpandConstant('{app}\\{#MyAppExeName}')", installer)
+        self.assertIn("IsExpectedUpdateEditor(ParentHandle)", installer)
+        self.assertIn("IsExpectedUpdateEditor(TerminateHandle)", installer)
+        self.assertIn("FileExists(RecoveryPath)", installer)
+        self.assertIn("if Poll = 60 then begin", installer)
+        self.assertIn("MB_YESNO or MB_DEFBUTTON2", installer)
+        self.assertIn("TerminateProcess(TerminateHandle, 1)", installer)
+        self.assertIn("WaitForSingleObject(ParentHandle, 5000)", installer)
+        self.assertIn("Result := CustomMessage('UpdateStuckEditorFailed')", installer)
+        self.assertNotIn("taskkill", installer)
+
     def test_installer_ci_verifies_exact_association_and_uninstall_cleanup(self) -> None:
         script = (ROOT / "scripts/verify_installer_smoke.ps1").read_text(encoding="utf-8")
         # Registry association must target the *actual* temporary installed EXE,

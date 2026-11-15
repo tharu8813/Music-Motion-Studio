@@ -268,6 +268,63 @@ class AuditWorkspaceTests(MainWindowTestCase):
                 self.assertEqual(snapshot.project_path, self.window.current_project_path)
             self.window._update_install_authorized = False
 
+    def test_update_retries_when_close_event_refuses_shutdown(self):
+        with TemporaryDirectory() as raw:
+            root = Path(raw)
+            installer = root / "setup.exe"
+            installer.write_bytes(b"verified")
+            self.window.autosave = AutosaveService(root)
+            self.window.store.replace([Source(SourceType.TEXT, "Keep this edit")])
+            with patch("app.ui.main_window.launch_setup", return_value=True) as launch, \
+                 patch("app.ui.main_window.QTimer.singleShot") as timer, \
+                 patch.object(self.window, "close", side_effect=[False, True]) as close, \
+                 patch.object(self.window, "isVisible", return_value=True):
+                self.window._launch_update_setup(installer)
+                arguments = launch.call_args.args[1]
+                ready = Path(next(
+                    value.split("=", 1)[1] for value in arguments
+                    if value.startswith("/UPDATEREADY=")
+                ))
+                recovery = Path(next(
+                    value.split("=", 1)[1] for value in arguments
+                    if value.startswith("/UPDATERECOVERY=")
+                ))
+                ready.write_text("ready", encoding="utf-8")
+                self.window._wait_for_update_setup(ready, recovery, 2)
+                close.assert_called_once()
+                self.assertTrue(ready.is_file())
+                self.assertTrue(recovery.is_file())
+                self.assertFalse(self.window._update_install_authorized)
+                self.assertEqual(self.window._pending_update_installer, installer)
+
+                # A closeEvent veto must schedule another attempt rather than
+                # leaving the installer waiting until its 120s timeout.
+                retry = timer.call_args.args[-1]
+                retry()
+                self.assertEqual(close.call_count, 2)
+                self.assertFalse(ready.exists())
+                self.assertTrue(self.window._update_install_authorized)
+                self.assertIsNone(self.window._pending_update_installer)
+                snapshot = self.window.autosave.load_snapshot(recovery)
+                self.assertEqual(snapshot.document.sources[0].name, "Keep this edit")
+            self.window._update_install_authorized = False
+
+    def test_update_exits_process_after_accepted_close(self):
+        with TemporaryDirectory() as raw:
+            root = Path(raw)
+            ready = root / "ready.update-ready"
+            recovery = root / "final.recovery.json"
+            self.window.autosave = AutosaveService(root)
+            ready.write_text("ready", encoding="utf-8")
+            with patch.object(self.window, "close", return_value=True), \
+                 patch.object(self.window, "isVisible", return_value=False), \
+                 patch("app.ui.main_window.QApplication.instance") as instance:
+                self.window._wait_for_update_setup(ready, recovery, 0)
+                instance.return_value.quit.assert_called_once_with()
+            self.assertFalse(ready.exists())
+            self.assertTrue(recovery.exists())
+            self.window._update_install_authorized = False
+
     def test_cancelled_update_authorization_never_closes_the_editor(self):
         with TemporaryDirectory() as raw:
             self.window._pending_update_installer = Path(raw) / "setup.exe"

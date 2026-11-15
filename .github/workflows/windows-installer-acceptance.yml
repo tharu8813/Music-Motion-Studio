@@ -129,6 +129,26 @@ jobs:
           & ./scripts/verify_installer_upgrade_smoke.ps1 -PreviousSetupPath $env:MMS_PREVIOUS_INSTALLER -CurrentSetupPath $current.FullName -ExpectedPreviousVersion '1.4.0.1' -ExpectedCurrentVersion $currentVersion
           if ($LASTEXITCODE -ne 0) { throw 'Previous-release upgrade acceptance failed.' }
 
+      - name: Record verified Setup candidate checksum
+        if: success()
+        shell: pwsh
+        run: |
+          $setups = @(Get-ChildItem 'output-setup' -Filter 'Music Motion Studio-*-setup.exe' -File)
+          if ($setups.Count -ne 1) { throw "Expected one verified installer, got $($setups.Count)." }
+          $sha = (Get-FileHash -LiteralPath $setups[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$sha  $($setups[0].Name)" | Set-Content -Path 'output-setup/installer.sha256' -Encoding ascii
+
+      - name: Upload tested 1.4.1.0 Setup candidate
+        if: success()
+        uses: actions/upload-artifact@v6
+        with:
+          name: music-motion-studio-1.4.1.0-setup-candidate
+          path: |
+            output-setup/Music Motion Studio-*-setup.exe
+            output-setup/installer.sha256
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload installer verification logs
         if: always()
         uses: actions/upload-artifact@v6
