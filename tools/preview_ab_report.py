@@ -34,6 +34,8 @@ MATCH_FIELDS = (
 STAGE_METRICS = (
     ("canvas.capture_seconds", "Canvas frame capture"),
     ("canvas.qt_scene_paint_seconds", "Qt scene painting"),
+    ("canvas.source_text_paint_seconds", "Canvas text source painting"),
+    ("canvas.source_lyrics_paint_seconds", "Canvas lyrics source painting"),
     ("preview.gpu_ordered_canvas_seconds", "GPU-ordered Canvas preparation"),
     ("preview.texture_prepare_upload_seconds", "GPU texture preparation / upload"),
     ("preview.gl_texture_upload_cpu_seconds", "OpenGL upload submission"),
