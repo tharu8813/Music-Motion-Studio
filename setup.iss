@@ -87,9 +87,13 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [CustomMessages]
 korean.UpdateInstalling=Music Motion Studio 업데이트 설치
 korean.UpdateClosingEditor=작업을 저장하고 편집기가 종료되기를 기다리는 중입니다.
+korean.UpdateStuckEditor=편집기 창은 닫혔지만 프로세스가 아직 실행 중입니다.%n%n복구용 프로젝트 파일을 확인했습니다. 남은 편집기 프로세스를 종료하고 업데이트를 계속할까요?%n%n저장되지 않은 작업이 손실될 수 있습니다. [아니요]를 선택하면 파일을 교체하지 않고 설치를 중단합니다.
+korean.UpdateStuckEditorFailed=이전 편집기 프로세스를 안전하게 종료하지 못했습니다. 현재 설치본은 변경하지 않았습니다. 작업 관리자를 확인한 뒤 다시 설치해 주세요.
 korean.OldFileStillPresent=이전 프로그램 파일을 지우지 못했습니다. Music Motion Studio와 파일을 사용 중인 프로그램을 닫고 다시 설치해 주세요.%n%n%1
 english.UpdateInstalling=Installing the Music Motion Studio update
 english.UpdateClosingEditor=Saving the workspace and waiting for the editor to close.
+english.UpdateStuckEditor=The editor window closed, but its process is still running.%n%nA workspace recovery file exists. Do you want to terminate the remaining editor process and continue updating?%n%nUnsaved changes may be lost. Choose No to stop Setup without replacing any application files.
+english.UpdateStuckEditorFailed=The previous editor process could not be terminated safely. No application files were replaced. Check Task Manager, then try Setup again.
 english.OldFileStillPresent=An old application file could not be removed. Close Music Motion Studio and any program using the file, then run Setup again.%n%n%1
 
 [Tasks]
@@ -167,6 +171,28 @@ function WaitForSingleObject(Handle: THandle; Milliseconds: Cardinal): Cardinal;
   external 'WaitForSingleObject@kernel32.dll stdcall';
 function CloseHandle(Handle: THandle): Boolean;
   external 'CloseHandle@kernel32.dll stdcall';
+function QueryFullProcessImageNameW(ProcessHandle: THandle; Flags: Cardinal;
+  ImagePath: String; var Size: Cardinal): Boolean;
+  external 'QueryFullProcessImageNameW@kernel32.dll stdcall';
+function TerminateProcess(ProcessHandle: THandle; ExitCode: Cardinal): Boolean;
+  external 'TerminateProcess@kernel32.dll stdcall';
+
+{ Never terminate a PID solely because a command-line parameter named it.
+  An open parent handle prevents PID reuse while Setup is waiting. }
+function IsExpectedUpdateEditor(ProcessHandle: THandle): Boolean;
+var
+  ImagePath: String;
+  Size: Cardinal;
+begin
+  Result := False;
+  SetLength(ImagePath, 32768);
+  Size := Length(ImagePath);
+  if not QueryFullProcessImageNameW(ProcessHandle, 0, ImagePath, Size) then
+    Exit;
+  SetLength(ImagePath, Size);
+  Result := CompareText(
+    ImagePath, ExpandConstant('{app}\{#MyAppExeName}')) = 0;
+end;
 
 function IsAutomaticUpdate(): Boolean;
 begin
@@ -227,8 +253,8 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ParentId, Poll: Integer;
-  ParentHandle: THandle;
-  ReadyPath: String;
+  ParentHandle, TerminateHandle: THandle;
+  ReadyPath, RecoveryPath: String;
   WaitResult: Cardinal;
 begin
   Result := '';
@@ -238,7 +264,9 @@ begin
     Result := 'The update parent process is missing.';
     Exit;
   end;
-  ParentHandle := OpenProcess($00100000, 0, ParentId);
+  { SYNCHRONIZE + PROCESS_QUERY_LIMITED_INFORMATION; never assume that a PID
+    supplied by the old executable identifies the correct program. }
+  ParentHandle := OpenProcess($00100000 or $00001000, 0, ParentId);
   if ParentHandle = 0 then begin
     { ERROR_INVALID_PARAMETER means the parent has already exited. }
     if DLLGetLastError() <> 87 then
@@ -255,11 +283,49 @@ begin
         Result := 'Could not notify Music Motion Studio that Setup is ready.';
         Exit;
       end;
+      RecoveryPath := ExpandConstant('{param:UPDATERECOVERY|}');
       for Poll := 1 to 480 do begin
         WaitResult := WaitForSingleObject(ParentHandle, 250);
         if WaitResult = 0 then Exit;
         if WaitResult <> 258 then Break;
         UpdatePreparationPage.Animate;
+
+        { Older 1.4.0.1 editors may hide the window while leaving a Qt
+          process alive. Offer a *user-approved* fallback after 15 seconds,
+          but only if the app identity and recovery snapshot are verified. }
+        if Poll = 60 then begin
+          if FileExists(RecoveryPath) and
+             IsExpectedUpdateEditor(ParentHandle) then begin
+            if MsgBox(CustomMessage('UpdateStuckEditor'),
+                mbConfirmation, MB_YESNO or MB_DEFBUTTON2) <> IDYES then begin
+              Result := CustomMessage('UpdateStuckEditorFailed');
+              Exit;
+            end;
+            { PROCESS_TERMINATE + SYNCHRONIZE + QUERY_LIMITED_INFORMATION.
+              Recheck the image path on the handle we will terminate. }
+            TerminateHandle := OpenProcess(
+              $00000001 or $00100000 or $00001000, 0, ParentId);
+            if TerminateHandle = 0 then begin
+              Result := CustomMessage('UpdateStuckEditorFailed');
+              Exit;
+            end;
+            try
+              if not IsExpectedUpdateEditor(TerminateHandle) or
+                 not TerminateProcess(TerminateHandle, 1) then begin
+                Result := CustomMessage('UpdateStuckEditorFailed');
+                Exit;
+              end;
+            finally
+              CloseHandle(TerminateHandle);
+            end;
+            if WaitForSingleObject(ParentHandle, 5000) = 0 then
+              Exit;
+            Result := CustomMessage('UpdateStuckEditorFailed');
+            Exit;
+          end else begin
+            Log('Update editor still running; process identity or recovery not verified. No termination offered.');
+          end;
+        end;
       end;
       Result := 'Music Motion Studio did not finish closing. No update was installed.';
     finally
