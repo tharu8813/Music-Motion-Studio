@@ -36,6 +36,7 @@ python -m tools.preview_ab_report --baseline build/preview-A1.json build/preview
 - `presented_scene_fps`: 실제 새 장면 프레임. 화면 반복 교체 콜백(`average_fps`)을 성능 향상으로 혼동하지 않는다.
 - `scene_frame_time_p95_ms`, `heartbeat_max_ms`: 긴 지연과 UI 이벤트 응답 상태.
 - 프레임 간격 `P50/P95/P99`와 콜백 간격 `P95`는 관측된 값의 **nearest-rank(표본 수 × 분위수를 올림)** 방식으로 계산한다. 이전 버전의 P95는 일부 표본 개수에서 내림으로 계산되어 긴 지연을 과소평가할 수 있었다. 코드 변경 전후 결과를 비교할 때 계산 규칙 변경을 고려한다.
+- 결과 JSON의 `frame_time_percentile_method`는 `nearest_rank_ceil_v2`로 표기한다. A-B-B-A 도구는 구버전(필드 누락)과 신버전의 **서로 다른 계산 방식을 혼합 비교할 경우 거부**한다. 네 실행 모두 같은 벤치마크 계산 버전으로 다시 측정해야 한다. 구버전 결과 네 개를 서로 비교하는 작업은 계속 지원한다.
 - `mean_parent_cpu_percent_of_one_core`: 앱 프로세스 CPU 시간 (100이 코어 하나에 해당).
 - `decode_drops_per_second`, `rss_peak_bytes`, `frame_buffer_peak_bytes`: 디코드 손실과 메모리 비용.
 - A/A, B/B 두 실행의 편차(`*_pair_spread_percent`)를 반드시 확인한다. 편차 범위보다 작은 차이로 개선을 확정하지 않는다.
