@@ -253,9 +253,12 @@ def compare(baseline: list[dict], candidate: list[dict]) -> dict:
         after = [row.get(field) for row in candidate]
         if any(
             not isinstance(value, (int, float)) or isinstance(value, bool)
-            or not isfinite(value)
+            or not isfinite(value) or value < 0
             for value in before + after
         ):
+            # FPS, frame time, process CPU and memory counts cannot be
+            # negative. Silently comparing invalid records can fabricate
+            # apparent wins and hide missing benchmark evidence.
             continue
         before_mean = mean(before)
         after_mean = mean(after)

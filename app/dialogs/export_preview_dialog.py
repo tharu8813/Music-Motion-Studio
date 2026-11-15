@@ -61,6 +61,7 @@ from app.preview.quality_presets import (
     PREVIEW_QUALITY_PRESETS, load_preview_quality, save_preview_quality,
 )
 from app.preview.cadence import preview_interval_ms, screen_preview_fps
+from app.preview.proxy_status import format_video_proxy_status
 from app.preview.gpu_texture_surface import (
     GPU_TEXTURE_SURFACE_AVAILABLE, GpuBackendInfo, GpuColorFilter, GpuPreviewLayer,
     GpuTexturePreviewSurface,
@@ -95,6 +96,7 @@ from app.video.duration_probe_worker import VideoDurationProbeWorker
 from app.preview.overlay_frame_cache import OverlayFrameCache, OverlaySignature
 from app.preview.overlay_frame_worker import OverlayFrameWorker
 from app.preview.cover_worker import PreviewCoverWorker
+from app.preview.worker_lifecycle import finish_or_detach_worker
 from app.video.timeline import resolve_video_position, source_video_paths
 from app.video.frame_filter import VideoFrameFilterSettings, filter_video_frame
 from app.video.decoder_backpressure import VideoDecoderBackpressure
@@ -4044,26 +4046,13 @@ class ExportPreviewDialog(QDialog):
                 )
 
     def _video_proxy_status_text(self, korean: bool) -> str:
-        active = sum(
-            1 for original, preview in self._video_proxy_paths.items()
-            if os.path.normcase(original) != os.path.normcase(preview)
+        return format_video_proxy_status(
+            paths=self._video_proxy_paths,
+            queued_count=len(self._video_proxy_queue),
+            worker_active=self._video_proxy_worker is not None,
+            has_failures=bool(self._video_proxy_failures),
+            korean=korean,
         )
-        pending = len(self._video_proxy_queue) + int(
-            self._video_proxy_worker is not None
-        )
-        if pending:
-            return (
-                f" · 프록시 준비 {pending}"
-                if korean else f" · Preparing proxies {pending}"
-            )
-        if active:
-            return (
-                f" · 프록시 {active}"
-                if korean else f" · Proxies {active}"
-            )
-        if self._video_proxy_failures:
-            return " · 원본 사용" if korean else " · Original media"
-        return ""
 
     def _set_play_text(self) -> None:
         korean = self.translator.is_korean
@@ -4293,22 +4282,8 @@ class ExportPreviewDialog(QDialog):
 
     @staticmethod
     def _finish_or_detach_worker(worker: QThread) -> None:
-        """Detach a still-running worker instead of blocking the UI thread on it.
-
-        The caller already requested cancellation, but that is not always
-        enough to stop ``run()`` promptly: ``VideoDurationProbeWorker`` calls
-        FFprobe through a blocking ``subprocess.run(..., timeout=15)`` with no
-        way to interrupt it early, so a synchronous ``wait()`` here could
-        freeze the whole window for up to 15 seconds every time Preview closed
-        while a probe was in flight. Reparenting to the application keeps Qt
-        from deleting a QThread while it is still running; the worker's own
-        ``finished`` signal cleans it up once it actually exits, decoupled
-        from the dialog's lifetime.
-        """
-        application = QApplication.instance()
-        if application is not None:
-            worker.setParent(application)
-        worker.finished.connect(worker.deleteLater)
+        """Legacy entry point for Qt worker shutdown ownership."""
+        finish_or_detach_worker(worker)
 
     def retranslate(self) -> None:
         korean = self.translator.is_korean
