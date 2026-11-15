@@ -535,6 +535,10 @@ def preview_benchmark(args) -> dict:
                 "analysis_successes": len(analysis.analyses) if analysis else None,
                 "analysis_failures": len(analysis.failures) if analysis else None,
             }
+            # Freeze samples at the measurement boundary. Closing the preview,
+            # stopping decoders and joining workers happen below and must not
+            # alter benchmark P95s or sample counts.
+            result["profile"] = PROFILE.snapshot()
         finally:
             measuring = False
             stop_gpu_sampling.set()
@@ -550,7 +554,6 @@ def preview_benchmark(args) -> dict:
             if gpu_sampler and gpu_sampler.ident is not None:
                 gpu_sampler.join(timeout=3)
         result["nvidia_device_samples_gpu_percent_and_vram_mib"] = gpu_samples
-        result["profile"] = PROFILE.snapshot()
         return result
 
 
