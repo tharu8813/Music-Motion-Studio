@@ -17,11 +17,11 @@ VSVersionInfo(
         [
           StringStruct("CompanyName", "Music Motion Studio"),
           StringStruct("FileDescription", "Music Motion Studio"),
-          StringStruct("FileVersion", "1.4.0.1"),
+          StringStruct("FileVersion", "1.4.1.0"),
           StringStruct("InternalName", "Music Motion Studio"),
           StringStruct("OriginalFilename", "Music Motion Studio.exe"),
           StringStruct("ProductName", "Music Motion Studio"),
-          StringStruct("ProductVersion", "1.4.0.1"),
+          StringStruct("ProductVersion", "1.4.1.0"),
         ],
       )
     ]),
