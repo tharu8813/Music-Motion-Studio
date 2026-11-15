@@ -6,6 +6,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QSettings, Signal
 
+from app.services.project_persistence_service import is_project_path
+
 
 class RecentProjectsService(QObject):
     """Store a bounded, existing-only list of recently used projects."""
@@ -23,12 +25,14 @@ class RecentProjectsService(QObject):
         seen: set[str] = set()
         for value in saved if isinstance(saved, list) else []:
             path = Path(str(value)).expanduser()
+            if not is_project_path(path):
+                continue
             try:
                 resolved = path.resolve()
             except OSError:
                 continue
             key = str(resolved).casefold()
-            if key in seen or not resolved.is_file():
+            if key in seen or not is_project_path(resolved) or not resolved.is_file():
                 continue
             seen.add(key)
             paths.append(resolved)
@@ -41,8 +45,11 @@ class RecentProjectsService(QObject):
 
     def add(self, project_path: str | Path) -> None:
         """Move a project to the front of the recent list."""
-        path = Path(project_path).expanduser().resolve()
-        if not path.is_file():
+        candidate = Path(project_path).expanduser()
+        if not is_project_path(candidate):
+            return
+        path = candidate.resolve()
+        if not is_project_path(path) or not path.is_file():
             return
         key = str(path).casefold()
         projects = [entry for entry in self.projects() if str(entry).casefold() != key]

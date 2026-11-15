@@ -35,6 +35,39 @@ def overlapping_tracks():
 
 
 class SubtitleTimingTests(unittest.TestCase):
+    def test_single_track_ttml_preserves_word_timing_and_overlapping_lines(self):
+        cues = LyricsService.parse(
+            '<tt xmlns="http://www.w3.org/ns/ttml" xml:space="preserve"><body><div>'
+            '<p begin="1s" end="4s"><span begin="0.25s" end="2s">Can &amp; </span>'
+            '<span begin="1s" end="2.5s">go</span><br/>Outro</p>'
+            '<p begin="3s" end="5s">Harmony</p></div></body></tt>', ".ttml",
+        )
+        with TemporaryDirectory() as raw:
+            target = Path(raw) / "words.ttml"
+            SubtitleExportService.export_track_lyrics(cues, target, timing_offset=1.5)
+            saved = LyricsService.load(target)
+        self.assertEqual(SubtitleExportService.track_formats(cues), ("ttml", "lrc", "srt"))
+        self.assertEqual([(cue["start"], cue["end"], cue["text"]) for cue in saved],
+                         [(0, 2.5, "Can & go\nOutro"), (1.5, 3.5, "Harmony")])
+        self.assertEqual(saved[0]["words"], [
+            {"start": 0, "end": 1.5, "offset": 0, "text": "Can & "},
+            {"start": 0.5, "end": 2, "offset": 6, "text": "go"},
+        ])
+        self.assertEqual(cues[0]["start"], 1)
+
+    def test_single_track_line_lyrics_offer_lrc_and_srt(self):
+        cues = [{"start": 4.022, "end": 6.5, "text": "Line one\nLine two", "format": "ttml"}]
+        self.assertEqual(SubtitleExportService.track_formats(cues), ("lrc", "srt"))
+        with TemporaryDirectory() as raw:
+            target = Path(raw) / "lines.srt"
+            SubtitleExportService.export_track_lyrics(cues, target, timing_offset=-0.5)
+            self.assertEqual(target.read_text(encoding="utf-8"),
+                             "1\n00:00:04,522 --> 00:00:07,000\nLine one\nLine two\n")
+            ttml = target.with_suffix(".ttml")
+            with self.assertRaises(LyricsError):
+                SubtitleExportService.export_track_lyrics(cues, ttml)
+            self.assertFalse(ttml.exists())
+
     def test_overlapping_lyrics_within_a_track_remain_visible_until_each_end(self):
         track = PlaylistTrack("song.wav", "Song", duration_seconds=10, lyrics=[
             {"start": 0, "end": 10, "text": "First"},

@@ -38,16 +38,13 @@ if TYPE_CHECKING:
 
 def project_path_from_arguments(arguments: list[str]) -> Path | None:
     """Return the first existing project passed by Explorer or the command line."""
+    from app.services.project_persistence_service import is_project_path
+
     for argument in arguments:
         if not argument or argument.startswith("-"):
             continue
         candidate = Path(argument).expanduser()
-        name = candidate.name.lower()
-        if not (
-            candidate.suffix.lower() == ".pvsproj"
-            or name.endswith(".project.json")
-            or candidate.suffix.lower() == ".json"
-        ):
+        if not is_project_path(candidate):
             continue
         try:
             if candidate.is_file():

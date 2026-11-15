@@ -17,12 +17,14 @@ from app.inspector.source_inspector import SourceInspector
 from app.dialogs.lyrics_search_dialog import LyricsSearchDialog
 
 
-def main():
+def main(languages=("ko", "en")):
     app = QApplication.instance() or QApplication([])
     app.setApplicationName('Music Motion Studio Help Capture')
     app.setOrganizationName('Music Motion Studio Help Capture')
     apply_studio_style(app)
     for language, code in ((Language.KOREAN, 'ko'), (Language.ENGLISH, 'en')):
+        if code not in languages:
+            continue
         translator = Translator()
         translator.set_language(language)
         track = PlaylistTrack('', 'Paper Planes', artist='Mira Sol', album='Blue Hours')

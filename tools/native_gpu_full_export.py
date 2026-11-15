@@ -22,6 +22,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
+from app.services.project_persistence_service import is_project_path
 from app.models.project import ProjectDocument
 from app.services.project_service import ProjectService
 from app.renderer.native_project_frames import produce_complete_project_frames
@@ -83,10 +84,8 @@ def export_complete_project(
     """Run actual complete GPU encoding + MP4 mux with the existing soundtrack."""
     source = Path(project_path)
     output = Path(output_path)
-    if not source.is_file() or source.is_symlink() or source.suffix.lower() not in {
-        ".pvsproj", ".json",
-    }:
-        raise ValueError("Choose a regular, existing .pvsproj or JSON project file")
+    if not source.is_file() or source.is_symlink() or not is_project_path(source):
+        raise ValueError("Choose a regular, existing .pvsproj project file")
     if output.suffix.lower() != ".mp4" or output.exists():
         raise ValueError("Choose a new .mp4 output path; existing videos will not be overwritten")
     if not 1 <= fps <= 120:

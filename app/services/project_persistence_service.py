@@ -5,6 +5,9 @@ from __future__ import annotations
 from hashlib import sha256
 from pathlib import Path
 
+PROJECT_SUFFIX = ".pvsproj"
+PROJECT_FILE_FILTER = "Music Motion Studio Project (*.pvsproj)"
+
 
 _MAX_PROJECT_STEM = 120
 _WINDOWS_RESERVED_STEMS = frozenset({
@@ -28,9 +31,9 @@ def default_project_path(title: str, directory: Path | None = None) -> Path:
         safe_title = f"{prefix or 'playlist'}-{digest}"
     if safe_title.upper() in _WINDOWS_RESERVED_STEMS:
         safe_title = f"_{safe_title}"
-    return (directory or Path.cwd()) / f"{safe_title}.pvsproj"
+    return (directory or Path.cwd()) / f"{safe_title}{PROJECT_SUFFIX}"
 
 
-def is_legacy_project_path(path: Path | None) -> bool:
-    """Return whether a path uses the legacy JSON project format."""
-    return path is not None and path.suffix.lower() == ".json"
+def is_project_path(path: Path) -> bool:
+    """Return whether a path uses the supported project extension."""
+    return path.suffix.casefold() == PROJECT_SUFFIX

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
+from shutil import copyfile
+from tempfile import NamedTemporaryFile
 
 from PySide6.QtCore import QObject, Signal
 
@@ -15,6 +17,20 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".svg"}
 FONT_EXTENSIONS = {".ttf", ".otf", ".woff", ".woff2"}
 CONTENT_AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".aac", ".m4a", ".ogg"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
+
+
+def export_content_file(source: Path, target: Path) -> Path:
+    """Copy original bytes and only replace the chosen file after a successful copy."""
+    if source.resolve() == target.resolve():
+        raise OSError("The destination is the source file.")
+    with NamedTemporaryFile(dir=target.parent, suffix=".tmp", delete=False) as file:
+        temporary = Path(file.name)
+    try:
+        copyfile(source, temporary)
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return target
 
 
 class ProjectContentService(QObject):

@@ -22,6 +22,35 @@ from app.services.project_media_service import ProjectMediaService
 
 
 class ProjectServiceTests(unittest.TestCase):
+    def test_non_package_input_is_rejected_and_save_does_not_overwrite_it(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "notes.json"
+            document = ProjectDocument(settings=ProjectSettings(title="New package"))
+            original = json.dumps(document.to_dict()).encode("utf-8")
+            path.write_bytes(original)
+            for read in (ProjectService.inspect, ProjectService.load):
+                with self.assertRaisesRegex(ProjectError, r"Choose a \.pvsproj"):
+                    read(path)
+            with self.assertRaisesRegex(ProjectError, r"Choose a \.pvsproj"):
+                ProjectService.save(path, document)
+            saved = ProjectService.save(path.with_suffix(""), document)
+            self.assertEqual(saved, path.with_suffix(".pvsproj").resolve())
+            self.assertEqual(ProjectService.load(saved).settings.title, "New package")
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_invalid_package_manifest_is_rejected_before_media_extraction(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "invalid.pvsproj"
+            manifest = ProjectDocument().to_dict()
+            manifest["canvas"]["width"] = 0
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr(ProjectService.MANIFEST_NAME, json.dumps(manifest))
+                archive.writestr("assets/image.png", b"media fixture")
+            reports = []
+            with self.assertRaises(ProjectError):
+                ProjectService.load(path, progress=lambda *state: reports.append(state))
+            self.assertEqual(reports, [])
+
     def test_shared_media_resolves_once_and_rechecks_after_file_removal(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -62,9 +91,9 @@ class ProjectServiceTests(unittest.TestCase):
             self.assertEqual(target.read_bytes(), previous)
             self.assertEqual(list(root.glob("*.tmp")), [])
 
-    def test_invalid_json_save_preserves_the_last_valid_project(self):
+    def test_invalid_save_preserves_the_last_valid_project(self):
         with TemporaryDirectory() as raw:
-            target = ProjectService.save(Path(raw) / "work.json", ProjectDocument())
+            target = ProjectService.save(Path(raw) / "work.pvsproj", ProjectDocument())
             previous = target.read_bytes()
             invalid = ProjectDocument(playlist=[PlaylistTrack("song.wav", "Song", lyrics=[
                 {"start": 10, "end": 5, "text": "Invalid"},
@@ -164,10 +193,11 @@ class ProjectServiceTests(unittest.TestCase):
 
     def test_inspect_invalid_settings_reports_project_error(self) -> None:
         with TemporaryDirectory(prefix="pvs-inspect-") as directory:
-            path = Path(directory) / "invalid.json"
+            path = Path(directory) / "invalid.pvsproj"
             for settings in (None, [], "invalid", 42):
                 with self.subTest(settings=settings):
-                    path.write_text(json.dumps({"settings": settings}), encoding="utf-8")
+                    with zipfile.ZipFile(path, "w") as archive:
+                        archive.writestr(ProjectService.MANIFEST_NAME, json.dumps({"settings": settings}))
                     with self.assertRaises(ProjectError):
                         ProjectService.inspect(path)
 
@@ -405,17 +435,6 @@ class ProjectServiceTests(unittest.TestCase):
                     self.assertEqual(
                         ProjectService.load(package).playlist[0].file_path, reference,
                     )
-
-    def test_legacy_json_keeps_external_absolute_paths(self) -> None:
-        with TemporaryDirectory(prefix="pvs-project-json-") as raw_directory:
-            directory = Path(raw_directory)
-            external = str((directory / "elsewhere" / "track.mp3").resolve())
-            project = directory / "legacy.json"
-            project.write_text(json.dumps(ProjectDocument(
-                playlist=[PlaylistTrack(external, "Track")],
-            ).to_dict()), encoding="utf-8")
-            self.assertEqual(ProjectService.load(project).playlist[0].file_path, external)
-
 
 if __name__ == "__main__":
     unittest.main()

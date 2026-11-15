@@ -14,7 +14,7 @@ import threading
 
 from mutagen import File as MutagenFile
 from PySide6.QtCore import QEvent, QProcess, QSettings, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QPixmap
+from PySide6.QtGui import QColor, QDesktopServices, QPixmap, QTextCharFormat, QTextCursor
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -59,8 +59,10 @@ from app.dialogs.lrc_generator_dialog import LrcGeneratorDialog
 from app.dialogs.ttml_edit_dialog import TtmlRowsDialog, choose_ttml_edit_mode, line_cues
 from app.services.audio_decode import AudioDecodeError
 from app.services.eq_preview import EqPreviewAudio
+from app.services.export_file_naming import project_export_stem
 from app.services.lyrics_service import LyricsError, LyricsService
 from app.services.preview_audio_settings import preview_volume, save_preview_volume
+from app.services.subtitle_export_service import SubtitleExportService
 from app.preview.album_art import extract_track_cover
 from app.utils.cancellable_subprocess import run_probe
 from app.utils.i18n import Translator
@@ -93,7 +95,7 @@ def audio_file_facts(path: str) -> dict[str, object]:
     return facts
 
 
-_TAB_HELP_TOPICS = ("track_info", "track_analysis", "track_lyrics", "track_videos", "track_audio")
+_TAB_HELP_TOPICS = ("track_details", "track_analysis", "track_lyrics", "video_source", "track_audio")
 """F1 opens the help topic of the tab being shown (tabs in this order)."""
 
 
@@ -293,11 +295,10 @@ class TrackDetailsDialog(QDialog):
         self.content_lyrics_button = QPushButton()
         self.content_lyrics_button.setVisible(bool(self._content_lyrics))
         self.edit_lrc_button = QPushButton()
-        self.export_lrc_button = QPushButton()
         self.clear_button = QPushButton()
         path_row.addWidget(self.lyrics_path, 1)
         for button in (self.content_lyrics_button, self.load_button, self.clear_button,
-                       self.search_lyrics_button, self.export_lrc_button):
+                       self.search_lyrics_button):
             button.setParent(self)
             button.hide()
         lyrics_layout.addLayout(path_row)
@@ -318,7 +319,7 @@ class TrackDetailsDialog(QDialog):
         self.more_lyrics_button = QPushButton()
         self.more_lyrics_menu = QMenu(self)
         self.export_lyrics_action = self.more_lyrics_menu.addAction("")
-        self.export_lyrics_action.triggered.connect(self._export_current_lyrics_as_lrc)
+        self.export_lyrics_action.triggered.connect(self._export_current_lyrics)
         self.more_lyrics_menu.addSeparator()
         self.detach_lyrics_action = self.more_lyrics_menu.addAction("")
         self.detach_lyrics_action.triggered.connect(self._clear_lyrics)
@@ -658,7 +659,6 @@ class TrackDetailsDialog(QDialog):
         self.content_lyrics_button.clicked.connect(self._show_content_lyrics_menu)
         self.search_lyrics_button.clicked.connect(self._find_lyrics)
         self.edit_lrc_button.clicked.connect(self._edit_in_lrc_generator)
-        self.export_lrc_button.clicked.connect(self._export_current_lyrics_as_lrc)
         self.clear_button.clicked.connect(self._clear_lyrics)
         self.change_cover_button.clicked.connect(self._choose_cover)
         self.reset_cover_button.clicked.connect(self._reset_cover)
@@ -1426,61 +1426,55 @@ class TrackDetailsDialog(QDialog):
         # commits the track and closes the form.
         self.edit_lrc_button.setFocus(Qt.FocusReason.OtherFocusReason)
 
-    def _export_current_lyrics_as_lrc(self) -> None:
-        """Convert the attached/embedded cues to LRC with this track's offset applied."""
+    def _export_current_lyrics(self) -> None:
         korean = self.translator.is_korean
+        title = "가사 내보내기" if korean else "Export lyrics"
         if not self.selected_lyrics:
             QMessageBox.warning(
-                self,
-                "내보낼 가사 없음" if korean else "No lyrics to export",
+                self, title,
                 "먼저 시간 정보가 있는 가사를 등록하세요."
-                if korean else "Attach timed lyrics before exporting an LRC file.",
+                if korean else "Attach timed lyrics before exporting.",
             )
             return
-        source = Path(self.selected_lyrics_path) if self.selected_lyrics_path else Path(self.track.file_path)
-        default_name = source.with_suffix(".lrc")
-        selected, _ = QFileDialog.getSaveFileName(
-            self,
-            "현재 가사를 LRC로 내보내기" if korean else "Export current lyrics as LRC",
-            str(default_name),
-            "LRC lyrics (*.lrc)",
+        labels = {
+            "lrc": "LRC lyrics (*.lrc)",
+            "srt": "SRT subtitles (*.srt)",
+            "ttml": "TTML lyrics (*.ttml)",
+        }
+        formats = SubtitleExportService.track_formats(self.selected_lyrics)
+        stem = project_export_stem(self.title_edit.text())
+        selected, chosen_filter = QFileDialog.getSaveFileName(
+            self, title, str(Path.home() / f"{stem} (export)"),
+            ";;".join(labels[extension] for extension in formats), labels[formats[0]],
         )
         if not selected:
             return
-        offset = self.timing_offset_spin.value()
-        adjusted_cues: list[dict[str, object]] = []
-        for cue in self.selected_lyrics:
-            start = max(0.0, float(cue.get("start", 0.0)) - offset)
-            end = max(start, float(cue.get("end", start + 8.0)) - offset)
-            adjusted_cues.append({
-                "start": start,
-                "end": end,
-                "text": LyricsService.decode_line_breaks(cue.get("text", "")),
-            })
-            if cue.get("words"):
-                adjusted_cues[-1]["words"] = [word | {
-                    "start": max(0.0, float(word["start"]) - offset),
-                    "end": max(0.0, float(word["end"]) - offset),
-                } for word in cue["words"]]
+        target = Path(selected)
+        if target.suffix.lower().lstrip(".") not in labels:
+            extension = next((extension for extension in formats if labels[extension] == chosen_filter), formats[0])
+            target = target.with_name(f"{target.name}.{extension}")
+            if target.is_file() and QMessageBox.question(
+                self, title,
+                "같은 이름의 파일을 바꿀까요?" if korean else "Replace the existing file?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            ) != QMessageBox.StandardButton.Yes:
+                return
         try:
-            saved = LyricsService.save_lrc(
-                selected,
-                adjusted_cues,
-                title=self.title_edit.text().strip(),
-                artist=self.artist_edit.text().strip(),
+            saved = SubtitleExportService.export_track_lyrics(
+                self.selected_lyrics, target, timing_offset=self.timing_offset_spin.value(),
+                title=self.title_edit.text().strip(), artist=self.artist_edit.text().strip(),
             )
         except LyricsError as error:
             QMessageBox.critical(
-                self,
-                "LRC 내보내기 오류" if korean else "LRC export error",
-                str(error),
+                self, title,
+                f"가사 파일을 저장할 수 없습니다.\n{error}"
+                if korean else f"Could not save the lyrics file.\n{error}",
             )
             return
         QMessageBox.information(
-            self,
-            "LRC 내보내기 완료" if korean else "LRC export complete",
-            f"현재 가사를 LRC 파일로 저장했습니다.\n{saved}"
-            if korean else f"The current lyrics were saved as an LRC file.\n{saved}",
+            self, title,
+            f"현재 가사를 저장했습니다.\n{saved}" if korean else f"Saved the current lyrics.\n{saved}",
         )
 
     def _toggle_playback(self) -> None:
@@ -1762,7 +1756,6 @@ class TrackDetailsDialog(QDialog):
             if korean else "Review, edit or translate lyrics. Original text and timing are preserved.")
         self.translation_attribution.setVisible(any(approved_translation(cue)
             and cue["translation"]["provider"] == "papago" for cue in self.selected_lyrics))
-        self.export_lrc_button.setEnabled(bool(self.selected_lyrics))
         self.export_lyrics_action.setEnabled(bool(self.selected_lyrics))
         self.detach_lyrics_action.setEnabled(bool(self.selected_lyrics_path or self.selected_lyrics))
         count = len(self.selected_lyrics)
@@ -1806,21 +1799,40 @@ class TrackDetailsDialog(QDialog):
                 if korean else "Load lyrics containing timing information."
             )
             return
-        lines: list[str] = []
-        for cue in self.selected_lyrics[:120]:
+        self.preview.clear()
+        cursor = self.preview.textCursor()
+        bracket_color, time_color, original_color, translation_color = (
+            QTextCharFormat() for _ in range(4)
+        )
+        for style, color in (
+            (bracket_color, "#F4E49A"), (time_color, "#FFAB92"),
+            (original_color, "#FFFFFF"), (translation_color, "#A6ACAF"),
+        ):
+            style.setForeground(QColor(color))
+        cursor.beginEditBlock()
+        for index, cue in enumerate(self.selected_lyrics[:120]):
+            if index:
+                cursor.insertBlock()
             # A positive offset advances lyrics, so their display timestamp is
             # cue time minus the offset.
             start = float(cue.get("start", 0.0)) - offset
             text = LyricsService.decode_line_breaks(
                 cue.get("text", "")
             ).replace("\n", " / ").strip()
-            lines.append(f"[{self._timestamp(start)}]  {text}")
+            cursor.insertText("[", bracket_color)
+            cursor.insertText(self._timestamp(start), time_color)
+            cursor.insertText("]", bracket_color)
+            cursor.insertText("  " + text, original_color)
             translated = approved_translation(cue)
             if translated:
-                lines.append("    ↳ " + translated.replace("\n", " / "))
+                cursor.insertBlock()
+                cursor.insertText("    → " + translated.replace("\n", " / "), translation_color)
         if count > 120:
-            lines.append(f"… +{count - 120}")
-        self.preview.setPlainText("\n".join(lines))
+            cursor.insertBlock()
+            cursor.insertText(f"… +{count - 120}", translation_color)
+        cursor.endEditBlock()
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        self.preview.setTextCursor(cursor)
 
     def _accept(self) -> None:
         korean = self.translator.is_korean
@@ -1977,22 +1989,19 @@ class TrackDetailsDialog(QDialog):
             if korean else
             "Open the Lyrics/Subtitle Editor. For TTML, choose LRC conversion or line deletion first."
         )
-        self.export_lrc_button.setText(
-            "LRC로 내보내기…" if korean else "Export as LRC…"
-        )
         self.search_lyrics_button.setText("가사 검색 및 가져오기…" if korean else "Search && Import Lyrics…")
         self.import_lyrics_button.setText("가져오기…" if korean else "Import…")
         self.import_file_action.setText("파일에서 불러오기…" if korean else "Load from file…")
         self.import_search_action.setText("온라인 가사 검색…" if korean else "Search lyrics online…")
         self.import_content_menu.setTitle("프로젝트 콘텐츠에서" if korean else "From project content")
         self.more_lyrics_button.setText("더보기" if korean else "More")
-        self.export_lyrics_action.setText("LRC로 내보내기…" if korean else "Export as LRC…")
+        self.export_lyrics_action.setText("가사 내보내기…" if korean else "Export lyrics…")
         self.detach_lyrics_action.setText("가사 연결 해제" if korean else "Detach lyrics")
         self.timing_toggle.setText("타이밍 보정" if korean else "Timing adjustment")
-        self.export_lrc_button.setToolTip(
-            "현재 곡의 타이밍 보정을 적용하고 여러 줄 가사는 문자 \\n으로 저장합니다."
+        self.export_lyrics_action.setToolTip(
+            "곡별 타이밍 보정을 적용합니다. 단어 시간이 있는 가사는 TTML로도 저장할 수 있습니다."
             if korean else
-            "Applies this track's timing offset and stores multi-line lyrics using the literal \\n characters."
+            "Applies the track timing offset. Word-timed lyrics can also be saved as TTML."
         )
         self.clear_button.setText("연결 해제" if korean else "Detach")
         self.timing_label.setText("곡별 타이밍 보정" if korean else "Per-track timing offset")

@@ -82,6 +82,6 @@ UI는 입력/화면 갱신, controller는 작업 순서/취소, service는 저�
 
 `canvas ↔ preview`, `preview ↔ renderer`, `renderer ↔ automix`의 정적 연결이 있다. 신규 연결은 `models`/`timeline`의 순수 값 객체를 공유하고, renderer에서 UI widget을 import하는 연결은 만들지 않는다. Qt scene capture를 worker로 통째로 옮기는 대규모 변경은 피한다.
 
-이번 변경은 계측을 `app/utils/performance.py`로 분리하고 기존 호출 경계에 붙였다. 프로젝트 JSON/`.pvsproj` schema, public render-plan 계약, installer/build 설정에는 변경을 추가하지 않았다. 작업 시작 전 존재한 다른 수정은 유지했다.
+이번 변경은 계측을 `app/utils/performance.py`로 분리하고 기존 호출 경계에 붙였다. 프로젝트 패키지 스키마, public render-plan 계약, installer/build 설정에는 변경을 추가하지 않았다. 작업 시작 전 존재한 다른 수정은 유지했다.
 
 측정값, 복사 경로, 동시 실행 정책, 검증과 다음 순서는 [performance.md](performance.md)에 있다.

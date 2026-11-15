@@ -40,7 +40,6 @@ output-setup/
 .playlist.autosave.json
 *.recovery.json
 *.pvsproj
-*.project.json
 /description.txt
 /playlist.csv
 

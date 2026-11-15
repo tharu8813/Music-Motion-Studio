@@ -26,11 +26,13 @@ from PySide6.QtWidgets import (
     QStyleOptionViewItem, QTabBar, QTextBrowser, QTextEdit, QVBoxLayout, QWidget,
 )
 
+from app import RELEASE_DATE, __version__
 from app.dialogs.help_content import (
     HELP_TAB_IDS, HelpTab, HelpTopic, help_tabs, help_topics, topic_images,
 )
 from app.ui.design_system import COLORS
 from app.dialogs.adaptive_dialog import AdaptiveDialog
+from app.services.update_service import is_newer_version
 from app.utils.i18n import Translator
 
 __all__ = [
@@ -259,10 +261,16 @@ class HelpDialog(AdaptiveDialog):
             "h3{font-size:14px;margin:16px 0 6px 0;}"
             "p,li,td{font-size:13px;line-height:1.55;}"
             "li{margin-bottom:5px;}"
-            f"th{{font-size:13px;text-align:left;color:{COLORS['muted']};}}"
+            f"table{{border:1px solid {COLORS['border']};border-collapse:collapse;}}"
+            f"th,td{{border:1px solid {COLORS['border']};padding:6px 9px;}}"
+            f"th{{font-size:13px;text-align:left;color:{COLORS['text']};"
+            f"background-color:{COLORS['alternate']};}}"
             f"code{{font-family:Consolas,monospace;font-weight:600;color:{COLORS['accent_hover']};}}"
             f".crumb{{font-size:12px;color:{COLORS['muted']};margin:0;}}"
             f".tags{{font-size:12px;margin:0 0 10px 0;}}"
+            f".history{{font-size:12px;color:{COLORS['muted']};margin:0 0 10px 0;}}"
+            f".outdated{{font-size:12px;color:{COLORS['warning']};"
+            f"background-color:{COLORS['warning_surface']};margin:6px 0 10px 0;}}"
             f".note{{background-color:{COLORS['alternate']};padding:8px 12px;margin:12px 0;}}"
             f".tip{{background-color:{COLORS['info_surface']};padding:8px 12px;margin:12px 0;}}"
         )
@@ -546,12 +554,26 @@ class HelpDialog(AdaptiveDialog):
         related_html = (
             f"<h3>{self._text('관련 항목', 'Related topics')}</h3><p>{links}</p>" if links else ""
         )
+        revision = topic.revision
+        history = self._text(
+            f"추가일 {revision.added_on} · 마지막 본문 작성일 {revision.written_on}<br>"
+            f"마지막 수정일 {revision.modified_on} · 수정 버전 {revision.version}",
+            f"Added {revision.added_on} · Text last edited {revision.written_on}<br>"
+            f"Last updated {revision.modified_on} · Updated for {revision.version}",
+        )
+        notice = ""
+        if is_newer_version(__version__, revision.version) or RELEASE_DATE > revision.modified_on:
+            message = self._text(
+                f"이 도움말은 현재 앱({__version__}) 출시 전에 수정되었습니다. 화면이나 기능이 다를 수 있습니다.",
+                f"This article predates the current app release ({__version__}). Screens or features may differ.",
+            )
+            notice = f"<p class='outdated'>{message}</p>"
         keep_scroll = topic.identifier == self._shown_topic
         scroll = self.browser.verticalScrollBar().value()
         self._rendered_width = self._reading_width()
         self.browser.setHtml(
             f"<p class='crumb'>{crumb} ›</p><h1>{html.escape(topic.title)}</h1>"
-            f"<p class='tags'>{tags}</p>{body}{related_html}"
+            f"{notice}<p class='history'>{history}</p><p class='tags'>{tags}</p>{body}{related_html}"
         )
         self._shown_topic = topic.identifier
         self.browser.verticalScrollBar().setValue(scroll if keep_scroll else 0)

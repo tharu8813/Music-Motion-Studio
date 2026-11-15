@@ -6,16 +6,17 @@ from bisect import bisect_left
 from math import ceil, floor
 from pathlib import Path
 
-from PySide6.QtCore import QLineF, QPoint, QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QLineF, QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QAction, QColor, QContextMenuEvent, QCursor, QDragEnterEvent, QDropEvent,
-    QKeySequence, QPainter, QPen, QWheelEvent,
+    QFocusEvent, QKeySequence, QPainter, QPen, QWheelEvent,
 )
 from PySide6.QtWidgets import (
     QApplication, QGraphicsScene, QGraphicsView, QLabel, QMenu,
 )
 
 from app.canvas.source_item import SourceItem
+from app.models.project import clamp_canvas_zoom
 from app.models.source import Source
 from app.services.project_content_service import LYRICS_EXTENSIONS
 from app.services.source_store import SourceStore
@@ -477,7 +478,7 @@ class LiveCanvas(QGraphicsView):
         self.setScene(self.scene_model)
         self._items: dict[str, SourceItem] = {}
         self._retired_items: dict[str, SourceItem] = {}
-        self._panning = False
+        self._pan_button = Qt.MouseButton.NoButton
         self._fit_to_view = False
         self._fitting_view = False
         self._space_panning = False
@@ -487,11 +488,13 @@ class LiveCanvas(QGraphicsView):
         self._group_resize_handle: str | None = None
         self._group_resize_anchor = QPointF()
         self._group_resize_vector = QPointF()
+        self._group_resize_origin = QPointF()
         self._group_resize_states: dict[SourceItem, tuple[QPointF, float]] = {}
         self.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.TextAntialiasing)
         self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.MinimalViewportUpdate)
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.setBackgroundBrush(QColor("#171B22"))
         self.setFrameShape(QGraphicsView.Shape.NoFrame)
         # QGraphicsView is a QAbstractScrollArea, so the viewport is the widget
@@ -679,12 +682,9 @@ class LiveCanvas(QGraphicsView):
     def wheelEvent(self, event: QWheelEvent) -> None:
         """Zoom with Ctrl+wheel; standard scrolling otherwise."""
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
-            current = self.transform().m11()
-            if 0.2 <= current * factor <= 3.0:
-                self._leave_fit_mode()
-                self.scale(factor, factor)
-                self.zoom_changed.emit(self.transform().m11())
+            delta = event.angleDelta().y() or event.pixelDelta().y()
+            if delta:
+                self.zoom_by(1.15 ** (delta / 120), anchor=QGraphicsView.ViewportAnchor.AnchorUnderMouse)
             event.accept()
             return
         super().wheelEvent(event)
@@ -947,11 +947,15 @@ class LiveCanvas(QGraphicsView):
         if button == Qt.MouseButton.RightButton:
             event.accept()  # type: ignore[union-attr]
             return
+        if self._pan_button or self._group_resize_handle is not None:
+            event.accept()  # type: ignore[union-attr]
+            return
         if button == Qt.MouseButton.MiddleButton or (
             button == Qt.MouseButton.LeftButton and self._space_panning
         ):
-            self._panning = True
-            self._pan_origin = event.pos()  # type: ignore[union-attr]
+            self._pan_button = button
+            self._pan_origin = event.position().toPoint()  # type: ignore[union-attr]
+            self.viewport().unsetCursor()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()  # type: ignore[union-attr]
             return
@@ -960,7 +964,9 @@ class LiveCanvas(QGraphicsView):
                 event.position().toPoint()  # type: ignore[union-attr]
             )
             if group_handle is not None:
-                self._begin_group_resize(group_handle)
+                self._begin_group_resize(
+                    group_handle, self.mapToScene(event.position().toPoint()),  # type: ignore[union-attr]
+                )
                 event.accept()  # type: ignore[union-attr]
                 return
         # A selected resize handle is an editing control, even when another
@@ -1020,9 +1026,10 @@ class LiveCanvas(QGraphicsView):
             )
             event.accept()  # type: ignore[union-attr]
             return
-        if self._panning:
-            delta = event.pos() - self._pan_origin  # type: ignore[union-attr]
-            self._pan_origin = event.pos()  # type: ignore[union-attr]
+        if self._pan_button:
+            position = event.position().toPoint()  # type: ignore[union-attr]
+            delta = position - self._pan_origin
+            self._pan_origin = position
             self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
             self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
             event.accept()  # type: ignore[union-attr]
@@ -1099,7 +1106,7 @@ class LiveCanvas(QGraphicsView):
                 return handle
         return None
 
-    def _begin_group_resize(self, handle: str) -> None:
+    def _begin_group_resize(self, handle: str, press_position: QPointF) -> None:
         """Snapshot a multi-selection before proportional collective resizing."""
         bounds = self.scene_model.multi_selection_bounds()
         items = self.scene_model.multi_selection_items()
@@ -1111,6 +1118,7 @@ class LiveCanvas(QGraphicsView):
         self._group_resize_handle = handle
         self._group_resize_anchor = points[opposite[handle]]
         self._group_resize_vector = moving - self._group_resize_anchor
+        self._group_resize_origin = press_position
         self._group_resize_states = {
             item: (item.mapToScene(item.transformOriginPoint()), item.source.scale)
             for item in items
@@ -1124,13 +1132,15 @@ class LiveCanvas(QGraphicsView):
         denominator = vector.x() ** 2 + vector.y() ** 2
         if denominator <= 0.0 or not self._group_resize_states:
             return
-        pointer = scene_position - self._group_resize_anchor
-        factor = (pointer.x() * vector.x() + pointer.y() * vector.y()) / denominator
+        delta = scene_position - self._group_resize_origin
+        factor = 1.0 + (delta.x() * vector.x() + delta.y() * vector.y()) / denominator
+        # Saved sources can exceed Inspector limits. Leave their original size
+        # reachable and allow them to move back toward the editable range.
         minimum = max(
-            0.1 / scale for _center, scale in self._group_resize_states.values()
+            min(1.0, 0.1 / scale) for _center, scale in self._group_resize_states.values()
         )
         maximum = min(
-            10.0 / scale for _center, scale in self._group_resize_states.values()
+            max(1.0, 10.0 / scale) for _center, scale in self._group_resize_states.values()
         )
         factor = max(minimum, min(maximum, factor))
 
@@ -1142,6 +1152,8 @@ class LiveCanvas(QGraphicsView):
                 target_center.x() - item.source.width / 2.0,
                 target_center.y() - item.source.height / 2.0,
             )
+            if item.scale() == new_scale and item.pos() == new_position:
+                continue
             item.source.scale = new_scale
             item.setScale(new_scale)
             item._suppress_position_sync = True
@@ -1164,26 +1176,49 @@ class LiveCanvas(QGraphicsView):
 
     def _finish_group_resize(self) -> None:
         """Commit one consolidated history update for every resized source."""
-        self.scene_model.finish_item_interaction()
         self._group_resize_handle = None
         self._group_resize_states.clear()
+        self.scene_model.finish_item_interaction()
         self._show_interaction_hint("")
         self.scene_model.update()
 
     def mouseReleaseEvent(self, event: object) -> None:
-        """End panning."""
+        """Finish a gesture only when its initiating button is released."""
         if self._group_resize_handle is not None:
-            self._finish_group_resize()
-            self.viewport().unsetCursor()
+            if event.button() == Qt.MouseButton.LeftButton:  # type: ignore[union-attr]
+                self._finish_group_resize()
+                self.viewport().unsetCursor()
             event.accept()  # type: ignore[union-attr]
             return
-        if self._panning:
-            self._panning = False
-            self.setCursor(Qt.CursorShape.ArrowCursor)
+        if self._pan_button:
+            if event.button() == self._pan_button:  # type: ignore[union-attr]
+                self._pan_button = Qt.MouseButton.NoButton
+                if self._space_panning:
+                    self.setCursor(Qt.CursorShape.OpenHandCursor)
+                else:
+                    self.unsetCursor()
             event.accept()  # type: ignore[union-attr]
             return
         super().mouseReleaseEvent(event)  # type: ignore[arg-type]
         self.viewport().unsetCursor()
+
+    def _reset_view_gestures(self) -> None:
+        self._space_panning = False
+        self._pan_button = Qt.MouseButton.NoButton
+        self.unsetCursor()
+        self.viewport().unsetCursor()
+        if self._group_resize_handle is not None:
+            self._finish_group_resize()
+
+    def focusOutEvent(self, event: QFocusEvent) -> None:
+        self._reset_view_gestures()
+        super().focusOutEvent(event)
+
+    def viewportEvent(self, event: QEvent) -> bool:
+        if (event.type() == QEvent.Type.UngrabMouse
+                and (self._pan_button or self._group_resize_handle is not None)):
+            self._reset_view_gestures()
+        return super().viewportEvent(event)
 
     def keyPressEvent(self, event: object) -> None:
         """Space+drag hand-tool panning and arrow-key nudging of the selection."""
@@ -1193,9 +1228,11 @@ class LiveCanvas(QGraphicsView):
             event.accept()  # type: ignore[union-attr]
             return
         if key == Qt.Key.Key_Space:
-            self._space_panning = True
-            if not self._panning:
-                self.setCursor(Qt.CursorShape.OpenHandCursor)
+            if not event.isAutoRepeat():  # type: ignore[union-attr]
+                self._space_panning = True
+                if not self._pan_button:
+                    self.viewport().unsetCursor()
+                    self.setCursor(Qt.CursorShape.OpenHandCursor)
             event.accept()  # type: ignore[union-attr]
             return
         modifiers = event.modifiers()  # type: ignore[union-attr]
@@ -1221,9 +1258,10 @@ class LiveCanvas(QGraphicsView):
             event.accept()  # type: ignore[union-attr]
             return
         if event.key() == Qt.Key.Key_Space:  # type: ignore[union-attr]
-            self._space_panning = False
-            if not self._panning:
-                self.unsetCursor()
+            if not event.isAutoRepeat():  # type: ignore[union-attr]
+                self._space_panning = False
+                if not self._pan_button:
+                    self.unsetCursor()
             event.accept()  # type: ignore[union-attr]
             return
         super().keyReleaseEvent(event)  # type: ignore[arg-type]
@@ -1249,6 +1287,11 @@ class LiveCanvas(QGraphicsView):
         if getattr(self, "_fit_to_view", False):
             self.fit_artboard()
 
+    def refit_artboard(self) -> None:
+        """Refresh automatic fit after layout changes while retaining manual zoom."""
+        if self._fit_to_view:
+            self.fit_artboard()
+
     def _leave_fit_mode(self) -> None:
         self._fit_to_view = False
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -1256,24 +1299,29 @@ class LiveCanvas(QGraphicsView):
 
     def set_zoom(self, zoom: float) -> None:
         """Restore a stored absolute zoom factor."""
-        zoom = min(3.0, max(0.2, zoom))
+        zoom = clamp_canvas_zoom(zoom)
         self._leave_fit_mode()
         self.resetTransform()
         self.scale(zoom, zoom)
         self.zoom_changed.emit(self.transform().m11())
 
-    def zoom_by(self, factor: float) -> None:
-        """Zoom a bounded step around the view centre (keyboard / status-bar)."""
+    def zoom_by(
+        self, factor: float, *,
+        anchor: QGraphicsView.ViewportAnchor = QGraphicsView.ViewportAnchor.AnchorViewCenter,
+    ) -> None:
+        """Zoom a bounded step, allowing fitted views to re-enter the normal range."""
         current = self.transform().m11()
-        target = min(3.0, max(0.2, current * factor))
+        target = min(max(3.0, current), max(min(0.2, current), current * factor))
         relative = target / current
         if abs(relative - 1.0) < 1e-6:
             return
         self._leave_fit_mode()
         previous_anchor = self.transformationAnchor()
-        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
-        self.scale(relative, relative)
-        self.setTransformationAnchor(previous_anchor)
+        self.setTransformationAnchor(anchor)
+        try:
+            self.scale(relative, relative)
+        finally:
+            self.setTransformationAnchor(previous_anchor)
         self.zoom_changed.emit(self.transform().m11())
 
     def set_theme_colors(self, workspace: QColor, artboard: QColor,

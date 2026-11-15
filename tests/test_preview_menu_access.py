@@ -65,7 +65,7 @@ class PreviewMenuAccessTests(MainWindowTestCase):
                 self.assertTrue(action.isEnabled())
         with patch("app.ui.main_window.HelpDialog") as help_dialog, \
              patch.object(self.window.project_controller, "save") as save, \
-             patch("app.ui.main_window.QFileDialog.getSaveFileName", return_value=("", "")) as choose:
+             patch("app.ui.main_window.QFileDialog.getExistingDirectory", return_value="") as choose:
             self.window.help_action.trigger()
             self.window.save_action.trigger()
             self.window.export_m3u_action.trigger()

@@ -132,7 +132,7 @@ class LyricsSearchServiceTests(unittest.TestCase):
             root = Path(directory)
             saved = self.service.save(document, root / document.filename)
             self.assertEqual(saved.read_text(encoding="utf-8"), document.content)
-            project = ProjectService.save(root / "lyrics.json", ProjectDocument(playlist=[
+            project = ProjectService.save(root / "lyrics.pvsproj", ProjectDocument(playlist=[
                 PlaylistTrack("", "Song", lyrics=document.cues)]))
             self.assertEqual(ProjectService.load(project).playlist[0].lyrics, document.cues)
             with self.assertRaises(LyricsSearchError):

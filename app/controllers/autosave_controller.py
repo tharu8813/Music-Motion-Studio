@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QMessageBox
 
 from app.services.autosave_worker import AutosaveWorker
 from app.services.project_service import ProjectError, ProjectLoadCancelled, ProjectService
+from app.services.project_persistence_service import is_project_path
 from app.services.project_session import ProjectSession
 from app.utils.qt_worker_lifecycle import stop_qthread_now, wait_for_qthread
 
@@ -40,6 +41,7 @@ class AutosaveController:
         if (not getattr(window, '_project_open', True)
                 or not self.session.tracking_changes or not self.session.dirty
                 or window.project_controller.saving
+                or window.project_controller.loading
                 or self.worker is not None):
             return
         korean = window.translator.is_korean
@@ -121,6 +123,9 @@ class AutosaveController:
         ) if confirm else QMessageBox.StandardButton.Yes
         if answer == QMessageBox.StandardButton.Yes:
             media_reference = snapshot.project_path or snapshot.path
+            project_path = snapshot.project_path
+            if project_path is not None and not is_project_path(project_path):
+                project_path = None
             try:
                 ProjectService.restore_recovery_media(
                     snapshot.document, snapshot.project_path,
@@ -136,19 +141,16 @@ class AutosaveController:
                 return False
             with self.session.suspend_changes():
                 window._apply_project(snapshot.document)
-                window.current_project_path = snapshot.project_path
-                window._legacy_project_path = (
-                    snapshot.project_path
-                    if snapshot.project_path is not None
-                    and snapshot.project_path.suffix.lower() == ".json" else None
-                )
-                window.upgrade_project_action.setEnabled(window._legacy_project_path is not None)
+                window.current_project_path = project_path
                 window.history.reset(window._project_document().to_dict())
-            self.session.dirty = snapshot.dirty or window.project_controller.media_relinked
+            self.session.dirty = (
+                snapshot.dirty or window.project_controller.media_relinked
+                or project_path != snapshot.project_path
+            )
             window.set_project_open(True)
             # Own the restored backup so saving this window cannot clear another window's work.
             try:
-                owned = window.autosave.save(window._project_document(), snapshot.project_path, dirty=self.session.dirty)
+                owned = window.autosave.save(window._project_document(), project_path, dirty=self.session.dirty)
                 if owned.path != snapshot.path:
                     window.autosave.clear_snapshot(snapshot)
             except ProjectError as error:
@@ -156,8 +158,8 @@ class AutosaveController:
             if self.session.dirty:
                 window._autosave_debounce_timer.start()
             window._update_project_status()
-            if snapshot.project_path is not None:
-                window.recent_projects.add(snapshot.project_path)
+            if project_path is not None:
+                window.recent_projects.add(project_path)
             return True
         try:
             window.autosave.clear_snapshot(snapshot)

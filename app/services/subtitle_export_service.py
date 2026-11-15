@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 from tempfile import mkstemp
 from typing import Iterable
+from xml.etree import ElementTree as ET
 
 from app.models.playlist import PlaylistTrack
 from app.services.lyrics_service import LyricsError, LyricsService
@@ -122,6 +123,88 @@ class SubtitleExportService:
         # used for an outgoing and incoming track in a mix.
         return header + "\n".join(lines) + ("\n" if lines else "")
 
+    @staticmethod
+    def track_formats(cues: list[dict]) -> tuple[str, ...]:
+        """Offer TTML only when the lyrics already carry inline timing."""
+        if any(cue.get("words") for cue in cues):
+            return ("ttml", "lrc", "srt")
+        return ("lrc", "srt")
+
+    @staticmethod
+    def _format_ttml(cues: list[dict]) -> str:
+        root = ET.Element("tt", {"xmlns": "http://www.w3.org/ns/ttml", "xml:space": "preserve"})
+        division = ET.SubElement(ET.SubElement(root, "body"), "div")
+
+        def append_text(element: ET.Element, text: str) -> None:
+            for index, line in enumerate(text.split("\n")):
+                if index:
+                    ET.SubElement(element, "br").tail = line
+                elif len(element):
+                    element[-1].tail = (element[-1].tail or "") + line
+                else:
+                    element.text = (element.text or "") + line
+
+        for cue in cues:
+            start, end = cue["start"], cue["end"]
+            paragraph = ET.SubElement(division, "p", {"begin": f"{start:.9f}s", "end": f"{end:.9f}s"})
+            text = cue["text"]
+            offset = 0
+            for word in cue["words"]:
+                if word["end"] <= word["start"]:
+                    continue
+                position = word["offset"]
+                append_text(paragraph, text[offset:position])
+                span = ET.SubElement(paragraph, "span", {
+                    "begin": f"{word['start'] - start:.9f}s",
+                    "end": f"{word['end'] - start:.9f}s",
+                })
+                append_text(span, word["text"])
+                offset = position + len(word["text"])
+            append_text(paragraph, text[offset:])
+        return ET.tostring(root, encoding="unicode", xml_declaration=True) + "\n"
+
+    @classmethod
+    def export_track_lyrics(
+        cls, cues: list[dict], output_path: str | Path, *, timing_offset: float = 0.0,
+        title: str = "", artist: str = "",
+    ) -> Path:
+        """Export the current track's cues without consulting the original sidecar."""
+        target = Path(output_path).expanduser().resolve()
+        suffix = target.suffix.lower().lstrip(".")
+        if suffix not in cls.track_formats(cues):
+            raise LyricsError("The selected format is unavailable for these lyrics.")
+        if not isfinite(timing_offset):
+            raise LyricsError("Subtitle timing offset must be finite.")
+        adjusted = []
+        for cue in cues:
+            source_start = float(cue.get("start", 0.0))
+            start = max(0.0, source_start - timing_offset)
+            end = max(start, float(cue.get("end", source_start + 8.0)) - timing_offset)
+            text = LyricsService.decode_line_breaks(cue.get("text", ""))
+            if not text.strip() or (suffix != "lrc" and end <= start):
+                continue
+            words = [
+                {**word, "start": max(start, min(end, word["start"] - timing_offset)),
+                 "end": max(start, min(end, word["end"] - timing_offset))}
+                for word in cue.get("words", []) if word["end"] - timing_offset > start
+            ]
+            adjusted.append({"start": start, "end": end, "text": text, "words": words})
+        if not adjusted:
+            raise LyricsError("No timed lyrics remain after applying the track offset.")
+        if suffix == "lrc":
+            content = LyricsService.format_lrc(adjusted, title=title, artist=artist)
+        elif suffix == "srt":
+            content = cls.format_srt([
+                SubtitleCue(cue["start"], cue["end"],
+                            "\n".join(line for line in cue["text"].splitlines() if line.strip()))
+                for cue in adjusted
+            ])
+        else:
+            content = cls._format_ttml(adjusted)
+        if not content:
+            raise LyricsError("No timed lyrics remain at this format's time resolution.")
+        return cls._save_text(target, content)
+
     def export(
         self, tracks: Iterable[PlaylistTrack], output_path: str | Path,
         compiled_plan: CompiledRenderPlan | None = None, *, title: str = "", artist: str = "",
@@ -135,6 +218,10 @@ class SubtitleExportService:
         if not cues:
             raise LyricsError("No timed lyrics were found in the selected audio timeline.")
         content = self.format_srt(cues) if target.suffix.lower() == ".srt" else self.format_lrc(cues, title=title, artist=artist)
+        return self._save_text(target, content)
+
+    @staticmethod
+    def _save_text(target: Path, content: str) -> Path:
         staging: Path | None = None
         try:
             target.parent.mkdir(parents=True, exist_ok=True)

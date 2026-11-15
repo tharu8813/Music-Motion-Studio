@@ -165,7 +165,7 @@ def main() -> int:
                     save(dialog, name)
                     if name == "StartupDialog":
                         from app.services.project_service import ProjectService
-                        project_path = data / "Evening.project.json"
+                        project_path = data / "Evening.pvsproj"
                         ProjectService.save(project_path, window._project_document())
                         window.recent_projects.add(project_path)
                         save(dialog, "StartupDialog-recent")

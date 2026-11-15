@@ -89,7 +89,7 @@ class HistoryController:
         with self.session.suspend_changes():
             window.setUpdatesEnabled(False)
             try:
-                window._apply_project(ProjectDocument.from_dict(snapshot))
+                window._apply_project(ProjectDocument.from_dict(snapshot), restore_canvas_zoom=False)
                 valid_ids = [
                     source_id for source_id in selected_source_ids
                     if window.store.get(source_id) is not None

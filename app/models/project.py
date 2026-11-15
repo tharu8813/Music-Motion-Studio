@@ -17,6 +17,13 @@ from app.models.source import Source
 from app.models.source_registry import source_registry
 from app.timeline.models import Timeline, timeline_from_playlist
 
+MIN_CANVAS_ZOOM = 0.05
+MAX_CANVAS_ZOOM = 20.0
+
+
+def clamp_canvas_zoom(zoom: float) -> float:
+    return min(MAX_CANVAS_ZOOM, max(MIN_CANVAS_ZOOM, zoom))
+
 
 @dataclass(slots=True)
 class CanvasSettings:
@@ -227,8 +234,10 @@ class ProjectDocument:
                 raise ValueError(f"Canvas '{name}' must be a finite number.")
         if not 64 <= canvas_model.width <= 16_384 or not 64 <= canvas_model.height <= 16_384:
             raise ValueError("Canvas dimensions must be between 64 and 16384 pixels.")
-        if not 0.05 <= canvas_model.zoom <= 20:
-            raise ValueError("Canvas zoom must be between 0.05 and 20.")
+        if canvas_model.zoom <= 0:
+            raise ValueError("Canvas zoom must be positive.")
+        # Earlier saves could capture an automatic fit outside the saved zoom range.
+        canvas_model.zoom = clamp_canvas_zoom(canvas_model.zoom)
         if not isinstance(canvas_model.show_grid, bool) or not isinstance(canvas_model.snap_enabled, bool):
             raise ValueError("Canvas grid and snap settings must be booleans.")
 

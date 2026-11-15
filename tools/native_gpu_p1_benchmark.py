@@ -22,6 +22,8 @@ import shutil
 import subprocess
 import sys
 
+from app.services.project_persistence_service import is_project_path
+
 ORDER = ("a1", "b1", "b2", "a2")
 _SHA256 = re.compile(r"^SHA256=([a-fA-F0-9]{64})$")
 
@@ -361,7 +363,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     if (not args.project.is_file() or args.project.is_symlink()
-            or args.project.suffix.lower() not in (".pvsproj", ".json")
+            or not is_project_path(args.project)
             or not args.native_exe.is_file()
             or not math.isfinite(args.scale) or args.scale <= 0
             or args.width < 2 or args.height < 2

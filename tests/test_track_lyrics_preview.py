@@ -2,16 +2,19 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtGui import QFont, QFontMetrics
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from app.dialogs.track_details_dialog import TrackDetailsDialog
 from app.models.playlist import PlaylistTrack
+from app.services.lyrics_service import LyricsService
 from app.ui.design_system import apply_studio_style
 from app.utils.i18n import Translator
 from app.widgets.track_lyrics_preview import KaraokeLyricLabel, fit_context_lyrics
@@ -43,6 +46,53 @@ class ResponsiveTrackLyricPreviewTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
         apply_studio_style(cls.app)
+
+    def test_word_timed_lyrics_export_menu_defaults_to_ttml(self):
+        cues = word_ttml()
+        dialog = TrackDetailsDialog(PlaylistTrack("", "Example", lyrics=cues), Translator())
+        try:
+            with TemporaryDirectory() as directory:
+                output = Path(directory) / "my.lyrics"
+                with (
+                    patch.object(QFileDialog, "getSaveFileName",
+                                 return_value=(str(output), "TTML lyrics (*.ttml)")) as picker,
+                    patch.object(QMessageBox, "information"),
+                ):
+                    dialog.export_lyrics_action.trigger()
+                self.assertEqual(picker.call_args.args[3],
+                                 "TTML lyrics (*.ttml);;LRC lyrics (*.lrc);;SRT subtitles (*.srt)")
+                self.assertEqual(picker.call_args.args[4], "TTML lyrics (*.ttml)")
+                exported = LyricsService.load(output.with_name("my.lyrics.ttml"))
+                self.assertEqual(exported[0]["words"], cues[0]["words"])
+        finally:
+            dialog.close()
+            dialog.deleteLater()
+
+    def test_timestamp_and_lyrics_preview_fragments_have_distinct_colors(self):
+        original = "Can we pack it up?"
+        cue = {"start": 9.022, "end": 12.0, "text": original, "translation": {
+            "text": "이만 정리할까?", "source_text": original,
+            "language": "ko", "provider": "test", "model": "fixture", "approved": True,
+        }}
+        dialog = TrackDetailsDialog(PlaylistTrack("", "Example", lyrics=[cue]), Translator())
+        try:
+            self.assertEqual(dialog.preview.toPlainText(), "[00:09.022]  Can we pack it up?\n    → 이만 정리할까?")
+            fragments = []
+            block = dialog.preview.document().begin()
+            while block.isValid():
+                iterator = block.begin()
+                while not iterator.atEnd():
+                    fragment = iterator.fragment()
+                    fragments.append((fragment.text(), fragment.charFormat().foreground().color().name()))
+                    iterator += 1
+                block = block.next()
+            self.assertEqual(fragments, [
+                ("[", "#f4e49a"), ("00:09.022", "#ffab92"), ("]", "#f4e49a"),
+                ("  Can we pack it up?", "#ffffff"), ("    → 이만 정리할까?", "#a6acaf"),
+            ])
+        finally:
+            dialog.close()
+            dialog.deleteLater()
 
     def test_context_rows_increase_with_available_height(self) -> None:
         font = QFont()

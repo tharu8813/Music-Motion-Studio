@@ -22,6 +22,7 @@ from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QLockFile
 from PySide6.QtGui import QImage
 
 from app.models.project import ProjectDocument
+from app.services.project_persistence_service import PROJECT_SUFFIX, is_project_path
 
 
 class ProjectError(Exception):
@@ -49,9 +50,8 @@ class ProjectSummary:
 
 
 class ProjectService:
-    """Read legacy JSON and portable ``.pvsproj`` project packages."""
+    """Read and write portable project packages."""
 
-    PACKAGE_SUFFIX = ".pvsproj"
     MANIFEST_NAME = "project.json"
     THUMBNAIL_NAME = "thumbnail.png"
     MAX_MANIFEST_BYTES = 16 * 1024 * 1024
@@ -83,18 +83,30 @@ class ProjectService:
         return f"assets/{digest}_{cls._safe_asset_basename(raw_name)}"
 
     @classmethod
+    def media_export_filename(cls, path: Path, library_name: str = "") -> str:
+        """Recover the original library filename for a cached project asset."""
+        if path.parent.name == "assets" and path.parent.parent.parent.name == "project-cache":
+            cached_name = cls._ASSET_HASH_PREFIX.sub("", path.name)
+            original = f"{library_name}{path.suffix}"
+            if (library_name and library_name != path.stem
+                    and not re.search(r'[<>:"/\\|?*\x00-\x1f]', library_name)
+                    and cls._safe_asset_basename(original) == cached_name):
+                return original
+            return cached_name
+        return path.name
+
+    @classmethod
     def save(
         cls, path: str | Path, document: ProjectDocument,
         thumbnail: QImage | None = None,
     ) -> Path:
-        """Atomically save JSON or a portable package based on the file suffix."""
-        target = Path(path).expanduser().resolve()
-        if target.suffix.lower() not in {".json", cls.PACKAGE_SUFFIX}:
-            target = target.with_suffix(cls.PACKAGE_SUFFIX)
+        """Atomically save a portable package at a project path."""
+        target = Path(path).expanduser()
+        if not target.suffix:
+            target = target.with_suffix(PROJECT_SUFFIX)
         try:
+            target = cls._project_file(target)
             target.parent.mkdir(parents=True, exist_ok=True)
-            if target.suffix.lower() == ".json":
-                return cls._save_json(target, document)
             return cls._save_package(target, document, thumbnail)
         except (OSError, TypeError, ValueError, zipfile.BadZipFile) as error:
             raise ProjectError(f"Could not save project: {error}") from error
@@ -105,17 +117,10 @@ class ProjectService:
         progress: LoadProgress | None = None,
         cancel_event: threading.Event | None = None,
     ) -> ProjectDocument:
-        """Load a package or a backwards-compatible UTF-8 JSON document.
-
-        ``progress``/``cancel_event`` only matter for packages, whose embedded
-        media extraction is the slow part; cancelling raises ProjectLoadCancelled.
-        """
-        target = Path(path).expanduser().resolve()
+        """Read a project package and extract its embedded media."""
         try:
-            if target.suffix.lower() == cls.PACKAGE_SUFFIX:
-                return cls._load_package(target, progress, cancel_event)
-            with target.open("r", encoding="utf-8") as file:
-                return ProjectDocument.from_dict(json.load(file))
+            target = cls._project_file(path)
+            return cls._load_package(target, progress, cancel_event)
         except (OSError, json.JSONDecodeError, TypeError, ValueError,
                 KeyError, zipfile.BadZipFile) as error:
             raise ProjectError(f"Could not open project: {error}") from error
@@ -123,26 +128,22 @@ class ProjectService:
     @classmethod
     def inspect(cls, path: str | Path) -> ProjectSummary:
         """Read only project identity and thumbnail for the startup screen."""
-        target = Path(path).expanduser().resolve()
         try:
+            target = cls._project_file(path)
             thumbnail = b""
-            if target.suffix.lower() == cls.PACKAGE_SUFFIX:
-                with zipfile.ZipFile(target, "r") as archive:
-                    if archive.getinfo(cls.MANIFEST_NAME).file_size > cls.MAX_MANIFEST_BYTES:
-                        raise ValueError("Project manifest is unexpectedly large.")
-                    data = json.loads(archive.read(cls.MANIFEST_NAME).decode("utf-8"))
-                    if cls.THUMBNAIL_NAME in archive.namelist():
-                        if archive.getinfo(cls.THUMBNAIL_NAME).file_size > cls.MAX_THUMBNAIL_BYTES:
-                            raise ValueError("Project thumbnail is unexpectedly large.")
-                        thumbnail = archive.read(cls.THUMBNAIL_NAME)
-            else:
-                with target.open("r", encoding="utf-8") as file:
-                    data = json.load(file)
+            with zipfile.ZipFile(target, "r") as archive:
+                if archive.getinfo(cls.MANIFEST_NAME).file_size > cls.MAX_MANIFEST_BYTES:
+                    raise ValueError("Project manifest is unexpectedly large.")
+                data = json.loads(archive.read(cls.MANIFEST_NAME).decode("utf-8-sig"))
+                if cls.THUMBNAIL_NAME in archive.namelist():
+                    if archive.getinfo(cls.THUMBNAIL_NAME).file_size > cls.MAX_THUMBNAIL_BYTES:
+                        raise ValueError("Project thumbnail is unexpectedly large.")
+                    thumbnail = archive.read(cls.THUMBNAIL_NAME)
             settings = data.get("settings", {}) if isinstance(data, dict) else {}
             if not isinstance(settings, dict):
                 raise ValueError("Project settings must be an object.")
             return ProjectSummary(
-                title=str(settings.get("title") or target.stem.removesuffix(".project")),
+                title=str(settings.get("title") or target.stem),
                 description=str(settings.get("description", "")),
                 author=str(settings.get("author", "")),
                 modified_at=str(settings.get("modified_at", "")),
@@ -153,24 +154,13 @@ class ProjectService:
             raise ProjectError(f"Could not inspect project: {error}") from error
 
     @staticmethod
-    def _save_json(target: Path, document: ProjectDocument) -> Path:
-        validated = ProjectDocument.from_dict(document.to_dict())
-        payload = json.dumps(validated.to_dict(), ensure_ascii=False, indent=2)
-        temporary_path: Path | None = None
-        try:
-            with NamedTemporaryFile(
-                mode="w", encoding="utf-8", suffix=".tmp", dir=target.parent,
-                delete=False,
-            ) as temporary:
-                temporary_path = Path(temporary.name)
-                temporary.write(payload)
-                temporary.flush()
-            temporary_path.replace(target)
-        finally:
-            # Antivirus, cloud sync, or a destination lock can make the atomic
-            # replace fail. Never leave an accumulating project-sized .tmp file.
-            if temporary_path is not None:
-                temporary_path.unlink(missing_ok=True)
+    def _project_file(path: str | Path) -> Path:
+        candidate = Path(path).expanduser()
+        if not is_project_path(candidate):
+            raise ValueError("Choose a .pvsproj project file.")
+        target = candidate.resolve()
+        if not is_project_path(target):
+            raise ValueError("Choose a .pvsproj project file.")
         return target
 
     @classmethod
@@ -291,7 +281,12 @@ class ProjectService:
             ]
             if len(asset_infos) > cls.MAX_ASSETS:
                 raise ValueError("Project package contains too many assets.")
-            data = json.loads(archive.read(cls.MANIFEST_NAME).decode("utf-8"))
+            document = ProjectDocument.from_dict(json.loads(archive.read(manifest_info).decode("utf-8-sig")))
+            thumbnail_info = (
+                archive.getinfo(cls.THUMBNAIL_NAME) if cls.THUMBNAIL_NAME in archive.namelist() else None
+            )
+            if thumbnail_info is not None and thumbnail_info.file_size > cls.MAX_THUMBNAIL_BYTES:
+                raise ValueError("Project thumbnail is unexpectedly large.")
             extracted_assets: dict[str, Path] = {}
             extracted_destinations: set[str] = set()
             reusable: set[str] = set()
@@ -299,6 +294,8 @@ class ProjectService:
             if progress is not None:
                 progress(0, required_bytes)
             for info in asset_infos:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise ProjectLoadCancelled("Project loading was cancelled.")
                 parts = PurePosixPath(info.filename).parts
                 if info.is_dir() or not parts or parts[0] != "assets":
                     continue
@@ -356,11 +353,8 @@ class ProjectService:
                     if temporary_asset is not None:
                         temporary_asset.unlink(missing_ok=True)
             thumbnail_cache = cache_root / cls.THUMBNAIL_NAME
-            if cls.THUMBNAIL_NAME in archive.namelist():
-                if archive.getinfo(cls.THUMBNAIL_NAME).file_size > cls.MAX_THUMBNAIL_BYTES:
-                    raise ValueError("Project thumbnail is unexpectedly large.")
-                thumbnail_cache.write_bytes(archive.read(cls.THUMBNAIL_NAME))
-        document = ProjectDocument.from_dict(data)
+            if thumbnail_info is not None:
+                thumbnail_cache.write_bytes(archive.read(thumbnail_info))
 
         def resolved(raw_path: str) -> str:
             return cls._resolve_package_asset(raw_path, extracted_assets)
@@ -410,7 +404,7 @@ class ProjectService:
         load: Callable[[Path], ProjectDocument],
     ) -> None:
         """Rehydrate missing extracted media without replacing recovered edits."""
-        if project_path is None or project_path.suffix.lower() != cls.PACKAGE_SUFFIX or not project_path.is_file():
+        if project_path is None or not is_project_path(project_path) or not project_path.is_file():
             return
         missing: set[str] = set()
 

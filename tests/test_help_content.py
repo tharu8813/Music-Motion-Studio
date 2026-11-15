@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from datetime import date
 import gc
 import os
 from pathlib import Path
@@ -19,6 +20,8 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from app.dialogs.help_content import HELP_TAB_IDS, help_tabs, help_topics, topic_images  # noqa: E402
 from app.dialogs.help_dialog import HelpDialog, install_help_shortcut  # noqa: E402
+from app.dialogs.help_history import HELP_HISTORY, HelpRevision, _HISTORY  # noqa: E402
+from app.services.update_service import normalized_version  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 HELP_IMAGES = ROOT / "app" / "resources" / "help"
@@ -53,6 +56,18 @@ class HelpContentTests(unittest.TestCase):
         for language in ("ko", "en"):
             self.assertEqual({path.stem for path in (HELP_IMAGES / language).glob("*.png")}, used)
 
+    def test_each_topic_has_one_valid_revision_in_both_languages(self) -> None:
+        korean = help_topics(True)
+        self.assertEqual(set(HELP_HISTORY), {topic.identifier for topic in korean})
+        self.assertEqual(len(HELP_HISTORY), sum(len(row[-1].split()) for row in _HISTORY))
+        for ko, en in zip(korean, help_topics(False)):
+            with self.subTest(topic=ko.identifier):
+                revision = ko.revision
+                self.assertEqual(revision, en.revision)
+                self.assertLessEqual(date.fromisoformat(revision.added_on), date.fromisoformat(revision.written_on))
+                self.assertLessEqual(date.fromisoformat(revision.written_on), date.fromisoformat(revision.modified_on))
+                normalized_version(revision.version)
+
     def test_f1_targets_in_the_code_are_real_topics(self) -> None:
         """Every string literal passed as an F1 context names an existing tab or topic."""
         identifiers = {t.identifier for t in help_topics(True)}
@@ -86,6 +101,33 @@ class HelpWindowLifetimeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
+
+    def test_topic_revision_and_outdated_notice_follow_the_current_release(self) -> None:
+        from app.utils.i18n import Language, Translator
+
+        translator = Translator()
+        revision = HelpRevision("2026-09-29", "2026-10-30", "2026-11-16", "1.4.9.0")
+        for language, notice in ((Language.KOREAN, "출시 전에 수정되었습니다"),
+                                 (Language.ENGLISH, "predates the current app release")):
+            translator.set_language(language)
+            for version, released, stale in (("1.4.9.0", "2026-11-15", False),
+                                               ("1.4.9.0", "2026-11-16", False),
+                                               ("1.4.10.0", "2026-11-16", True),
+                                               ("1.4.9.0", "2026-11-17", True)):
+                with self.subTest(language=language, version=version, released=released):
+                    with patch.dict(HELP_HISTORY, {"workspace": revision}), \
+                            patch("app.dialogs.help_dialog.__version__", version), \
+                            patch("app.dialogs.help_dialog.RELEASE_DATE", released):
+                        dialog = HelpDialog(translator, topic="workspace")
+                    try:
+                        guide = dialog.browser.toPlainText()
+                        for value in (revision.added_on, revision.written_on, revision.modified_on, revision.version):
+                            self.assertIn(value, guide)
+                        self.assertEqual(notice in guide, stale)
+                    finally:
+                        dialog.close()
+                        dialog.deleteLater()
+                        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
     def test_new_feature_topics_are_searchable_and_render_their_screenshots(self) -> None:
         from app.utils.i18n import Language, Translator

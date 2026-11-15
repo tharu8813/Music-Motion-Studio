@@ -18,6 +18,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 
+from app.services.project_service import ProjectService
 from app.animation.keyframes import Keyframe, evaluate as evaluate_keyframes
 from app.models.playlist import PlaylistTrack
 from app.models.project import CanvasSettings, ProjectDocument, ProjectSettings
@@ -117,8 +118,8 @@ class RealProjectCaptureTests(unittest.TestCase):
     def test_real_project_source_and_lyric_clock_capture(self):
         with TemporaryDirectory() as tmp:
             project = project_fixture()
-            path = Path(tmp) / "project.json"
-            path.write_text(json.dumps(project.to_dict()), encoding="utf8")
+            path = Path(tmp) / "project.pvsproj"
+            ProjectService.save(path, project)
             output = Path(tmp) / "frames"
             source = path.read_bytes()
             timeline = capture_project(
@@ -165,8 +166,8 @@ class RealProjectCaptureTests(unittest.TestCase):
                 z_index=22, width=1280, height=720,
             )
             project.sources.extend([visualizer, particles])
-            source = Path(tmp) / "real-project.json"
-            source.write_text(json.dumps(project.to_dict()), encoding="utf8")
+            source = Path(tmp) / "real-project.pvsproj"
+            ProjectService.save(source, project)
             snapshot = source.read_bytes()
             with self.assertRaisesRegex(
                 TimelineValidationError, "audio_visualizer, particle_overlay"
@@ -199,8 +200,8 @@ class RealProjectCaptureTests(unittest.TestCase):
             project.sources.append(
                 Source(SourceType.AUDIO_VISUALIZER, "Spectrum")
             )
-            source = Path(tmp) / "project.json"
-            source.write_text(json.dumps(project.to_dict()), encoding="utf8")
+            source = Path(tmp) / "project.pvsproj"
+            ProjectService.save(source, project)
             with mock.patch(
                 "tools.native_canvas_project_probe.subprocess.run"
             ) as runner:
@@ -215,12 +216,12 @@ class RealProjectCaptureTests(unittest.TestCase):
 
     def test_invalid_exclusion_disclosure_is_rejected(self):
         with TemporaryDirectory() as tmp:
-            path = Path(tmp) / "project.json"
+            path = Path(tmp) / "project.pvsproj"
             project = project_fixture()
             project.sources.append(
                 Source(SourceType.PARTICLE_OVERLAY, "Particles")
             )
-            path.write_text(json.dumps(project.to_dict()), encoding="utf8")
+            ProjectService.save(path, project)
             timeline = capture_project(
                 path, Path(tmp) / "frames",
                 frames=6, scale=0.25, source_policy="canvas-only",
@@ -235,8 +236,8 @@ class RealProjectCaptureTests(unittest.TestCase):
 
     def test_tampered_project_clock_rejected(self):
         with TemporaryDirectory() as tmp:
-            path = Path(tmp) / "source.json"
-            path.write_text(json.dumps(project_fixture().to_dict()), encoding="utf8")
+            path = Path(tmp) / "source.pvsproj"
+            ProjectService.save(path, project_fixture())
             timeline = capture_project(
                 path, Path(tmp) / "frames",
                 start_seconds=28 / 60, frames=4, scale=0.25,
@@ -266,8 +267,8 @@ class ProjectSoftwareH264ParityTests(unittest.TestCase):
 
     def test_project_source_title_lyrics_and_clock_survive_h264(self):
         with TemporaryDirectory() as tmp:
-            path = Path(tmp) / "project.json"
-            path.write_text(json.dumps(project_fixture().to_dict()), encoding="utf8")
+            path = Path(tmp) / "project.pvsproj"
+            ProjectService.save(path, project_fixture())
             directory = Path(tmp) / "frames"
             timeline = capture_project(
                 path, directory, start_seconds=28 / 60,

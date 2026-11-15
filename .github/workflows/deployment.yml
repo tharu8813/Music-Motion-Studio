@@ -304,13 +304,13 @@ jobs:
         run: |
           @'
           from pathlib import Path
-          import json
+          from app.services.project_service import ProjectService
           from tests.test_native_canvas_project_probe import project_fixture
-          project = Path('qt-project-ci.json')
-          project.write_text(json.dumps(project_fixture().to_dict()), encoding='utf8')
+          project = Path('qt-project-ci.pvsproj')
+          ProjectService.save(project, project_fixture())
           '@ | python -
           if ($LASTEXITCODE -ne 0) { throw 'Could not create validated project test fixture' }
-          python -m tools.native_canvas_project_probe --project qt-project-ci.json --output-dir qt-project-ci --start-seconds 0.4666666666666667 --frames 6 --fps 60 --scale 0.25
+          python -m tools.native_canvas_project_probe --project qt-project-ci.pvsproj --output-dir qt-project-ci --start-seconds 0.4666666666666667 --frames 6 --fps 60 --scale 0.25
           if ($LASTEXITCODE -ne 0) { throw 'Cannot capture actual project timeline' }
           $packets = @()
           foreach ($i in (0..5)) {

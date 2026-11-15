@@ -416,7 +416,7 @@ class MainWindowExportTests(MainWindowTestCase):
         )
         dialog = TrackDetailsDialog(track, self.window.translator, self.window)
         try:
-            self.assertTrue(dialog.export_lrc_button.isEnabled())
+            self.assertTrue(dialog.export_lyrics_action.isEnabled())
             dialog.timing_offset_spin.setValue(2.0)
             with TemporaryDirectory(prefix="track-lyrics-lrc-export-") as raw_directory:
                 output = Path(raw_directory) / "converted.lrc"
@@ -424,10 +424,11 @@ class MainWindowExportTests(MainWindowTestCase):
                     patch.object(
                         QFileDialog, "getSaveFileName",
                         return_value=(str(output), "LRC lyrics (*.lrc)"),
-                    ),
+                    ) as picker,
                     patch.object(QMessageBox, "information") as information,
                 ):
-                    dialog._export_current_lyrics_as_lrc()
+                    dialog.export_lyrics_action.trigger()
+                self.assertEqual(picker.call_args.args[3], "LRC lyrics (*.lrc);;SRT subtitles (*.srt)")
                 rendered = output.read_text(encoding="utf-8")
             self.assertIn("[ti:Export Track]", rendered)
             self.assertIn("[ar:Artist]", rendered)

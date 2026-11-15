@@ -9,6 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import threading
 import unittest
+import zipfile
 from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -27,10 +28,12 @@ from app.dialogs.startup_dialog import StartupDialog
 from app.dialogs.project_settings_dialog import ProjectSettingsDialog
 from app.dialogs.project_audio_settings_dialog import ProjectAudioSettingsDialog
 from app.dialogs.project_crash_report_dialog import ProjectCrashReportDialog
+from app.dialogs.missing_media_dialog import MissingMediaDialog
 from app.dialogs.lrc_generator_dialog import LrcGeneratorDialog
 from app.dialogs.track_details_dialog import TrackDetailsDialog
 from app.services.autosave_service import AutosaveService, RecoverySnapshot
 from app.services.project_service import ProjectError, ProjectService
+from app.services.project_media_service import MissingMedia
 from app.services.update_service import ReleaseInfo
 from app.services.playlist_service import AudioImportCandidate, PlaylistService
 from app.services.lrc_draft_service import LrcDraftService
@@ -93,8 +96,9 @@ class MainWindowProjectTests(MainWindowTestCase):
         before = self.window._project_document().to_dict()
 
         with TemporaryDirectory() as directory:
-            damaged = Path(directory) / "damaged.project.json"
-            damaged.write_text('{"version": 2, "sources": [', encoding="utf-8")
+            damaged = Path(directory) / "damaged.pvsproj"
+            with zipfile.ZipFile(damaged, "w") as archive:
+                archive.writestr(ProjectService.MANIFEST_NAME, '{"version": 2, "sources": [')
             with patch.object(
                 ProjectCrashReportDialog, "exec",
                 return_value=QDialog.DialogCode.Rejected,
@@ -112,8 +116,13 @@ class MainWindowProjectTests(MainWindowTestCase):
 
     def test_project_apply_failure_rolls_back_partial_workspace_changes(self) -> None:
         marker = Source(SourceType.TEXT, "ROLLBACK_MARKER")
+        self.window.canvas.set_zoom(1.3)
         self.window.store.add(marker)
         self.window.store.select(marker.id)
+        self.window.history.reset(self.window._project_document().to_dict())
+        self.window.store.update(marker.id, x=130)
+        self.window.history_controller.flush_pending()
+        self.assertTrue(self.window.undo_action.isEnabled())
         self.window.project_session.dirty = True
         before = self.window._project_document().to_dict()
         incoming = ProjectDocument.from_dict(before)
@@ -147,6 +156,10 @@ class MainWindowProjectTests(MainWindowTestCase):
         self.assertTrue(self.window.project_session.dirty)
         self.assertEqual(self.window.store.selected_ids, (marker.id,))
         self.assertNotIn("project_load", self.window.activity_progress.active_keys)
+        self.window._undo()
+        self.assertNotEqual(self.window.store.get(marker.id).x, 130)
+        self.window._redo()
+        self.assertEqual(self.window.store.get(marker.id).x, 130)
 
     def test_loading_project_from_different_app_version_warns_and_continues(self) -> None:
         incoming = ProjectDocument(app_version="9.8.7")
@@ -162,7 +175,7 @@ class MainWindowProjectTests(MainWindowTestCase):
         self.assertIn("9.8.7", message)
         self.assertIn(__version__, message)
 
-    def test_loading_legacy_or_same_version_project_does_not_warn(self) -> None:
+    def test_loading_unversioned_or_same_version_project_does_not_warn(self) -> None:
         for app_version in ("", __version__):
             with self.subTest(app_version=app_version), patch.object(
                 ProjectService, "load",
@@ -194,12 +207,23 @@ class MainWindowProjectTests(MainWindowTestCase):
 
         before = self.window._project_document().to_dict()
         seen: dict[str, object] = {}
+        heartbeat = threading.Event()
 
         def slow_load(_path: object, *, progress, cancel_event) -> ProjectDocument:
             progress(512, 1024)
             if not cancel_event.wait(10):
                 return ProjectDocument(app_version=__version__)
+            seen["worker_saw_heartbeat"] = heartbeat.wait(2)
             raise ProjectLoadCancelled("Project loading was cancelled.")
+
+        def while_cancelling() -> None:
+            dialog = self.window.findChild(QProgressDialog)
+            seen["cancellation_visible"] = bool(dialog and dialog.isVisible())
+            seen["nested_load"] = self.window._load_project_path(Path("another.pvsproj"))
+            close = QCloseEvent()
+            self.application.sendEvent(self.window, close)
+            seen["closed"] = close.isAccepted()
+            heartbeat.set()
 
         def cancel_dialog() -> None:
             dialog = self.window.findChild(QProgressDialog)
@@ -207,6 +231,7 @@ class MainWindowProjectTests(MainWindowTestCase):
             if dialog is not None:
                 seen["value"] = dialog.value()
                 dialog.findChild(QPushButton).click()
+                QTimer.singleShot(30, while_cancelling)
 
         QTimer.singleShot(900, cancel_dialog)
         with patch.object(ProjectService, "load", side_effect=slow_load):
@@ -214,9 +239,59 @@ class MainWindowProjectTests(MainWindowTestCase):
 
         self.assertIsNotNone(seen.get("dialog"))
         self.assertEqual(seen["value"], 500)
+        self.assertTrue(seen["worker_saw_heartbeat"])
+        self.assertTrue(seen["cancellation_visible"])
+        self.assertFalse(seen["nested_load"])
+        self.assertFalse(seen["closed"])
         self.assertFalse(loaded)
         self.assertEqual(self.window._project_document().to_dict(), before)
         self.assertNotIn("project_load", self.window.activity_progress.active_keys)
+
+    def test_missing_media_folder_relinks_shared_paths_and_keeps_manual_choices(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            entries = [
+                MissingMedia("video", "source:0", "Canvas video", "old/clip.mp4"),
+                MissingMedia("track_video", "track:0", "Track video", "old/clip.mp4"),
+                MissingMedia("audio", "track", "Track", "old/song.wav"),
+                MissingMedia("font", "source", "Typeface", "old/type.ttf"),
+            ]
+            for filename in ("clip.mp4", "song.wav", "replacement.wav"):
+                (root / filename).touch()
+            dialog = MissingMediaDialog(entries, self.window.translator, self.window)
+            try:
+                self.assertEqual(dialog.table.rowCount(), 3)
+                manual = str(root / "replacement.wav")
+                with patch.object(QFileDialog, "getOpenFileName", return_value=(manual, "")):
+                    dialog._choose_file(1)
+                with patch.object(QFileDialog, "getExistingDirectory", return_value=directory):
+                    dialog.folder_button.click()
+                self.assertEqual(entries[0].replacement_path, str(root / "clip.mp4"))
+                self.assertEqual(entries[1].replacement_path, entries[0].replacement_path)
+                self.assertEqual(entries[2].replacement_path, manual)
+                self.assertEqual(entries[3].replacement_path, "")
+                self.assertIn("남음 1", dialog.summary.text())
+                (root / "type.ttf").touch()
+                with patch.object(QFileDialog, "getExistingDirectory", return_value=directory):
+                    dialog.folder_button.click()
+                self.assertEqual(dialog.button_box.button(
+                    dialog.button_box.StandardButton.Ok
+                ).text(), "프로젝트 열기")
+
+                ambiguous = [
+                    MissingMedia("audio", "one", "Track one", "old-a/song.wav"),
+                    MissingMedia("audio", "two", "Track two", "old-b/song.wav"),
+                ]
+                duplicate_names = MissingMediaDialog(ambiguous, self.window.translator, self.window)
+                try:
+                    with patch.object(QFileDialog, "getExistingDirectory", return_value=directory):
+                        duplicate_names.folder_button.click()
+                    self.assertFalse(any(entry.replacement_path for entry in ambiguous))
+                    self.assertIn("이름이 겹치는", duplicate_names.summary.text())
+                finally:
+                    duplicate_names.deleteLater()
+            finally:
+                dialog.deleteLater()
 
     def test_startup_offers_recovery_before_project_choice(self) -> None:
         with patch.object(self.window, "_offer_recovery", return_value=True) as offer:
@@ -1396,7 +1471,7 @@ class MainWindowProjectTests(MainWindowTestCase):
         editor.editingFinished.emit()
         self.assertEqual([track.to_dict() for track in self.window.playlist_service.tracks], before)
         with TemporaryDirectory() as directory:
-            path = ProjectService.save(Path(directory) / "global-lyrics.json", self.window._project_document())
+            path = ProjectService.save(Path(directory) / "global-lyrics.pvsproj", self.window._project_document())
             restored = ProjectService.load(path)
         saved = next(entry for entry in restored.sources if entry.id == source.id)
         self.assertTrue(saved.subtitle_karaoke_enabled)

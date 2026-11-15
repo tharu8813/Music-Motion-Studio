@@ -1,4 +1,4 @@
-> 이전 이름은 **Playlist Canvas(플레이리스트 캔버스)** 입니다. 기존 `.pvsproj`·JSON 프로젝트를 그대로 열 수 있으며, 이전 앱의 설정·최근 프로젝트 목록·복구 파일은 첫 실행 때 이어받습니다. 설치한 FFmpeg·프리셋·언어팩은 기존 저장 위치를 계속 사용합니다. 최신 릴리즈와 업데이트는 새 GitHub 저장소에서 제공하며, 기존 Playlist Canvas 저장소는 구버전 배포용으로 유지합니다.
+> 이전 이름은 **Playlist Canvas(플레이리스트 캔버스)** 입니다. 기존 `.pvsproj` 프로젝트를 그대로 열 수 있으며, 이전 앱의 설정·최근 프로젝트 목록·복구 파일은 첫 실행 때 이어받습니다. 설치한 FFmpeg·프리셋·언어팩은 기존 저장 위치를 계속 사용합니다. 최신 릴리즈와 업데이트는 새 GitHub 저장소에서 제공하며, 기존 Playlist Canvas 저장소는 구버전 배포용으로 유지합니다.
 
 <div align="center">
   <img src="docs/images/music-motion-studio-icon.png" width="112" alt="Music Motion Studio 아이콘">

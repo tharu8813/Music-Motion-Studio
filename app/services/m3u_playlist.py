@@ -6,16 +6,19 @@ points to, never the ``.m3u8`` file, to the project.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 import locale
-import os
+from itertools import count
 from pathlib import Path
+import shutil
 from urllib.parse import unquote, urlparse
 from urllib.request import url2pathname
 
 from app.models.playlist import PlaylistTrack
+from app.services.export_file_naming import project_export_stem
 from app.services.playlist_service import AUDIO_EXTENSIONS
+from app.services.project_service import ProjectService
 
 PLAYLIST_FILE_EXTENSIONS = {".m3u8", ".m3u"}
 
@@ -59,26 +62,65 @@ def read_m3u(path: str | Path) -> M3uEntries:
     return entries
 
 
-def write_m3u8(tracks: Iterable[PlaylistTrack], path: str | Path) -> int:
-    """Write an extended UTF-8 M3U8 playlist and return how many tracks it lists.
-
-    Paths are written relative to the playlist's folder when possible, so the
-    playlist keeps working when that folder moves together with its music.
-    """
-    playlist = Path(path)
-    lines = ["#EXTM3U"]
-    count = 0
-    for track in tracks:
-        seconds = round(track.duration_seconds) if track.duration_seconds > 0 else -1
-        label = f"{track.artist} - {track.title}" if track.artist else track.title
-        lines.append(f"#EXTINF:{seconds},{label}")
-        lines.append(_playlist_entry(Path(track.file_path), playlist.parent))
-        count += 1
+def export_m3u8_folder(
+    tracks: Iterable[PlaylistTrack], directory: Path, name: str,
+    library_names: Mapping[str, str] | None = None,
+) -> tuple[Path, int]:
+    """Create a standalone playlist folder with copies of its enabled tracks."""
+    tracks = [track for track in tracks if track.enabled]
+    library_names = library_names or {}
+    if not tracks:
+        raise M3uPlaylistError("There are no songs to export.")
+    base = project_export_stem(name)
+    folder: Path | None = None
     try:
-        playlist.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
-    except OSError as error:
-        raise M3uPlaylistError(f"Could not write the playlist file: {playlist}") from error
-    return count
+        directory = directory.resolve()
+        for number in count(1):
+            candidate = directory / (base if number == 1 else f"{base} ({number})")
+            try:
+                candidate.mkdir()
+            except FileExistsError:
+                continue
+            folder = candidate
+            break
+        music = folder / "music"
+        music.mkdir()
+        lines = ["#EXTM3U"]
+        copied: dict[Path, str] = {}
+        used_names: set[str] = set()
+        for track in tracks:
+            source = Path(track.file_path).expanduser()
+            if source.suffix.casefold() not in AUDIO_EXTENSIONS or not source.is_file():
+                raise OSError(f"Audio file is missing or unsupported: {track.title} ({source})")
+            resolved = source.resolve()
+            filename = copied.get(resolved)
+            if filename is None:
+                original = Path(ProjectService.media_export_filename(
+                    source, library_names.get(track.file_path, ""),
+                ))
+                stem = original.stem.replace("\r", "_").replace("\n", "_")
+                filename = f"{stem}{original.suffix}"
+                for number in count(2):
+                    if filename.casefold() not in used_names:
+                        break
+                    filename = f"{stem} ({number}){original.suffix}"
+                used_names.add(filename.casefold())
+                copied[resolved] = filename
+            seconds = round(track.duration_seconds) if track.duration_seconds > 0 else -1
+            label = f"{track.artist} - {track.title}" if track.artist else track.title
+            lines.append(f"#EXTINF:{seconds},{' '.join(label.splitlines())}")
+            lines.append(f"music/{filename}")
+        for source, filename in copied.items():
+            shutil.copyfile(source, music / filename)
+        playlist = folder / f"{folder.name}.m3u8"
+        draft = folder / "playlist.tmp"
+        draft.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+        draft.replace(playlist)
+    except (OSError, ValueError) as error:
+        if folder is not None:
+            shutil.rmtree(folder, ignore_errors=True)
+        raise M3uPlaylistError(str(error)) from error
+    return playlist, len(tracks)
 
 
 def _local_path(entry: str, base: Path) -> Path | None:
@@ -91,10 +133,3 @@ def _local_path(entry: str, base: Path) -> Path | None:
         return None  # http(s) streams and other remote entries
     location = Path(entry)
     return location if location.is_absolute() else base / location
-
-
-def _playlist_entry(file_path: Path, directory: Path) -> str:
-    try:
-        return os.path.relpath(file_path, directory)
-    except ValueError:  # another drive on Windows: only an absolute path works
-        return str(file_path)

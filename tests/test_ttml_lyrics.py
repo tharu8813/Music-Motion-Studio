@@ -67,12 +67,10 @@ class TTMLLyricsTests(unittest.TestCase):
             self.assertTrue(all("words" not in cue for cue in cues))
             document_data = ProjectDocument(playlist=[PlaylistTrack(
                 "", "Song", lyrics_path=str(path), lyrics=cues)])
-            for suffix in (".json", ".pvsproj"):
-                with self.subTest(suffix=suffix):
-                    saved = ProjectService.save(root / ("project" + suffix), document_data)
-                    restored = ProjectService.load(saved)
-                    self.assertEqual(restored.playlist[0].lyrics, cues)
-                    self.assertEqual(LyricsService.load(restored.playlist[0].lyrics_path), cues)
+            saved = ProjectService.save(root / "project.pvsproj", document_data)
+            restored = ProjectService.load(saved)
+            self.assertEqual(restored.playlist[0].lyrics, cues)
+            self.assertEqual(LyricsService.load(restored.playlist[0].lyrics_path), cues)
             ProjectService.release_cache_locks()
 
     def test_apple_line_timing_never_invents_word_highlighting(self):

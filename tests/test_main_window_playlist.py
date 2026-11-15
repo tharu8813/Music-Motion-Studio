@@ -24,6 +24,7 @@ from app.dialogs.lrc_generator_dialog import LrcGeneratorDialog
 from app.dialogs.m3u_import_dialog import M3uImportDialog
 from app.dialogs.track_details_dialog import TrackDetailsDialog
 from app.services.playlist_service import AudioImportCandidate, PlaylistService
+from app.services.project_service import ProjectService
 from app.services.lrc_draft_service import LrcDraftService
 from app.utils.i18n import Language
 from tests.main_window_base import MainWindowTestCase
@@ -1103,20 +1104,32 @@ class MainWindowPlaylistTests(MainWindowTestCase):
         self.assertEqual(self.window.playlist_service.tracks, before)
         self.assertEqual(self.window.project_content_service.items, content_before)
 
-    def test_m3u8_export_writes_enabled_tracks_in_playlist_order(self) -> None:
+    def test_m3u8_export_copies_enabled_package_tracks_in_playlist_order(self) -> None:
         with TemporaryDirectory(prefix="pc-m3u8-export-") as raw:
             root = Path(raw)
+            (root / "a.mp3").write_bytes(b"first")
+            (root / "b.mp3").write_bytes(b"disabled")
+            (root / "C & Live.mp3").write_bytes(b"third")
             self.window.playlist_service.replace([
                 PlaylistTrack(str(root / "a.mp3"), "A", "Artist", duration_seconds=10.0),
                 PlaylistTrack(str(root / "b.mp3"), "B", enabled=False),
-                PlaylistTrack(str(root / "c.mp3"), "C"),
+                PlaylistTrack(str(root / "C & Live.mp3"), "C"),
             ])
-            with patch.object(QFileDialog, "getSaveFileName", return_value=(str(root / "out"), "")):
+            project = ProjectService.save(root / "work.pvsproj", self.window._project_document())
+            self.window._apply_project(ProjectService.load(project))
+            cached = [Path(track.file_path) for track in self.window.playlist_service.tracks]
+            self.assertTrue(all(path.parent.name == "assets" for path in cached))
+            for name in ("a.mp3", "b.mp3", "C & Live.mp3"):
+                (root / name).unlink()
+            with patch.object(QFileDialog, "getExistingDirectory", return_value=str(root)):
                 self.window._export_m3u_playlist()
-            lines = (root / "out.m3u8").read_text(encoding="utf-8").splitlines()
+            bundle = root / "playlist"
+            lines = (bundle / "playlist.m3u8").read_text(encoding="utf-8").splitlines()
+            self.assertEqual((bundle / "music" / "a.mp3").read_bytes(), b"first")
+            self.assertEqual((bundle / "music" / "C & Live.mp3").read_bytes(), b"third")
         self.assertEqual(
             lines,
-            ["#EXTM3U", "#EXTINF:10,Artist - A", "a.mp3", "#EXTINF:-1,Unknown Artist - C", "c.mp3"],
+            ["#EXTM3U", "#EXTINF:10,Artist - A", "music/a.mp3", "#EXTINF:-1,Unknown Artist - C", "music/C & Live.mp3"],
         )
 
 

@@ -28,7 +28,7 @@ class DesignPresetDialog(QDialog):
 
     def __init__(self, translator: Translator, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        install_help_shortcut(self, ("canvas", "presets"), translator)
+        install_help_shortcut(self, ("canvas", "start"), translator)
         self.translator = translator
         self._preview_cache: dict[str, QPixmap] = {}
         self._presets: list[PresetDefinition] = []

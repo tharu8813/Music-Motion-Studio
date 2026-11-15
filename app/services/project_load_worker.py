@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import threading
+from time import monotonic
 
 from PySide6.QtCore import QThread, Signal
 
@@ -21,6 +22,7 @@ class ProjectLoadWorker(QThread):
 
     # (extracted bytes, total bytes); object because packages exceed 32-bit ints.
     progress = Signal(object, object)
+    preparing_covers = Signal()
 
     def __init__(self, path: str | Path) -> None:
         super().__init__()
@@ -30,14 +32,25 @@ class ProjectLoadWorker(QThread):
         self.error: BaseException | None = None
 
     def run(self) -> None:
+        last_report = 0.0
+
+        def report_progress(done: int, total: int) -> None:
+            nonlocal last_report
+            now = monotonic()
+            if done in (0, total) or now - last_report >= 0.08:
+                self.progress.emit(done, total)
+                last_report = now
+
         try:
             self.document = ProjectService.load(
-                self.path, progress=self.progress.emit, cancel_event=self.cancel_event,
+                self.path, progress=report_progress, cancel_event=self.cancel_event,
             )
         except Exception as error:
             self.error = error
             return
         # Decode the playlist's cover thumbnails here, not while the GUI builds its rows.
+        if self.document.playlist and not self.cancel_event.is_set():
+            self.preparing_covers.emit()
         for track in self.document.playlist:
             if self.cancel_event.is_set():
                 break

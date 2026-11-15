@@ -18,6 +18,7 @@ from PySide6.QtCore import Qt, QRectF
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QImage, QColor, QFont, QPainter
 
+from app.services.project_service import ProjectService
 from app.animation.keyframes import Keyframe
 from app.canvas.live_canvas import CanvasScene
 from app.canvas.source_item import SourceItem
@@ -405,8 +406,8 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             sample_wav(audio)
             project = dynamic_project(audio)
             project.settings.title = "Native audio project"
-            source = root / "project.json"
-            source.write_text(json.dumps(project.to_dict()), encoding="utf8")
+            source = root / "project.pvsproj"
+            ProjectService.save(source, project)
             original_bytes = source.read_bytes()
             target = root / "full.mp4"
             collected = []
@@ -461,8 +462,8 @@ class NativeGpuFullProjectTests(unittest.TestCase):
         )
         with TemporaryDirectory() as temp:
             root = Path(temp)
-            source = root / "project.json"
-            source.write_text("{}", encoding="utf8")
+            source = root / "project.pvsproj"
+            source.touch()
             for profile in (None, "standard", "accelerated", "cpu_parallel"):
                 with self.subTest(profile=profile), self.assertRaisesRegex(
                     ValueError, "--gpu-profile-qt-paint requires --gpu-profile automatic",
@@ -478,8 +479,8 @@ class NativeGpuFullProjectTests(unittest.TestCase):
         )
         with TemporaryDirectory() as temp:
             root = Path(temp)
-            source = root / "project.json"
-            source.write_text("{}", encoding="utf8")
+            source = root / "project.pvsproj"
+            source.touch()
             for profile in (None, "standard", "accelerated", "cpu_parallel"):
                 with self.subTest(profile=profile), self.assertRaisesRegex(
                     ValueError, "--gpu-profile-qt-state requires --gpu-profile automatic",
@@ -578,8 +579,8 @@ class NativeGpuFullProjectTests(unittest.TestCase):
         self.assertFalse(NativeGpuOptimizations.for_profile("automatic").reuse_equal_pixels)
         with TemporaryDirectory() as temp:
             root = Path(temp)
-            source = root / "project.json"
-            source.write_text("{}", encoding="utf8")
+            source = root / "project.pvsproj"
+            source.touch()
             for profile in (None, "standard", "accelerated", "cpu_parallel"):
                 with self.subTest(profile=profile), self.assertRaisesRegex(
                     ValueError,
@@ -739,8 +740,8 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             sample_wav(audio)
             original = dynamic_project(audio)
             original.playlist[0].duration_seconds = 3.0
-            path = root / "project.json"
-            path.write_text(json.dumps(original.to_dict()), encoding="utf8")
+            path = root / "project.pvsproj"
+            ProjectService.save(path, original)
             original_bytes = path.read_bytes()
             target = root / "smoke.mp4"
             completed = []
@@ -782,9 +783,10 @@ class NativeGpuFullProjectTests(unittest.TestCase):
             root = Path(temp)
             existing = root / "full.mp4"
             existing.write_bytes(b"USER-ORIGINAL-VIDEO")
-            source = root / "project.json"
-            source.write_text(json.dumps(dynamic_project(root / "test.wav").to_dict()),
-                              encoding="utf8")
+            source = root / "project.pvsproj"
+            project = dynamic_project(root / "test.wav")
+            project.settings.content_mode = "reference"
+            ProjectService.save(source, project)
             with self.assertRaisesRegex(ValueError, "will not be overwritten"):
                 export_complete_project(
                     source, existing, native_exe=root / "native.exe",

@@ -1060,7 +1060,7 @@ validation, not sustained long-form or A/V sync verification.
 
 This milestone adds an opt-in saved-project capture at
 tools/native_canvas_project_probe.py. It accepts existing .pvsproj
-packages and legacy JSON documents through ProjectService.load(),
+packages through ProjectService.load(),
 so the actual serialized SourceItems, PlaylistTracks, lyric offsets,
 text templates and keyframe definitions are used. It compiles the
 sequential playlist with compile_playlist(enabled_only=True), then

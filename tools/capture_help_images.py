@@ -9,6 +9,7 @@ UI change, once per release is plenty:
     python tools/capture_help_images.py --lang ko  # one language
     python tools/capture_help_images.py --only lyrics_editor  # one window
 
+Run scripts/rust_prerequisites.py first to check the native development runtime.
 It needs FFmpeg on PATH (song analysis and the audio previews use it). On a
 machine without a display it runs offscreen; install a CJK font (for example
 Noto Sans CJK) so the Korean screenshots do not show empty boxes.
@@ -17,11 +18,13 @@ Noto Sans CJK) so the Korean screenshots do not show empty boxes.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import sys
 import tempfile
 import wave
+from contextlib import chdir
 from dataclasses import replace
 from pathlib import Path
 
@@ -31,7 +34,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np  # noqa: E402
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, QSettings, Qt, QTimer  # noqa: E402
-from PySide6.QtGui import QColor, QFont, QImage, QLinearGradient, QPainter, QPen  # noqa: E402
+from PySide6.QtGui import QColor, QFont, QImage, QLinearGradient, QPainter, QPen, QPixmap  # noqa: E402
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 
 OUTPUT = ROOT / "app" / "resources" / "help"
@@ -227,7 +230,9 @@ def save(image: QImage, language: str, name: str) -> None:
     folder.mkdir(parents=True, exist_ok=True)
     if image.width() > MAX_WIDTH:
         image = image.scaledToWidth(MAX_WIDTH, Qt.TransformationMode.SmoothTransformation)
-    image.convertToFormat(QImage.Format.Format_RGB32).save(str(folder / f"{name}.png"), "PNG", 9)
+    path = folder / f"{name}.png"
+    if not image.convertToFormat(QImage.Format.Format_RGB32).save(str(path), "PNG", 9):
+        raise RuntimeError(f"Could not save {path}")
     print(f"saved {language}/{name}.png ({image.width()}×{image.height()})")
 
 
@@ -254,6 +259,8 @@ class Session:
         self.ffmpeg = ffmpeg
         QSettings().setValue("language", language)
         window = MainWindow()
+        window._autosave_timer.stop()
+        window._autosave_debounce_timer.blockSignals(True)
         window.resize(1500, 940)
         window.show()
         settle(app)
@@ -326,7 +333,11 @@ def capture_canvas(session: Session) -> None:
     save(annotate(image, callouts), session.language, "canvas_workspace")
     save(grab(window.left_workspace), session.language, "canvas_sources")
     save(grab(window.inspector_stack), session.language, "canvas_inspector")
+    sizes = window.workspace_splitter.sizes()
+    window.workspace_splitter.setSizes([sum(sizes) - 400, 400])
+    session.refresh()
     save(grab(window.bottom_tabs), session.language, "canvas_playlist")
+    window.workspace_splitter.setSizes(sizes)
     window.left_tabs.setCurrentIndex(2)
     session.refresh()
     save(grab(window.left_workspace), session.language, "canvas_layers")
@@ -356,11 +367,14 @@ def capture_preview(session: Session) -> None:
     session.refresh()
     wait(session.app, 800)
     session.refresh()
+    preview.performance_action.setChecked(True)
+    settle(session.app)
     window.activity_progress.clear()
     image = grab(window)
     callouts = [
         (1, rect_in(window, preview.preview_stage), "tl"),
-        (3, rect_in(window, window.inspector_stack), "tr"),
+        (2, rect_in(window, preview.performance_monitor), "tr"),
+        (3, rect_in(window, preview.track_list_panel), "tr"),
         (4, rect_in(window, preview.now_playing_card), "tc"),
         (5, rect_in(window, preview.timeline_card), "tc"),
         (6, rect_in(window, preview.transport_card), "ml"),
@@ -368,6 +382,7 @@ def capture_preview(session: Session) -> None:
     if getattr(preview, "automix_details", None) is not None:
         callouts.append((7, rect_in(window, preview.automix_details), "tr"))
     save(annotate(image, callouts), session.language, "preview_screen")
+    preview.performance_action.setChecked(False)
     if getattr(preview, "automix_details", None) is not None:
         preview._open_transition_window()
         inspector = preview._transition_window
@@ -396,6 +411,11 @@ def capture_track(session: Session) -> None:
 
     window = session.window
     track = session.tracks[1]
+    first = track.lyrics[0]
+    track = replace(track, lyrics=[first | {"translation": {
+        "source_text": first["text"], "text": "가로등이 노래를 흥얼거려",
+        "language": "ko", "provider": "sample", "model": "sample", "approved": True,
+    }}, *track.lyrics[1:]])
     dialog = TrackDetailsDialog(
         track, window.translator, window,
         analysis=window.automix_analyses.get(track.id),
@@ -405,6 +425,8 @@ def capture_track(session: Session) -> None:
     dialog.resize(1000, 700)
     dialog.show()
     session.refresh()
+    dialog.file_label.setText(str(Path(r"C:\Music") / Path(track.file_path).name))
+    dialog.lyrics_path.setText(str(Path(r"C:\Music") / Path(track.lyrics_path).name))
     header = dialog.header_cover.parentWidget()
     tab_bar = dialog.tabs.tabBar()
     callouts = [
@@ -419,9 +441,12 @@ def capture_track(session: Session) -> None:
             area = area.united(rect_in(dialog, button))
         callouts.append((4, area.adjusted(-40, -4, 4, 4), "ml"))
     save(annotate(grab(dialog), callouts), session.language, "track_info")
-    for index, name in ((1, "track_analysis"), (2, "track_lyrics"), (3, "track_videos"), (4, "track_audio")):
+    for index, name in ((1, "track_analysis"), (2, "track_lyrics"), (4, "track_audio")):
         dialog.tabs.setCurrentIndex(index)
         session.refresh()
+        if name == "track_lyrics":
+            dialog._playback_position_changed(round(float(track.lyrics[2]["start"]) * 1000))
+            settle(session.app)
         save(grab(dialog), session.language, name)
     dialog.media_player.stop()
     dialog.reject()
@@ -441,6 +466,7 @@ def capture_lyrics_editor(session: Session) -> None:
     dialog.resize(1080, 860)
     dialog.show()
     session.refresh()
+    dialog.audio_path_label.clear()
     save(grab(dialog), session.language, "lyrics_audio")
     dialog.close()
     dialog.deleteLater()
@@ -519,10 +545,14 @@ def capture_automix_editor(session: Session) -> None:
 
 
 def capture_dialogs(session: Session) -> None:
+    from app import __version__
+    from app.dialogs.export_progress_dialog import ExportProgressDialog
     from app.dialogs.export_settings_dialog import ExportSettingsDialog
+    from app.dialogs.lyrics_translation_dialog import LyricsTranslationDialog
     from app.dialogs.new_project_dialog import NewProjectDialog
     from app.dialogs.project_settings_dialog import ProjectSettingsDialog
     from app.dialogs.settings_dialog import SettingsDialog
+    from app.dialogs.shortcuts_dialog import ShortcutsDialog
 
     window = session.window
     window.settings_service.save(replace(window.settings_service.current, preview_backend="gpu_layers"))
@@ -533,28 +563,50 @@ def capture_dialogs(session: Session) -> None:
         dialog.show()
         session.refresh()
         save(grab(dialog), session.language, name)
+        dialog.reject()
+        dialog.deleteLater()
 
     dialog = NewProjectDialog(window.translator, window)
     shoot(dialog, "new_project")
-    dialog.reject()
-    thumbnail = window.canvas.grab()
-    dialog = ProjectSettingsDialog(window.project_settings, window.translator, thumbnail, window)
-    dialog.tabs.setCurrentIndex(2)
-    shoot(dialog, "project_settings")
-    dialog.reject()
+    thumbnail = window._project_thumbnail_image()
+    project = replace(window.project_settings, created_at="2026-11-15T15:30:00", created_app_version=__version__)
+    project_info = {"title": project.title, "author": project.author,
+                    "created_at": project.created_at, "created_app_version": project.created_app_version}
+    dialog = ProjectSettingsDialog(
+        project, window.translator, QPixmap.fromImage(thumbnail), window,
+        project_counts={"tracks": len(session.tracks), "sources": len(window.store.sources()),
+                        "groups": len(window.store.groups()), "library": len(window.project_content_service.items)},
+    )
+    shoot(dialog, "project_settings", (940, 790))
     settings = window.settings_service.current
     dialog = SettingsDialog(settings, window.translator.language, window.theme_service.preference,
                             window.translator, window)
-    shoot(dialog, "settings_general")
-    for index, name in ((5, "settings_maintenance"),):
-        dialog.tabs.setCurrentIndex(index)
-        session.refresh()
-        save(grab(dialog), session.language, name)
+    dialog.show()
+    session.refresh()
+    save(grab(dialog), session.language, "settings_general")
+    dialog.tabs.setCurrentWidget(dialog.maintenance_page)
+    session.refresh()
+    save(grab(dialog), session.language, "settings_maintenance")
     dialog.reject()
-    dialog = ExportSettingsDialog(settings, len(session.tracks), 180.0, window.translator,
-                                  Path(tempfile.gettempdir()) / "Late Night Drive.mp4", window)
-    shoot(dialog, "export_settings")
-    dialog.reject()
+    dialog.deleteLater()
+    output = Path(r"C:\Videos\Late Night Drive.mp4")
+    dialog = ExportSettingsDialog(
+        settings, len(session.tracks), 180.0, window.translator, output, window,
+        canvas_size=(1280, 720), project_info=project_info, project_thumbnail=thumbnail,
+    )
+    shoot(dialog, "export_settings", (1140, 790))
+    progress = ExportProgressDialog(window)
+    progress.set_korean(session.language == "ko")
+    progress.set_export_details(len(session.tracks), 180.0, "Rust GPU · H.264 · 1920 × 1080 · 30 FPS", output)
+    progress.set_native_gpu_export(True)
+    progress.update_progress("Encoding video", 0.58, "Rust GPU: 3100/5400 frames")
+    progress.show()
+    session.refresh()
+    save(grab(progress), session.language, "export_progress")
+    progress.done(0)
+    progress.deleteLater()
+    shoot(LyricsTranslationDialog(session.tracks[0].lyrics, window.translator, window), "lyrics_translation")
+    shoot(ShortcutsDialog(window.translator, window), "shortcuts", (760, 600))
     session.refresh()
 
 
@@ -654,8 +706,38 @@ def capture_source_effects(session: Session) -> None:
     save(grab(window.bottom_tabs), session.language, "canvas_timeline")
 
 
-CAPTURES = (capture_canvas, capture_source_effects, capture_track, capture_lyrics_editor, capture_automix_editor,
-            capture_preview, capture_dialogs)
+def capture_motion(session: Session) -> None:
+    from app.dialogs.custom_motion_dialog import CustomMotionDialog
+    from app.dialogs.motion_editor_guide import MOTION_GUIDE_KEY
+    from app.models.source import SourceType
+
+    window = session.window
+    QSettings().setValue(MOTION_GUIDE_KEY, True)
+    source = next(source for source in window.store.sources() if source.source_type == SourceType.ALBUM_COVER)
+    window.store.select(source.id)
+    inspector = window.inspector
+    inspector.property_tabs.setCurrentIndex(inspector._tab_indices["animation"])
+    session.refresh()
+    combo = inspector.animation_in_combo
+    combo.showPopup()
+    settle(session.app)
+    save(grab(combo._popup), session.language, "animation_presets")
+    combo.hidePopup()
+    dialog = CustomMotionDialog(source, window.canvas.scene_model, session.tracks, window.translator, parent=window)
+    dialog.show()
+    dialog.seek(.7)
+    dialog.edit_pose(dx=-120, scale=.9, opacity=1)
+    dialog.select_time("dx", .7)
+    dialog.render_now()
+    session.refresh()
+    save(grab(dialog), session.language, "motion_editor")
+    dialog.done(0)
+    dialog.deleteLater()
+    settle(session.app)
+
+
+CAPTURES = (capture_canvas, capture_track, capture_lyrics_editor, capture_automix_editor,
+            capture_preview, capture_dialogs, capture_motion, capture_source_effects)
 
 
 def main() -> int:
@@ -668,29 +750,43 @@ def main() -> int:
     arguments = parser.parse_args()
     if not arguments.ffmpeg:
         parser.error("FFmpeg was not found on PATH; pass --ffmpeg")
-    app = QApplication(sys.argv[:1])
-    # Separate settings: the capture never touches the real user settings.
-    app.setApplicationName("Music Motion Studio Help Capture")
-    app.setOrganizationName("Music Motion Studio Help Capture")
     from app.ui.design_system import apply_studio_style
 
-    apply_studio_style(app)
-    for key in ("guides/welcome_seen", "guides/automix_editor_seen"):
-        QSettings().setValue(key, True)
     with tempfile.TemporaryDirectory(prefix="pc-help-") as raw:
+        # Keep the sample project, analysis cache and settings out of the user's profile.
+        os.environ["LOCALAPPDATA"] = raw
+        if os.environ["QT_QPA_PLATFORM"] == "offscreen":
+            screen_config = Path(raw) / "display.json"
+            screen_config.write_text(json.dumps({"screens": [{"width": 1920, "height": 1200}]}), encoding="utf-8")
+            os.environ["QT_QPA_PLATFORM"] = f"offscreen:configfile={screen_config.name}"
+            # Qt splits platform options on colons, including Windows drive letters.
+            with chdir(raw):
+                app = QApplication(sys.argv[:1])
+        else:
+            app = QApplication(sys.argv[:1])
+        app.setApplicationName("Music Motion Studio Help Capture")
+        app.setOrganizationName("Music Motion Studio Help Capture")
+        QSettings.setDefaultFormat(QSettings.Format.IniFormat)
+        QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, raw)
+        apply_studio_style(app)
         folder = Path(raw) / "Music"
         folder.mkdir()
         songs = build_sample_media(folder)
-        for language in arguments.lang or ["ko", "en"]:
+        languages = arguments.lang or ["ko", "en"]
+        analyze = not arguments.only or bool({"automix_editor", "preview", "track"} & set(arguments.only))
+        for language in languages:
+            QSettings().clear()
+            for key in ("guides/welcome_seen", "guides/automix_editor_seen"):
+                QSettings().setValue(key, True)
             session = Session(app, language, songs, Path(arguments.ffmpeg),
-                              analyze=not arguments.only or bool(set(arguments.only) - {"canvas", "source_effects"}))
+                              analyze=analyze)
             for capture in CAPTURES:
                 if not arguments.only or capture.__name__.removeprefix("capture_") in arguments.only:
                     capture(session)
             session.close()
-    from capture_recent_help_images import main as capture_recent
-    capture_recent()
-    QSettings().clear()
+        if not arguments.only:
+            from capture_recent_help_images import main as capture_recent
+            capture_recent(languages)
     return 0
 
 

@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.dialogs.help_dialog import install_help_shortcut
+from app.services.project_persistence_service import PROJECT_FILE_FILTER, is_project_path
 from app.services.recent_projects_service import RecentProjectsService
 from app.services.project_service import ProjectError, ProjectService, ProjectSummary
 from app.utils.i18n import Translator
@@ -285,7 +286,7 @@ class StartupDialog(QDialog):
             self,
             "프로젝트 열기" if korean else "Open project",
             "",
-            "Music Motion Studio Project (*.pvsproj *.project.json *.json)",
+            PROJECT_FILE_FILTER,
         )
         if selected:
             self.action = self.OPEN_PROJECT
@@ -323,8 +324,7 @@ class StartupDialog(QDialog):
     def _dropped_project(event: QDragEnterEvent | QDropEvent) -> Path | None:
         for url in event.mimeData().urls() if event.mimeData().hasUrls() else ():
             path = Path(url.toLocalFile())
-            name = path.name.lower()
-            if path.suffix.lower() in {".pvsproj", ".json"} or name.endswith(".project.json"):
+            if url.isLocalFile() and is_project_path(path):
                 return path
         return None
 

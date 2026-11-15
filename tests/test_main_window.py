@@ -22,7 +22,7 @@ from PySide6.QtCore import (
     Qt,
     QUrl,
 )
-from PySide6.QtGui import QColor, QContextMenuEvent, QDropEvent, QImage, QMouseEvent, QWheelEvent
+from PySide6.QtGui import QColor, QContextMenuEvent, QDropEvent, QFocusEvent, QImage, QKeyEvent, QMouseEvent, QWheelEvent
 from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -1429,10 +1429,12 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
             "se",
         )
 
-        canvas._begin_group_resize("se")
-        target = original.topLeft() + (
-            original.bottomRight() - original.topLeft()
-        ) * 0.5
+        press_position = original.bottomRight() - QPointF(4, 3)
+        canvas._begin_group_resize("se", press_position)
+        canvas._resize_group_to(press_position)
+        self.assertEqual(scene.multi_selection_bounds(), original)
+        self.assertEqual((first.scale, second.scale), (1.0, 1.0))
+        target = press_position - (original.bottomRight() - original.topLeft()) * 0.5
         canvas._resize_group_to(target)
         canvas._finish_group_resize()
 
@@ -1445,6 +1447,13 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
         self.assertAlmostEqual(resized.height(), original.height() * 0.5)
         self.assertAlmostEqual(first.scale, 0.5)
         self.assertAlmostEqual(second.scale, 0.5)
+
+        self.window.store.update(second.id, scale=12.0)
+        press_position = scene.multi_selection_bounds().bottomRight()
+        canvas._begin_group_resize("se", press_position)
+        canvas._resize_group_to(press_position)
+        canvas._finish_group_resize()
+        self.assertAlmostEqual(second.scale, 12.0)
 
     def test_canvas_context_menu_exposes_multi_source_editing_commands(self) -> None:
         first = Source(SourceType.TEXT, "First", x=40, y=80, z_index=0)
@@ -2098,6 +2107,89 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
         schedule.assert_not_called()
         self.assertFalse(self.window.project_session.dirty)
 
+    def test_canvas_wheel_zoom_handles_large_artboards_and_nonvertical_events(self) -> None:
+        canvas = self.window.canvas
+        self.window.show()
+        self.application.processEvents()
+        canvas.scene_model.set_artboard_size(16384, 16384)
+        canvas.fit_artboard()
+        fitted = canvas.transform().m11()
+        self.assertLess(fitted, 0.05)
+        snapshot = self.window._project_document().to_dict()
+        self.assertEqual(snapshot["canvas"]["zoom"], 0.05)
+        snapshot["canvas"]["zoom"] = fitted
+        self.assertEqual(ProjectDocument.from_dict(snapshot).canvas.zoom, 0.05)
+        viewport = canvas.viewport()
+        cursor = viewport.rect().center()
+
+        def wheel(angle: QPoint, pixels: QPoint = QPoint()) -> None:
+            event = QWheelEvent(
+                QPointF(cursor), QPointF(viewport.mapToGlobal(cursor)), pixels, angle,
+                Qt.MouseButton.NoButton, Qt.KeyboardModifier.ControlModifier,
+                Qt.ScrollPhase.NoScrollPhase, False,
+            )
+            self.application.sendEvent(viewport, event)
+
+        wheel(QPoint(0, 120))
+        self.assertAlmostEqual(canvas.transform().m11(), fitted * 1.15)
+        zoom = canvas.transform().m11()
+        wheel(QPoint(120, 0))
+        self.assertAlmostEqual(canvas.transform().m11(), zoom)
+        wheel(QPoint(), QPoint(0, 60))
+        self.assertAlmostEqual(canvas.transform().m11(), zoom * 1.15 ** 0.5)
+        canvas.set_zoom(2.9)
+        wheel(QPoint(0, 120))
+        self.assertAlmostEqual(canvas.transform().m11(), 3.0)
+
+    def test_canvas_manual_view_survives_history_and_automatic_refit(self) -> None:
+        window = self.window
+        canvas = window.canvas
+        source = Source(SourceType.SHAPE, "Shape", x=50)
+        window.store.replace([source])
+        window.history.reset(window._project_document().to_dict())
+        window.store.update(source.id, x=100)
+        window.show()
+        self.application.processEvents()
+        canvas.set_zoom(1.7)
+        canvas.centerOn(740, 350)
+        center = canvas.mapToScene(canvas.viewport().rect().center())
+
+        window._undo()
+        self.assertEqual(window.store.get(source.id).x, 50)
+        window._redo()
+        self.assertEqual(window.store.get(source.id).x, 100)
+        self.assertEqual(canvas.mapToScene(canvas.viewport().rect().center()), center)
+        window._schedule_canvas_fit()
+        window.resize(window.width() + 120, window.height() + 80)
+        self.application.processEvents()
+        self.assertAlmostEqual(canvas.transform().m11(), 1.7)
+        after = canvas.mapToScene(canvas.viewport().rect().center())
+        self.assertAlmostEqual(after.x(), center.x(), delta=1.0)
+        self.assertAlmostEqual(after.y(), center.y(), delta=1.0)
+
+    def test_canvas_pan_handles_repeat_and_focus_loss(self) -> None:
+        self.window.show()
+        canvas = self.window.canvas
+        canvas.setFocus()
+        self.application.processEvents()
+        viewport = canvas.viewport()
+        viewport.setCursor(Qt.CursorShape.SizeFDiagCursor)
+        QTest.keyPress(canvas, Qt.Key.Key_Space)
+        repeat = QKeyEvent(
+            QEvent.Type.KeyRelease, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier, " ", True,
+        )
+        self.application.sendEvent(canvas, repeat)
+        self.assertEqual(viewport.cursor().shape(), Qt.CursorShape.OpenHandCursor)
+        point = viewport.rect().center()
+        QTest.mousePress(viewport, Qt.MouseButton.LeftButton, pos=point)
+        QTest.mouseRelease(viewport, Qt.MouseButton.RightButton, pos=point)
+        self.assertEqual(canvas.cursor().shape(), Qt.CursorShape.ClosedHandCursor)
+        QTest.mouseRelease(viewport, Qt.MouseButton.LeftButton, pos=point)
+        self.assertEqual(canvas.cursor().shape(), Qt.CursorShape.OpenHandCursor)
+        self.application.sendEvent(canvas, QFocusEvent(QEvent.Type.FocusOut))
+        self.assertEqual(canvas.cursor().shape(), Qt.CursorShape.ArrowCursor)
+        QTest.keyRelease(canvas, Qt.Key.Key_Space)
+
     def test_ctrl_plus_and_ctrl_equals_both_zoom_the_canvas_in(self) -> None:
         sequences = {
             action.shortcut().toString()
@@ -2255,7 +2347,7 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
                 for action in menu.actions() if action.data() is not None
             }
             self.assertEqual(
-                list(actions), ["preview", "remove", "information", "import"],
+                list(actions), ["preview", "export", "remove", "information", "import"],
             )
             self.assertTrue(actions["preview"].isEnabled())
 
@@ -2270,6 +2362,30 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
         self.assertEqual(
             [action.data() for action in empty_menu.actions()], ["import"],
         )
+
+    def test_project_content_export_uses_original_name_after_reopening_a_package(self) -> None:
+        from app.services.project_service import ProjectService
+
+        panel = self.window.content_library_panel
+        with TemporaryDirectory(prefix="pvs-content-export-") as raw_directory:
+            root = Path(raw_directory)
+            original = root / "커버 & Live (1).png"
+            original.write_bytes(b"original image bytes")
+            self.window.project_content_service.add_paths([original])
+            saved = ProjectService.save(root / "work.pvsproj", self.window._project_document())
+            original.unlink()
+            document = ProjectService.load(saved)
+            self.window.project_content_service.replace(document.content_library)
+            destination = root / "exported"
+            destination.mkdir()
+            output = destination / original.name
+            menu = panel._create_context_menu(panel.list.item(0))
+            export_action = next(action for action in menu.actions() if action.data() == "export")
+            with patch("app.widgets.content_library_panel.QFileDialog.getSaveFileName",
+                       return_value=(str(output), "")) as choose:
+                export_action.trigger()
+            self.assertEqual(Path(choose.call_args.args[2]).name, original.name)
+            self.assertEqual(output.read_bytes(), b"original image bytes")
 
     def test_project_content_switches_between_list_grid_and_compact_views(self) -> None:
         panel = self.window.content_library_panel

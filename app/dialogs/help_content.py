@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from app.dialogs.help_history import HELP_HISTORY, HelpRevision
+
 HELP_TAB_IDS = ("canvas", "preview", "lyrics_editor", "automix_editor", "track", "other")
 
 _IMAGE_MARKER = re.compile(r"\[\[img:([a-z0-9_]+)\]\]")
@@ -29,6 +31,7 @@ class HelpTopic:
     title: str
     tags: tuple[str, ...]
     body: str
+    revision: HelpRevision
     keywords: str = ""
     related: tuple[str, ...] = ()
 
@@ -61,7 +64,7 @@ def help_topics(korean: bool) -> list[HelpTopic]:
         HelpTopic(
             entry.identifier, entry.tab, entry.title[language],
             tuple(tag.strip() for tag in entry.tags[language].split(",") if tag.strip()),
-            entry.body[language], entry.keywords[language], entry.related,
+            entry.body[language], HELP_HISTORY[entry.identifier], entry.keywords[language], entry.related,
         )
         for entry in _ENTRIES
     ]
@@ -147,7 +150,7 @@ _CANVAS = (
 <ul>
 <li><b>프로젝트 정보</b>: 이름과 작성자(설명은 프로젝트 설정에서)</li>
 <li><b>화면 비율 및 캔버스</b>: 16:9, 9:16, 1:1, 4:3, 3:4, 8:19, 21:9 또는 사용자 지정 크기</li>
-<li><b>시작 디자인</b>: 기본 프로젝트나 <a href='topic:presets'>디자인 프리셋</a>을 미리보기와 함께 선택</li>
+<li><b>시작 디자인</b>: 기본 프로젝트나 <b>디자인 프리셋</b>을 미리보기와 함께 선택</li>
 <li><b>곡 전환</b>: 없음(즉시 전환) · 크로스페이드 · <a href='topic:automix'>AutoMix</a></li>
 <li><b>콘텐츠 저장</b>: 프로젝트에 포함(다른 PC에서도 열림) 또는 원본 위치 참조(파일이 작음)</li>
 <li><b>시작 음악(선택)</b>: 음악 파일이나 M3U8 플레이리스트를 고르거나 창으로 끌어 놓기</li>
@@ -160,14 +163,17 @@ _CANVAS = (
 <li><b>확인</b> — <b>미리보기</b>(<code>Ctrl+Alt+3</code>)로 음악과 함께 재생해 봅니다.</li>
 <li><b>내보내기</b> — <b>내보내기</b>(<code>Ctrl+E</code>)에서 영상·오디오·자막을 선택합니다. 영상·오디오와 믹싱 시간 확인에는 <a href='topic:ffmpeg'>FFmpeg 설치</a>가 필요합니다.</li>
 </ol>
-<div class='note'>처음 실행하면 화면 구성을 소개하는 짧은 안내가 나옵니다. <b>도구 → 설정 → 유지 관리 → 프로그램 초기화</b> 후 다시 볼 수 있습니다.</div>""",
+<div class='note'>처음 실행하면 화면 구성을 소개하는 짧은 안내가 나옵니다. <b>도구 → 설정 → 유지 관리 → 프로그램 초기화</b> 후 다시 볼 수 있습니다.</div>
+<h2>디자인 프리셋</h2>
+<p><b>프로젝트 → 디자인 프리셋</b>에서 오로라·카세트·미드나잇·느와르 등 완성된 레이아웃을 미리보고 적용합니다. 캔버스의 모든 요소가 프리셋 요소로 바뀌고 플레이리스트는 유지되며, <code>Ctrl+Z</code>로 되돌릴 수 있습니다. 프리셋은 현재 캔버스 비율에 맞게 배치됩니다.</p>
+<p><b>프로젝트 → 현재 캔버스를 프리셋으로 저장</b>하면 나만의 프리셋이 생깁니다. 사용자 프리셋은 선택 창에서 삭제하거나 내보낼 수 있습니다.</p>""",
        """<p>At startup the <b>Start a project</b> window lets you create a project, open a file or pick a recent project. Dropping a project file on it opens it too.</p>
 [[img:new_project]]
 <h2>The New project window</h2>
 <ul>
 <li><b>Project information</b>: name and author (the description lives in Project settings)</li>
 <li><b>Aspect ratio and canvas</b>: 16:9, 9:16, 1:1, 4:3, 3:4, 8:19, 21:9 or a custom size</li>
-<li><b>Starting design</b>: the default project or a <a href='topic:presets'>design preset</a>, with a preview</li>
+<li><b>Starting design</b>: the default project or a <b>design preset</b>, with a preview</li>
 <li><b>Transitions</b>: none (cut) · crossfade · <a href='topic:automix'>AutoMix</a></li>
 <li><b>Content storage</b>: include in the project (opens on any PC) or reference the originals (smaller file)</li>
 <li><b>Starting music (optional)</b>: pick music files or an M3U8 playlist, or drop them on the window</li>
@@ -180,7 +186,10 @@ _CANVAS = (
 <li><b>Check</b> — play it with the music in <b>Preview</b> (<code>Ctrl+Alt+3</code>).</li>
 <li><b>Export</b> — choose video, audio, or subtitles under <b>Export</b> (<code>Ctrl+E</code>). Video/audio and mix timing need <a href='topic:ffmpeg'>FFmpeg</a>.</li>
 </ol>
-<div class='note'>A short tour of the workspace appears on first launch. <b>Tools → Settings → Maintenance → Reset program</b> shows it again.</div>""",
+<div class='note'>A short tour of the workspace appears on first launch. <b>Tools → Settings → Maintenance → Reset program</b> shows it again.</div>
+<h2>Design presets</h2>
+<p><b>Project → Design Presets</b> previews and applies finished layouts such as Aurora, Cassette, Midnight and Noir. Every canvas source is replaced by the preset's, the playlist stays, and <code>Ctrl+Z</code> undoes it. Presets adapt to the current canvas ratio.</p>
+<p><b>Project → Save current canvas as preset</b> makes your own preset; user presets can be deleted or exported from the picker.</p>""",
        ("workspace", "project_settings", "playlist", "export"),
        ("새로 만들기 시작 화면 화면 비율 최근 프로젝트", "new startup aspect ratio recent projects welcome tour")),
 
@@ -345,7 +354,7 @@ _CANVAS = (
 <tr><td><code>%video_current_time%</code> · <code>%video_total_time%</code></td><td>영상 전체 기준 현재 시간 · 전체 길이</td></tr>
 </table>
 <p>토큰 앞뒤의 글자는 그대로 유지됩니다. 예: <code>NOW PLAYING · %title%</code>. <b>시간 표시</b> 템플릿은 <code>%current_time% / %total_time%</code>이 들어간 텍스트 요소입니다.</p>
-<div class='note'>곡 제목·아티스트·앨범은 <a href='topic:track_info'>곡 정보/설정</a>에서 프로젝트 전용으로 고칠 수 있습니다. 원본 음원의 태그는 바뀌지 않습니다.</div>""",
+<div class='note'>곡 제목·아티스트·앨범은 <a href='topic:track_details'>곡 정보/설정</a>에서 프로젝트 전용으로 고칠 수 있습니다. 원본 음원의 태그는 바뀌지 않습니다.</div>""",
        """<p>Put a <code>%token%</code> in a text source and it becomes information about the track that is playing. The editor shows it by name, like <code>(Title)</code>; Preview and Export show the real value.</p>
 <table cellspacing='4'>
 <tr><th>Token</th><th>Shows</th></tr>
@@ -356,8 +365,8 @@ _CANVAS = (
 <tr><td><code>%video_current_time%</code> · <code>%video_total_time%</code></td><td>Elapsed time in the whole video · video length</td></tr>
 </table>
 <p>Text around a token is kept, for example <code>NOW PLAYING · %title%</code>. The <b>Time</b> template is a text source containing <code>%current_time% / %total_time%</code>.</p>
-<div class='note'>Titles, artists and albums can be edited per project in <a href='topic:track_info'>Track information/settings</a>; the audio file's own tags are left alone.</div>""",
-       ("properties", "sources", "track_info"),
+<div class='note'>Titles, artists and albums can be edited per project in <a href='topic:track_details'>Track information/settings</a>; the audio file's own tags are left alone.</div>""",
+       ("properties", "sources", "track_details"),
        ("토큰 제목 아티스트 앨범 시간 표시 현재 시간 전체 시간 트랙 번호 파일명",
         "token title artist album time elapsed duration track number file name placeholder")),
 
@@ -366,7 +375,7 @@ _CANVAS = (
        """<p><b>영상</b> 요소는 영상 클립을 캔버스 안에서 재생합니다. 요소를 추가하거나 속성의 설정 버튼을 누르면 <b>영상 재생 설정</b> 창이 열립니다.</p>
 <ol>
 <li><b>어디에서 영상을 가져올까요?</b>
-<ul><li><b>곡마다 다른 영상 사용</b>: 곡이 바뀔 때마다 그 곡에 등록된 영상으로 바뀝니다. 영상은 <a href='topic:track_videos'>곡 정보/설정 → 이 곡의 영상</a>에서 추가합니다.</li>
+<ul><li><b>곡마다 다른 영상 사용</b>: 곡이 바뀔 때마다 그 곡에 등록된 영상으로 바뀝니다. 영상은 <b>곡 정보/설정 → 이 곡의 영상 → 영상 추가…</b>에서 등록합니다. <b>선택 제거</b>로 빼거나 <b>위로</b> / <b>아래로</b>로 재생 순서를 조절합니다.</li>
 <li><b>전체 재생목록에서 같은 영상 사용</b>: 여기서 추가한 영상이 곡과 관계없이 전체 영상 시간에 맞춰 이어서 재생됩니다.</li></ul></li>
 <li><b>어떻게 재생할까요?</b> 한 번만 재생 · 첫 번째 영상 계속 반복 · 여러 영상을 순서대로 반복 · 여러 영상을 무작위로 반복, 그리고 <b>끝날 때까지 반복</b> 또는 <b>반복 횟수</b></li>
 <li><b>속도와 화면 효과</b>: 재생 속도, 채도, 흑백으로 표시</li>
@@ -376,14 +385,14 @@ _CANVAS = (
        """<p>A <b>Video</b> source plays clips inside the canvas. Adding one, or its settings button in the inspector, opens <b>Video playback settings</b>.</p>
 <ol>
 <li><b>Where do the videos come from?</b>
-<ul><li><b>Use different videos for each track</b>: switches to the videos of whichever track is playing. Add them in <a href='topic:track_videos'>Track information/settings → Videos for this track</a>.</li>
+<ul><li><b>Use different videos for each track</b>: switches to the videos of whichever track is playing. Open <b>Track information/settings → Videos for this track → Add videos…</b>. Use <b>Remove selected</b> to remove clips or <b>Up</b> / <b>Down</b> to adjust playback order.</li>
 <li><b>Use the same videos across the whole playlist</b>: the videos added here run on the whole-video timeline, independent of tracks.</li></ul></li>
 <li><b>How should they play?</b> Once · loop the first video · loop all in order · loop all shuffled, then <b>until the end</b> or a <b>number of cycles</b></li>
 <li><b>Speed and look</b>: playback speed, saturation, black and white</li>
 </ol>
 <p>Video entrance/exit export supports None, Fade and <a href='topic:custom_motion'>custom keyframes</a>. Change other presets and disable loop motion before exporting. The custom editor's <b>Sync video</b> updates frames at the playhead. Turn it off to keep a still.</p>
 <div class='note'>Video sound is never used, so it cannot mix into the playlist music. Preview may build low-resolution proxies for smooth playback; Export always renders the originals.</div>""",
-       ("track_videos", "sources"),
+       ("track_details", "sources"),
        ("영상 클립 반복 무작위 재생 속도 흑백 채도 프록시 동영상", "video clip loop shuffle playback speed black and white saturation proxy movie")),
 
     _e("canvas", "audio_visuals", ("오디오 시각 효과", "Audio-reactive visuals"),
@@ -423,6 +432,8 @@ _CANVAS = (
     _e("canvas", "animation", ("애니메이션", "Animation"),
        ("애니메이션,속성", "animation,properties"),
        """<p>속성 패널의 <b>애니메이션</b> 탭에서 요소가 곡마다 나타나고 사라지는 효과를 정합니다.</p>
+<p>효과 선택 상자를 열어 격자형 썸네일로 움직임을 비교하세요. 썸네일을 누르면 효과가 선택되고, 선택 상자를 다시 누르면 메뉴가 닫힙니다. 일부 디자인 선택 상자에서도 같은 방식으로 모양을 미리 볼 수 있습니다.</p>
+[[img:animation_presets]]
 <ul>
 <li><b>시작 효과 / 종료 효과</b>: 없음, 페이드, 왼쪽·오른쪽·위쪽·아래쪽 슬라이드, 줌, 줌 아웃, 팝, 통통 튀기, 떠오르기, 떨어지기, 회전, 스핀, 흔들며 등장, 뒤집기</li>
 <li><b>반복 모션</b>: 둥실 떠다니기·숨쉬기·맥박·흔들림·회전·떠돌기·출렁임·타원 궤도·좌우 떨림·끄덕이기·깜빡임. 반복 주기와 강도를 조절합니다. 영상 요소에서는 반복 모션을 지원하지 않습니다.</li>
@@ -435,6 +446,8 @@ _CANVAS = (
 <p>텍스트·가사 요소에는 <a href='topic:music_reaction'>음악에 맞춰 반응</a>도 있습니다. 가사가 바뀔 때의 효과는 <a href='topic:lyrics_transition'>자막 전환 설정</a>에서 따로 조절합니다.</p>
 <div class='note'>배경 요소는 곡이 바뀔 때 이전 배경에서 새 배경으로 부드럽게 넘어가는 <b>곡 전환 크로스페이드</b>를 따로 켤 수 있습니다. 현재 재생 카드는 표시 시간과 퇴장 효과를 따로 가집니다.</div>""",
        """<p>The inspector's <b>Animation</b> tab sets how a source appears and leaves with each track.</p>
+<p>Open an effect picker to compare motions in a thumbnail grid. Select a thumbnail to apply the effect or click the picker again to close it. Some design pickers also preview styles in a grid.</p>
+[[img:animation_presets]]
 <ul>
 <li><b>Entrance / exit effect</b>: none, fade, slide left/right/up/down, zoom, zoom out, pop, bounce, float up, drop, rotate, spin, wobble in, flip</li>
 <li><b>Loop motion</b>: Float, Breathe, Pulse, Sway, Spin, Drift, Wobble, Orbit, Shake, Nod or Blink. Adjust the period and amount. Video sources do not support loop motion.</li>
@@ -585,6 +598,7 @@ _CANVAS = (
 <li><b>+ 음악 추가</b>를 누르거나 음악 파일·M3U8/M3U 플레이리스트를 목록으로 끌어 놓습니다. 지원 형식: MP3, WAV, FLAC, AAC, M4A, OGG.</li>
 <li>같은 폴더에 이름이 같은 <code>.lrc</code>/<code>.srt</code>/<code>.vtt</code>/<code>.ttml</code>가 있으면 가사로 연결합니다(<a href='topic:settings'>설정 → 콘텐츠</a>에서 동작 변경). 이름이 비슷한 파일은 추가할지 물어봅니다.</li>
 <li>M3U8을 추가하면 담긴 곡의 아트·제목·아티스트·앨범을 확인하는 창이 먼저 열립니다. 찾을 수 없는 파일과 웹 스트림은 건너뜁니다. <b>파일</b> 메뉴에서 M3U8 가져오기·내보내기를 선택할 수 있습니다. <b>타임라인 내보내기</b>는 믹싱 후 곡 시작 시간과 곡 정보를 설명문·CSV로 저장합니다.</li>
+<li><b>파일 → M3U8 플레이리스트 내보내기…</b>는 사용 중인 곡의 복사본과 M3U8 파일을 새 폴더에 저장합니다. 다른 PC에 옮길 때는 폴더 전체를 복사하세요.</li>
 </ul>
 <h2>목록 다루기</h2>
 <ul>
@@ -594,7 +608,15 @@ _CANVAS = (
 <li><b>곡 정보/설정</b>(<code>Enter</code> 또는 더블클릭): <a href='topic:track_details'>곡별 정보·분석·가사·영상·음량</a></li>
 <li>가사 파일을 곡 위에 끌어 놓으면 그 곡의 가사로 연결됩니다.</li>
 </ul>
-<p>각 행 오른쪽에는 가사 보정값, 분석된 BPM, 길이가 보입니다. AutoMix 프로젝트에서는 곡 사이에 <b>⟷ 자동 전환</b> / <b>✎ 수동</b> 표시가 나타나며, 누르면 <a href='topic:automix_editor'>AutoMix 편집기</a>가 열립니다.</p>""",
+<p>각 행 오른쪽에는 가사 보정값, 분석된 BPM, 길이가 보입니다.</p>
+<h2>AutoMix 전환 표시</h2>
+<p>AutoMix 프로젝트의 플레이리스트에는 곡과 곡 사이에 전환 표시가 나옵니다.</p>
+<ul>
+<li><b>⟷ 자동 전환</b>: 앞 곡에서 이 곡으로 넘어가는 전환을 AutoMix가 정합니다. 클릭하면 <a href='topic:automix_editor'>AutoMix 편집기</a>에서 직접 설정할 수 있습니다.</li>
+<li><b>⟷ 자동 · 고정값 유지</b>: AutoMix가 정하되 편집기에서 고정한 값은 그대로 둡니다. 우클릭하면 고정까지 풀고 자동으로 되돌립니다.</li>
+<li><b>✎ 수동 · (길이) · (스타일)</b>: 직접 설정한 전환입니다. 클릭하면 편집하고, 우클릭 → <b>자동으로 되돌리기</b>.</li>
+</ul>
+<p>곡 순서를 바꾸면 새로 이웃한 곡 쌍에는 자동 전환이 적용됩니다.</p>""",
        """<p>The <b>Playlist</b> tab at the bottom holds the songs of the video and their order.</p>
 [[img:canvas_playlist]]
 <h2>Adding songs</h2>
@@ -602,6 +624,7 @@ _CANVAS = (
 <li>Choose <b>+ Add music</b>, or drop music files or an M3U8/M3U playlist on the list. Supported: MP3, WAV, FLAC, AAC, M4A, OGG.</li>
 <li>A <code>.lrc</code>/<code>.srt</code>/<code>.vtt</code>/<code>.ttml</code> with the same name in the same folder is attached as lyrics (change this in <a href='topic:settings'>Settings → Content</a>); for similarly named files you are asked.</li>
 <li>Adding an M3U8 first shows its tracks with art, title, artist and album to confirm. Missing files and web streams are skipped. The <b>File</b> menu imports and exports M3U8. <b>Export timeline</b> saves mixed track start times and track details as a description and CSV.</li>
+<li><b>File → Export M3U8 playlist…</b> saves copies of the enabled songs and an M3U8 file in a new folder. Copy the whole folder to move the playlist to another PC.</li>
 </ul>
 <h2>Working with the list</h2>
 <ul>
@@ -611,8 +634,16 @@ _CANVAS = (
 <li><b>Track information/settings</b> (<code>Enter</code> or double-click): <a href='topic:track_details'>per-track info, analysis, lyrics, videos and sound</a></li>
 <li>Drop a lyrics file on a track to attach it to that track.</li>
 </ul>
-<p>Each row shows its lyric offset, analyzed BPM and length. In an AutoMix project, <b>⟷ Auto transition</b> / <b>✎ Manual</b> chips appear between tracks; click one to open the <a href='topic:automix_editor'>AutoMix editor</a>.</p>""",
-       ("track_details", "lyrics_files", "automix_playlist", "timeline"),
+<p>Each row shows its lyric offset, analyzed BPM and length.</p>
+<h2>AutoMix transition chips</h2>
+<p>In an AutoMix project the playlist shows a chip between every two tracks.</p>
+<ul>
+<li><b>⟷ Auto transition</b>: AutoMix decides how the previous track hands over to this one. Click to set it yourself in the <a href='topic:automix_editor'>AutoMix editor</a>.</li>
+<li><b>⟷ Auto · values kept</b>: AutoMix decides, but values you kept in the editor stay. Right-click to unkeep them and go back to automatic.</li>
+<li><b>✎ Manual · (length) · (style)</b>: a transition set by hand. Click to edit; right-click → <b>Back to automatic</b>.</li>
+</ul>
+<p>After reordering, newly adjacent pairs start out automatic.</p>""",
+       ("track_details", "lyrics_files", "automix_editor", "timeline"),
        ("음악 추가 곡 순서 m3u8 m3u 가져오기 내보내기 검색 복제 삭제 포함 제외 순서 편집 드래그",
         "add music track order m3u8 m3u import export search duplicate delete include exclude reorder drag")),
 
@@ -670,6 +701,7 @@ _CANVAS = (
 <li>더블클릭하면 미리봅니다. 오디오·영상 미리보기는 재생·정지, 5초 이동, 위치 탐색, 볼륨·음소거를 지원합니다.</li>
 <li>✓ <b>추가됨</b>은 이미 프로젝트에서 쓰는 항목입니다. 파일이 없어진 항목은 <b>파일 없음</b>으로 표시됩니다.</li>
 <li>우클릭: 프로젝트에 추가, 미리보기, 정보, 목록에서 제거 · 빈 곳 우클릭 또는 <b>콘텐츠 가져오기</b>로 새 파일 추가</li>
+<li>파일을 우클릭하고 <b>콘텐츠 내보내기…</b>를 선택하면 원본 이름이 입력된 저장 창이 열립니다. 프로젝트에 포함된 파일도 복사할 수 있습니다.</li>
 </ul>
 <div class='note'>다른 PC로 옮길 프로젝트는 콘텐츠를 <b>프로젝트에 포함</b>해 <code>.pvsproj</code>로 저장하세요.</div>""",
        """<p>The <b>Project Content</b> tab on the left collects the images, videos, audio, fonts and lyrics a project uses, ready to reuse.</p>
@@ -680,23 +712,12 @@ _CANVAS = (
 <li>Double-click to preview. Audio and video previews have play/stop, 5-second skips, seeking, volume and mute.</li>
 <li>✓ <b>Added</b> marks items the project already uses; <b>File missing</b> marks files that moved or were deleted.</li>
 <li>Right-click for add to project, preview, info and remove from list · right-click empty space or <b>Import content</b> to add new files</li>
+<li>Right-click a file and choose <b>Export content…</b> to save a copy with its original filename filled in. This also works for files embedded in the project.</li>
 </ul>
 <div class='note'>For a project that moves to another PC, <b>include content in the project</b> and save as <code>.pvsproj</code>.</div>""",
        ("projects", "sources", "playlist"),
        ("라이브러리 미디어 재사용 이미지 오디오 영상 폰트 가사 미리보기 파일 없음 가져오기",
         "library media reuse image audio video font lyrics preview missing import")),
-
-    _e("canvas", "presets", ("디자인 프리셋", "Design presets"),
-       ("디자인,프로젝트", "design,project"),
-       """<h2>디자인 프리셋</h2>
-<p><b>프로젝트 → 디자인 프리셋</b>에서 오로라·카세트·미드나잇·느와르 등 완성된 레이아웃을 미리보고 적용합니다. 캔버스의 모든 요소가 프리셋 요소로 바뀌고 플레이리스트는 유지되며, <code>Ctrl+Z</code>로 되돌릴 수 있습니다. 프리셋은 현재 캔버스 비율에 맞게 배치됩니다.</p>
-<p><b>프로젝트 → 현재 캔버스를 프리셋으로 저장</b>하면 나만의 프리셋이 생깁니다. 사용자 프리셋은 선택 창에서 삭제하거나 내보낼 수 있습니다.</p>""",
-       """<h2>Design presets</h2>
-<p><b>Project → Design Presets</b> previews and applies finished layouts such as Aurora, Cassette, Midnight and Noir. Every canvas source is replaced by the preset's, the playlist stays, and <code>Ctrl+Z</code> undoes it. Presets adapt to the current canvas ratio.</p>
-<p><b>Project → Save current canvas as preset</b> makes your own preset; user presets can be deleted or exported from the picker.</p>""",
-       ("start", "projects"),
-       ("프리셋 템플릿 레이아웃 사용자 프리셋 저장",
-        "preset template layout user preset save")),
 
     _e("canvas", "canvas_shortcuts", ("메인 창 단축키", "Main window shortcuts"),
        ("단축키,캔버스", "shortcuts,canvas"),
@@ -759,13 +780,13 @@ _PREVIEW = (
 <ol>
 <li><b>미리보기 화면</b> — 가사·곡 정보·진행 바·오디오 반응 효과·애니메이션이 실제 재생 시간에 맞춰 움직입니다.</li>
 <li><b>성능 모니터</b> — 미리보기 화면을 우클릭한 뒤 <b>성능 모니터 켜기</b>를 선택합니다. 전체화면에서도 사용할 수 있습니다.</li>
-<li><b>곡 목록</b> — 곡을 누르면 그 곡의 처음으로 이동합니다. 재생 중인 곡이 강조됩니다.</li>
+<li><b>곡 목록</b> — 곡을 두 번 누르면 그 곡의 처음으로 이동합니다. 재생 중인 곡이 강조됩니다.</li>
 <li><b>현재 곡</b> — 곡 번호·제목·아티스트와 곡 안의 재생 위치</li>
-<li><b>재생 타임라인</b> — 전체 영상 기준 위치. 숫자는 곡 경계, 색 막대는 곡이 겹치는 <a href='topic:preview_mix'>전환 구간</a>입니다.</li>
+<li><b>재생 타임라인</b> — <b>전체</b> 또는 <b>현재 곡</b>의 재생 위치를 봅니다. 파형으로 소리가 큰 구간과 작은 구간을 확인합니다. 전체 보기의 색 막대는 곡이 겹치는 <a href='topic:preview_mix'>전환 구간</a>입니다.</li>
 <li><b>볼륨 · 재생 조작 · 편집으로 돌아가기</b></li>
 <li><b>믹스 상태</b>(크로스페이드·AutoMix 프로젝트) — 믹스 준비 상태와 <a href='topic:transition_details'>전환 자세히 보기</a></li>
 </ol>
-<h2>여는 동안과 여는 중에</h2>
+<h2>미리보기 준비와 재생</h2>
 <ul>
 <li>여는 동안 <b>미리보기 준비</b> 창이 단계별 진행을 보여 줍니다(오디오 믹스, 화면 구성, 저장된 곡 분석 불러오기).</li>
 <li>미리보기 중에는 프로젝트가 바뀌지 않도록 편집이 잠깁니다. 도움말(<code>F1</code>)과 단축키 안내는 계속 쓸 수 있습니다.</li>
@@ -778,9 +799,9 @@ _PREVIEW = (
 <ol>
 <li><b>Preview screen</b> — lyrics, track info, progress, audio-reactive visuals and animations move with the real playback time.</li>
 <li><b>Performance monitor</b> — right-click the preview and choose <b>Show performance monitor</b>. It also works in fullscreen.</li>
-<li><b>Track list</b> — click a track to jump to its start; the playing track is highlighted.</li>
+<li><b>Track list</b> — double-click a track to jump to its start. The playing track is highlighted.</li>
 <li><b>Now playing</b> — track number, title, artist and position within the track</li>
-<li><b>Playback timeline</b> — position in the whole video. Numbers mark track boundaries; colored bars are the <a href='topic:preview_mix'>transitions</a> where tracks overlap.</li>
+<li><b>Playback timeline</b> — switch between the full mix and the current track. The waveform shows loud and quiet parts. In the full view, colored bars show the <a href='topic:preview_mix'>transitions</a> where tracks overlap.</li>
 <li><b>Volume · transport · Back to editing</b></li>
 <li><b>Mix status</b> (crossfade and AutoMix projects) — how far the mix is and <a href='topic:transition_details'>transition details</a></li>
 </ol>
@@ -804,7 +825,7 @@ _PREVIEW = (
 <tr><td><code>Shift+←</code> / <code>Shift+→</code> · |◀ / ▶|</td><td>이전 곡 / 다음 곡</td></tr>
 <tr><td><code>↑</code> / <code>↓</code> · 볼륨 슬라이더</td><td>볼륨 올리기 / 내리기</td></tr>
 <tr><td>재생 타임라인 클릭·끌기</td><td>원하는 위치로 이동</td></tr>
-<tr><td>곡 목록의 곡 클릭</td><td>그 곡의 처음으로 이동</td></tr>
+<tr><td>곡 목록의 곡 두 번 클릭</td><td>그 곡의 처음으로 이동</td></tr>
 </table>
 <ul>
 <li>볼륨은 곡 정보/설정의 미리듣기, 가사/자막 편집기와 같은 값을 공유합니다.</li>
@@ -817,7 +838,7 @@ _PREVIEW = (
 <tr><td><code>Shift+←</code> / <code>Shift+→</code> · |◀ / ▶|</td><td>Previous / next track</td></tr>
 <tr><td><code>↑</code> / <code>↓</code> · volume slider</td><td>Volume up / down</td></tr>
 <tr><td>Click or drag the playback timeline</td><td>Seek</td></tr>
-<tr><td>Click a track in the track list</td><td>Jump to its start</td></tr>
+<tr><td>Double-click a track in the track list</td><td>Jump to its start</td></tr>
 </table>
 <ul>
 <li>The volume is shared with listening in Track information/settings and the lyrics/subtitle editor.</li>
@@ -882,10 +903,11 @@ _PREVIEW = (
 
     _e("preview", "preview_quality", ("미리보기 성능과 렌더러", "Preview performance and renderer"),
        ("미리보기,성능", "preview,performance"),
-       """<p><b>성능 정보</b> 버튼을 켜면 미리보기 위에 렌더링 상태가 표시됩니다: 렌더 배율, GPU 메모리·텍스처, 화면 표시 지연, 영상 디코더 부하 등.</p>
+       """<p>미리보기 화면을 우클릭해 <b>성능 모니터 켜기</b>를 선택하면 재생 중 렌더링 상태를 확인할 수 있습니다.</p>
 <h2>미리보기 품질</h2>
+<p>재생 화면을 우클릭한 뒤 <b>미리보기 품질</b>에서 선택합니다.</p>
 <ul><li><b>절전</b>: 최대 24 FPS, 360p 영상 프록시, 40% 캔버스 배율</li>
-<li><b>균형</b>: 기존 절전과 같은 최대 30 FPS, 480p 영상 프록시, 55% 캔버스 배율</li>
+<li><b>균형</b>(기본값): 최대 30 FPS, 480p 영상 프록시, 55% 캔버스 배율</li>
 <li><b>최상</b>: 원본 영상과 100% 캔버스 해상도, 높은 자원 사용 가능</li></ul>
 <h2>GPU 레이어와 CPU 모드</h2>
 <ul>
@@ -897,10 +919,11 @@ _PREVIEW = (
 <ul><li>동시에 보이는 비주얼라이저·파형·파티클 수와 파티클 밀도를 줄입니다.</li>
 <li>큰 영상 요소가 많으면 프록시 준비가 끝날 때까지 기다립니다.</li></ul>
 <div class='note'>미리보기의 화질·해상도는 최종 내보내기에 영향을 주지 않습니다.</div>""",
-       """<p>The <b>Performance</b> button shows a rendering status bar above Preview: render scale, GPU memory and textures, present latency, video decoder load and so on.</p>
+       """<p>Right-click the preview and choose <b>Show performance monitor</b> to inspect rendering during playback.</p>
 <h2>Preview quality</h2>
+<p>Right-click the picture and open <b>Preview quality</b> to select a preset.</p>
 <ul><li><b>Power saving</b>: up to 24 FPS, 360p video proxies, 40% canvas scale</li>
-<li><b>Balanced</b>: former Power saving behavior, up to 30 FPS, 480p proxies, 55% canvas scale</li>
+<li><b>Balanced</b> (default): up to 30 FPS, 480p video proxies and 55% canvas scale</li>
 <li><b>Maximum quality</b>: original video, 100% canvas resolution, potentially higher load</li></ul>
 <h2>GPU layers and CPU mode</h2>
 <ul>
@@ -1133,7 +1156,7 @@ _LYRICS = (
 <li>같은 곡의 가사 파일이 여러 개면 자동 연결 설정이 '항상 함께 추가'여도 파일 선택창이 나타납니다. 취소하면 가사를 연결하지 않습니다.</li>
 <li><b>자동 연결</b>: 음악을 추가할 때 같은 폴더에 이름이 같은 가사 파일이 있으면 함께 연결합니다. <b>도구 → 설정 → 콘텐츠 → 가사·자막 파일 자동 연결</b>에서 항상 함께 추가(권장) · 물어보기 · 추가하지 않음을 고릅니다. 이름이 비슷한 파일은 설정과 관계없이 물어봅니다.</li>
 <li><b>끌어 놓기</b>: 가사 파일을 플레이리스트의 곡 위나 프로젝트 콘텐츠에서 곡 위로 끌어 놓습니다.</li>
-<li><b>곡 정보/설정 → 가사 설정</b>: 파일 불러오기, 프로젝트 콘텐츠에서 고르기, 연결 해제, LRC로 내보내기</li>
+<li><b>곡 정보/설정 → 가사 설정</b>: 파일 불러오기, 프로젝트 콘텐츠에서 고르기, 연결 해제, <a href='topic:track_lyrics'>가사 내보내기</a></li>
 </ul>
 <div class='note'>여러 줄 가사는 LRC로 내보낼 때 문자 <code>\\n</code>으로 저장됩니다.</div>""",
        """<ul>
@@ -1147,7 +1170,7 @@ _LYRICS = (
 <li>Multiple lyric files for one song always open a file chooser, even when automatic attachment is set to Always. Cancel leaves lyrics unattached.</li>
 <li><b>Automatic</b>: when you add music, a lyric file with the same name in the same folder is attached. Choose always (recommended), ask, or never in <b>Tools → Settings → Content → Attach lyric and subtitle files</b>. Similarly named files are always asked about.</li>
 <li><b>Drag and drop</b>: drop a lyric file on a track in the playlist, or from Project Content onto a track.</li>
-<li><b>Track information/settings → Lyrics settings</b>: load a file, pick one from project content, detach, or export as LRC</li>
+<li><b>Track information/settings → Lyrics settings</b>: load a file, pick one from project content, detach, or <a href='topic:track_lyrics'>export lyrics</a></li>
 </ul>
 <div class='note'>Multi-line lyrics are written to LRC with a literal <code>\\n</code>.</div>""",
        ("lyrics", "track_lyrics", "playlist"),
@@ -1414,25 +1437,6 @@ _AUTOMIX = (
        ("automix_properties", "automix_shortcuts"),
        ("복사 붙여넣기 프리셋 저장 적용 삭제 초기화 작업 공간 실행 취소", "copy paste preset save apply delete reset workspace undo")),
 
-    _e("automix_editor", "automix_playlist", ("플레이리스트의 전환 표시", "Transition chips in the playlist"),
-       ("AutoMix,플레이리스트", "AutoMix,playlist"),
-       """<p>AutoMix 프로젝트의 플레이리스트에는 곡과 곡 사이에 전환 표시가 나옵니다.</p>
-<ul>
-<li><b>⟷ 자동 전환</b>: 앞 곡에서 이 곡으로 넘어가는 전환을 AutoMix가 정합니다. 클릭하면 편집기에서 직접 설정할 수 있습니다.</li>
-<li><b>⟷ 자동 · 고정값 유지</b>: AutoMix가 정하되 편집기에서 고정한 값은 그대로 둡니다. 우클릭하면 고정까지 풀고 자동으로 되돌립니다.</li>
-<li><b>✎ 수동 · (길이) · (스타일)</b>: 직접 설정한 전환입니다. 클릭하면 편집하고, 우클릭 → <b>자동으로 되돌리기</b>.</li>
-</ul>
-<p>곡 순서를 바꾸면 새로 이웃한 곡 쌍에는 자동 전환이 적용됩니다.</p>""",
-       """<p>In an AutoMix project the playlist shows a chip between every two tracks.</p>
-<ul>
-<li><b>⟷ Auto transition</b>: AutoMix decides how the previous track hands over to this one. Click to set it yourself in the editor.</li>
-<li><b>⟷ Auto · values kept</b>: AutoMix decides, but values you kept in the editor stay. Right-click to unkeep them and go back to automatic.</li>
-<li><b>✎ Manual · (length) · (style)</b>: a transition set by hand. Click to edit; right-click → <b>Back to automatic</b>.</li>
-</ul>
-<p>After reordering, newly adjacent pairs start out automatic.</p>""",
-       ("playlist", "automix_editor"),
-       ("자동 전환 수동 고정값 유지 우클릭 자동으로 되돌리기", "auto transition manual values kept right click back to automatic")),
-
     _e("automix_editor", "automix_shortcuts", ("AutoMix 편집기 단축키", "AutoMix editor shortcuts"),
        ("AutoMix,단축키", "AutoMix,shortcuts"),
        """<table cellspacing='4'>
@@ -1487,38 +1491,34 @@ _TRACK = (
 [[img:track_info]]
 <ol>
 <li><b>머리글</b> — 커버, 제목, 아티스트·앨범과 길이·형식·샘플레이트·가사 줄 수·BPM·키(캠럿) 같은 요약. 음원 파일이 없으면 ⚠ 표시가 나옵니다.</li>
-<li><b>탭</b> — <a href='topic:track_info'>곡 정보</a>, <a href='topic:track_analysis'>분석</a>, <a href='topic:track_lyrics'>가사 설정</a>, <a href='topic:track_videos'>이 곡의 영상</a>, <a href='topic:track_audio'>오디오</a></li>
+<li><b>탭</b> — <b>곡 정보</b>, <a href='topic:track_analysis'>분석</a>, <a href='topic:track_lyrics'>가사 설정</a>, <a href='topic:video_source'>이 곡의 영상</a>, <a href='topic:track_audio'>오디오</a></li>
 <li><b>탭 내용</b></li>
 <li><b>적용 · 취소</b> — 적용을 눌러야 바뀐 내용이 프로젝트에 반영됩니다(<code>Ctrl+Z</code>로 되돌리기 가능).</li>
 </ol>
-<div class='note'>이 창에서 <b>F1</b>을 누르면 지금 보고 있는 탭의 도움말이 열립니다.</div>""",
-       """<p>Select a track in the playlist and choose <b>Track info/settings</b>, double-click it, or press <code>Enter</code>. Settings here apply to <b>this track in this project</b> only; the audio file itself never changes.</p>
-[[img:track_info]]
-<ol>
-<li><b>Header</b> — cover, title, artist and album plus a summary: length, format, sample rate, lyric lines, BPM and key (Camelot). A ⚠ appears if the audio file is missing.</li>
-<li><b>Tabs</b> — <a href='topic:track_info'>Track information</a>, <a href='topic:track_analysis'>Analysis</a>, <a href='topic:track_lyrics'>Lyrics settings</a>, <a href='topic:track_videos'>Videos for this track</a>, <a href='topic:track_audio'>Audio</a></li>
-<li><b>Tab content</b></li>
-<li><b>Apply · Cancel</b> — changes reach the project only when you apply them (and <code>Ctrl+Z</code> undoes them).</li>
-</ol>
-<div class='note'>Press <b>F1</b> here to open the help for the tab you are on.</div>""",
-       ("track_info", "track_analysis", "track_lyrics", "track_audio"),
-       ("곡 상세 더블클릭 엔터 머리글 적용 취소", "track details double-click enter header apply cancel")),
-
-    _e("track", "track_info", ("곡 정보 탭", "Track information tab"),
-       ("곡 정보,메타데이터", "track info,metadata"),
-       """<ul>
+<div class='note'>이 창에서 <b>F1</b>을 누르면 지금 보고 있는 탭의 도움말이 열립니다.</div>
+<h2>곡 정보 탭</h2>
+<ul>
 <li><b>기본 정보</b>: 제목·아티스트·앨범. 텍스트 요소의 <code>%title%</code> 같은 <a href='topic:text_tokens'>토큰</a>과 트랙 목록·현재 재생 카드에 쓰입니다. 원본 파일의 태그는 바꾸지 않습니다.</li>
 <li><b>파일</b>: 위치, 재생 시간, 형식(모노/스테레오), 음질(비트레이트·샘플레이트·비트 깊이), 크기. <b>폴더에서 보기</b>는 탐색기에서 음원 파일을 선택해 보여 줍니다.</li>
 <li><b>앨범 커버</b>: <b>이미지 변경…</b>으로 프로젝트에서 쓸 곡별 커버를 고르고, <b>내장 커버 사용</b>으로 음원에 들어 있는 커버로 돌아갑니다. 앨범 커버·배경·퍼스널 컬러가 이 커버를 씁니다.</li>
 </ul><p>원본 MP3의 태그와 커버를 수정하려면 도구 메뉴의 <a href='topic:mp3_metadata'>MP3 메타데이터 편집기</a>를 사용하세요.</p>""",
-       """<ul>
+       """<p>Select a track in the playlist and choose <b>Track info/settings</b>, double-click it, or press <code>Enter</code>. Settings here apply to <b>this track in this project</b> only; the audio file itself never changes.</p>
+[[img:track_info]]
+<ol>
+<li><b>Header</b> — cover, title, artist and album plus a summary: length, format, sample rate, lyric lines, BPM and key (Camelot). A ⚠ appears if the audio file is missing.</li>
+<li><b>Tabs</b> — <b>Track information</b>, <a href='topic:track_analysis'>Analysis</a>, <a href='topic:track_lyrics'>Lyrics settings</a>, <a href='topic:video_source'>Videos for this track</a>, <a href='topic:track_audio'>Audio</a></li>
+<li><b>Tab content</b></li>
+<li><b>Apply · Cancel</b> — changes reach the project only when you apply them (and <code>Ctrl+Z</code> undoes them).</li>
+</ol>
+<div class='note'>Press <b>F1</b> here to open the help for the tab you are on.</div>
+<h2>Track information tab</h2>
+<ul>
 <li><b>Basic information</b>: title, artist and album, used by <a href='topic:text_tokens'>tokens</a> such as <code>%title%</code>, the track list and the now playing card. The file's tags are not changed.</li>
 <li><b>File</b>: location, length, format (mono/stereo), quality (bitrate, sample rate, bit depth) and size. <b>Show in folder</b> selects the audio file in Explorer.</li>
 <li><b>Album cover</b>: <b>Change image…</b> picks a per-track cover for this project; <b>Use embedded artwork</b> goes back to the one inside the audio file. Album cover sources, backgrounds and personal color use it.</li>
 </ul><p>To edit tags and artwork in the original MP3, use <a href='topic:mp3_metadata'>MP3 Metadata Editor</a> in the Tools menu.</p>""",
-       ("track_details", "text_tokens"),
-       ("제목 아티스트 앨범 태그 커버 이미지 변경 내장 커버 폴더에서 보기 음질 비트레이트",
-        "title artist album tags cover change image embedded cover show in folder quality bitrate")),
+       ("track_analysis", "track_lyrics", "track_audio", "video_source", "mp3_metadata"),
+       ("곡 상세 더블클릭 엔터 적용 취소 메타데이터 제목 아티스트 앨범 커버", "track details double-click enter apply cancel metadata title artist album cover")),
 
     _e("track", "mp3_metadata", ("MP3 메타데이터 편집기", "MP3 Metadata Editor"),
        ("메타데이터,MP3,음악", "metadata,MP3,music"),
@@ -1530,7 +1530,7 @@ _TRACK = (
 <li>커버를 선택하거나 제거하고 미리보기로 확인합니다.</li>
 <li><b>저장</b>을 누르면 선택한 원본 MP3 파일에 태그와 커버를 씁니다. 창을 닫는 것만으로는 저장되지 않습니다.</li>
 </ol>
-<div class='note'><a href='topic:track_info'>곡 정보/설정</a>은 프로젝트 안에서 쓸 제목·아티스트·앨범·커버를 바꾸는 기능입니다. MP3 편집기는 원본 파일을 변경하며, 이미 추가한 곡의 프로젝트 정보는 곡 정보/설정에서 따로 확인하세요.</div>""",
+<div class='note'><a href='topic:track_details'>곡 정보/설정</a>은 프로젝트 안에서 쓸 제목·아티스트·앨범·커버를 바꾸는 기능입니다. MP3 편집기는 원본 파일을 변경하며, 이미 추가한 곡의 프로젝트 정보는 곡 정보/설정에서 따로 확인하세요.</div>""",
        """<p>Open <b>Tools → MP3 Metadata Editor</b> to edit the ID3 tags and artwork stored in an MP3 file.</p>
 [[img:mp3_metadata]]
 <ol>
@@ -1539,8 +1539,8 @@ _TRACK = (
 <li>Select or remove artwork and check its preview.</li>
 <li><b>Save</b> writes tags and artwork into the selected original file. Closing the window does not save.</li>
 </ol>
-<div class='note'><a href='topic:track_info'>Track information/settings</a> changes project-specific titles, artists, albums and covers. This editor changes the original MP3; check project information separately for tracks already added.</div>""",
-       ("track_info", "text_tokens"),
+<div class='note'><a href='topic:track_details'>Track information/settings</a> changes project-specific titles, artists, albums and covers. This editor changes the original MP3; check project information separately for tracks already added.</div>""",
+       ("track_details", "text_tokens"),
        ("ID3 태그 원본 파일 커버 앨범 아티스트 장르 연도 트랙 번호 디스크 BPM 코멘트 저장",
         "ID3 tags original file artwork album artist genre year track disc BPM comment save")),
 
@@ -1575,43 +1575,32 @@ _TRACK = (
        """[[img:track_lyrics]]
 <h2>가사 / 자막</h2>
 <ul>
-<li><b>가져오기…</b>: 파일(LRC·SRT·VTT·TTML), 프로젝트 콘텐츠, 온라인 검색 중에서 선택</li>
-<li><b>더보기</b>: LRC 내보내기 또는 가사 연결 해제</li>
+<li><b>가져오기…</b>: 파일(LRC·SRT·VTT·TTML), 프로젝트 콘텐츠, <a href='topic:lyrics_online_search'>온라인 가사 검색</a> 중에서 선택</li>
 <li><b>편집기 열기…</b>: 이 곡의 오디오와 가사·타이밍을 <a href='topic:lrc_generator'>가사/자막 편집기</a>에서 고치기</li>
-<li><b>LRC로 내보내기…</b>: 곡별 보정을 적용한 현재 가사를 LRC 파일로 저장</li>
-<li><b>연결 해제</b>: 이 곡에서 가사를 뗍니다.</li>
+<li><b>가사 번역…</b>: <a href='topic:lyrics_translation'>가사 번역과 검토</a> 작업창 열기</li>
+<li><b>더보기 → 가사 내보내기…</b>: 곡별 타이밍 보정을 적용해 LRC 또는 SRT로 저장합니다. 단어·음절별 시간이 있는 가사는 TTML로도 저장할 수 있습니다.</li>
+<li><b>더보기 → 가사 연결 해제</b>: 이 곡에서 가사를 뗍니다.</li>
 </ul>
 <p>TTML 편집 전에는 LRC 변환 또는 줄 삭제 전용 모드를 선택합니다. 줄 삭제 모드는 남은 줄의 시간·단어 정보를 보존하며 원본 파일을 변경하지 않습니다.</p><h2>곡별 타이밍 보정</h2><p><b>타이밍 보정</b>을 펼쳐 조절합니다.</p>
 <p><b>−0.10</b> / <b>+0.10</b> 버튼이나 직접 입력으로 이 곡의 가사를 앞당기거나 늦춥니다. 양수는 가사를 더 빠르게, 음수는 더 늦게 표시하며, 가사 요소의 공통 보정값과 더해집니다. 아래 목록에 보정이 적용된 타임코드가 미리 보입니다.</p>
 <h2>노래와 가사 미리보기</h2>
-<p>재생·정지와 위치 슬라이더로 실제 노래를 들으며 이전·현재·다음 가사가 맞게 나오는지 확인합니다. 볼륨은 미리보기와 공유됩니다.</p>""",
+<p>재생·정지와 위치 슬라이더로 실제 노래를 들으며 이전·현재·다음 가사가 맞게 나오는지 확인합니다. 창 높이에 맞춰 주변 가사 줄 수가 조절됩니다. 단어별 시간이 담긴 TTML은 재생 위치에 맞춰 강조하고, 겹쳐 부르는 가사도 함께 표시합니다. 볼륨은 미리보기와 공유됩니다.</p>""",
        """[[img:track_lyrics]]
 <h2>Lyrics / subtitles</h2>
 <ul>
-<li><b>Import…</b>: choose a file (LRC/SRT/VTT/TTML), project content or online search</li>
-<li><b>More</b>: export as LRC or detach lyrics</li>
+<li><b>Import…</b>: choose a file (LRC/SRT/VTT/TTML), project content or <a href='topic:lyrics_online_search'>online lyric search</a></li>
 <li><b>Open editor…</b>: fix this track's lyrics and timing in the <a href='topic:lrc_generator'>lyrics/subtitle editor</a> with its audio</li>
-<li><b>Export as LRC…</b>: save the current lyrics, with this track's offset applied, as an LRC file</li>
-<li><b>Detach</b>: remove the lyrics from this track</li>
+<li><b>Translate lyrics…</b>: open the <a href='topic:lyrics_translation'>translation and review workspace</a></li>
+<li><b>More → Export lyrics…</b>: save as LRC or SRT with this track's timing offset applied. Lyrics with word or syllable timing can also be saved as TTML.</li>
+<li><b>More → Detach lyrics</b>: remove the lyrics from this track</li>
 </ul>
 <p>Before editing TTML, choose LRC conversion or deletion-only mode. Deletion preserves all remaining cue and word timings without changing the original file.</p><h2>Per-track timing offset</h2><p>Expand <b>Timing adjustment</b> to use these controls.</p>
 <p>Use <b>−0.10</b> / <b>+0.10</b> or type a value to move this track's lyrics. Positive shows them earlier, negative later, and it adds to the lyrics source's common offset. The list below previews the adjusted timecodes.</p>
-<h2>Song and lyrics preview</h2>
-<p>Play, stop and seek the real song and watch the previous, current and next lyric line up. The volume is shared with Preview.</p>""",
+<h2>Audio and lyrics preview</h2>
+<p>Play, stop, and seek the song to check the previous, current, and next lines. The number of surrounding lines adjusts to the window height. Word-timed TTML highlights words as the song plays and can show overlapping vocal lines. The volume is shared with Preview.</p>""",
        ("lyrics", "lyrics_files", "lrc_generator"),
        ("가사 파일 불러오기 연결 해제 LRC 내보내기 곡별 타이밍 보정 오프셋 빠르게 늦게 미리보기",
         "load lyrics detach export LRC per-track timing offset earlier later preview")),
-
-    _e("track", "track_videos", ("이 곡의 영상 탭", "Videos for this track tab"),
-       ("곡 정보,영상", "track info,video"),
-       """[[img:track_videos]]
-<p>캔버스의 <a href='topic:video_source'>영상 요소</a>에서 <b>곡마다 다른 영상 사용</b>을 선택하면, 이 곡이 재생되는 동안 여기 등록한 영상 목록을 씁니다. 영상 요소의 크기·반복·속도·효과 설정은 그대로 적용됩니다.</p>
-<ul><li><b>영상 추가…</b>, <b>선택 제거</b>, <b>위로</b> / <b>아래로</b>(재생 순서)</li></ul>""",
-       """[[img:track_videos]]
-<p>When a canvas <a href='topic:video_source'>video source</a> is set to <b>Use different videos for each track</b>, it plays this list while this track is on. The video source's size, repeat, speed and effect settings still apply.</p>
-<ul><li><b>Add videos…</b>, <b>Remove selected</b>, <b>Up</b> / <b>Down</b> (play order)</li></ul>""",
-       ("video_source",),
-       ("곡별 영상 추가 제거 순서", "per-track video add remove order")),
 
     _e("track", "track_audio", ("오디오 탭 · 곡 볼륨과 EQ", "Audio tab · track volume and EQ"),
        ("곡 정보,오디오", "track info,audio"),
@@ -1650,8 +1639,7 @@ _OTHER = (
        ("프로젝트,저장,복구", "project,saving,recovery"),
        """<h2>프로젝트 파일</h2>
 <ul>
-<li><code>.pvsproj</code>(권장): 프로젝트와 포함된 미디어를 하나로 묶은 파일입니다. 설치 버전에서는 탐색기에서 더블클릭하면 바로 열립니다.</li>
-<li><code>.project.json</code>(레거시): 열 수 있지만 <b>프로젝트 → 레거시 프로젝트 업그레이드</b>로 패키지로 바꾸는 것을 권장합니다.</li>
+<li><code>.pvsproj</code>: 프로젝트와 포함된 미디어를 하나로 묶은 파일입니다. 설치 버전에서는 탐색기에서 더블클릭하면 바로 열립니다.</li>
 <li><b>파일 → 최근 프로젝트</b>에서 최근 파일을 엽니다. 목록 지우기는 파일을 삭제하지 않습니다.</li>
 </ul>
 <h2>저장</h2>
@@ -1662,11 +1650,11 @@ _OTHER = (
 <h2>자동 저장과 복구</h2>
 <p>작업 중 복구 사본이 주기적으로 기록됩니다(상태 표시줄에 “자동 저장됨”). 프로그램이 비정상 종료되면 다음 시작 때 복구 여부를 묻습니다. 문제가 된 프로젝트는 오류 보고와 함께 안전하게 여는 방법을 안내합니다.</p>
 <h2>누락 미디어</h2>
-<p>원본 위치 참조로 저장한 프로젝트에서 파일을 옮기면, 열 때 <b>누락 미디어</b> 창에서 새 위치를 지정해 다시 연결합니다. 다른 PC로 옮길 때는 콘텐츠를 <b>프로젝트에 포함</b>하세요.</p>""",
+<p>참조 파일을 옮겼다면 프로젝트를 열 때 <b>누락된 미디어</b> 창에서 위치를 지정하세요. <b>폴더에서 찾기…</b>로 그 폴더에 있는 같은 이름의 파일을 한꺼번에 연결할 수 있습니다. 서로 다른 위치에 있던 파일의 이름이 겹치면 행마다 <b>찾아보기</b>로 지정하세요.</p>
+<p><b>누락 파일 제외하고 열기</b>를 선택하면 찾지 못한 음원 트랙을 비활성화하고 나머지 누락 파일의 연결을 해제합니다. 프로젝트에 저장된 가사는 유지됩니다. 큰 프로젝트를 읽는 중에는 진행 창에서 <b>취소</b>할 수 있습니다.</p>""",
        """<h2>Project files</h2>
 <ul>
-<li><code>.pvsproj</code> (recommended): the project and its included media in one file. With the installed app, double-click it in Explorer to open it.</li>
-<li><code>.project.json</code> (legacy): opens, but <b>Project → Upgrade legacy project</b> turns it into a package.</li>
+<li><code>.pvsproj</code>: the project and its included media in one file. With the installed app, double-click it in Explorer to open it.</li>
 <li><b>File → Recent projects</b> reopens recent files; clearing the list never deletes files.</li>
 </ul>
 <h2>Saving</h2>
@@ -1677,10 +1665,11 @@ _OTHER = (
 <h2>Autosave and recovery</h2>
 <p>A recovery copy is written regularly while you work (“Autosaved” in the status bar). After a crash, the next start offers to recover it. A project that caused a problem comes with an error report and a safe way to open it.</p>
 <h2>Missing media</h2>
-<p>If files of a project that references originals have moved, the <b>Missing media</b> window on opening lets you point to their new location. For a project that moves to another PC, <b>include content in the project</b>.</p>""",
+<p>If referenced files have moved, use the <b>Missing media</b> window when opening the project. <b>Find in folder…</b> relinks files with matching names in that folder. If files from different locations share a name, use <b>Browse</b> on each row.</p>
+<p><b>Open without missing files</b> disables missing audio tracks and detaches the other missing files. Lyrics stored in the project are kept. To stop reading a large project, select <b>Cancel</b> in the progress window.</p>""",
        ("project_settings", "project_content", "troubleshooting"),
-       ("저장 열기 pvsproj json 레거시 업그레이드 최근 프로젝트 자동 저장 복구 비정상 종료 누락 미디어",
-        "save open pvsproj json legacy upgrade recent projects autosave recovery crash missing media")),
+       ("저장 열기 pvsproj 최근 프로젝트 자동 저장 복구 비정상 종료 누락 미디어",
+        "save open pvsproj recent projects autosave recovery crash missing media")),
 
     _e("other", "project_settings", ("프로젝트 설정", "Project settings"),
        ("프로젝트,오디오,곡 전환,캔버스", "project,audio,transitions,canvas"),
@@ -1688,6 +1677,7 @@ _OTHER = (
 [[img:project_settings]]
 <ul>
 <li><b>프로젝트 정보</b>: 이름, 작성자, 설명, <b>프로젝트 썸네일</b>(프로젝트 저장 시 캔버스 직접 캡처)</li>
+<li><b>프로젝트 세부 정보</b>: 생성일, 생성 당시 및 현재 앱 버전, 파일 형식·경로·크기·마지막 수정일, 곡과 요소 개수를 확인합니다. 저장되지 않은 프로젝트나 이전 파일은 일부 정보가 비어 있을 수 있습니다.</li>
 <li><b>캔버스</b>: 화면 비율과 너비·높이. <b>요소 위치와 크기도 함께 조정(권장)</b> 또는 <b>캔버스만 변경</b>. 바꾸기 전에 확인하며 <code>Ctrl+Z</code>로 되돌릴 수 있습니다.</li>
 <li><b>파일 관리</b>: <b>추가한 콘텐츠를 프로젝트에 포함</b>(이미지·음원·폰트·가사를 패키지에 복사, 다른 PC에서도 안전) 또는 <b>외부 콘텐츠를 프로젝트에서 참조</b>(파일은 작지만 원본을 옮기면 다시 연결 필요)</li>
 </ul>
@@ -1702,6 +1692,7 @@ _OTHER = (
 [[img:project_settings]]
 <ul>
 <li><b>Project information</b>: name, author, description and the <b>project thumbnail</b> (captured directly from the canvas on save)</li>
+<li><b>Project details</b>: creation date, original and current app versions, file format, path, size, last modified time, and track and source counts. Some details may be unavailable for unsaved or older projects.</li>
 <li><b>Canvas</b>: aspect ratio, width and height. <b>Also adjust source positions and sizes (recommended)</b> or <b>change only the canvas</b>. You confirm first, and <code>Ctrl+Z</code> undoes it.</li>
 <li><b>File management</b>: <b>include added content in the project</b> (images, audio, fonts and lyrics are copied into the package; safe on any PC) or <b>reference external content</b> (smaller, but moved originals must be reconnected)</li>
 </ul>
@@ -1721,26 +1712,28 @@ _OTHER = (
        """<p>오른쪽 위 <b>내보내기</b>(<code>Ctrl+E</code>)를 누르면 내보내기 설정 창이 열립니다. 영상·오디오와 믹싱 시간 확인에는 <a href='topic:ffmpeg'>FFmpeg</a>가 필요합니다. 믹싱 없는 자막은 FFmpeg 없이 저장할 수 있습니다.</p>
 [[img:export_settings]]
 <ul>
+<li><b>프로젝트 미리보기</b>에서 저장할 화면을 확인합니다. 기본 파일 이름은 프로젝트 이름입니다.</li>
 <li><b>출력 파일</b>: 내보내기 항목·파일 형식·파일 이름·저장 폴더를 따로 선택합니다. 같은 파일이 있으면 파일 이름에 (2), (3) 등을 붙이며, 직접 같은 이름으로 바꾸면 경고합니다.</li>
 <li><b>영상 + 오디오</b>: MP4·MOV·MKV. <b>오디오만 내보내기</b>: MP3·M4A·WAV·FLAC·OGG.</li>
 <li><b>자막 내보내기</b>: LRC·SRT. 등록한 가사와 시간 보정을 실제 믹싱 타임라인에 맞춥니다. 겹치는 가사는 <b>나가는 곡을 윗줄, 들어오는 곡을 아랫줄</b>에 표시하고 각 줄 앞에 <code>- </code>를 붙입니다. 겹침이 끝나면 한 곡만 표시합니다.</li>
 <li><b>해상도</b>(HD·Full HD·QHD·4K, 프로젝트 비율 유지)와 <b>프레임 레이트</b>. 예상 작업량이 함께 표시됩니다.</li>
 <li><b>고급 인코딩 설정</b>: 비디오 인코더(자동 선택 권장, CPU H.264/H.265, 지원되는 GPU 인코더), 화질 CRF(낮을수록 고화질), 인코딩 속도(preset), 오디오 품질(AAC). <b>권장 설정으로 되돌리기</b></li>
 <li><b>설정 자동 저장</b>: 프로젝트의 첫 내보내기는 프로그램 기본 설정을 사용하고 이후에는 이 프로젝트의 마지막 내보내기 설정을 기억합니다. 다른 프로젝트 기본값은 변경하지 않습니다.</li>
-<li><b><a href='topic:export_engines'>Rust GPU와 FFmpeg 엔진 비교</a></b>에서 지원되는 형식과 차이를 확인할 수 있습니다.</li>
+<li><b>엔진</b>: <b>Rust GPU (베타)</b>는 지원되는 NVIDIA 환경에서 H.264 MP4 영상을 만듭니다. 다른 형식은 <b>FFmpeg (레거시)</b>를 선택하세요. <a href='topic:export_engines'>엔진 비교</a>에서 지원 범위를 확인할 수 있습니다.</li>
 </ul>
 <p>내보내기에 포함된 곡만 들어가며(플레이리스트에서 제외한 곡은 빠짐), 곡 전환·곡별 볼륨/EQ·가사·애니메이션이 미리보기와 같게 적용됩니다. 저장되는 <code>thumbnail.png</code>는 항상 프로젝트 캔버스를 새로 캡처합니다.</p>
 <div class='note'>4K나 60 FPS는 화면 준비와 인코딩 시간을 크게 늘립니다. 잘 모르겠으면 <b>권장</b>과 Full HD 30 FPS로 시작하세요.</div>""",
        """<p><b>Export</b> at the top right (<code>Ctrl+E</code>) opens the export settings. Video/audio and mix timing need <a href='topic:ffmpeg'>FFmpeg</a>. Unmixed subtitles can be saved without FFmpeg.</p>
 [[img:export_settings]]
 <ul>
-<li><b>Output file</b>: choose the export type, format, file name, and folder separately. Existing names are numbered (2), (3), and so on; manually entering a conflicting name shows a warning.</li>
+<li>Check the picture in the <b>project preview</b>. The file name defaults to the project title.</li>
+<li><b>Output file</b>: choose the export type, format, file name, and folder separately. Existing names are numbered (2), (3), and so on. Manually entering a conflicting name shows a warning.</li>
 <li><b>Video + audio</b>: MP4, MOV, MKV. <b>Audio only</b>: MP3, M4A, WAV, FLAC, OGG.</li>
 <li><b>Subtitles</b>: LRC and SRT. Attached lyrics and timing offsets follow the actual mix timeline. Overlapping lyrics show the <b>outgoing track above the incoming track</b>, each with a <code>- </code> prefix. Only one track remains after the overlap.</li>
 <li><b>Resolution</b> (HD, Full HD, QHD, 4K — the project ratio is kept) and <b>frame rate</b>, with the estimated workload</li>
 <li><b>Advanced encoding</b>: video encoder (automatic recommended, CPU H.264/H.265, supported GPU encoders), quality CRF (lower is better), encoding speed (preset), audio quality (AAC). <b>Back to recommended</b></li>
 <li><b>Automatic settings</b>: the first export uses app defaults. Later exports remember this project's last export settings without changing defaults for other projects.</li>
-<li>See <b><a href='topic:export_engines'>Rust GPU versus FFmpeg</a></b> for supported formats and differences.</li>
+<li><b>Engine</b>: <b>Rust GPU (Beta)</b> exports H.264 MP4 video on supported NVIDIA hardware. Choose <b>FFmpeg (Legacy)</b> for other formats. See the <a href='topic:export_engines'>engine comparison</a> for supported options.</li>
 </ul>
 <p>Only tracks included in export go in (tracks excluded in the playlist are left out); transitions, per-track volume/EQ, lyrics and animations are applied just like in Preview. The project's <code>thumbnail.png</code> is captured from the actual canvas at save time.</p>
 <div class='note'>4K or 60 FPS greatly lengthen screen preparation and encoding. When unsure, start with <b>Recommended</b> at Full HD 30 FPS.</div>""",
@@ -1778,14 +1771,17 @@ _OTHER = (
 
     _e("other", "export_process", ("내보내기 진행과 완료", "Export progress and completion"),
        ("내보내기,진행", "export,progress"),
-       """<h2>진행 단계</h2>
+       """[[img:export_progress]]
+<h2>FFmpeg 진행 단계</h2>
 <ol>
 <li><b>화면 준비</b>: 애니메이션·가사·곡 정보가 바뀌는 순간의 캔버스를 캡처합니다(변하지 않는 레이어는 한 번만).</li>
 <li><b>오디오 준비</b>: 곡의 음량을 맞추고 전환(크로스페이드·AutoMix)을 적용해 하나로 합칩니다.</li>
 <li><b>효과 준비</b>: 비주얼라이저·파형·레벨 미터·파티클을 음악에 맞춰 렌더링합니다.</li>
-<li><b>영상 만들기</b>: FFmpeg가 화면과 오디오를 최종 MP4로 인코딩합니다.</li>
+<li><b>영상 만들기</b>: FFmpeg가 화면과 오디오를 선택한 출력 형식으로 인코딩합니다.</li>
 </ol>
-<p>진행 창은 단계별 진행률, 남은 시간, 병렬 작업 수와 <b>저장 공간 사용량</b>(화면·오디오·효과·결과 영상의 실제 크기와 출력 드라이브 여유 공간)을 보여 줍니다.</p>
+<h2>Rust GPU 진행 단계</h2>
+<p>렌더링 중에는 처리한 프레임 수와 전체 프레임 수가 표시됩니다. 이때 남은 시간은 프레임 처리 기준입니다. 모든 프레임을 처리하면 영상과 오디오를 MP4에 담는 마무리 단계로 넘어갑니다.</p>
+<p>진행 창에는 전체 진행률과 현재 작업 진행률이 표시됩니다. <b>저장 공간 사용량</b> 아이콘을 누르면 출력 드라이브의 여유 공간과 임시 파일 사용량을 확인할 수 있습니다.</p>
 <ul>
 <li>내보내기 중에는 프로젝트가 바뀌지 않도록 편집 화면이 잠깁니다. <b>최소화</b>해도 작업은 계속되며, 작업 표시줄에서 창을 복원하면 진행 창도 다시 나옵니다.</li>
 <li><b>취소</b>하고 확인하면 실행 중인 작업과 임시 파일을 정리한 뒤 편집 화면으로 돌아갑니다.</li>
@@ -1794,14 +1790,17 @@ _OTHER = (
 </ul>
 <h2>완료 창</h2>
 <p>파일 크기와 출력 확인 결과를 보여 주고 <b>영상 재생하기</b>, <b>저장 폴더 열기</b>, <b>경로 복사</b>, <b>다시 내보내기</b>를 제공합니다.</p>""",
-       """<h2>Stages</h2>
+       """[[img:export_progress]]
+<h2>FFmpeg stages</h2>
 <ol>
 <li><b>Screen</b>: captures the canvas at every moment animations, lyrics or track info change (unchanging layers only once).</li>
 <li><b>Audio</b>: levels the tracks and applies transitions (crossfade, AutoMix) into one mix.</li>
 <li><b>Effects</b>: renders visualizers, waveforms, level meters and particles to the music.</li>
-<li><b>Video</b>: FFmpeg encodes the picture and sound into the final MP4.</li>
+<li><b>Video</b>: FFmpeg encodes the picture and sound into the selected output format.</li>
 </ol>
-<p>The progress window shows each stage's progress, the time left, parallel jobs and <b>storage use</b> (actual sizes of screen, audio, effects and the result, and free space on the output drive).</p>
+<h2>Rust GPU stages</h2>
+<p>During rendering, the window shows processed frames and the total frame count. The ETA at this point covers frame processing. Once all frames are processed, the final step combines the video and audio into the MP4.</p>
+<p>The progress window shows overall and current task progress. Select <b>Storage use</b> to see free space on the output drive and temporary file sizes.</p>
 <ul>
 <li>The editor is locked during export so the project cannot change. <b>Minimize</b> keeps it running; restoring the app from the taskbar brings the progress window back.</li>
 <li><b>Cancel</b> and confirm to stop the work, clean up temporary files and return to the editor.</li>
@@ -1823,7 +1822,7 @@ _OTHER = (
 <h2>내보내기가 오래 걸릴 때</h2>
 <ul><li>필요하지 않다면 4K·60 FPS 대신 Full HD 30 FPS를 씁니다.</li>
 <li>가사 애니메이션이나 매우 짧은 변화가 많으면 준비할 화면이 늘어납니다.</li>
-<li>GPU 인코더는 최종 인코딩을 줄이지만 화면 준비 시간까지 줄이지는 않습니다.</li>
+<li><b>FFmpeg (레거시)</b>의 GPU 인코더는 최종 인코딩 단계에 사용됩니다. <a href='topic:export_engines'>엔진 비교</a>에서 Rust GPU의 지원 환경과 출력 형식을 확인할 수 있습니다.</li>
 <li>진행 창의 단계명과 백분율로 시간이 어디(화면·효과·인코딩)에서 쓰이는지 먼저 확인하세요.</li></ul>
 <h2>작업 모드</h2>
 <p><b>도구 → 설정 → 내보내기 → 작업 모드</b></p>
@@ -1838,7 +1837,7 @@ _OTHER = (
 <h2>If Export takes long</h2>
 <ul><li>Prefer Full HD 30 FPS over 4K or 60 FPS unless you need them.</li>
 <li>Lots of lyric animation or very short changes mean more screens to prepare.</li>
-<li>GPU encoders shorten the final encoding, not screen preparation.</li>
+<li>GPU encoders in <b>FFmpeg (Legacy)</b> are used in the final encoding stage. See the <a href='topic:export_engines'>engine comparison</a> for Rust GPU requirements and output formats.</li>
 <li>Check the stage and percentage in the progress window to see where the time goes (screen, effects, encoding).</li></ul>
 <h2>Work mode</h2>
 <p><b>Tools → Settings → Export → Work mode</b></p>
@@ -1880,6 +1879,7 @@ _OTHER = (
        ("설정", "settings"),
        """<p><b>도구 → 설정</b>에서 프로그램 전체의 기본값을 관리합니다.</p>
 [[img:settings_general]]
+<p>위쪽 <b>설정 검색</b>에 항목 이름을 입력하고 <code>Enter</code>를 누르면 일치하는 설정으로 이동합니다.</p>
 <ul>
 <li><b>일반</b>: 언어, <a href='topic:language_packs'>외부 언어팩</a>, 부드러운 스크롤(끄기 또는 80~420ms, <code>Ctrl</code>+휠 확대에는 영향 없음), <a href='topic:preview_quality'>미리보기 렌더러</a>(GPU 레이어 / CPU 호환 모드, 재시작 후 적용). 화면은 다크 스튜디오 테마로 고정입니다.</li>
 <li><b>내보내기</b>: 기본 출력 폴더(비우면 기본 비디오 폴더), 기본 해상도·FPS·비디오 인코더·CRF·인코딩 preset·오디오 품질, <a href='topic:performance'>작업 모드</a></li>
@@ -1892,6 +1892,7 @@ _OTHER = (
 <p><b>저장</b>을 눌러야 적용됩니다.</p>""",
        """<p><b>Tools → Settings</b> holds the app-wide defaults.</p>
 [[img:settings_general]]
+<p>Type a setting name in <b>Find a setting</b> at the top and press <code>Enter</code> to jump to a match.</p>
 <ul>
 <li><b>General</b>: language, <a href='topic:language_packs'>external language packs</a>, smooth scrolling (off or 80–420 ms; <code>Ctrl</code>+wheel zoom is unaffected), <a href='topic:preview_quality'>preview renderer</a> (GPU layers / CPU compatibility, applies after a restart). The look is always the dark studio theme.</li>
 <li><b>Export</b>: default output folder (empty = your Videos folder), default resolution, FPS, video encoder, CRF, encoding preset, audio quality, and <a href='topic:performance'>work mode</a></li>
@@ -1944,14 +1945,16 @@ _OTHER = (
        """<p>시작 후 공식 GitHub 저장소의 최신 안정 릴리즈를 백그라운드에서 확인합니다. 새 버전이 있으면 릴리즈 노트와 현재·최신 버전을 보여 줍니다.</p>
 <ol><li><b>다운로드 및 업데이트</b>를 고릅니다.</li>
 <li>Setup 다운로드와 파일 크기·SHA-256 검증이 끝날 때까지 기다립니다.</li>
-<li>작업 내용을 복구본으로 자동 보관하고 프로그램을 종료합니다. 추가 확인이나 설치 버튼 없이 설치를 마친 뒤 다시 실행해 같은 작업을 엽니다. 진행 중인 내보내기·저장은 먼저 완료될 때까지 기다립니다.</li></ol>
-<p>관리자 승인 없이 업데이트할 수 있도록 사용자 폴더에 설치합니다. 원본 프로젝트는 덮어쓰지 않으며 저장되지 않은 변경도 그대로 복구합니다.</p>
+<li>Windows에서 설치 권한을 요청하면 승인합니다. 취소하면 편집을 계속할 수 있습니다.</li>
+<li>진행 중인 내보내기나 저장이 끝나면 작업을 복구본으로 보관하고 설치를 진행합니다. 설치가 끝나면 앱이 다시 열리고 작업을 복구합니다.</li></ol>
+<p>이전 편집기가 응답하지 않으면 설치 프로그램에서 종료 여부를 물을 수 있습니다. 종료를 선택하지 않으면 설치를 중단하고 현재 설치를 유지합니다.</p>
 <p>시작 알림을 닫으면 그 버전은 다시 자동으로 알리지 않습니다. <b>도움말 → 업데이트 확인</b>으로 언제든 수동으로 확인·설치할 수 있습니다. 초안·사전 릴리즈는 대상이 아닙니다.</p>""",
        """<p>After startup the app checks the official GitHub repository for the latest stable release in the background. A newer one shows its release notes with the current and latest versions.</p>
 <ol><li>Choose <b>Download and update</b>.</li>
 <li>Wait for the Setup download and its size and SHA-256 check.</li>
-<li>The workspace is backed up automatically and the app closes. Installation and restart require no further clicks, and the same workspace reopens. Active exports and saves finish first.</li></ol>
-<p>Setup uses the current user's folder without requesting administrator approval. The original project file is kept, including its unsaved changes in the recovered workspace.</p>
+<li>Approve the Windows authorization prompt if it appears. Cancelling lets you keep editing.</li>
+<li>After active exports or saves finish, the app saves a recovery copy and proceeds with installation. The app reopens and restores your work when installation finishes.</li></ol>
+<p>If the previous editor stops responding, Setup may ask whether to close it. Declining stops the update and keeps the current installation.</p>
 <p>Dismissing the startup notice stops automatic reminders for that version. <b>Help → Check for updates</b> checks and installs any time. Drafts and pre-releases are ignored.</p>""",
        ("maintenance",),
        ("업데이트 최신 버전 github 릴리즈 setup 건너뛰기 확인", "update latest version github release setup skip check")),
@@ -1959,6 +1962,8 @@ _OTHER = (
     _e("other", "shortcuts", ("창별 단축키 모음", "Shortcuts in every window"),
        ("단축키", "shortcuts"),
        """<p>창마다 단축키가 다릅니다. 각 창에서 <code>F1</code>을 누르면 그 창의 도움말이 열립니다.</p>
+[[img:shortcuts]]
+<p><b>도움말 → 단축키 안내</b>에서 키 조합이나 동작 이름을 검색하세요. 단축키 창에서 <code>Ctrl+F</code>를 누르면 검색 칸으로 이동합니다.</p>
 <ul>
 <li><a href='topic:canvas_shortcuts'>메인 창(캔버스·플레이리스트)</a> — <b>도움말 → 단축키 안내</b>에도 표로 있습니다.</li>
 <li><a href='topic:preview_controls'>미리보기</a> — <code>Space</code>, <code>←</code>/<code>→</code>, <code>Shift+←</code>/<code>→</code>, <code>↑</code>/<code>↓</code></li>
@@ -1968,6 +1973,8 @@ _OTHER = (
 </ul>
 <p>텍스트나 숫자 입력칸에 커서가 있으면 일반 입력이 우선합니다.</p>""",
        """<p>Each window has its own keys, and <code>F1</code> in any window opens its help.</p>
+[[img:shortcuts]]
+<p>Open <b>Help → Keyboard shortcuts</b> and search by key combination or action name. Press <code>Ctrl+F</code> in the shortcut window to focus the search box.</p>
 <ul>
 <li><a href='topic:canvas_shortcuts'>Main window (canvas, playlist)</a> — also as a table in <b>Help → Keyboard shortcuts</b></li>
 <li><a href='topic:preview_controls'>Preview</a> — <code>Space</code>, <code>←</code>/<code>→</code>, <code>Shift+←</code>/<code>→</code>, <code>↑</code>/<code>↓</code></li>
@@ -2015,6 +2022,8 @@ _RECENT_FEATURES = (
     _e('lyrics_editor', 'lyrics_translation', ('가사 번역과 로컬 모델', 'Lyric translation and local models'),
        ('가사,번역,로컬,계정', 'lyrics,translation,local,account'),
        """<p><b>곡 정보/설정 → 가사 설정 → 가사 번역…</b>에서 <b>클라우드 LLM</b>, <b>로컬 LLM</b>, <b>로컬 번역 모델</b> 중 하나를 선택합니다.</p>
+[[img:lyrics_translation]]
+<p>LLM은 번역할 행과 함께 곡 전체의 흐름과 반복 구절을 참고합니다. 일부 행이 실패하면 완료된 번역을 검토하고 실패한 행만 다시 시도할 수 있습니다.</p>
 <p>클라우드 LLM은 선택한 서비스로 가사를 전송하며 API 요금이나 구독 한도가 적용될 수 있습니다. <b>OpenAI 계정 관리…</b> 또는 <b>설정 → 계정</b>에서 ChatGPT로 로그인하세요. 로그인은 Windows 계정으로 암호화해 저장하고 앱 종료 후에도 유지합니다.</p>
 <p><b>로컬 LLM</b>은 설치된 모델을 콤보박스에서 선택합니다. <b>로컬 LLM 관리자…</b>에서 모델을 검색하고 장점·주의점·용량·라이선스를 확인하세요. Ollama는 실행 구성요소 자동 설치·시작, 모델 다운로드·이어받기·삭제·별칭·메모리 로드/해제를 지원합니다. 처음 설치할 때 인터넷과 수 GB 이상의 디스크 공간이 필요합니다. LM Studio는 서버를 켜고 최신 API를 사용해야 하며 프로그램 설치와 파일 삭제는 LM Studio에서 진행합니다.</p>
 <p><b>로컬 번역 모델</b>은 LLM AI 모델이 아니므로 가사·비유·문맥의 정확도가 크게 떨어질 수 있습니다. 가능하면 클라우드 LLM 또는 로컬 LLM을 권장합니다. 사용하려면 원문 언어와 번역 언어를 먼저 선택하세요. 일치 모델이 없으면 설치가 필요하다고 안내하며 <b>이 언어 모델 자동 설치</b>로 공식 Argos 모델을 찾고 내려받습니다. 지원 방향이 없으면 LLM을 사용하세요. 별도 프로그램은 필요 없으며 실행 구성요소는 앱에 포함되어 있습니다. 준비 후에는 앱 내부에서 오프라인으로 번역합니다.</p>
@@ -2023,6 +2032,8 @@ _RECENT_FEATURES = (
 <p>언어 선택은 서비스와 방식을 바꿔도 유지합니다. 필수 설정 입력과 실제 연결 확인을 구분해 안내합니다. 같은 창의 표에서 원문과 실시간 번역을 비교하세요. 자동 스크롤은 기본으로 꺼져 있고, <b>진행 행 따라가기</b>로 켜거나 끌 수 있습니다. 서비스 설정 창을 닫아도 번역은 계속됩니다. 번역문을 두 번 클릭해 고치고 Ctrl+Enter로 편집을 마칩니다. 번역되지 않은 행·실패/미완료 행·수정한 행 필터와 선택 행/실패 행 재번역을 제공합니다. 재번역할 행은 표에서 강조하고, 적용할 행은 체크합니다.</p>
 <p><b>초안 저장</b>(Ctrl+S) 또는 창 닫기로 작업을 보존하고 같은 곡과 원문에서 다시 열어 이어서 편집합니다. <b>선택한 N줄 적용</b>은 곡 정보 창에 임시 반영합니다. 곡 정보 창의 <b>적용</b> 뒤 프로젝트도 저장하세요. 곡 정보 창에서 취소해도 번역 창을 다시 열면 복구 초안이 남아 있습니다. 초안은 자동 만료되지 않으며 <b>초안 삭제…</b>로 이 곡의 보관본과 현재 편집을 명시적으로 지울 수 있습니다. 체크하지 않은 행은 기존 번역을 유지하며, 빈 번역문으로 기존 번역을 지울 때는 확인합니다. <b>번역문 스타일…</b>에서 캔버스 가사 소스의 스타일을 별도로 조절합니다.</p>""",
        """<p>Open <b>Track information/settings → Lyrics settings → Translate lyrics…</b>, then choose <b>Cloud LLM</b>, <b>Local LLM</b> or <b>Local translation model</b>.</p>
+[[img:lyrics_translation]]
+<p>LLMs use the song's context and repeated lines when translating. If some rows fail, you can review completed translations and retry the failed rows.</p>
 <p>Cloud LLMs send lyrics to the selected service; API charges or plan limits may apply. Sign in with ChatGPT in <b>Manage OpenAI account…</b> or <b>Settings → Accounts</b>. Your session is encrypted for your Windows account and kept after restart.</p>
 <p><b>Local LLM</b> lists installed models in a combo box. The <b>Local LLM manager…</b> shows model tradeoffs, file sizes and licenses. Ollama supports automatic runtime setup/start, model downloads/resume, deletion, aliases and memory loading/unloading. Initial setup needs internet and several GB of free space. LM Studio requires its server and current REST API; install the program and delete model files in LM Studio.</p>
 <p><b>Local translation models</b> are not LLM AI models. Accuracy can be much lower for lyrics, metaphors and context, so prefer a cloud or local LLM when possible. Choose source and target languages first. If a matching model is missing, use <b>Install model for these languages</b> to find and download the official Argos package. Use an LLM if no direct model exists. No separate program is needed; the runtime is included and translation runs offline inside the app once prepared.</p>

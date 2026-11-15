@@ -3,7 +3,7 @@ from pathlib import Path
 
 from app.services.project_persistence_service import (
     default_project_path,
-    is_legacy_project_path,
+    is_project_path,
 )
 
 
@@ -31,11 +31,11 @@ class ProjectPersistenceServiceTests(unittest.TestCase):
         self.assertEqual(first, default_project_path(prefix + "first", Path("exports")))
         self.assertTrue(first.suffix == ".pvsproj")
 
-    def test_legacy_format_detection_is_path_only(self) -> None:
-        self.assertTrue(is_legacy_project_path(Path("old.project.json")))
-        self.assertTrue(is_legacy_project_path(Path("old.JSON")))
-        self.assertFalse(is_legacy_project_path(Path("new.pvsproj")))
-        self.assertFalse(is_legacy_project_path(None))
+    def test_project_extension_is_case_insensitive(self) -> None:
+        self.assertTrue(is_project_path(Path("project.pvsproj")))
+        self.assertTrue(is_project_path(Path("project.PVSPROJ")))
+        self.assertFalse(is_project_path(Path("notes.json")))
+        self.assertFalse(is_project_path(Path("project")))
 
 
 if __name__ == "__main__":

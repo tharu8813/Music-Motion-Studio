@@ -33,7 +33,7 @@ class MainWindowLyricsSearchTests(MainWindowTestCase):
         self.assertEqual(track.lyrics_path, "")
         self.assertTrue(any(source.source_type is SourceType.LYRICS for source in self.window.store.sources()))
         with TemporaryDirectory() as directory:
-            path = ProjectService.save(Path(directory) / "found.json", self.window._project_document())
+            path = ProjectService.save(Path(directory) / "found.pvsproj", self.window._project_document())
             self.assertEqual(ProjectService.load(path).playlist[0].lyrics, document.cues)
 
     def test_keep_existing_lyrics_does_not_mutate_track(self):

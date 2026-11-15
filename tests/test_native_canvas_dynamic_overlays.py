@@ -22,6 +22,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication
 
+from app.services.project_service import ProjectService
 from app.models.playlist import PlaylistTrack
 from app.models.source import Source, SourceType
 from app.renderer.python_visualizer import PythonVisualizerRenderer
@@ -185,8 +186,8 @@ class NativeDynamicOverlayTests(unittest.TestCase):
                 x["dynamic_audio_status"] for x in inventory
                 if x["source_id"] in {project.sources[0].id, lyric.id}
             ], ["canvas_audio_reactive_supported"] * 2)
-            project_file = root / "project.json"
-            project_file.write_text(json.dumps(project.to_dict()), encoding="utf8")
+            project_file = root / "project.pvsproj"
+            ProjectService.save(project_file, project)
             timeline_file = capture_project(
                 project_file, root / "out", source_policy="dynamic-audio",
                 prepared_audio=audio, ffmpeg=ffmpeg,
@@ -228,8 +229,8 @@ class NativeDynamicOverlayTests(unittest.TestCase):
                 self.assertEqual(origin, "provided_prepared_audio")
                 self.assertEqual([x.kind for x in overlays], ["waveform", "level_meter"])
                 self.assertTrue(all(not next(stream).isNull() for stream in streams))
-            saved = root / "project.json"
-            saved.write_text(json.dumps(project.to_dict()), encoding="utf8")
+            saved = root / "project.pvsproj"
+            ProjectService.save(saved, project)
             timeline = capture_project(
                 saved, root / "output", source_policy="dynamic-audio",
                 prepared_audio=audio, ffmpeg=ffmpeg,
@@ -247,6 +248,7 @@ class NativeDynamicOverlayTests(unittest.TestCase):
     def test_inventory_and_rejection_identify_exact_unsupported_sources(self):
         with TemporaryDirectory() as directory:
             project = dynamic_project(Path("unused.wav"))
+            project.settings.content_mode = "reference"
             unsupported = Source(SourceType.VIDEO, "Video background", z_index=8)
             project.sources.append(unsupported)
             report = project_source_inventory(project)
@@ -259,8 +261,8 @@ class NativeDynamicOverlayTests(unittest.TestCase):
                     project, scale=0.25, source_policy="dynamic-audio",
                 )
             self.assertIn(unsupported.id, str(caught.exception))
-            project_path = Path(directory) / "project.json"
-            project_path.write_text(json.dumps(project.to_dict()), encoding="utf8")
+            project_path = Path(directory) / "project.pvsproj"
+            ProjectService.save(project_path, project)
             buffer = StringIO()
             with redirect_stdout(buffer):
                 status = project_probe_main([
@@ -368,8 +370,8 @@ class NativeDynamicOverlayTests(unittest.TestCase):
             project.sources[0].background_bass_reactive = True
             lyrics = next(x for x in project.sources if x.source_type is SourceType.LYRICS)
             lyrics.music_reactive_enabled = True
-            target = root / "project.json"
-            target.write_text(json.dumps(project.to_dict()), encoding="utf8")
+            target = root / "project.pvsproj"
+            ProjectService.save(target, project)
             timeline_file = capture_project(
                 target, root / "after-boundary", source_policy="dynamic-audio",
                 prepared_audio=joined, ffmpeg=ffmpeg,
@@ -436,8 +438,8 @@ class NativeDynamicOverlayTests(unittest.TestCase):
                 self.assertEqual((overlays[0].x, overlays[0].y), (8, 6))
                 self.assertEqual((overlays[0].width, overlays[0].height), (95, 42))
                 self.assertTrue(all(not next(stream).isNull() for stream in streams))
-            source = root / "project.json"
-            source.write_text(json.dumps(project.to_dict()), encoding="utf8")
+            source = root / "project.pvsproj"
+            ProjectService.save(source, project)
             snapshot = source.read_bytes()
             output = root / "capture"
             timeline = capture_project(

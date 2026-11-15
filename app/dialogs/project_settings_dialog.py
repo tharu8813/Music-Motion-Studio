@@ -375,12 +375,7 @@ class ProjectSettingsDialog(QDialog):
         missing = "기록 없음" if korean else "Not recorded"
         saved = "저장 전" if korean else "Not saved"
         location = str(self.project_path) if self.project_path is not None else ""
-        if self.project_path is None:
-            file_type = saved
-        elif self.project_path.suffix.casefold() == ".pvsproj":
-            file_type = "PVS project package (.pvsproj)"
-        else:
-            file_type = "기존 JSON 프로젝트" if korean else "Legacy JSON project"
+        file_type = "PVS project package (.pvsproj)" if self.project_path is not None else saved
         values = {
             "created_at": _timestamp_text(self.selected_settings.created_at),
             "created_version": self.selected_settings.created_app_version,

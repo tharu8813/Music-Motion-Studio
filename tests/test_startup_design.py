@@ -48,7 +48,7 @@ class StartupDesignTests(unittest.TestCase):
 
     def test_recent_selection_and_remove_return_to_empty_without_deleting_file(self):
         with TemporaryDirectory() as raw:
-            path = Path(raw) / "Evening.project.json"
+            path = Path(raw) / "Evening.pvsproj"
             ProjectService.save(path, ProjectDocument())
             self.recent.add(path)
             self.app.processEvents()
@@ -62,3 +62,13 @@ class StartupDesignTests(unittest.TestCase):
             self.assertTrue(self.dialog.recent_empty.isVisible())
             self.assertFalse(self.dialog.remove_button.isVisible())
             self.assertTrue(path.is_file())
+
+    def test_recent_list_prunes_unsupported_entries_without_removing_files(self):
+        with TemporaryDirectory() as raw:
+            path = ProjectService.save(Path(raw) / "Evening.pvsproj", ProjectDocument())
+            other = Path(raw) / "notes.json"
+            other.write_text("{}", encoding="utf-8")
+            self.settings.setValue("projects/recent", [str(other), str(path)])
+            self.assertEqual(self.recent.projects(), [path])
+            self.assertEqual(self.settings.value("projects/recent"), [str(path)])
+            self.assertTrue(other.is_file())

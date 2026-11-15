@@ -64,6 +64,7 @@ from app.dialogs.ffmpeg_install_progress_dialog import FFmpegInstallProgressDial
 from app.dialogs.export_preview_dialog import ExportPreviewDialog
 from app.dialogs.missing_media_dialog import MissingMediaDialog
 from app.dialogs.new_project_dialog import NewProjectDialog
+from app.dialogs.file_export_progress import run_file_export
 from app.dialogs.playlist_export_dialog import PlaylistExportDialog
 from app.dialogs.preset_dialog import DesignPresetDialog
 from app.dialogs.audio_metadata_dialog import AudioMetadataDialog
@@ -94,10 +95,10 @@ from app.inspector.source_inspector import SourceInspector
 from app.layers.layer_panel import LayerPanel
 from app.models.source import Source, SourceType
 from app.models.project import CanvasSettings, ProjectDocument, ProjectSettings
-from app.services.project_service import ProjectError, ProjectService
+from app.services.project_service import ProjectError
 from app.services.project_persistence_service import (
     default_project_path,
-    is_legacy_project_path,
+    is_project_path,
 )
 from app.services.project_save_worker import ProjectSaveWorker
 from app.services.project_media_service import ProjectMediaService
@@ -123,7 +124,7 @@ from app.services.m3u_playlist import (
     PLAYLIST_FILE_EXTENSIONS,
     M3uPlaylistError,
     read_m3u,
-    write_m3u8,
+    export_m3u8_folder,
 )
 from app.services.app_settings_service import (
     AppSettings,
@@ -333,7 +334,6 @@ class MainWindow(QMainWindow):
         self._autosave_debounce_timer.setInterval(4_000)
         self._autosave_debounce_timer.timeout.connect(self._autosave_project)
         self.current_project_path: Path | None = None
-        self._legacy_project_path: Path | None = None
         self.current_theme = self.theme_service.preference.value
         # Version-2 projects contain legacy UI preference metadata. Keep it for
         # lossless round-trips, but do not let a project overwrite app-wide UI
@@ -477,7 +477,6 @@ class MainWindow(QMainWindow):
                 action.changed.disconnect(self._guard_project_action)
                 action.setEnabled(enabled)
             self._project_blocked_actions = {}
-            self.upgrade_project_action.setEnabled(self._legacy_project_path is not None)
             self.automix_editor_action.setEnabled(self.project_settings.transition_mode == 'automix')
             self._sync_canvas_shortcut_actions_to_focus()
         self._update_project_status()
@@ -1259,10 +1258,6 @@ class MainWindow(QMainWindow):
         self.save_preset_action.triggered.connect(self._save_current_as_preset)
         self.project_menu.addAction(self.save_preset_action)
         self.project_menu.addSeparator()
-        self.upgrade_project_action = QAction(self)
-        self.upgrade_project_action.setEnabled(False)
-        self.preview_controller.connect_guarded_action(self.upgrade_project_action, self._upgrade_legacy_project)
-        self.project_menu.addAction(self.upgrade_project_action)
 
         self.edit_menu = menu_bar.addMenu("")
         self.edit_menu.addAction(self.undo_action)
@@ -1397,7 +1392,7 @@ class MainWindow(QMainWindow):
             self.import_m3u_action: "import_playlist", self.export_m3u_action: "export_playlist",
             self.exit_action: "exit", self.project_settings_action: "project_settings",
             self.project_audio_settings_action: "audio",
-            self.save_preset_action: "save_preset", self.upgrade_project_action: "upgrade",
+            self.save_preset_action: "save_preset",
             self.cut_action: "cut", self.copy_action: "copy", self.paste_action: "paste",
             self.duplicate_action: "duplicate", self.select_all_action: "select_all",
             self.clear_selection_action: "clear_selection", self.reset_layout_action: "reset_layout",
@@ -3046,11 +3041,7 @@ class MainWindow(QMainWindow):
     def _handle_dropped_files(self, raw_paths: list[str], position: object | None = None) -> None:
         """Classify a mixed file drop and add it to the appropriate editor area."""
         paths = [Path(raw_path) for raw_path in raw_paths if Path(raw_path).is_file()]
-        project_paths = [
-            path for path in paths
-            if path.suffix.lower() == ProjectService.PACKAGE_SUFFIX
-            or path.name.lower().endswith(".project.json")
-        ]
+        project_paths = [path for path in paths if is_project_path(path)]
         if project_paths:
             self._confirm_and_load_dropped_project(project_paths[0])
             return
@@ -3151,14 +3142,10 @@ class MainWindow(QMainWindow):
     def _confirm_and_load_dropped_project(self, path: Path) -> None:
         """Ask before replacing the active work with a dropped project document."""
         korean = self.translator.is_korean
+        if self.project_controller.loading:
+            return
         if self.project_session.dirty:
-            previous_project_path = self.current_project_path
-            if (self._confirm_unsaved_changes()
-                    and self._load_project_path(path)):
-                try:
-                    self.autosave.clear(previous_project_path)
-                except ProjectError as error:
-                    self.statusBar().showMessage(str(error), 5000)
+            self._open_project_with_confirmation(path)
             return
         response = QMessageBox.question(
             self,
@@ -3331,7 +3318,7 @@ class MainWindow(QMainWindow):
             return
         self._canvas_fit_pending = False
         with self.project_session.suspend_changes():
-            self.canvas.fit_artboard()
+            self.canvas.refit_artboard()
 
     def _bottom_workspace_tab_changed(self, index: int) -> None:
         self.preview_controller.bottom_workspace_tab_changed(index)
@@ -4252,41 +4239,47 @@ class MainWindow(QMainWindow):
         )
 
     def _export_m3u_playlist(self) -> None:
-        """Save the enabled tracks, in Playlist order, as an M3U8 file."""
+        """Copy enabled songs and write a portable M3U8 in Playlist order."""
         korean = self.translator.is_korean
+        title = "M3U8 플레이리스트 내보내기" if korean else "Export M3U8 playlist"
         tracks = [track for track in self.playlist_service.tracks if track.enabled]
         if not tracks:
             QMessageBox.information(
                 self,
-                "M3U8 플레이리스트 내보내기" if korean else "Export M3U8 playlist",
+                title,
                 "내보낼 곡이 없습니다. 플레이리스트에 곡을 추가하거나 사용으로 켜 주세요."
                 if korean else "There are no songs to export. Add songs or enable them in the Playlist.",
             )
             return
         project = self.current_project_path
         folder = project.parent if project is not None else Path.home()
-        name = project.name.split(".")[0] if project is not None else "playlist"
-        path, _ = QFileDialog.getSaveFileName(
+        name = project.stem if project is not None else self.project_settings.title
+        parent_folder = QFileDialog.getExistingDirectory(
             self,
-            "M3U8 플레이리스트 내보내기" if korean else "Export M3U8 playlist",
-            str(folder / f"{name}.m3u8"),
-            ("M3U8 플레이리스트" if korean else "M3U8 playlist") + " (*.m3u8)",
+            "플레이리스트 폴더를 만들 위치 선택" if korean else "Choose where to create the playlist folder",
+            str(folder),
         )
-        if not path:
+        if not parent_folder:
             return
-        target = Path(path)
-        if target.suffix.lower() != ".m3u8":
-            target = target.with_name(target.name + ".m3u8")
+        library_names = {
+            content.path: content.name for content in self.project_content_service.items
+            if content.media_type == "audio"
+        }
         try:
-            count = write_m3u8(tracks, target)
+            playlist, count = run_file_export(
+                self, "플레이리스트 음원 복사 중…" if korean else "Copying playlist audio…",
+                lambda: export_m3u8_folder(tracks, Path(parent_folder), name, library_names),
+            )
         except M3uPlaylistError as error:
             QMessageBox.warning(
-                self, "M3U8 내보내기 오류" if korean else "M3U8 export error", str(error),
+                self, title,
+                f"플레이리스트 폴더를 저장하지 못했습니다.\n{error}"
+                if korean else f"Could not save the playlist folder.\n{error}",
             )
             return
         self.statusBar().showMessage(
-            f"M3U8 플레이리스트에 {count}곡을 저장했습니다 · {target}"
-            if korean else f"Saved {count} song(s) to the M3U8 playlist · {target}",
+            f"플레이리스트 폴더에 {count}곡과 M3U8을 저장했습니다 · {playlist.parent}"
+            if korean else f"Saved {count} song(s) and an M3U8 playlist · {playlist.parent}",
             7000,
         )
 
@@ -4778,8 +4771,8 @@ class MainWindow(QMainWindow):
     def _resolve_project_media(self, document: ProjectDocument, project_path: Path) -> bool:
         return self.project_controller.resolve_media(document, project_path)
 
-    def _apply_project(self, document: ProjectDocument) -> None:
-        self.project_controller.apply(document)
+    def _apply_project(self, document: ProjectDocument, *, restore_canvas_zoom: bool = True) -> None:
+        self.project_controller.apply(document, restore_canvas_zoom=restore_canvas_zoom)
 
     def _project_thumbnail_image(self) -> QImage:
         return self.project_controller.thumbnail_image()
@@ -4992,12 +4985,6 @@ class MainWindow(QMainWindow):
         """Open the standalone editor for source MP3 ID3 tags."""
         Mp3MetadataEditorDialog(self.translator, self).exec()
 
-    def _offer_legacy_upgrade(self) -> None:
-        self.project_controller.offer_legacy_upgrade()
-
-    def _upgrade_legacy_project(self) -> None:
-        self.project_controller.upgrade_legacy_project()
-
     def _show_project_error(self, error: ProjectError) -> None:
         self.project_controller.show_error(error)
 
@@ -5123,10 +5110,6 @@ class MainWindow(QMainWindow):
         self.project_audio_settings_action.setText(
             "프로젝트 오디오 설정" if self.translator.is_korean else "Project audio settings"
         )
-        self.upgrade_project_action.setText(
-            "레거시 프로젝트 업그레이드…"
-            if self.translator.is_korean else "Upgrade legacy project…"
-        )
         self.show_playlist_action.setText(
             "플레이리스트 열기" if self.translator.is_korean else "Show Playlist"
         )
@@ -5147,8 +5130,8 @@ class MainWindow(QMainWindow):
             "M3U8 플레이리스트 내보내기…" if korean else "Export M3U8 playlist…"
         )
         self.export_m3u_action.setStatusTip(
-            "사용 중인 곡을 플레이리스트 순서대로 M3U8 파일로 저장합니다."
-            if korean else "Save the enabled songs, in Playlist order, as an M3U8 file."
+            "사용 중인 곡의 복사본과 M3U8 파일을 한 폴더에 저장합니다."
+            if korean else "Save copies of the enabled songs and an M3U8 file in one folder."
         )
         category_titles = {
             "basic": "기본 요소" if korean else "Basic sources",
@@ -5359,6 +5342,9 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Avoid destroying a running FFmpeg thread during application shutdown."""
+        if self.project_controller.loading:
+            event.ignore()
+            return
         import_worker = getattr(self, "_audio_import_worker", None)
         if import_worker is not None:
             import_worker.cancel_event.set()

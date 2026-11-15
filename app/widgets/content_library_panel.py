@@ -18,7 +18,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget, QStyledItemDelegate, QStyleOptionViewItem, QStyle,
 )
 
-from app.services.project_content_service import ProjectContentService
+from app.dialogs.file_export_progress import run_file_export
+from app.services.project_content_service import ProjectContentService, export_content_file
+from app.services.project_service import ProjectService
 from app.dialogs.content_preview_dialog import ContentPreviewDialog
 from app.utils.i18n import Translator
 
@@ -723,6 +725,14 @@ class ContentLibraryPanel(QWidget):
             )
             preview_action.setData("preview")
 
+            content_id = str(item.data(Qt.ItemDataRole.UserRole))
+            export_action = menu.addAction(
+                "콘텐츠 내보내기…" if korean else "Export content…",
+                lambda: self._export_content(content_id),
+            )
+            export_action.setData("export")
+            export_action.setEnabled(Path(str(item.data(Qt.ItemDataRole.UserRole + 1))).is_file())
+
             remove_action = menu.addAction(
                 "목록에서 제거" if korean else "Remove from list",
                 self._remove_selected,
@@ -742,6 +752,34 @@ class ContentLibraryPanel(QWidget):
         )
         import_action.setData("import")
         return menu
+
+    def _export_content(self, content_id: str) -> None:
+        content = next((item for item in self.service.items if item.id == content_id), None)
+        if content is None:
+            return
+        korean = self.translator.is_korean
+        source = Path(content.path)
+        filename = ProjectService.media_export_filename(source, content.name)
+        title = "콘텐츠 내보내기" if korean else "Export content"
+        selected, _ = QFileDialog.getSaveFileName(self, title, str(Path.home() / filename))
+        if not selected:
+            return
+        try:
+            saved = run_file_export(
+                self, "콘텐츠 파일 복사 중…" if korean else "Copying content file…",
+                lambda: export_content_file(source, Path(selected)),
+            )
+        except OSError as error:
+            QMessageBox.warning(
+                self, title,
+                (f"파일을 내보낼 수 없습니다.\n{error}" if korean else f"Could not export the file.\n{error}"),
+            )
+            return
+        window = self.window()
+        if hasattr(window, "statusBar"):
+            window.statusBar().showMessage(
+                f"콘텐츠를 내보냈습니다 · {saved}" if korean else f"Content exported · {saved}", 7000,
+            )
 
     def _show_selected_information(self) -> None:
         """Show useful, read-only file details for the selected content."""

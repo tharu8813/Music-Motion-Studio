@@ -1,6 +1,6 @@
 """Bounded real-project Qt Canvas -> D3D11/NVENC packet diagnostic.
 
-Loads an actual .pvsproj or legacy project JSON using ProjectService,
+Loads an actual .pvsproj using ProjectService,
 retains the document's own sources (including lyrics/animations/keyframes),
 and maps 3..30 exact CFR PTS to the sequential compiled playlist.
 
@@ -30,6 +30,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
+from app.services.project_persistence_service import is_project_path
 from app.canvas.live_canvas import CanvasScene
 from app.canvas.source_item import SourceItem
 from app.models.project import ProjectDocument
@@ -332,8 +333,8 @@ def capture_project(
     project_path = Path(project_path)
     if not project_path.is_file() or project_path.is_symlink():
         raise TimelineValidationError("Project file missing or symlinked")
-    if project_path.suffix.lower() not in {".pvsproj", ".json"}:
-        raise TimelineValidationError("Select an existing .pvsproj or project JSON file")
+    if not is_project_path(project_path):
+        raise TimelineValidationError("Select an existing .pvsproj file")
     # ProjectService also resolves packaged media assets using the same
     # application-native loader as the GUI.
     project = ProjectService.load(project_path)
@@ -634,8 +635,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.inspect_sources:
             path = args.project
-            if not path.is_file() or path.is_symlink() or path.suffix.lower() not in {".pvsproj", ".json"}:
-                raise TimelineValidationError("Select an existing regular .pvsproj or project JSON")
+            if not path.is_file() or path.is_symlink() or not is_project_path(path):
+                raise TimelineValidationError("Select an existing regular .pvsproj")
             project = ProjectService.load(path)
             print(json.dumps({
                 "status": "inspected",

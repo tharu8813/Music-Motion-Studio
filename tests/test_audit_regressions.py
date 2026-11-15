@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QDialog, QMessageBox
 from app.animation.curves import animation_pose
 from app.dialogs.track_details_dialog import TrackDetailsDialog
 from app.models.playlist import PlaylistTrack
-from app.models.project import ProjectContent, ProjectDocument
+from app.models.project import ProjectContent, ProjectDocument, ProjectSettings
 from app.models.source import Source, SourceType
 from app.renderer.ffmpeg.filter_graph import filter_color, layered_filter_graph, video_fade_expression
 from app.renderer.ffmpeg_renderer import RenderError, VideoClipOverlay
@@ -34,7 +34,7 @@ class AuditPersistenceTests(unittest.TestCase):
         with TemporaryDirectory() as raw:
             root = Path(raw)
             first, second = AutosaveService(root), AutosaveService(root)
-            for project in (None, root / "shared.json"):
+            for project in (None, root / "shared.pvsproj"):
                 a = first.save(ProjectDocument(sources=[Source(SourceType.TEXT, "First")]), project)
                 b = second.save(ProjectDocument(sources=[Source(SourceType.TEXT, "Second")]), project)
                 self.assertNotEqual(a.path, b.path)
@@ -119,7 +119,7 @@ class AuditPersistenceTests(unittest.TestCase):
             replacement.write_bytes(b"audio")
             track = PlaylistTrack(str(root / "missing.wav"), "Excluded", enabled=False)
             document = ProjectDocument(playlist=[track])
-            missing = ProjectMediaService.validate(document, root / "work.json")
+            missing = ProjectMediaService.validate(document, root / "work.pvsproj")
             missing[0].replacement_path = str(replacement)
             ProjectMediaService.apply_replacements(document, missing)
             self.assertFalse(track.enabled)
@@ -171,10 +171,24 @@ class AuditOutputTests(unittest.TestCase):
 
 
 class AuditWorkspaceTests(MainWindowTestCase):
+    def test_recovery_with_unsupported_source_path_opens_as_an_unsaved_project(self):
+        with TemporaryDirectory() as raw:
+            root = Path(raw)
+            original = root / "notes.json"
+            original.write_bytes(b"untouched source")
+            document = ProjectDocument(sources=[Source(SourceType.TEXT, "Recovered work")])
+            self.window.autosave = AutosaveService(root)
+            snapshot = self.window.autosave.save(document, original, dirty=False)
+            self.assertTrue(self.window._offer_recovery(snapshot_path=snapshot.path, confirm=False))
+            self.assertIsNone(self.window.current_project_path)
+            self.assertTrue(self.window.project_session.dirty)
+            self.assertEqual(self.window.store.sources()[0].name, "Recovered work")
+            self.assertEqual(original.read_bytes(), b"untouched source")
+
     def test_recovery_preserves_another_windows_edits_after_a_newer_save(self):
         with TemporaryDirectory() as raw:
             root = Path(raw)
-            project = root / "shared.json"
+            project = root / "shared.pvsproj"
             other = AutosaveService(root)
             recovered = ProjectDocument(sources=[Source(SourceType.TEXT, "Unsaved in A", text="Keep A")])
             other.write_document_data(recovered.to_dict(), project, datetime(2000, 1, 1, tzinfo=UTC))
@@ -213,7 +227,7 @@ class AuditWorkspaceTests(MainWindowTestCase):
         with TemporaryDirectory() as raw:
             root = Path(raw)
             self.window.autosave = AutosaveService(root)
-            self.window.current_project_path = root / "latest.json"
+            self.window.current_project_path = root / "latest.pvsproj"
             source = Source(SourceType.TEXT, "Title", text="Old snapshot")
             self.window.store.replace([source])
             started, release = threading.Event(), threading.Event()
@@ -259,7 +273,7 @@ class AuditWorkspaceTests(MainWindowTestCase):
                 close.assert_not_called()
                 self.assertFalse(self.window._update_install_authorized)
                 self.window.store.update(source.id, text="Edited during UAC")
-                self.window.current_project_path = root / "saved-as.json"
+                self.window.current_project_path = root / "saved-as.pvsproj"
                 ready.write_text("ready", encoding="utf-8")
                 self.window._wait_for_update_setup(ready, recovery, 1)
                 close.assert_called_once()
@@ -388,13 +402,15 @@ class AuditWorkspaceTests(MainWindowTestCase):
             replacement = root / "found.wav"
             replacement.write_bytes(b"audio")
             original = str(root / "missing.wav")
-            project = ProjectService.save(root / "project.json", ProjectDocument(playlist=[PlaylistTrack(original, "Song")]))
+            project = ProjectService.save(root / "project.pvsproj", ProjectDocument(
+                playlist=[PlaylistTrack(original, "Song")],
+                settings=ProjectSettings(content_mode="reference"),
+            ))
             def relink(dialog):
                 for entry in dialog.media:
                     entry.replacement_path = str(replacement)
                 return QDialog.DialogCode.Accepted
-            with patch("app.controllers.project_controller.MissingMediaDialog.exec", new=relink), \
-                 patch.object(self.window, "_offer_legacy_upgrade"):
+            with patch("app.controllers.project_controller.MissingMediaDialog.exec", new=relink):
                 self.assertTrue(self.window._load_project_path(project))
             self.assertTrue(self.window.project_session.dirty)
             self.assertTrue(self.window._autosave_debounce_timer.isActive())
@@ -430,7 +446,7 @@ class AuditWorkspaceTests(MainWindowTestCase):
         try:
             self.assertFalse(hasattr(dialog, "align_words_button"))
             self.assertFalse(hasattr(dialog, "selected_karaoke_settings"))
-            self.assertTrue(dialog.export_lrc_button.isEnabled())
+            self.assertTrue(dialog.export_lyrics_action.isEnabled())
             dialog.timing_offset_spin.setValue(0.35)
             dialog._accept()
             self.assertEqual(dialog.selected_timing_offset, 0.35)

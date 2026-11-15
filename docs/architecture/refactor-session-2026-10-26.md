@@ -4,7 +4,7 @@
 
 [첫 리팩터링](refactor-2026-10-26.md) 이후 같은 작업 트리에서 이어서 적용했다. 다른 작업자의 export 캡처/렌더 변경과 첫 단계의 컴포넌트·캐시·프로세스 실행기 변경을 보존한다. 이번 단계는 프로젝트 편집 상태와 저장 worker의 소유권에 집중한다.
 
-새 파일은 40줄의 `app/services/project_session.py`와 해당 회귀 검사다. 프로젝트 JSON, `.pvsproj`, 프리셋, `CompiledRenderPlan`, 렌더 인자와 UI 구성에는 변경이 없다.
+새 파일은 40줄의 `app/services/project_session.py`와 해당 회귀 검사다. 프로젝트 패키지, 프리셋, `CompiledRenderPlan`, 렌더 인자와 UI 구성에는 변경이 없다.
 
 ## 상태 소유권
 

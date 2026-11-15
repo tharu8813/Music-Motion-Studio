@@ -21,9 +21,12 @@ class ApplicationLaunchTests(unittest.TestCase):
         self.assertEqual(resolved, project.resolve())
 
     def test_missing_or_non_project_arguments_are_ignored(self) -> None:
-        self.assertIsNone(project_path_from_arguments([
-            "--smoke-test", "missing.pvsproj", "cover.png",
-        ]))
+        with TemporaryDirectory() as directory:
+            other_file = Path(directory) / "notes.json"
+            other_file.write_text("{}", encoding="utf-8")
+            self.assertIsNone(project_path_from_arguments([
+                "--smoke-test", "missing.pvsproj", "cover.png", str(other_file),
+            ]))
 
     def test_explicit_project_bypasses_startup_chooser_and_keeps_app_open(self) -> None:
         project = Path("Explorer project.pvsproj").resolve()
