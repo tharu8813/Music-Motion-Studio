@@ -61,6 +61,7 @@ from app.preview.quality_presets import (
     PREVIEW_QUALITY_PRESETS, load_preview_quality, save_preview_quality,
 )
 from app.preview.cadence import preview_interval_ms, screen_preview_fps
+from app.preview.proxy_status import format_video_proxy_status
 from app.preview.gpu_texture_surface import (
     GPU_TEXTURE_SURFACE_AVAILABLE, GpuBackendInfo, GpuColorFilter, GpuPreviewLayer,
     GpuTexturePreviewSurface,
@@ -95,7 +96,6 @@ from app.video.duration_probe_worker import VideoDurationProbeWorker
 from app.preview.overlay_frame_cache import OverlayFrameCache, OverlaySignature
 from app.preview.overlay_frame_worker import OverlayFrameWorker
 from app.preview.cover_worker import PreviewCoverWorker
-from app.preview.proxy_status import format_video_proxy_status
 from app.video.timeline import resolve_video_position, source_video_paths
 from app.video.frame_filter import VideoFrameFilterSettings, filter_video_frame
 from app.video.decoder_backpressure import VideoDecoderBackpressure
