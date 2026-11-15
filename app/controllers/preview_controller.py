@@ -452,7 +452,7 @@ class PreviewController:
         # rebuild during playback, so their transient actions must not be saved
         # and restored here. Guarded menu actions exit Preview before editing.
         editor_actions = (
-            window.fit_action, window.grid_action, window.snap_action,
+            window.fit_action, window.grid_action,
             window.panels_action, window.inspector_panel_action, window.bottom_panel_action,
             window.center_horizontal_action, window.center_vertical_action,
             window.cut_action, window.copy_action, window.paste_action,

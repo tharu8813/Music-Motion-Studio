@@ -30,7 +30,7 @@ BEAT_THIS_ONNX_PROVIDER_ID = "beat_this_onnx"
 AUTO_PROVIDER_ID = "auto"
 
 
-def create_analysis_provider(provider_id: str, ffmpeg_executable: Path) -> AnalysisProvider:
+def create_analysis_provider(provider_id: str, ffmpeg_executable: Path | None) -> AnalysisProvider:
     """Construct the AnalysisProvider named by ``provider_id``.
 
     Raises ValueError for anything other than "basic", "beat_this",

@@ -11,6 +11,7 @@ from importlib import metadata
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tomllib
 
 
@@ -19,6 +20,8 @@ NATIVE_MODULE = "music_motion_native"
 NATIVE_DISTRIBUTION = "music-motion-native"
 NATIVE_MANIFEST = PROJECT_ROOT / "native" / "export_analysis" / "Cargo.toml"
 REQUIRED_NATIVE_FUNCTIONS = ("reduce_spectra", "pcm_rms", "pcm_waveform", "pack_bgr24")
+if sys.platform == "win32":
+    REQUIRED_NATIVE_FUNCTIONS += ("decode_windows_audio",)
 
 
 class RustPrerequisiteError(RuntimeError):

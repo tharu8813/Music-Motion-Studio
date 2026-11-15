@@ -260,12 +260,17 @@ fn pack_bgr24<'py>(
     })
 }
 
+#[cfg(windows)]
+mod windows_audio;
+
 #[pymodule]
 fn music_motion_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(reduce_spectra, m)?)?;
     m.add_function(wrap_pyfunction!(pcm_rms, m)?)?;
     m.add_function(wrap_pyfunction!(pcm_waveform, m)?)?;
     m.add_function(wrap_pyfunction!(pack_bgr24, m)?)?;
+    #[cfg(windows)]
+    m.add_function(wrap_pyfunction!(windows_audio::decode_windows_audio, m)?)?;
     Ok(())
 }
 

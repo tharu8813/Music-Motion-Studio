@@ -19,7 +19,7 @@ from PySide6.QtWidgets import QApplication
 from app.models.playlist import PlaylistTrack
 from app.services.lyrics_alignment_service import (
     AlignmentCancelled, AlignmentResult, LyricsAlignmentService, _AlignmentCache,
-    _download, _run, align_recognition,
+    _download, _extract_recognition_audio, _run, align_recognition,
     ensure_runtime, MODEL_URL, RUNTIME_FILES,
 )
 from app.services.lyrics_service import LyricsService
@@ -185,6 +185,25 @@ class LyricsAlignmentTests(unittest.TestCase):
                 self.assertEqual(download.call_args.args[0], MODEL_URL)
                 self.assertEqual(ensure_runtime(root, threading.Event(), lambda *args: None)[1], model)
                 self.assertEqual(download.call_count, 1)
+
+    def test_recognition_window_is_mono_pcm16_without_ffmpeg(self):
+        import numpy as np
+        import soundfile
+
+        with TemporaryDirectory() as directory:
+            source, target = (Path(directory) / name for name in ("source.wav", "window.wav"))
+            rate = 32_000
+            samples = np.zeros((rate, 2), dtype=np.float32)
+            samples[rate // 2:] = [0.5, 0.25]
+            soundfile.write(source, samples, rate)
+            with patch("app.services.lyrics_alignment_service.FFmpegRenderer.find_executable") as find:
+                _extract_recognition_audio(source, target, 0.5, 0.25, None, threading.Event())
+            find.assert_not_called()
+            info = soundfile.info(target)
+            pcm, _ = soundfile.read(target)
+        self.assertEqual((info.samplerate, info.frames, info.channels, info.subtype),
+                         (16_000, 4_000, 1, "PCM_16"))
+        self.assertAlmostEqual(float(np.median(pcm)), 0.375, places=4)
 
     def test_service_cache_and_no_recognition_during_playback(self):
         with TemporaryDirectory() as directory:

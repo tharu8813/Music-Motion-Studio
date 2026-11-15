@@ -41,7 +41,7 @@ class PythonVisualizerRenderer:
     sample_rate = 8_000
     fft_size = 512
 
-    def __init__(self, ffmpeg_executable: Path) -> None:
+    def __init__(self, ffmpeg_executable: Path | None) -> None:
         self.ffmpeg_executable = ffmpeg_executable
 
     def _audio_levels(

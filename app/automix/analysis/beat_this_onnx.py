@@ -146,7 +146,7 @@ class BeatThisOnnxAnalysisProvider(BeatThisAnalysisProvider):
     """2: basic version 6 (decay start). 3: vocal_coverage. 4: YAMNet genre/mood tags.
     5: basic version 8 (acoustic curves)."""
 
-    def __init__(self, ffmpeg_executable: Path) -> None:
+    def __init__(self, ffmpeg_executable: Path | None) -> None:
         super().__init__(ffmpeg_executable)
         self.version = f"{self.ONNX_VERSION}+{Path(MODEL_NAME).stem}+ort{_installed_onnxruntime_version()}"
         self._vocals = None

@@ -208,25 +208,25 @@ class TrackAudioSettingsTests(unittest.TestCase):
             dialog.done(0)
             dialog.deleteLater()
 
-    @unittest.skipUnless(shutil.which("ffmpeg"), "needs ffmpeg")
     def test_dialog_plays_an_eq_rendered_copy_and_can_bypass_it(self) -> None:
         import time
         from pathlib import Path
         from tempfile import TemporaryDirectory
 
+        import numpy as np
+        import soundfile
         from PySide6.QtWidgets import QApplication
 
         from app.dialogs.track_details_dialog import TrackDetailsDialog
         from app.utils.i18n import Translator
 
         app = QApplication.instance() or QApplication([])
-        ffmpeg = Path(shutil.which("ffmpeg"))
         with TemporaryDirectory(ignore_cleanup_errors=True) as directory:
             source = Path(directory) / "tone.wav"
-            subprocess.run([str(ffmpeg), "-f", "lavfi", "-t", "1", "-i", "sine=f=440", "-y", str(source)],
-                           capture_output=True, check=True)
+            rate = 44_100
+            soundfile.write(source, 0.15 * np.sin(2 * np.pi * 440 * np.arange(rate) / rate), rate)
             dialog = TrackDetailsDialog(
-                PlaylistTrack(str(source), "Tone", duration_seconds=1.0), Translator(), ffmpeg_executable=ffmpeg,
+                PlaylistTrack(str(source), "Tone", duration_seconds=1.0), Translator(),
             )
             try:
                 dialog.tabs.setCurrentWidget(dialog.audio_tab)

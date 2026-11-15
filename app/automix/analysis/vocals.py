@@ -26,7 +26,6 @@ from app.utils.performance import timed
 
 import importlib.util
 import logging
-import sys
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -103,10 +102,6 @@ def measured_regions(duration: float) -> tuple[tuple[float, float], ...]:
     return tuple((start, min(duration, start + length)) for start, length in mix_regions(duration) if length > 0.0)
 
 
-BUNDLED_MODEL = Path("demucs") / "955717e8.safetensors"
-"""htdemucs's single model, shipped inside the frozen app (see playlist_canvas.spec)."""
-
-
 class DemucsVocalDetector:
     """Loads htdemucs once (lazily, thread-safe) and separates one region at a time.
 
@@ -144,16 +139,9 @@ class DemucsVocalDetector:
 
     def _load(self):
         if self._model is None:
-            bundled = Path(getattr(sys, "_MEIPASS", "")) / BUNDLED_MODEL
-            if getattr(sys, "_MEIPASS", None) and bundled.is_file():
-                from demucs.apply import BagOfModels
-                from demucs.hf import load_safetensors_model
+            from demucs.pretrained import get_model
 
-                self._model = BagOfModels([load_safetensors_model(bundled)])
-            else:
-                from demucs.pretrained import get_model
-
-                self._model = get_model(ENGINE_ID)  # downloaded once, then the HF cache
+            self._model = get_model(ENGINE_ID)
             self._model.eval()
             LOGGER.info("Loaded Demucs %s for AutoMix vocal detection", ENGINE_ID)
         return self._model

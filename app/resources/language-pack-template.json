@@ -172,7 +172,6 @@
     " template": "",
     " templates": "",
     " timed cues · adjusted preview": "",
-    " timed lyric line(s)": "",
     " timed · ": "",
     " to ": "",
     " total": "",
@@ -1993,7 +1992,6 @@
     "LPT{i}": "",
     "LRC Editor Shortcuts": "",
     "LRC File Generator": "",
-    "LRC Live Lyrics Preview": "",
     "LRC draft belongs to another audio file": "",
     "LRC export complete": "",
     "LRC export error": "",
@@ -2004,7 +2002,6 @@
     "LRC 내보내기 오류": "",
     "LRC 내보내기 완료": "",
     "LRC 생성기로 편집…": "",
-    "LRC 실시간 가사 미리보기": "",
     "LRC 작업 닫기": "",
     "LRC 저장 완료 · 복구 초안 정리됨": "",
     "LRC 저장…": "",
@@ -2196,7 +2193,6 @@
     "No album artwork": "",
     "No artwork embedded in the audio": "",
     "No audio selected.": "",
-    "No lyric at the current position.": "",
     "No lyric file attached.": "",
     "No lyrics to export": "",
     "No lyrics · autosave skipped": "",
@@ -2340,7 +2336,6 @@
     "Place selected sources in a new group.": "",
     "Plain text": "",
     "Play": "",
-    "Play from start": "",
     "Play once": "",
     "Play or pause": "",
     "Play or pause (Ctrl+Space)": "",
@@ -2805,7 +2800,6 @@
     "Smaller file": "",
     "Smoothness": "",
     "Snap": "",
-    "Snap objects to the grid and alignment guides.": "",
     "Snow": "",
     "Softens the image. High values can increase preview and rendering cost.": "",
     "Softness and spread of shadow edges. Larger values make a wider, softer shadow.": "",
@@ -4735,7 +4729,6 @@
     "{value} results · select a recording to inspect its lyrics.": "",
     "{value} setting. {explanation}": "",
     "{value} sources selected": "",
-    "{value} timed lyric line(s)": "",
     "{value} timed · {missing} untimed · last timing {value_2}": "",
     "{value} tracks · {total_label}": "",
     "{value} {value_2}": "",
@@ -4800,7 +4793,6 @@
     "기록 결과를 확인하고 LRC로 저장하거나 현재 곡에 적용하세요.": "",
     "기록 취소 (Ctrl+Z)": "",
     "기록된 가사 {value}개 · 미기록 {missing}개 · 마지막 타이밍 {value_2}": "",
-    "기록된 가사 {value}줄": "",
     "기존에 검증된 FFmpeg 사용 중": "",
     "내보낼 MP4 파일 경로를 선택하세요.": "",
     "내보낼 곡 {self_track_count}개 · 총 재생 시간 {duration}\n": "",
@@ -5375,9 +5367,6 @@
     ],
     " timed cues · adjusted preview": [
       "app/dialogs/track_details_dialog.py"
-    ],
-    " timed lyric line(s)": [
-      "app/dialogs/lrc_live_preview_dialog.py"
     ],
     " timed · ": [
       "app/dialogs/lrc_generator_dialog.py"
@@ -8848,7 +8837,6 @@
       "app/dialogs/export_complete_dialog.py",
       "app/dialogs/export_preview_dialog.py",
       "app/dialogs/help_dialog.py",
-      "app/dialogs/lrc_live_preview_dialog.py",
       "app/dialogs/lrc_shortcuts_dialog.py",
       "app/dialogs/lyrics_search_dialog.py",
       "app/dialogs/mp3_metadata_editor_dialog.py",
@@ -11355,9 +11343,6 @@
       "app/dialogs/lrc_generator_dialog.py",
       "app/ui/main_window.py"
     ],
-    "LRC Live Lyrics Preview": [
-      "app/dialogs/lrc_live_preview_dialog.py"
-    ],
     "LRC draft belongs to another audio file": [
       "app/services/lrc_draft_service.py"
     ],
@@ -11388,9 +11373,6 @@
     ],
     "LRC 생성기로 편집…": [
       "app/dialogs/track_details_dialog.py"
-    ],
-    "LRC 실시간 가사 미리보기": [
-      "app/dialogs/lrc_live_preview_dialog.py"
     ],
     "LRC 작업 닫기": [
       "app/dialogs/lrc_generator_dialog.py"
@@ -12019,9 +12001,6 @@
     "No audio selected.": [
       "app/dialogs/lrc_generator_dialog.py"
     ],
-    "No lyric at the current position.": [
-      "app/dialogs/lrc_live_preview_dialog.py"
-    ],
     "No lyric file attached.": [
       "app/dialogs/track_details_dialog.py"
     ],
@@ -12409,7 +12388,6 @@
       "app/dialogs/automix_editor_dialog.py",
       "app/dialogs/content_preview_dialog.py",
       "app/dialogs/lrc_generator_dialog.py",
-      "app/dialogs/lrc_live_preview_dialog.py",
       "app/dialogs/lyrics_animation_dialog.py",
       "app/dialogs/track_details_dialog.py"
     ],
@@ -12471,11 +12449,7 @@
       "app/dialogs/automix_editor_dialog.py",
       "app/dialogs/content_preview_dialog.py",
       "app/dialogs/lrc_generator_dialog.py",
-      "app/dialogs/lrc_live_preview_dialog.py",
       "app/dialogs/track_details_dialog.py"
-    ],
-    "Play from start": [
-      "app/dialogs/lrc_live_preview_dialog.py"
     ],
     "Play once": [
       "app/dialogs/video_source_dialog.py"
@@ -13955,9 +13929,6 @@
     ],
     "Snap": [
       "app/utils/i18n.py"
-    ],
-    "Snap objects to the grid and alignment guides.": [
-      "app/ui/main_window.py"
     ],
     "Snow": [
       "app/inspector/editors/particle_overlay_editor.py"
@@ -18223,7 +18194,6 @@
       "app/dialogs/ffmpeg_install_progress_dialog.py",
       "app/dialogs/help_dialog.py",
       "app/dialogs/lrc_generator_dialog.py",
-      "app/dialogs/lrc_live_preview_dialog.py",
       "app/dialogs/lrc_shortcuts_dialog.py",
       "app/dialogs/lyrics_animation_dialog.py",
       "app/dialogs/lyrics_compare_dialog.py",
@@ -18545,7 +18515,6 @@
       "app/dialogs/export_progress_dialog.py",
       "app/dialogs/ffmpeg_install_progress_dialog.py",
       "app/dialogs/lrc_generator_dialog.py",
-      "app/dialogs/lrc_live_preview_dialog.py",
       "app/dialogs/lyrics_animation_dialog.py",
       "app/dialogs/m3u_import_dialog.py",
       "app/dialogs/missing_media_dialog.py",
@@ -19946,7 +19915,6 @@
       "app/automix/planner.py",
       "app/dialogs/help_dialog.py",
       "app/dialogs/lrc_generator_dialog.py",
-      "app/dialogs/lrc_live_preview_dialog.py",
       "app/dialogs/lyrics_animation_dialog.py",
       "app/dialogs/lyrics_compare_dialog.py",
       "app/dialogs/lyrics_search_dialog.py",
@@ -21389,7 +21357,6 @@
       "app/controllers/project_controller.py",
       "app/dialogs/automix_editor_dialog.py",
       "app/dialogs/export_preview_dialog.py",
-      "app/dialogs/lrc_live_preview_dialog.py",
       "app/dialogs/track_details_dialog.py",
       "app/dialogs/track_order_dialog.py",
       "app/widgets/content_library_panel.py",
@@ -21412,9 +21379,6 @@
     ],
     "{value} sources selected": [
       "app/inspector/source_inspector.py"
-    ],
-    "{value} timed lyric line(s)": [
-      "app/dialogs/lrc_live_preview_dialog.py"
     ],
     "{value} timed · {missing} untimed · last timing {value_2}": [
       "app/dialogs/lrc_generator_dialog.py"
@@ -21624,9 +21588,6 @@
     ],
     "기록된 가사 {value}개 · 미기록 {missing}개 · 마지막 타이밍 {value_2}": [
       "app/dialogs/lrc_generator_dialog.py"
-    ],
-    "기록된 가사 {value}줄": [
-      "app/dialogs/lrc_live_preview_dialog.py"
     ],
     "기존에 검증된 FFmpeg 사용 중": [
       "app/dialogs/export_progress_dialog.py"

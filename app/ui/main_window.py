@@ -564,9 +564,6 @@ class MainWindow(QMainWindow):
         self.grid_action.setChecked(True)
         self.grid_action.toggled.connect(self._toggle_grid)
         toolbar.addAction(self.grid_action)
-        # Kept as a non-toolbar action for legacy translated text; snapping is now
-        # temporarily disabled with Alt instead of a persistent toolbar toggle.
-        self.snap_action = QAction(self)
         self.delete_action = QAction(self)
         self.delete_action.setShortcuts([
             QKeySequence(QKeySequence.StandardKey.Delete),
@@ -2267,10 +2264,7 @@ class MainWindow(QMainWindow):
     def _maybe_start_automix_analysis(self) -> None:
         """Kick off background AutoMix analysis when it can produce something useful.
 
-        A no-op when AutoMix is off, the playlist is empty, or no FFmpeg is
-        configured yet -- silently, since this is a background convenience,
-        not a user-initiated action (roadmap Phase 6 section 13 reserves
-        the FFmpeg-missing UX for actual export/preview attempts).
+        FFmpeg is available as a fallback for sources the local decoder cannot read.
         """
         if self.project_settings.transition_mode != "automix":
             return
@@ -2282,7 +2276,7 @@ class MainWindow(QMainWindow):
                 self.settings_service.current.ffmpeg_path or None
             ).executable
         except FFmpegNotFoundError:
-            return
+            ffmpeg_executable = None
         # "auto": the light default analyzer (see analysis/registry.py) -- the
         # same policy FFmpegRenderer._render_automix_audio_segments uses for
         # Preview/Export, so this playlist-badge analysis and the render path
@@ -2367,14 +2361,7 @@ class MainWindow(QMainWindow):
         try:
             ffmpeg_executable = FFmpegRenderer(self.settings_service.current.ffmpeg_path or None).executable
         except FFmpegNotFoundError:
-            QMessageBox.warning(
-                dialog or self,
-                "FFmpeg 필요" if korean else "FFmpeg required",
-                "곡을 분석하려면 FFmpeg가 필요합니다. 도구 → 설정에서 FFmpeg를 설치하거나 경로를 지정하세요."
-                if korean else
-                "Analyzing a track needs FFmpeg. Install it or set its path in Tools → Settings.",
-            )
-            return
+            ffmpeg_executable = None
         # Same analyzer and cache as AutoMix, so Preview/Export reuse the result.
         self.track_analysis_controller.start(
             [track], ffmpeg_executable, provider_id="auto", enable_structure_analysis=True,
@@ -2435,7 +2422,7 @@ class MainWindow(QMainWindow):
         try:
             ffmpeg_executable = FFmpegRenderer.find_executable(self.settings_service.current.ffmpeg_path or None)
         except FFmpegNotFoundError:
-            ffmpeg_executable = None  # the dialog plays the original, without EQ
+            ffmpeg_executable = None
         dialog = TrackDetailsDialog(
             track, self.translator, self, content_lyrics=content_lyrics,
             analysis=self.automix_analyses.get(track_id),
@@ -3778,11 +3765,11 @@ class MainWindow(QMainWindow):
                 notice.setWindowTitle("FFmpeg 설치 필요" if korean else "FFmpeg required")
                 notice.setText("FFmpeg를 찾을 수 없습니다." if korean else "FFmpeg could not be found.")
                 notice.setInformativeText(
-                    "음악에 맞춰 반응, 오디오 시각화, 믹스 미리보기와 영상 내보내기에는 FFmpeg가 필요합니다. "
-                    "실시간 가사 표시는 사용할 수 있습니다.\n\n설정 → FFmpeg에서 설치하거나 기존 실행 파일을 지정해 주세요."
+                    "믹스 미리보기와 내보내기, 일부 오디오 파일을 처리할 때 FFmpeg가 필요합니다."
+                    "\n\n설정 → FFmpeg에서 설치하거나 기존 실행 파일을 지정해 주세요."
                     if korean else
-                    "Music reactions, audio visualizers, mix preview and video export require FFmpeg. "
-                    "Real-time lyric display remains available.\n\nInstall FFmpeg or select an existing executable in Settings → FFmpeg."
+                    "Mixed preview, export, and processing some audio files require FFmpeg."
+                    "\n\nInstall FFmpeg or select an existing executable in Settings → FFmpeg."
                 )
                 notice.setStandardButtons(QMessageBox.StandardButton.Close)
                 install = notice.addButton("설치 설정 열기" if korean else "Open install settings", QMessageBox.ButtonRole.AcceptRole)
@@ -5272,11 +5259,6 @@ class MainWindow(QMainWindow):
             toggle.setAccessibleName(toggle.toolTip())
         self._filter_source_cards(self.source_search.text())
         self._update_project_status()
-        self.snap_action.setToolTip(
-            "객체를 그리드와 정렬 가이드에 맞춥니다."
-            if self.translator.is_korean
-            else "Snap objects to the grid and alignment guides."
-        )
         self.grid_action.setToolTip(
             "캔버스 작업 공간 전체에 40px 간격의 그리드를 표시합니다. 영상에는 포함되지 않습니다."
             if self.translator.is_korean else
@@ -5309,11 +5291,6 @@ class MainWindow(QMainWindow):
             if self.translator.is_korean
             else "Configure FFmpeg, output, and rendering defaults."
         )
-
-    def _toggle_snap(self, enabled: bool) -> None:
-        self.canvas.scene_model.snap_enabled = enabled
-        self.canvas.scene_model.clear_alignment_guides()
-        self._schedule_history()
 
     def _delete_selected_sources(self) -> None:
         """Remove each selected, non-locked source from the canvas."""

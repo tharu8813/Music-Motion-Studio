@@ -91,7 +91,6 @@ class ProjectController:
             document.canvas.width, document.canvas.height
         )
         window.grid_action.setChecked(document.canvas.show_grid)
-        window.snap_action.setChecked(document.canvas.snap_enabled)
         window.canvas.scene_model.snap_enabled = document.canvas.snap_enabled
         window.canvas.set_zoom(document.canvas.zoom)
         window.store.replace(document.sources, document.groups)
@@ -210,7 +209,6 @@ class ProjectController:
             window.playlist_service.replace([])
             window.canvas.scene_model.set_artboard_size(canvas_width, canvas_height)
             window.grid_action.setChecked(True)
-            window.snap_action.setChecked(True)
             window.canvas.scene_model.snap_enabled = True
             if selected_preset is None:
                 window._add_welcome_sources()

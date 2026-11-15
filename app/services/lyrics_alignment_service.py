@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import CancelledError
 from copy import deepcopy
 from dataclasses import dataclass
 from difflib import SequenceMatcher
@@ -24,6 +25,7 @@ from zipfile import ZipFile
 from app.automix.cache import VersionedAnalysisCache
 from app.models.playlist import PlaylistTrack
 from app.renderer.ffmpeg_renderer import FFmpegRenderer
+from app.services.audio_decode import AudioDecodeError, read_pcm
 from app.utils.subprocess_utils import hidden_process_kwargs
 
 RUNTIME_URL = "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.3/whisper-bin-x64.zip"
@@ -345,7 +347,6 @@ class LyricsAlignmentService:
                 groups.append([a, b, [index]])
         if not groups:
             return AlignmentResult(cues, 0, total)
-        ffmpeg = FFmpegRenderer.find_executable(ffmpeg_path)
         executable, model = ensure_runtime(self.root, cancel, progress)
         matched, transcripts = 0, []
         with TemporaryDirectory(prefix="lyrics-words-") as directory:
@@ -353,9 +354,7 @@ class LyricsAlignmentService:
             for number, (a, b, indices) in enumerate(groups):
                 _check_cancel(cancel)
                 progress(number / max(1, len(groups)), "recognize")
-                _run([str(ffmpeg), "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-threads", "1", "-ss", str(a),
-                      "-i", track.file_path, "-t", str(b - a), "-vn", "-threads", "1", "-ac", "1", "-ar", "16000",
-                      "-c:a", "pcm_s16le", str(wav)], cancel)
+                _extract_recognition_audio(Path(track.file_path), wav, a, b - a, ffmpeg_path, cancel)
                 # Smart quotes and punctuation do not turn English lyrics into another language.
                 original_text = " ".join(text for index in indices for position, _offset, text in cue_lines(cues[index]) if position == line_positions[0])
                 letters = "".join(char for char in original_text if char.isalpha())
@@ -388,3 +387,21 @@ class LyricsAlignmentService:
             LOGGER.info("Could not cache word timings: %s", error)
         progress(1.0, "recognize")
         return result
+
+
+def _extract_recognition_audio(source: Path, wav: Path, start: float, duration: float, ffmpeg_path, cancel) -> None:
+    try:
+        samples = read_pcm(source, cancel, sample_rate=16_000, channels=1, start=start, duration=duration)
+    except CancelledError as error:
+        raise AlignmentCancelled("Cancelled") from error
+    except AudioDecodeError:
+        _check_cancel(cancel)
+        ffmpeg = FFmpegRenderer.find_executable(ffmpeg_path)
+        _run([str(ffmpeg), "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-threads", "1",
+              "-ss", str(start), "-i", str(source), "-t", str(duration), "-vn", "-threads", "1",
+              "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(wav)], cancel)
+    else:
+        import soundfile
+
+        _check_cancel(cancel)
+        soundfile.write(wav, samples, 16_000, subtype="PCM_16")

@@ -1,11 +1,7 @@
-"""The default AutoMix analyzer: FFmpeg decode + librosa BPM/beat tracking.
+"""The basic AutoMix analyzer: PCM decoding and librosa BPM/beat tracking.
 
-Chosen per docs/automix-history/automix-phase1-dependency-evaluation.md: librosa carries a
-permissive license, needs no downloaded model, and this project's own
-managed FFmpeg install (see app/ffmpeg/managed_installer.py) handles
-decoding -- so librosa never needs its own audioread/soundfile container
-support, which is the part of the dependency chain most likely to behave
-inconsistently across input formats.
+librosa receives PCM from the shared local decoder, with FFmpeg as a
+fallback for unsupported sources.
 
 Downbeats are not a real detector output here: librosa.beat.beat_track
 gives BPM and beat timestamps only. Bars are a provisional "every 4th
@@ -39,6 +35,7 @@ from app.utils.performance import timed
 import logging
 import subprocess
 import threading
+from concurrent.futures import CancelledError
 from dataclasses import replace
 from pathlib import Path
 from typing import Callable
@@ -55,6 +52,7 @@ from app.automix.models import TrackAnalysis
 from app.automix.music import analyze_music
 from app.automix.structure.timbre import timbre_curves
 from app.models.playlist import PlaylistTrack
+from app.services.audio_decode import AudioDecodeError, read_pcm
 from app.utils.subprocess_utils import hidden_process_kwargs
 
 LOGGER = logging.getLogger(__name__)
@@ -161,8 +159,8 @@ class BasicAnalysisProvider:
     "5": BPM from a fitted beat grid. "6": decay start. "7": local YAMNet genre/mood tags.
     "8": measured one-second RMS/timbre for acoustic transition search."""
 
-    def __init__(self, ffmpeg_executable: Path) -> None:
-        self.ffmpeg_executable = Path(ffmpeg_executable)
+    def __init__(self, ffmpeg_executable: Path | None) -> None:
+        self.ffmpeg_executable = Path(ffmpeg_executable) if ffmpeg_executable is not None else None
 
     @timed("automix.basic_seconds")
     def analyze(
@@ -276,9 +274,21 @@ class BasicAnalysisProvider:
         self, path: Path, cancel_event: threading.Event, *,
         sample_rate: int = SAMPLE_RATE, channels: int = 1, start: float = 0.0, duration: float | None = None,
     ) -> np.ndarray:
-        """Decode ``path`` (from ``start``, for ``duration``) to interleaved float32 PCM via FFmpeg, no temp file."""
+        """Decode an optional window to interleaved float32 PCM without a temporary file."""
         if not path.is_file():
             raise RuntimeError(f"Audio file is missing: {path}")
+        try:
+            return read_pcm(
+                path, cancel_event, sample_rate=sample_rate, channels=channels,
+                start=start, duration=duration,
+            ).reshape(-1)
+        except CancelledError as error:
+            raise AnalysisCancelled("AutoMix analysis cancelled during decode") from error
+        except AudioDecodeError as error:
+            if cancel_event.is_set():
+                raise AnalysisCancelled("AutoMix analysis cancelled during decode") from error
+            if self.ffmpeg_executable is None:
+                raise RuntimeError(f"{error} FFmpeg is required to try this file again.") from error
         window = (["-ss", f"{start:.3f}"] if start > 0.0 else []) + (["-t", f"{duration:.3f}"] if duration else [])
         command = [
             str(self.ffmpeg_executable), "-hide_banner", "-loglevel", "error", "-nostdin",

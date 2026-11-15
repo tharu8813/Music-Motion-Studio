@@ -262,22 +262,6 @@ def _render_ambient_field(palette: _Palette, width: int, height: int,
     return image
 
 
-def create_ambient_background(cover: QPixmap, width: int, height: int,
-                              blur_radius: float = 24.0,
-                              phase: float = 0.0) -> QPixmap:
-    """Create a palette-only, Apple Music-like backdrop from album artwork.
-
-    ``phase`` is the elapsed video time in seconds; advancing it drifts the
-    colour field. The cover itself is never shown, only its dominant colours.
-    """
-    if cover.isNull() or width <= 0 or height <= 0:
-        return QPixmap()
-    field = _render_ambient_field(
-        _dominant_palette(cover), int(width), int(height), blur_radius, phase,
-    )
-    return QPixmap.fromImage(field) if not field.isNull() else QPixmap()
-
-
 def create_cached_ambient_background(audio_path: str | Path, width: int, height: int,
                                      blur_radius: float = 24.0,
                                      cover_path: str | Path = "",
