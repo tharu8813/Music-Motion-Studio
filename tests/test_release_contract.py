@@ -142,6 +142,8 @@ class ReleaseContractTests(unittest.TestCase):
         setup_names = re.findall(r"Music Motion Studio-([\d.]+)-setup\.exe", readme + packaging)
         self.assertTrue(setup_names)
         self.assertEqual(set(setup_names), {__version__})
+        self.assertIn(f"Music Motion Studio-{__version__}-setup.exe", readme)
+        self.assertNotIn(f"Music.Motion.Studio-{__version__}-setup.exe", readme)
         self.assertIn(f"badge/version-{__version__}-", readme)
 
     def test_release_lock_pins_every_package_the_spec_bundles(self) -> None:
