@@ -63,7 +63,7 @@ AutoMix는 곡의 박자, 조성, 보컬 구간과 분위기를 분석해 전환
 
 ## 소스 코드 실행
 
-개발·배포 기준은 **Python 3.14.10 (Windows x64, 일반 GIL 빌드)**입니다. **소스 실행·디버깅·PyInstaller 빌드에는 Rust MSVC 도구체인(rustc, cargo)과 해당 프로젝트의 Rust 확장 모듈이 필수**입니다. Rust 설치 후 터미널을 다시 열고 `rustc --version` 및 `cargo --version`으로 확인하세요. Windows에서 네이티브 코드를 빌드하려면 Visual Studio의 **Desktop development with C++** 구성요소도 필요합니다.
+개발·배포 기준은 **Python 3.14.10 (Windows x64, 일반 GIL 빌드)** 입니다. **소스 실행·디버깅·PyInstaller 빌드에는 Rust MSVC 도구체인(rustc, cargo)과 해당 프로젝트의 Rust 확장 모듈이 필수**입니다. Rust 설치 후 터미널을 다시 열고 `rustc --version` 및 `cargo --version`으로 확인하세요. Windows에서 네이티브 코드를 빌드하려면 Visual Studio의 **Desktop development with C++** 구성요소도 필요합니다.
 
 ```powershell
 rustc --version
