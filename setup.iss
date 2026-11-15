@@ -88,11 +88,13 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 korean.UpdateInstalling=Music Motion Studio 업데이트 설치
 korean.UpdateClosingEditor=작업을 저장하고 편집기가 종료되기를 기다리는 중입니다.
 korean.UpdateStuckEditor=편집기 창은 닫혔지만 프로세스가 아직 실행 중입니다.%n%n복구용 프로젝트 파일을 확인했습니다. 남은 편집기 프로세스를 종료하고 업데이트를 계속할까요?%n%n저장되지 않은 작업이 손실될 수 있습니다. [아니요]를 선택하면 파일을 교체하지 않고 설치를 중단합니다.
+korean.UpdateStuckEditorDeclined=이전 편집기 종료를 선택하지 않아 업데이트를 중단했습니다. 현재 설치본은 변경하지 않았습니다. 편집기를 종료한 뒤 다시 시도해 주세요.
 korean.UpdateStuckEditorFailed=이전 편집기 프로세스를 안전하게 종료하지 못했습니다. 현재 설치본은 변경하지 않았습니다. 작업 관리자를 확인한 뒤 다시 설치해 주세요.
 korean.OldFileStillPresent=이전 프로그램 파일을 지우지 못했습니다. Music Motion Studio와 파일을 사용 중인 프로그램을 닫고 다시 설치해 주세요.%n%n%1
 english.UpdateInstalling=Installing the Music Motion Studio update
 english.UpdateClosingEditor=Saving the workspace and waiting for the editor to close.
 english.UpdateStuckEditor=The editor window closed, but its process is still running.%n%nA workspace recovery file exists. Do you want to terminate the remaining editor process and continue updating?%n%nUnsaved changes may be lost. Choose No to stop Setup without replacing any application files.
+english.UpdateStuckEditorDeclined=You chose not to end the previous editor. Setup stopped before changing installed files. Close the editor and retry.
 english.UpdateStuckEditorFailed=The previous editor process could not be terminated safely. No application files were replaced. Check Task Manager, then try Setup again.
 english.OldFileStillPresent=An old application file could not be removed. Close Music Motion Studio and any program using the file, then run Setup again.%n%n%1
 
@@ -298,7 +300,7 @@ begin
              IsExpectedUpdateEditor(ParentHandle) then begin
             if MsgBox(CustomMessage('UpdateStuckEditor'),
                 mbConfirmation, MB_YESNO or MB_DEFBUTTON2) <> IDYES then begin
-              Result := CustomMessage('UpdateStuckEditorFailed');
+              Result := CustomMessage('UpdateStuckEditorDeclined');
               Exit;
             end;
             { PROCESS_TERMINATE + SYNCHRONIZE + QUERY_LIMITED_INFORMATION.
