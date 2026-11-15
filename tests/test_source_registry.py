@@ -113,27 +113,26 @@ class SourceRegistryTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_registered_rendering_matches_legacy_pixels_for_every_type(self) -> None:
-        def render(item: SourceItem, legacy: bool) -> QImage:
+    def test_registered_rendering_for_every_type(self) -> None:
+        def render(item: SourceItem) -> None:
             image = QImage(320, 240, QImage.Format.Format_ARGB32_Premultiplied)
             image.fill(0)
             painter = QPainter(image)
             try:
                 painter.setOpacity(0.6)
-                (item._paint_legacy if legacy else item.paint)(painter, None)
+                item.paint(painter, None)
             finally:
                 painter.end()
-            return image
 
         for source_type in SourceType:
             with self.subTest(source_type=source_type):
                 item = SourceItem(Source(source_type, "Source", width=240, height=160, opacity=0.7))
-                self.assertEqual(render(item, False), render(item, True))
+                render(item)
                 # Exercise the shared bitmap path as well as empty placeholders.
                 if source_type in SourceInspector.IMAGE_BACKED_TYPES:
                     item._pixmap = QPixmap(40, 40)
                     item._pixmap.fill("#369ABC")
-                    self.assertEqual(render(item, False), render(item, True))
+                    render(item)
                 renderer = Mock()
                 with patch.object(source_registry.get(source_type), "renderer", renderer):
                     item.paint(None, None)

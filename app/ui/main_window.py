@@ -564,9 +564,6 @@ class MainWindow(QMainWindow):
         self.grid_action.setChecked(True)
         self.grid_action.toggled.connect(self._toggle_grid)
         toolbar.addAction(self.grid_action)
-        # Kept as a non-toolbar action for legacy translated text; snapping is now
-        # temporarily disabled with Alt instead of a persistent toolbar toggle.
-        self.snap_action = QAction(self)
         self.delete_action = QAction(self)
         self.delete_action.setShortcuts([
             QKeySequence(QKeySequence.StandardKey.Delete),
@@ -5262,11 +5259,6 @@ class MainWindow(QMainWindow):
             toggle.setAccessibleName(toggle.toolTip())
         self._filter_source_cards(self.source_search.text())
         self._update_project_status()
-        self.snap_action.setToolTip(
-            "객체를 그리드와 정렬 가이드에 맞춥니다."
-            if self.translator.is_korean
-            else "Snap objects to the grid and alignment guides."
-        )
         self.grid_action.setToolTip(
             "캔버스 작업 공간 전체에 40px 간격의 그리드를 표시합니다. 영상에는 포함되지 않습니다."
             if self.translator.is_korean else
@@ -5299,11 +5291,6 @@ class MainWindow(QMainWindow):
             if self.translator.is_korean
             else "Configure FFmpeg, output, and rendering defaults."
         )
-
-    def _toggle_snap(self, enabled: bool) -> None:
-        self.canvas.scene_model.snap_enabled = enabled
-        self.canvas.scene_model.clear_alignment_guides()
-        self._schedule_history()
 
     def _delete_selected_sources(self) -> None:
         """Remove each selected, non-locked source from the canvas."""

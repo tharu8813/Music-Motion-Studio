@@ -1900,7 +1900,6 @@ class MainWindowWorkspaceTests(MainWindowTestCase):
             canvas=CanvasSettings(snap_enabled=False)
         ))
         self.assertFalse(self.window.canvas.scene_model.snap_enabled)
-        self.assertFalse(self.window.snap_action.isChecked())
 
     def test_smooth_scroll_settings_are_exposed_by_dialog(self) -> None:
         dialog = SettingsDialog(

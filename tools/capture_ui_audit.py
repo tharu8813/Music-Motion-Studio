@@ -83,7 +83,6 @@ def main() -> int:
             "FFmpegInstallProgressDialog": (True,),
             "HelpDialog": (translator,),
             "LrcGeneratorDialog": ([], translator),
-            "LrcLivePreviewDialog": None,
             "LrcShortcutsDialog": (translator,),
             "LyricsAnimationDialog": (source, translator),
             "LyricsCompareDialog": (cues, cues, "current.lrc", "incoming.lrc", translator),
@@ -146,9 +145,6 @@ def main() -> int:
                 save(window.inspector, f"inspector-{source_type.value}-{index}")
             window.store.remove(sample.id)
 
-        from PySide6.QtMultimedia import QMediaPlayer
-        player = QMediaPlayer()
-        factories["LrcLivePreviewDialog"] = (player, lambda: cues, translator)
         captured = set()
         for path in sorted((ROOT / "app/dialogs").glob("*.py")):
             tree = ast.parse(path.read_text(encoding="utf-8"))
