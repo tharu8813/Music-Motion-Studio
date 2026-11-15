@@ -500,6 +500,7 @@ def preview_benchmark(args) -> dict:
                 "gpu_backend": surface.backend_info.label if surface and surface.backend_info else None,
                 "gpu_active_at_end": preview.gpu_preview_enabled,
                 "seconds": elapsed, "requested_seconds": args.seconds,
+                "frame_time_percentile_method": "nearest_rank_ceil_v2",
                 "target_fps": preview.presentation_fps,
                 "process_cpu_seconds": cpu_elapsed,
                 "mean_parent_cpu_percent_of_one_core": 100 * cpu_elapsed / elapsed,
