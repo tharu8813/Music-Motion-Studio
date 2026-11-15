@@ -45,6 +45,25 @@ def discover_modules(tests_directory: Path, filters: list[str], excluded: list[s
     )
 
 
+def parse_unittest_slowest_tests(output: str) -> list[dict[str, object]]:
+    """Read Python 3.12+ unittest --durations output without inventing timings."""
+    marker = "Slowest test durations"
+    if marker not in output:
+        return []
+    rows: list[dict[str, object]] = []
+    for raw_line in output.split(marker, 1)[1].splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("-"):
+            continue
+        found = re.fullmatch(r"(\d+(?:\.\d+)?)s\s+(.+)", line)
+        if not found:
+            if rows:
+                break
+            continue
+        rows.append({"test": found.group(2), "seconds": float(found.group(1))})
+    return rows
+
+
 def main() -> int:
     # This process prints captured Unicode too, not just the child processes.
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -91,7 +110,8 @@ def main() -> int:
         begin = perf_counter()
         try:
             completed = subprocess.run(
-                [sys.executable, "-m", "unittest", module, "-v" if args.verbose else "-q"],
+                [sys.executable, "-m", "unittest", module, "-v" if args.verbose else "-q",
+                 *(["--durations", "5"] if sys.version_info >= (3, 12) else [])],
                 cwd=root,
                 env=environment,
                 text=True,
@@ -114,11 +134,13 @@ def main() -> int:
         status = "fail" if completed.returncode else "pass"
         summary = re.search(r"Ran (\d+) tests?", completed.stderr)
         skipped = re.search(r"\bskipped=(\d+)", completed.stderr)
+        slow_tests = parse_unittest_slowest_tests(completed.stderr)
         runs.append({
             "module": module, "status": status, "seconds": round(seconds, 2),
             "returncode": completed.returncode,
             "tests": int(summary.group(1)) if summary else 0,
             "skipped": int(skipped.group(1)) if skipped else 0,
+            "slowest_tests": slow_tests,
         })
         if completed.returncode:
             print(f"FAIL    {module} ({seconds:.1f}s, exit {completed.returncode})", flush=True)
@@ -128,6 +150,11 @@ def main() -> int:
             failures.append(module)
         else:
             print(f"PASS    {module} ({seconds:.1f}s)", flush=True)
+            if seconds >= 10.0 and slow_tests:
+                detail = ", ".join(
+                    f"{row['test']} {row['seconds']:.2f}s" for row in slow_tests[:3]
+                )
+                print(f"  Slow test cases: {detail}", flush=True)
 
     total = len(runs)
     print(f"\n{total - len(failures)}/{total} module runs passed in {perf_counter() - started:.0f}s")
