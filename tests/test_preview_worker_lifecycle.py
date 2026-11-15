@@ -6,12 +6,14 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
-from PySide6.QtCore import QCoreApplication, QEvent
+from PySide6.QtCore import QCoreApplication, QEvent, QThread
+from unittest.mock import patch
 from PySide6.QtWidgets import QApplication, QWidget
 
 from app.dialogs.export_preview_dialog import ExportPreviewDialog, OverlayFrameWorker
 from app.renderer.ffmpeg_renderer import VisualizerOverlay
 from app.preview.overlay_frame_cache import OverlayFrameCache
+from app.preview.worker_lifecycle import finish_or_detach_worker
 
 
 class PreviewHarness(QWidget):
@@ -84,6 +86,23 @@ class PreviewWorkerLifecycleTests(unittest.TestCase):
             self.assertEqual(signature, (0,))
             self.assertEqual(len(frames), 2)
             self.assertFalse(frames[0][1][0].isNull())
+
+    def test_legacy_shutdown_entry_delegates_to_shared_nonblocking_helper(self):
+        worker = QThread()
+        with patch("app.dialogs.export_preview_dialog.finish_or_detach_worker") as shared:
+            ExportPreviewDialog._finish_or_detach_worker(worker)
+        shared.assert_called_once_with(worker)
+        self.assertIsNone(worker.parent())
+
+    def test_detached_qthread_is_reparented_to_application_without_waiting(self):
+        worker = QThread()
+        with patch.object(worker, "wait", side_effect=AssertionError("blocking wait called")):
+            finish_or_detach_worker(worker)
+        self.assertIs(worker.parent(), self.app)
+        # As for every finished Qt worker, deletion is deferred to the GUI loop.
+        worker.deleteLater()
+        self.app.processEvents()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
     def test_closing_during_prefetch_discards_worker_without_restart(self):
         self.preview._request_overlay_frames("track", 0, self.overlays, (0,), self.analysis)
