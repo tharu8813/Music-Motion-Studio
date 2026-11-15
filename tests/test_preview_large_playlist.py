@@ -51,8 +51,8 @@ class LargePlaylistPreviewTests(unittest.TestCase):
         worker = PreviewCoverWorker(tracks)
         try:
             self.assertEqual(worker.paths, (("1.wav", "cover.png"),))
-            with patch("app.preview.cover_worker.prewarm_cover_thumbnail") as load:
-                worker.requestInterruption()
+            with patch("app.preview.cover_worker.prewarm_cover_thumbnail") as load, \
+                    patch.object(worker, "isInterruptionRequested", return_value=True):
                 worker.run()
             load.assert_not_called()
         finally:
