@@ -8,7 +8,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from math import atan2, ceil, cos, degrees, radians, sin
 from pathlib import Path
-from time import monotonic
+from time import monotonic, perf_counter
 
 import numpy as np
 from PySide6.QtCore import Q_ARG, QEventLoop, QMetaObject, QPointF, QRectF, QSizeF, Qt, QThreadPool, QUrl, Signal
@@ -1862,8 +1862,23 @@ class SourceItem(QGraphicsObject):
         renderer = source_registry.get(self.source.source_type).renderer
         if renderer is None:
             raise RuntimeError(f"No renderer registered for {self.source.source_type.value}")
-        with self.lyric_settings():
-            renderer(self, painter, option, widget)
+        source_type = self.source.source_type
+        if not PROFILE_ENABLED or source_type not in (SourceType.TEXT, SourceType.LYRICS):
+            with self.lyric_settings():
+                renderer(self, painter, option, widget)
+            return
+        # Profiling is opt-in: do not add a per-source clock in normal frames.
+        # Inclusive paint duration includes lyric style resolution and stays
+        # inside the wider Qt scene paint span, so stages must not be summed.
+        started = perf_counter()
+        try:
+            with self.lyric_settings():
+                renderer(self, painter, option, widget)
+        finally:
+            PROFILE.observe(
+                f"canvas.source_{source_type.value}_paint_seconds",
+                perf_counter() - started,
+            )
 
     def _paint_legacy(
         self,

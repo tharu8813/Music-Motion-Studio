@@ -238,6 +238,32 @@ class PreviewAbReportTests(unittest.TestCase):
         self.assertIn("must not be summed", " ".join(result["notes"]))
         self.assertNotIn("video.cpu_filter_seconds", stages)
 
+    def test_text_and_lyrics_paint_stages_are_reported_only_when_measured(self):
+        runs = [_sample() for _ in range(4)]
+        for run, latency in zip(runs, (0.008, 0.006, 0.005, 0.007)):
+            run["profile"] = {
+                "canvas.qt_scene_paint_seconds": {
+                    "count": 100, "recent_count": 100, "recent_p95": 0.02,
+                },
+                "canvas.source_text_paint_seconds": {
+                    "count": 10, "recent_count": 10, "recent_p95": latency,
+                },
+                "canvas.source_lyrics_paint_seconds": {
+                    "count": 10, "recent_count": 10, "recent_p95": latency / 2,
+                },
+            }
+        report = compare([runs[0], runs[3]], [runs[1], runs[2]])
+        stages = report["profile_stage_p95_ms"]
+        self.assertEqual(stages["canvas.source_text_paint_seconds"]["sample_counts_abba"], [10] * 4)
+        self.assertEqual(stages["canvas.source_text_paint_seconds"]["baseline_p95_mean_ms"], 7.5)
+        self.assertEqual(stages["canvas.source_text_paint_seconds"]["candidate_p95_mean_ms"], 5.5)
+        self.assertEqual(stages["canvas.source_lyrics_paint_seconds"]["baseline_p95_mean_ms"], 3.75)
+        self.assertEqual(stages["canvas.qt_scene_paint_seconds"]["baseline_p95_mean_ms"], 20.0)
+        # Missing source types do not imply zero painting cost.
+        del runs[2]["profile"]["canvas.source_lyrics_paint_seconds"]
+        missing = compare([runs[0], runs[3]], [runs[1], runs[2]])
+        self.assertNotIn("canvas.source_lyrics_paint_seconds", missing["profile_stage_p95_ms"])
+
     def test_stage_p95_distinguishes_cumulative_calls_from_bounded_window(self):
         runs = [_sample() for _ in range(4)]
         for row, count, recent in zip(
