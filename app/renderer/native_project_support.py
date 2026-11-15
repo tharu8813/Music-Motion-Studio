@@ -115,9 +115,18 @@ def validate_project_for_gpu_capture(
     if not included:
         raise TimelineValidationError("No non-dynamic Canvas sources remain for this GPU test")
     for source in included:
-        if source.source_type in {
+        # A BACKGROUND in image mode loads content_path through SourceItem,
+        # just like explicit IMAGE/LOGO/WATERMARK sources. A missing file
+        # otherwise becomes an empty pixmap in the supposedly complete export.
+        requires_image = source.source_type in {
             SourceType.IMAGE, SourceType.LOGO, SourceType.WATERMARK,
-        } and (not source.content_path or not Path(source.content_path).is_file()):
+        } or (
+            source.source_type is SourceType.BACKGROUND
+            and source.background_mode == "image"
+        )
+        if requires_image and (
+            not source.content_path or not Path(source.content_path).is_file()
+        ):
             raise TimelineValidationError(
                 f"Image asset not found for project source {source.id}"
             )
