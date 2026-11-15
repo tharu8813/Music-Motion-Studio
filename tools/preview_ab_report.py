@@ -94,7 +94,7 @@ def _valid_scale_range(bounds: tuple[object, object]) -> bool:
     )
 
 
-def _stage_percentile(run: dict, stage: str) -> tuple[float, int] | None:
+def _stage_percentile(run: dict, stage: str) -> tuple[float, int, int | None] | None:
     """Extract an opt-in profile P95 sample without inventing missing stages."""
     profile = run.get("profile")
     if not isinstance(profile, dict):
@@ -109,7 +109,16 @@ def _stage_percentile(run: dict, stage: str) -> tuple[float, int] | None:
         or not isfinite(p95) or p95 < 0
     ):
         return None
-    return float(p95) * 1000.0, count
+    # Lifetime calls and the bounded window used for recent_p95 differ in
+    # long runs. Older profile JSON lacks recent_count: report it as unknown.
+    recent_count = sample.get("recent_count")
+    if recent_count is not None and (
+        isinstance(recent_count, bool)
+        or not isinstance(recent_count, int)
+        or not 1 <= recent_count <= count
+    ):
+        return None
+    return float(p95) * 1000.0, count, recent_count
 
 
 def _stage_latency_report(runs: list[dict]) -> dict[str, dict]:
@@ -136,6 +145,7 @@ def _stage_latency_report(runs: list[dict]) -> dict[str, dict]:
             "baseline_pair_spread_percent": _spread_percent(before),
             "candidate_pair_spread_percent": _spread_percent(after),
             "sample_counts_abba": [sample[1] for sample in samples],
+            "recent_sample_counts_abba": [sample[2] for sample in samples],
         }
     return stages
 
@@ -164,6 +174,7 @@ def _video_pts_absolute_report(runs: list[dict]) -> dict | None:
         "baseline_pair_spread_percent": _spread_percent(before),
         "candidate_pair_spread_percent": _spread_percent(after),
         "sample_counts_abba": [sample[1] for sample in samples],
+        "recent_sample_counts_abba": [sample[2] for sample in samples],
     }
 
 
@@ -272,6 +283,7 @@ def compare(baseline: list[dict], candidate: list[dict]) -> dict:
             "Profile stage P95 values are inclusive per-call wall times: nested stages overlap and must not be summed.",
             "OpenGL submission times are not GPU execution times; compare stage counts and per-run spread before assigning bottlenecks.",
             "Video PTS absolute P95 covers only eligible decoded frames, not rejected frames or final A/V audio synchronization.",
+            "P95 uses bounded recent samples (up to 1024), not necessarily all cumulative calls. Missing recent counts are unknown, never zero.",
         ],
     }
 

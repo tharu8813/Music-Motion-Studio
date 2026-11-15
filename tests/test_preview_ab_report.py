@@ -168,6 +168,63 @@ class PreviewAbReportTests(unittest.TestCase):
         self.assertIn("must not be summed", " ".join(result["notes"]))
         self.assertNotIn("video.cpu_filter_seconds", stages)
 
+    def test_stage_p95_distinguishes_cumulative_calls_from_bounded_window(self):
+        runs = [_sample() for _ in range(4)]
+        for row, count, recent in zip(
+            runs, (3600, 4200, 3800, 4000), (1024, 1024, 1024, 1024),
+        ):
+            row["profile"] = {
+                "canvas.capture_seconds": {
+                    "count": count, "recent_count": recent,
+                    "recent_p95": 0.011,
+                },
+            }
+        result = compare([runs[0], runs[3]], [runs[1], runs[2]])
+        capture = result["profile_stage_p95_ms"]["canvas.capture_seconds"]
+        self.assertEqual(capture["sample_counts_abba"], [3600, 4200, 3800, 4000])
+        self.assertEqual(capture["recent_sample_counts_abba"], [1024] * 4)
+        self.assertEqual(capture["baseline_p95_mean_ms"], 11.0)
+
+    def test_stage_p95_preserves_old_profiles_without_recent_counts(self):
+        runs = [_sample() for _ in range(4)]
+        for row in runs:
+            row["profile"] = {
+                "canvas.capture_seconds": {"count": 2500, "recent_p95": 0.01},
+                "video.eligible_pts_abs_error_seconds": {
+                    "count": 500, "recent_p95": 0.04,
+                },
+            }
+        result = compare([runs[0], runs[3]], [runs[1], runs[2]])
+        self.assertEqual(
+            result["profile_stage_p95_ms"]["canvas.capture_seconds"][
+                "recent_sample_counts_abba"
+            ], [None] * 4,
+        )
+        self.assertEqual(
+            result["video_pts_abs_p95_ms"]["recent_sample_counts_abba"], [None] * 4,
+        )
+
+    def test_recent_p95_sample_count_validation_applies_to_stage_and_video_pts(self):
+        for unusable in (0, -1, True, 1.25, 21, "3"):
+            with self.subTest(recent_count=unusable):
+                runs = [_sample() for _ in range(4)]
+                for row in runs:
+                    row["profile"] = {
+                        "canvas.capture_seconds": {
+                            "count": 20, "recent_count": 20, "recent_p95": 0.01,
+                        },
+                        "video.eligible_pts_abs_error_seconds": {
+                            "count": 20, "recent_count": 20, "recent_p95": 0.03,
+                        },
+                    }
+                runs[2]["profile"]["canvas.capture_seconds"]["recent_count"] = unusable
+                runs[2]["profile"]["video.eligible_pts_abs_error_seconds"][
+                    "recent_count"
+                ] = unusable
+                report = compare([runs[0], runs[3]], [runs[1], runs[2]])
+                self.assertNotIn("canvas.capture_seconds", report["profile_stage_p95_ms"])
+                self.assertIsNone(report["video_pts_abs_p95_ms"])
+
     def test_stage_p95_does_not_fabricate_missing_or_unusable_samples(self):
         runs = [_sample() for _ in range(4)]
         for row in runs:
