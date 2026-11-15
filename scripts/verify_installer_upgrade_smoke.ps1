@@ -9,7 +9,9 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$PreviousSetupPath,
-    [Parameter(Mandatory = $true)][string]$CurrentSetupPath
+    [Parameter(Mandatory = $true)][string]$CurrentSetupPath,
+    [Parameter(Mandatory = $true)][ValidatePattern('^\d+\.\d+\.\d+\.\d+$')][string]$ExpectedPreviousVersion,
+    [Parameter(Mandatory = $true)][ValidatePattern('^\d+\.\d+\.\d+\.\d+$')][string]$ExpectedCurrentVersion
 )
 
 $ErrorActionPreference = 'Stop'
@@ -20,7 +22,7 @@ if ($env:CI -ne 'true' -or -not $env:RUNNER_TEMP -or -not $env:GITHUB_RUN_ID) {
 $previousSetup = (Resolve-Path -LiteralPath $PreviousSetupPath -ErrorAction Stop).Path
 $currentSetup = (Resolve-Path -LiteralPath $CurrentSetupPath -ErrorAction Stop).Path
 $runnerRoot = [System.IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\', '/')
-$runName = "mms-upgrade-$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT)"
+$runName = "mms-upgrade-$ExpectedPreviousVersion-$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT)"
 $installDir = Join-Path $runnerRoot $runName
 $logDir = Join-Path $runnerRoot 'mms-installer-acceptance-logs'
 $exe = Join-Path $installDir 'Music Motion Studio.exe'
@@ -58,13 +60,13 @@ function Invoke-Install {
     Invoke-CheckedProcess -Executable $Setup -Arguments $arguments -Phase $Phase
 }
 
-Invoke-Install -Setup $previousSetup -Phase 'published-1.4.0.0-install'
+Invoke-Install -Setup $previousSetup -Phase "published-$ExpectedPreviousVersion-install"
 if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
-    throw 'The pinned 1.4.0.0 release did not install its application launcher.'
+    throw "The pinned $ExpectedPreviousVersion release did not install its application launcher."
 }
 $previousFileVersion = (Get-Item -LiteralPath $exe).VersionInfo.FileVersion
-if ($previousFileVersion -ne '1.4.0.0') {
-    throw "Expected published 1.4.0.0 launcher; got FileVersion '$previousFileVersion'."
+if ($previousFileVersion -ne $ExpectedPreviousVersion) {
+    throw "Expected published $ExpectedPreviousVersion launcher; got FileVersion '$previousFileVersion'."
 }
 
 # Simulate user-owned artifacts in the custom installation folder and both
@@ -84,8 +86,8 @@ if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
     throw 'Upgrade did not install the current launcher in the custom directory.'
 }
 $upgradedVersion = (Get-Item -LiteralPath $exe).VersionInfo.FileVersion
-if ($upgradedVersion -eq $previousFileVersion) {
-    throw "Upgrade left the previous launcher version '$previousFileVersion'."
+if ($upgradedVersion -ne $ExpectedCurrentVersion) {
+    throw "Upgrade installed FileVersion '$upgradedVersion'; expected '$ExpectedCurrentVersion'."
 }
 python (Join-Path $PSScriptRoot 'verify_distribution.py') $installDir
 if ($LASTEXITCODE -ne 0) { throw 'Upgraded distribution integrity verification failed.' }
@@ -119,4 +121,4 @@ foreach ($marker in $markers) {
         throw "Uninstall deleted a user-owned marker: $marker"
     }
 }
-Write-Output 'PASS: pinned 1.4.0.0 -> current real Inno Setup upgrade, custom directory, app integrity, smoke, association, user-file preservation and uninstall.'
+Write-Output "PASS: pinned $ExpectedPreviousVersion -> $ExpectedCurrentVersion real Inno Setup upgrade, custom directory, app integrity, smoke, association, user-file preservation and uninstall."

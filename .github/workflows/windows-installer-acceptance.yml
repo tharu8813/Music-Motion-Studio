@@ -64,7 +64,7 @@ jobs:
       - name: Check release and installer static contracts
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m unittest -v tests.test_release_contract tests.test_distribution_verification
+        run: python -m unittest -v tests.test_release_contract tests.test_installer_upgrade_contract tests.test_distribution_verification
 
       - name: Build packaged distribution
         run: python -m PyInstaller --noconfirm --clean playlist_canvas.spec
@@ -101,20 +101,20 @@ jobs:
           & ./scripts/verify_installer_smoke.ps1 -SetupPath $setup.FullName
           if ($LASTEXITCODE -ne 0) { throw 'Installed Setup acceptance failed.' }
 
-      - name: Download previous published Setup (SHA-256 pinned)
+      - name: Download latest published 1.4.0.1 Setup (SHA-256 pinned)
         shell: pwsh
         run: |
-          $uri = 'https://github.com/tharu8813/Music-Motion-Studio/releases/download/1.4.0.0/Music.Motion.Studio-1.4.0.0-setup.exe'
-          $download = Join-Path $env:RUNNER_TEMP 'mms-previous-public-1.4.0.0-setup.exe'
+          $uri = 'https://github.com/tharu8813/Music-Motion-Studio/releases/download/1.4.0.1/Music.Motion.Studio-1.4.0.1-setup.exe'
+          $download = Join-Path $env:RUNNER_TEMP 'mms-previous-public-1.4.0.1-setup.exe'
           Invoke-WebRequest -Uri $uri -OutFile $download -TimeoutSec 300
-          $expectedSha256 = 'ec41c04dbdaf507affe5dbee4385c71eef0987d513af069b43b39ed60cdacb3d'
+          $expectedSha256 = '4e62606f43b9c1d551cef585640ac286577154ca1f1a4e68b56b6f1edaf11563'
           $actualSha256 = (Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($actualSha256 -ne $expectedSha256) {
-            throw "Published 1.4.0.0 setup hash mismatch: $actualSha256"
+            throw "Published 1.4.0.1 setup hash mismatch: $actualSha256"
           }
           "MMS_PREVIOUS_INSTALLER=$download" >> $env:GITHUB_ENV
 
-      - name: Test 1.4.0.0 to current release upgrade and uninstall
+      - name: Test latest 1.4.0.1 to current release upgrade and uninstall
         shell: pwsh
         env:
           QT_QPA_PLATFORM: offscreen
@@ -122,7 +122,11 @@ jobs:
         run: |
           $current = Get-ChildItem 'output-setup' -Filter 'Music Motion Studio-*-setup.exe' -File | Select-Object -First 1
           if (-not $current) { throw 'Compiled current Setup executable missing.' }
-          & ./scripts/verify_installer_upgrade_smoke.ps1 -PreviousSetupPath $env:MMS_PREVIOUS_INSTALLER -CurrentSetupPath $current.FullName
+          $currentVersion = (python -c 'from app import __version__; print(__version__)').Trim()
+          if ($LASTEXITCODE -ne 0 -or $currentVersion -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+            throw 'Unable to read current app version for upgrade acceptance.'
+          }
+          & ./scripts/verify_installer_upgrade_smoke.ps1 -PreviousSetupPath $env:MMS_PREVIOUS_INSTALLER -CurrentSetupPath $current.FullName -ExpectedPreviousVersion '1.4.0.1' -ExpectedCurrentVersion $currentVersion
           if ($LASTEXITCODE -ne 0) { throw 'Previous-release upgrade acceptance failed.' }
 
       - name: Upload installer verification logs
