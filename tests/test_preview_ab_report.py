@@ -398,6 +398,36 @@ class PreviewAbReportTests(unittest.TestCase):
             self.assertNotIn(name, metrics)
         self.assertIn("scene_frame_time_p95_ms", metrics)
 
+    def test_negative_fps_latency_cpu_and_memory_are_not_comparable(self):
+        for field in (
+            "presented_scene_fps",
+            "scene_frame_time_p50_ms",
+            "scene_frame_time_p95_ms",
+            "heartbeat_max_ms",
+            "mean_parent_cpu_percent_of_one_core",
+            "rss_peak_bytes",
+            "frame_buffer_peak_bytes",
+        ):
+            with self.subTest(metric=field):
+                runs = [_sample() for _ in range(4)]
+                runs[2][field] = -1
+                report = compare([runs[0], runs[3]], [runs[1], runs[2]])
+                self.assertNotIn(field, report["metrics"])
+                self.assertIn(
+                    "presented_scene_fps" if field != "presented_scene_fps"
+                    else "scene_frame_time_p95_ms",
+                    report["metrics"],
+                )
+
+    def test_zero_fps_and_zero_spread_remain_legitimate_values(self):
+        # A genuinely stalled preview can present zero unique scenes.
+        runs = [_sample(fps=0) for _ in range(4)]
+        result = compare([runs[0], runs[3]], [runs[1], runs[2]])
+        self.assertEqual(result["metrics"]["presented_scene_fps"]["baseline_mean"], 0)
+        self.assertIsNone(
+            result["metrics"]["presented_scene_fps"]["candidate_change_percent"]
+        )
+
     def test_video_pts_absolute_p95_reports_magnitude_not_signed_stage_time(self):
         runs = [_sample() for _ in range(4)]
         for run, ms, count in zip(runs, (70.0, 40.0, 50.0, 60.0), (10, 20, 30, 40)):
