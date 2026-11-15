@@ -64,7 +64,7 @@ jobs:
       - name: Check release and installer static contracts
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m unittest -v tests.test_release_contract tests.test_distribution_verification
+        run: python -m unittest -v tests.test_release_contract tests.test_installer_upgrade_contract tests.test_distribution_verification
 
       - name: Build packaged distribution
         run: python -m PyInstaller --noconfirm --clean playlist_canvas.spec
