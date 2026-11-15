@@ -22,7 +22,7 @@ MATCH_FIELDS = (
     "lyrics", "integrated", "known_fixture_beats", "track_count",
     "analysis_workers", "python", "qt", "numpy", "platform",
     "gpu_backend", "gpu_active_at_end", "proxy_count",
-    "warmup_seconds", "requested_seconds",
+    "warmup_seconds", "requested_seconds", "frame_time_percentile_method",
 )
 
 # Each expression is a scalar obtained from one benchmark run. Lower CPU

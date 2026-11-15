@@ -80,6 +80,22 @@ class PreviewAbReportTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Incompatible"):
                     compare([_sample(), _sample()], [_sample(), changed])
 
+    def test_mixed_frame_percentile_methods_cannot_be_compared_as_speed_changes(self):
+        old = _sample()
+        corrected = _sample()
+        corrected["frame_time_percentile_method"] = "nearest_rank_ceil_v2"
+        with self.assertRaisesRegex(ValueError, "frame_time_percentile_method"):
+            compare([old, old], [corrected, corrected])
+        result = compare([corrected, corrected], [corrected, corrected])
+        self.assertEqual(
+            result["matched_configuration"]["frame_time_percentile_method"],
+            "nearest_rank_ceil_v2",
+        )
+        self.assertIn(
+            "presented_scene_fps",
+            compare([old, old], [old, old])["metrics"],
+        )
+
     def test_adaptive_scale_change_is_reported_as_quality_confounder(self):
         report = compare([_sample(), _sample()], [_sample(scale=0.45), _sample(scale=0.45)])
         self.assertFalse(report["same_effective_canvas_scale"])
