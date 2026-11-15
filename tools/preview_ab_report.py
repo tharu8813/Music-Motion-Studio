@@ -144,7 +144,8 @@ def _stage_latency_report(runs: list[dict]) -> dict[str, dict]:
             ),
             "baseline_pair_spread_percent": _spread_percent(before),
             "candidate_pair_spread_percent": _spread_percent(after),
-            "sample_counts_abba": [sample[1] for sample in samples],            "recent_sample_counts_abba": [sample[2] for sample in samples],
+            "sample_counts_abba": [sample[1] for sample in samples],
+            "recent_sample_counts_abba": [sample[2] for sample in samples],
         }
     return stages
 
@@ -172,7 +173,8 @@ def _video_pts_absolute_report(runs: list[dict]) -> dict | None:
         ),
         "baseline_pair_spread_percent": _spread_percent(before),
         "candidate_pair_spread_percent": _spread_percent(after),
-        "sample_counts_abba": [sample[1] for sample in samples],        "recent_sample_counts_abba": [sample[2] for sample in samples],
+        "sample_counts_abba": [sample[1] for sample in samples],
+        "recent_sample_counts_abba": [sample[2] for sample in samples],
     }
 
 
