@@ -421,7 +421,9 @@ class PreviewAbReportTests(unittest.TestCase):
 
     def test_zero_fps_and_zero_spread_remain_legitimate_values(self):
         # A genuinely stalled preview can present zero unique scenes.
-        runs = [_sample(fps=0) for _ in range(4)]
+        runs = [_sample() for _ in range(4)]
+        for row in runs:
+            row["presented_scene_fps"] = 0
         result = compare([runs[0], runs[3]], [runs[1], runs[2]])
         self.assertEqual(result["metrics"]["presented_scene_fps"]["baseline_mean"], 0)
         self.assertIsNone(
