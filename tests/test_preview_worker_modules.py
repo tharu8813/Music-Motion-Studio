@@ -7,6 +7,8 @@ from unittest.mock import Mock, patch
 
 from app.dialogs.export_preview_dialog import AudioAnalysisWorker, VideoDurationProbeWorker
 from app.dialogs.export_preview_dialog import OverlayFrameWorker
+from app.dialogs.export_preview_dialog import PreviewCoverWorker
+from app.preview.cover_worker import PreviewCoverWorker as IsolatedPreviewCoverWorker
 from app.preview.overlay_frame_worker import OverlayFrameWorker as IsolatedOverlayFrameWorker
 from app.preview.audio_analysis_worker import AudioAnalysisWorker as IsolatedAudioWorker
 from app.video.duration_probe_worker import VideoDurationProbeWorker as IsolatedVideoWorker
@@ -16,6 +18,7 @@ class PreviewWorkerModuleTests(TestCase):
     def test_existing_dialog_imports_reexport_identical_worker_types(self):
         self.assertIs(AudioAnalysisWorker, IsolatedAudioWorker)
         self.assertIs(VideoDurationProbeWorker, IsolatedVideoWorker)
+        self.assertIs(PreviewCoverWorker, IsolatedPreviewCoverWorker)
 
     def test_overlay_worker_reexports_same_class_and_cancel_is_nonblocking(self):
         self.assertIs(OverlayFrameWorker, IsolatedOverlayFrameWorker)
