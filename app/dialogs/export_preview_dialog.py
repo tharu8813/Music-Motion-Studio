@@ -95,6 +95,7 @@ from app.video.duration_probe_worker import VideoDurationProbeWorker
 from app.preview.overlay_frame_cache import OverlayFrameCache, OverlaySignature
 from app.preview.overlay_frame_worker import OverlayFrameWorker
 from app.preview.cover_worker import PreviewCoverWorker
+from app.preview.proxy_status import format_video_proxy_status
 from app.video.timeline import resolve_video_position, source_video_paths
 from app.video.frame_filter import VideoFrameFilterSettings, filter_video_frame
 from app.video.decoder_backpressure import VideoDecoderBackpressure
@@ -4044,26 +4045,13 @@ class ExportPreviewDialog(QDialog):
                 )
 
     def _video_proxy_status_text(self, korean: bool) -> str:
-        active = sum(
-            1 for original, preview in self._video_proxy_paths.items()
-            if os.path.normcase(original) != os.path.normcase(preview)
+        return format_video_proxy_status(
+            paths=self._video_proxy_paths,
+            queued_count=len(self._video_proxy_queue),
+            worker_active=self._video_proxy_worker is not None,
+            has_failures=bool(self._video_proxy_failures),
+            korean=korean,
         )
-        pending = len(self._video_proxy_queue) + int(
-            self._video_proxy_worker is not None
-        )
-        if pending:
-            return (
-                f" · 프록시 준비 {pending}"
-                if korean else f" · Preparing proxies {pending}"
-            )
-        if active:
-            return (
-                f" · 프록시 {active}"
-                if korean else f" · Proxies {active}"
-            )
-        if self._video_proxy_failures:
-            return " · 원본 사용" if korean else " · Original media"
-        return ""
 
     def _set_play_text(self) -> None:
         korean = self.translator.is_korean
