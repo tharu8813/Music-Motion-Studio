@@ -94,6 +94,7 @@ from app.preview.audio_analysis_worker import AudioAnalysisWorker
 from app.video.duration_probe_worker import VideoDurationProbeWorker
 from app.preview.overlay_frame_cache import OverlayFrameCache, OverlaySignature
 from app.preview.overlay_frame_worker import OverlayFrameWorker
+from app.preview.cover_worker import PreviewCoverWorker
 from app.video.timeline import resolve_video_position, source_video_paths
 from app.video.frame_filter import VideoFrameFilterSettings, filter_video_frame
 from app.video.decoder_backpressure import VideoDecoderBackpressure
@@ -118,30 +119,6 @@ _LIVE_MIX_TRACK_INDEX = -3
 """Sentinel for `_active_track_index` when playing the pre-rendered AutoMix/crossfade mix."""
 
 LOGGER = logging.getLogger(__name__)
-
-
-class PreviewCoverWorker(QThread):
-    """Read artwork off the GUI thread; only the receiver creates icons."""
-
-    ready = Signal(int, QImage)
-
-    def __init__(self, tracks, parent=None):
-        super().__init__(parent)
-        self.paths = tuple((track.file_path, track.cover_path) for track in tracks)
-
-    def run(self) -> None:
-        for index, (audio_path, cover_path) in enumerate(self.paths):
-            if self.isInterruptionRequested():
-                return
-            try:
-                image = prewarm_cover_thumbnail(audio_path, cover_path)
-            except Exception as error:
-                LOGGER.warning("Preview cover could not load for %s: %s", audio_path, error)
-                continue
-            if self.isInterruptionRequested():
-                return
-            if not image.isNull():
-                self.ready.emit(index, image)
 
 
 class ExportPreviewDialog(QDialog):

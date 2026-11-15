@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication
 
 from app.canvas.live_canvas import CanvasScene
 from app.dialogs.export_preview_dialog import ExportPreviewDialog, PreviewCoverWorker
+from app.preview.cover_worker import PreviewCoverWorker as IsolatedPreviewCoverWorker
 from app.dialogs.export_preview_dialog import (
     PreviewTrackDelegate, TRACK_ROW_ROLE, _track_details,
 )
@@ -43,6 +44,20 @@ class LargePlaylistPreviewTests(unittest.TestCase):
             "03:00",
         )
 
+    def test_cover_worker_isolated_from_dialog_and_keeps_legacy_identity(self):
+        self.assertIs(PreviewCoverWorker, IsolatedPreviewCoverWorker)
+        self.assertEqual(PreviewCoverWorker.__module__, "app.preview.cover_worker")
+        tracks = [PlaylistTrack("1.wav", "One", cover_path="cover.png")]
+        worker = PreviewCoverWorker(tracks)
+        try:
+            self.assertEqual(worker.paths, (("1.wav", "cover.png"),))
+            with patch("app.preview.cover_worker.prewarm_cover_thumbnail") as load, \
+                    patch.object(worker, "isInterruptionRequested", return_value=True):
+                worker.run()
+            load.assert_not_called()
+        finally:
+            worker.deleteLater()
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
@@ -68,7 +83,7 @@ class LargePlaylistPreviewTests(unittest.TestCase):
             release.wait(3)
             return QImage()
 
-        with patch("app.dialogs.export_preview_dialog.prewarm_cover_thumbnail", side_effect=slow_cover):
+        with patch("app.preview.cover_worker.prewarm_cover_thumbnail", side_effect=slow_cover):
             preview = self.preview()
             worker = preview._cover_worker
             self.assertEqual(preview.track_list.count(), 1000)
@@ -120,7 +135,7 @@ class LargePlaylistPreviewTests(unittest.TestCase):
         self.assertEqual(row.icon().cacheKey(), icon_key)
 
     def test_close_before_deferred_load_never_starts_worker(self):
-        with patch("app.dialogs.export_preview_dialog.prewarm_cover_thumbnail") as load:
+        with patch("app.preview.cover_worker.prewarm_cover_thumbnail") as load:
             preview = self.preview(2)
             preview._stop_preview()
             self.app.processEvents()
@@ -129,7 +144,7 @@ class LargePlaylistPreviewTests(unittest.TestCase):
     def test_worker_delivers_icons_to_gui_rows(self):
         image = QImage(8, 8, QImage.Format.Format_RGB32)
         image.fill(0xff405060)
-        with patch("app.dialogs.export_preview_dialog.prewarm_cover_thumbnail", return_value=image):
+        with patch("app.preview.cover_worker.prewarm_cover_thumbnail", return_value=image):
             preview = self.preview(3)
             self.app.processEvents()
             self.assertTrue(preview._cover_worker.wait(2000))
@@ -187,7 +202,7 @@ class LargePlaylistPreviewTests(unittest.TestCase):
         worker.ready.connect(lambda index, image: images.append((index, image)))
         image = QImage(8, 8, QImage.Format.Format_RGB32)
         image.fill(0xff405060)
-        with patch("app.dialogs.export_preview_dialog.prewarm_cover_thumbnail",
+        with patch("app.preview.cover_worker.prewarm_cover_thumbnail",
                    side_effect=[OSError("unreadable cover"), image]):
             worker.start()
             self.assertTrue(worker.wait(2000))
