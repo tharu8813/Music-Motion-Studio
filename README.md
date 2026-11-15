@@ -72,7 +72,7 @@ AutoMix는 곡의 박자, 조성, 보컬 구간과 분위기를 분석해 전환
 ## 다운로드와 설치
 
 1. [공식 다운로드 페이지](https://github.com/tharu8813/Music-Motion-Studio/releases/latest)를 엽니다.
-2. **Assets**에서 이름이 `setup.exe`로 끝나는 Windows 설치 파일을 받습니다. 파일명 예시는 `Music.Motion.Studio-1.4.1.0-setup.exe`입니다. `Source code`는 소스 코드 압축 파일입니다.
+2. **Assets**에서 이름이 `setup.exe`로 끝나는 Windows 설치 파일을 받습니다. 파일명 예시는 `Music Motion Studio-1.4.1.0-setup.exe`입니다. `Source code`는 소스 코드 압축 파일입니다.
 3. 설치 파일을 실행해 언어와 설치 위치를 선택한 뒤, 시작 메뉴나 바탕 화면에서 **Music Motion Studio**를 엽니다.
    기본 설치 위치는 `%ProgramFiles%\Music Motion Studio`이며 설치 시 관리자 권한을 요청합니다.
 4. 프로그램의 **도구 → 설정 → FFmpeg**에서 **(권장)** 버전을 고르고 **선택 버전 다운로드 및 설치**를 누릅니다. 다운로드와 설치가 끝나면 자동으로 적용됩니다.
