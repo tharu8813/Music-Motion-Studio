@@ -178,6 +178,37 @@ def _video_pts_absolute_report(runs: list[dict]) -> dict | None:
     }
 
 
+def _rss_window_growth_report(runs: list[dict]) -> dict | None:
+    """Compare in-window process RSS change, without inferring memory leaks."""
+    bounds = [
+        (row.get("rss_start_bytes"), row.get("rss_end_bytes")) for row in runs
+    ]
+    if any(
+        not isinstance(value, (int, float)) or isinstance(value, bool)
+        or not isfinite(value) or value < 0
+        for start, end in bounds for value in (start, end)
+    ):
+        return None
+    # Negative delta (memory released during playback) is legitimate.
+    changes = [end - start for start, end in bounds]
+    baseline, candidate = [changes[0], changes[3]], [changes[1], changes[2]]
+    baseline_mean, candidate_mean = mean(baseline), mean(candidate)
+    return {
+        "unit": "bytes",
+        "measurement": "RSS end minus start within active preview measurement window",
+        "growth_bytes_abba": changes,
+        "baseline_mean_bytes": round(baseline_mean, 4),
+        "candidate_mean_bytes": round(candidate_mean, 4),
+        # A percent change is misleading if baseline memory growth is
+        # negative or zero, so return an absolute difference in bytes.
+        "candidate_minus_baseline_mean_bytes": round(
+            candidate_mean - baseline_mean, 4,
+        ),
+        "baseline_pair_spread_bytes": abs(baseline[1] - baseline[0]),
+        "candidate_pair_spread_bytes": abs(candidate[1] - candidate[0]),
+    }
+
+
 def compare(baseline: list[dict], candidate: list[dict]) -> dict:
     """Compare exactly two baseline and two candidate runs in A1-B1-B2-A2."""
     if len(baseline) != 2 or len(candidate) != 2:
@@ -268,6 +299,7 @@ def compare(baseline: list[dict], candidate: list[dict]) -> dict:
         "metrics": metrics,
         "profile_stage_p95_ms": _stage_latency_report(runs),
         "video_pts_abs_p95_ms": _video_pts_absolute_report(runs),
+        "rss_window_growth": _rss_window_growth_report(runs),
         "performance_only": True,
         "notes": [
             "No FPS improvement or regression is claimed without inspecting measured differences and noise.",
@@ -283,6 +315,7 @@ def compare(baseline: list[dict], candidate: list[dict]) -> dict:
             "Profile stage P95 values are inclusive per-call wall times: nested stages overlap and must not be summed.",
             "OpenGL submission times are not GPU execution times; compare stage counts and per-run spread before assigning bottlenecks.",
             "Video PTS absolute P95 covers only eligible decoded frames, not rejected frames or final A/V audio synchronization.",
+            "RSS window growth is an in-run difference, not proof of a leak; compare repeats and long-run trends separately.",
             "P95 uses bounded recent samples (up to 1024), not necessarily all cumulative calls. Missing recent counts are unknown, never zero.",
         ],
     }

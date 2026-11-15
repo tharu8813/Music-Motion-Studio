@@ -156,6 +156,60 @@ class PreviewAbReportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid real_video_preview"):
             compare([invalid, _sample()], [_sample(), _sample()])
 
+    def test_rss_window_growth_reports_signed_bytes_not_misleading_percent(self):
+        mib = 1024 * 1024
+        runs = [_sample() for _ in range(4)]
+        for row, start, end in zip(
+            runs,
+            (300, 300, 310, 310),
+            (305, 340, 330, 295),
+        ):
+            row["rss_start_bytes"] = start * mib
+            row["rss_end_bytes"] = end * mib
+        report = compare([runs[0], runs[3]], [runs[1], runs[2]])
+        growth = report["rss_window_growth"]
+        self.assertEqual(
+            growth["growth_bytes_abba"],
+            [5 * mib, 40 * mib, 20 * mib, -15 * mib],
+        )
+        self.assertEqual(growth["baseline_mean_bytes"], -5 * mib)
+        self.assertEqual(growth["candidate_mean_bytes"], 30 * mib)
+        self.assertEqual(growth["candidate_minus_baseline_mean_bytes"], 35 * mib)
+        self.assertEqual(growth["baseline_pair_spread_bytes"], 20 * mib)
+        self.assertEqual(growth["candidate_pair_spread_bytes"], 20 * mib)
+        self.assertNotIn("candidate_change_percent", growth)
+        self.assertEqual(
+            report["metrics"]["rss_peak_bytes"]["baseline_mean"],
+            300 * mib,
+        )
+
+    def test_rss_growth_is_unknown_when_window_boundaries_are_invalid(self):
+        for field, invalid in (
+            ("rss_start_bytes", None),
+            ("rss_start_bytes", True),
+            ("rss_start_bytes", -1),
+            ("rss_end_bytes", float("nan")),
+            ("rss_end_bytes", float("inf")),
+            ("rss_end_bytes", "123"),
+        ):
+            with self.subTest(field=field, invalid=invalid):
+                runs = [_sample() for _ in range(4)]
+                for row in runs:
+                    row["rss_start_bytes"] = 100
+                    row["rss_end_bytes"] = 150
+                if invalid is None:
+                    runs[1].pop(field)
+                else:
+                    runs[1][field] = invalid
+                report = compare([runs[0], runs[3]], [runs[1], runs[2]])
+                self.assertIsNone(report["rss_window_growth"])
+                self.assertIn("rss_peak_bytes", report["metrics"])
+        self.assertIsNone(
+            compare([_sample(), _sample()], [_sample(), _sample()])[
+                "rss_window_growth"
+            ]
+        )
+
     def test_stage_p95_reports_real_samples_and_nonadditive_timings(self):
         runs = [_sample() for _ in range(4)]
         for run, capture_ms, upload_ms, count in zip(
