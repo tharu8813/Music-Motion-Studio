@@ -1,11 +1,12 @@
 """Video container probes must not require external subprocesses for MP4."""
 
 import struct
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from app.video.duration_probe import mp4_container_duration
+from app.video.duration_probe import m4a_audio_edit, mp4_container_duration
 from app.dialogs.export_preview_dialog import VideoDurationProbeWorker
 from app.services.playlist_service import PlaylistService
 from unittest.mock import patch
@@ -16,6 +17,33 @@ def atom(name: bytes, payload: bytes) -> bytes:
 
 
 class VideoContainerDurationTests(unittest.TestCase):
+    def test_timing_lookup_does_not_raise_generator_exit_under_debugger(self):
+        exits = []
+
+        def trace(frame, event, arg):
+            if event == "exception" and arg[0] is GeneratorExit:
+                exits.append(frame.f_code.co_name)
+            return trace
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "audio.m4a"
+            mvhd = atom(b"mvhd", bytes(12) + struct.pack(">II", 1000, 2250))
+            mdhd = atom(b"mdhd", bytes(12) + struct.pack(">II", 48000, 109024))
+            hdlr = atom(b"hdlr", bytes(8) + b"soun")
+            elst = atom(b"elst", struct.pack(">IIIiI", 0, 1, 2250, 1024, 65536))
+            track = atom(b"trak", atom(b"mdia", mdhd + hdlr) + atom(b"edts", elst))
+            path.write_bytes(atom(b"moov", mvhd + track) + atom(b"mdat", b""))
+            previous = sys.gettrace()
+            try:
+                sys.settrace(trace)
+                duration = mp4_container_duration(path)
+                edit = m4a_audio_edit(path)
+            finally:
+                sys.settrace(previous)
+        self.assertEqual(duration, 2.25)
+        self.assertEqual(edit, (1024 / 48000, 2.25))
+        self.assertEqual(exits, [])
+
     def test_fast_mp4_probe_reads_video_only_movie_header(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "silent-video.mp4"

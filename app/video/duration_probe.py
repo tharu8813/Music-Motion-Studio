@@ -15,31 +15,33 @@ from pathlib import Path
 _MP4_EXTENSIONS = frozenset({".mp4", ".m4v", ".mov", ".m4a"})
 
 
-def _boxes(stream, first: int, end: int):
-    """Yield validated (box name, data start, box end) with bounded iterations."""
+def _boxes(stream, first: int, end: int) -> list[tuple[bytes, int, int]]:
+    """Read a bounded list of box headers without loading their payloads."""
+    boxes = []
     cursor = first
     for _ in range(8192):
         if cursor + 8 > end:
-            return
+            break
         stream.seek(cursor)
         header = stream.read(8)
         if len(header) != 8:
-            return
+            break
         box_size, kind = struct.unpack(">I4s", header)
         data_start = cursor + 8
         if box_size == 1:
             extended = stream.read(8)
             if len(extended) != 8:
-                return
+                break
             box_size = struct.unpack(">Q", extended)[0]
             data_start += 8
         elif box_size == 0:
             box_size = end - cursor
         box_end = cursor + box_size
         if box_size < data_start - cursor or box_end > end:
-            return
-        yield kind, data_start, box_end
+            break
+        boxes.append((kind, data_start, box_end))
         cursor = box_end
+    return boxes
 
 
 def mp4_container_duration(path: Path) -> float | None:
@@ -88,11 +90,10 @@ def m4a_audio_edit(path: Path) -> tuple[float, float | None]:
     """Return the start and length of the first audio track's simple edit."""
     with path.open("rb") as stream:
         file_end = stream.seek(0, 2)
-        movie = next(((start, end) for kind, start, end in _boxes(stream, 0, file_end)
-                      if kind == b"moov"), None)
+        movie = _find_box(_boxes(stream, 0, file_end), b"moov")
         if movie is None:
             return 0.0, None
-        movie_boxes = list(_boxes(stream, *movie))
+        movie_boxes = _boxes(stream, *movie)
         for kind, start, end in movie_boxes:
             if kind != b"trak":
                 continue
@@ -104,8 +105,7 @@ def m4a_audio_edit(path: Path) -> tuple[float, float | None]:
                 continue
             if b"edts" not in track:
                 return 0.0, None
-            edit = next(((first, stop) for name, first, stop in _boxes(stream, *track[b"edts"])
-                         if name == b"elst"), None)
+            edit = _find_box(_boxes(stream, *track[b"edts"]), b"elst")
             if edit is None:
                 return 0.0, None
             payload = _box_prefix(stream, edit, 28)
@@ -122,12 +122,19 @@ def m4a_audio_edit(path: Path) -> tuple[float, float | None]:
             length, offset, speed = struct.unpack_from(">IiI" if version == 0 else ">QqI", payload, 8)
             if speed != 65536 or offset < 0:
                 raise ValueError("Unsupported M4A audio edit.")
-            movie_header = next(((first, stop) for name, first, stop in movie_boxes if name == b"mvhd"), None)
+            movie_header = _find_box(movie_boxes, b"mvhd")
             if movie_header is None or b"mdhd" not in media:
                 raise ValueError("Missing M4A time scale.")
             duration = length / _timescale(stream, movie_header)
             return offset / _timescale(stream, media[b"mdhd"]), duration or None
     return 0.0, None
+
+
+def _find_box(boxes: list[tuple[bytes, int, int]], name: bytes) -> tuple[int, int] | None:
+    for kind, start, end in boxes:
+        if kind == name:
+            return start, end
+    return None
 
 
 def _box_prefix(stream, box: tuple[int, int], count: int) -> bytes:
