@@ -188,5 +188,32 @@ class VisualPresetPreviewParityTests(unittest.TestCase):
         combo.hidePopup()
 
 
+    def test_large_sources_keep_motion_inside_thumbnail_stage(self) -> None:
+        huge_text = Source(
+            SourceType.TEXT, "Huge", width=6000, height=3000,
+            outline_color="#FFFFFF", loop_motion_period=1.5,
+            loop_motion_amount=5,
+        )
+        huge_lyrics = Source(
+            SourceType.LYRICS, "Huge Lyrics",
+            subtitle_motion_distance=200, outline_color="#FFFFFF",
+        )
+        for kind, style, source in (
+            ("loop", "orbit", huge_text),
+            ("loop", "float", huge_text),
+            ("loop", "drift", huge_text),
+            ("lyric", "slide", huge_lyrics),
+        ):
+            with self.subTest(kind=kind, style=style):
+                image = self.thumbnail(kind, style, source)
+                # The stage is dark; actual sample strokes use white ink.
+                visible_pixels = sum(
+                    image.pixelColor(x, y).lightness() > 160
+                    for y in range(7, 66)
+                    for x in range(13, 101)
+                )
+                self.assertGreater(visible_pixels, 5)
+
+
 if __name__ == "__main__":
     unittest.main()
