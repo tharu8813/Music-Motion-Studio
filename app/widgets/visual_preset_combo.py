@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 
 from app.animation.curves import animation_pose, loop_pose, music_reactive_pose
 from app.canvas.renderers.base import linear_gradient
-from app.animation.lyrics import cue_effect_pose, intro_exit_pose, stagger_progress
+from app.animation.lyrics import cue_effect_pose, intro_exit_pose, lyric_progress, stagger_progress
 from app.models.source import Source, SourceType
 from app.services.app_settings_service import preset_preview_on_hover
 from app.ui.design_system import COLORS
@@ -129,7 +129,7 @@ def _paint_lyric_thumbnail(
         current = index == 1
         row_progress = (
             stagger_progress(sample, progress, index, 0, 2)
-            if style == "cascade" else progress
+            if style == "cascade" else lyric_progress(sample, progress)
         )
         travel, factor, glow, _reveal, opacity = cue_effect_pose(
             sample, row_progress, 0.8, current=True, transitioning=style != "none",
