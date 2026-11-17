@@ -10,7 +10,7 @@ from PySide6.QtGui import QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QComboBox, QListView
 
-from app.widgets.visual_preset_combo import VisualPresetComboBox, _preview_icon
+from app.widgets.visual_preset_combo import VisualPresetComboBox, _gallery_progress, _preview_icon
 from app.models.source import Source, SourceType
 
 
@@ -260,6 +260,92 @@ class VisualPresetComboTests(unittest.TestCase):
                     image.pixelColor(x, y).alpha() > 0
                     for x, y in ((15, 15), (56, 35), (80, 50))
                 ))
+
+
+    def test_gallery_effects_have_readable_uniform_demonstration_timing(self):
+        # Enter and exit both take about 1.3 seconds to display their motion,
+        # regardless of source-configured duration.
+        self.assertAlmostEqual(_gallery_progress("entrance", .22 + 1.30 / 2), .5)
+        self.assertAlmostEqual(_gallery_progress("exit", .50 + 1.35 / 2), .5)
+        self.assertAlmostEqual(_gallery_progress("lyric", .30 + 1.45 / 2), .5)
+        self.assertEqual(_gallery_progress("exit", .30), 0.0)
+        self.assertEqual(_gallery_progress("exit", 2.10), 1.0)
+        self.assertEqual(_gallery_progress("entrance", 1.70), 1.0)
+        self.assertEqual(_gallery_progress("entrance", 2.10), 0.0)
+        self.assertEqual(_gallery_progress("entrance", -2.0), 0.0)
+
+    def test_active_gallery_speed_is_not_tied_to_saved_animation_durations(self):
+        source = Source(
+            SourceType.TEXT, "Demo", outline_color="#FFFFFF",
+            animation_in_duration=0.2, animation_out_duration=0.15,
+            loop_motion_period=0.4,
+        )
+        for kind, value, period_field, changed in (
+            ("entrance", "fade", "animation_in_duration", 9.0),
+            ("exit", "fade", "animation_out_duration", 9.0),
+            ("loop", "float", "loop_motion_period", 30.0),
+        ):
+            with self.subTest(kind=kind):
+                combo = VisualPresetComboBox(kind)
+                combo.addItem(value, value)
+                combo.set_preview_source(source)
+                combo.showPopup()
+                delegate = combo._list.itemDelegate()
+                delegate.seconds = 0.85
+                before = delegate._icon(combo, value, 1.0, True).pixmap(112, 72).toImage()
+                previous = getattr(source, period_field)
+                setattr(source, period_field, changed)
+                combo.invalidate_previews()
+                after = delegate._icon(combo, value, 1.0, True).pixmap(112, 72).toImage()
+                self.assertEqual(before, after)
+                setattr(source, period_field, previous)
+                combo.hidePopup()
+                combo.close()
+
+    def test_lyric_gallery_shows_legible_cues_and_distinct_transitions(self):
+        from app.animation.lyrics import LYRIC_EFFECT_LABELS
+
+        source = Source(
+            SourceType.LYRICS, "Lyrics",
+            outline_color="#FFFFFF", fill_color="#00000000",
+        )
+        gallery_frames = {}
+        for effect in LYRIC_EFFECT_LABELS:
+            with self.subTest(effect=effect):
+                first = _preview_icon(
+                    "lyric", effect, 0, source, demo_progress=.24
+                ).pixmap(112, 72).toImage()
+                middle = _preview_icon(
+                    "lyric", effect, 0, source, demo_progress=.65
+                ).pixmap(112, 72).toImage()
+                # Current cue is clearly visible, beyond the stage border.
+                bright = sum(
+                    first.pixelColor(x, y).lightness() > 180
+                    for y in range(24, 46) for x in range(15, 99)
+                )
+                self.assertGreater(bright, 12)
+                if effect != "none":
+                    self.assertNotEqual(first, middle)
+                gallery_frames[effect] = middle
+        for effect in ("glow", "crossfade", "zoom", "cascade", "bounce"):
+            with self.subTest(distinct_effect=effect):
+                self.assertNotEqual(gallery_frames[effect], gallery_frames["none"])
+        self.assertNotEqual(gallery_frames["rise"], gallery_frames["slide"])
+
+    def test_lyric_sample_does_not_mutate_real_lyrics_properties(self):
+        source = Source(
+            SourceType.LYRICS, "Real",
+            subtitle_motion_distance=0.0,
+            subtitle_zoom_amount=0.0,
+            subtitle_glow_strength=0.0,
+            subtitle_stagger=0.0,
+        )
+        original = source.to_dict()
+        for effect in ("glow", "slide", "zoom", "cascade"):
+            self.assertFalse(
+                _preview_icon("lyric", effect, 0, source, demo_progress=.55).isNull()
+            )
+        self.assertEqual(source.to_dict(), original)
 
 
 if __name__ == "__main__":
