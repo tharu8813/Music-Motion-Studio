@@ -153,8 +153,17 @@ class VideoSourceDialog(QDialog):
         cycle_row.addWidget(self.cycles, 1)
         cycle_row.addWidget(self.unlimited)
         self.cycle_label = QLabel("반복 횟수" if korean else "Cycles")
+        self.random_seed = QSpinBox()
+        self.random_seed.setRange(0, 999_999)
+        self.random_seed.setValue(video.random_seed)
+        self.random_seed.setToolTip(
+            "같은 값이면 영상이 같은 순서로 섞입니다. 값을 바꾸면 새로운 순서가 됩니다."
+            if korean else "The same seed repeats the same shuffle; change it for a new order."
+        )
+        self.random_seed_label = QLabel("무작위 순서 시드" if korean else "Shuffle seed")
         playback_form.addRow("재생 방식" if korean else "Playback", repeat_host)
         playback_form.addRow(self.cycle_label, self.cycle_host)
+        playback_form.addRow(self.random_seed_label, self.random_seed)
         root.addWidget(self.playback_group)
 
         self.appearance_group = QGroupBox(
@@ -215,6 +224,7 @@ class VideoSourceDialog(QDialog):
             "video_muted": True,
             "video_saturation": self.saturation.value(),
             "video_grayscale": self.grayscale.isChecked(),
+            "video_random_seed": self.random_seed.value(),
             "video_paths": paths,
             "content_path": paths[0] if paths else "",
         }
@@ -267,6 +277,9 @@ class VideoSourceDialog(QDialog):
             )
         repeat_mode = self.repeat.currentData()
         cycles_apply = repeat_mode in {"sequence", "random"}
+        random_order = repeat_mode == "random"
+        self.random_seed_label.setVisible(random_order)
+        self.random_seed.setVisible(random_order)
         self.cycle_label.setVisible(cycles_apply)
         self.cycle_host.setVisible(cycles_apply)
         self.unlimited.setEnabled(cycles_apply)
