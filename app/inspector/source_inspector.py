@@ -2103,6 +2103,10 @@ class SourceInspector(QScrollArea):
         ]
 
     def _refresh_current_selection(self) -> None:
+        # Sources are mutable: their identity stays constant while colors,
+        # motion strength and other properties change. Invalidate open tiles.
+        for combo in self.findChildren(VisualPresetComboBox):
+            combo.invalidate_previews()
         sources = self._selected_sources()
         if len(sources) > 1:
             self._fill_multi(sources)

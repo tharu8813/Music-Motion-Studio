@@ -525,6 +525,8 @@ class LyricsAnimationDialog(QDialog):
         values = self._values()
         for key, value in values.items():
             setattr(self._draft, key, value)
+        for combo in self.findChildren(VisualPresetComboBox):
+            combo.invalidate_previews()
         effective = replace(self._basic, **self.settings()).resolved_lyrics()
         label_index = 0 if self._korean else 1
         effect_name = LYRIC_EFFECT_LABELS[effective.subtitle_animation][label_index]

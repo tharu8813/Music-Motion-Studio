@@ -31,6 +31,8 @@ from app.utils.level_meter_painter import paint_level_meter
 from app.utils.particle_painter import paint_particles
 from app.utils.visualizer_paint import draw_visualizer_content
 from app.utils.mask_shapes import mask_path
+from app.utils.progress_style_paint import progress_fill_brush
+from app.utils.waveform_paint import paint_waveform
 
 
 _ANIMATED_KINDS = frozenset({
@@ -42,11 +44,40 @@ _TILE_WIDTH = 144
 _ICON_SIZE = QSize(112, 72)
 
 
+def _preview_color(kind: str, source: Source | None, accent: QColor) -> QColor:
+    """Use glyph colors for text effects, not their transparent box fill."""
+    if source is None:
+        return QColor(accent)
+    glyph_motion = kind in {"entrance", "exit", "loop", "reactive", "lyric", "intro", "intro_exit"}
+    if glyph_motion and source.source_type in {SourceType.TEXT, SourceType.TIME, SourceType.LYRICS}:
+        value = (
+            source.subtitle_accent_color
+            if source.source_type is SourceType.LYRICS and source.subtitle_accent_enabled
+            else source.outline_color
+        )
+    else:
+        value = source.fill_color
+    color = QColor(value)
+    if not color.isValid():
+        return QColor(accent)
+    if color.alphaF() < 0.2:
+        return QColor(accent)
+    if glyph_motion:
+        stage = QColor(COLORS["stage"])
+        if abs(color.lightness() - stage.lightness()) * color.alphaF() < 50:
+            return QColor(accent)
+    return color
+
+
 def _paint_motion(painter: QPainter, rect: QRectF, pose, color: QColor) -> None:
     painter.save()
     painter.setOpacity(max(0.0, min(1.0, pose.opacity)))
     painter.translate(rect.center())
-    painter.translate(pose.dx * 0.75, pose.dy * 0.75)
+    # Normalize huge source-space motion to the small thumbnail stage.
+    painter.translate(
+        max(-20.0, min(20.0, pose.dx * 0.75)),
+        max(-16.0, min(16.0, pose.dy * 0.75)),
+    )
     painter.rotate(pose.rotation)
     painter.scale(pose.scale * pose.scale_x, pose.scale)
     painter.setPen(Qt.PenStyle.NoPen)
@@ -77,10 +108,16 @@ def _preview_icon(
     accent = QColor(COLORS["accent"])
     muted = QColor(COLORS["muted"])
     key = str(value)
-    t = (seconds % 1.6) / 1.6
-    color = QColor(source.fill_color) if source is not None else accent
-    if not color.isValid():
-        color = accent
+    if kind == "entrance":
+        period = max(0.3, source.animation_in_duration if source else 1.6)
+    elif kind == "exit":
+        period = max(0.3, source.animation_out_duration if source else 1.6)
+    elif kind == "lyric":
+        period = max(0.8, source.subtitle_animation_duration if source else 1.6)
+    else:
+        period = 1.6
+    t = (seconds % period) / period
+    color = _preview_color(kind, source, accent)
 
     if kind == "lyric":
         # Lyric cue transitions do NOT use the source entrance/exit curves.
@@ -96,7 +133,7 @@ def _preview_icon(
             p.save()
             p.setOpacity(max(0.15, min(1.0, opacity)) * (1.0 if idx == 1 else .4))
             dx = 0.0
-            dy = travel * .62
+            dy = max(-16.0, min(16.0, travel * .62))
             if sample.subtitle_flow_direction in {"left", "right"}:
                 dx, dy = (dy if sample.subtitle_flow_direction == "left" else -dy), 0.0
             p.translate(56 + dx, 17 + idx * 17 + dy)
@@ -120,11 +157,13 @@ def _preview_icon(
         else:
             # Text and media can use a transparent fill. Keep the illustrative
             # sample visible against the stage while retaining legible colors.
-            stage_color = QColor(COLORS["stage"])
-            if (color.lightness() - stage_color.lightness()) * color.alphaF() < 75:
-                color = accent
             if kind == "loop":
-                pose = loop_pose(key, seconds, 1.6, 1.0, 180, 100)
+                pose = loop_pose(
+                    key, seconds,
+                    source.loop_motion_period if source else 1.6,
+                    max(1.0, source.loop_motion_amount) if source else 1.0,
+                    source.width if source else 180, source.height if source else 100,
+                )
             elif kind == "reactive":
                 pose = music_reactive_pose(key, (sin(seconds * pi * 2) + 1) / 2, .7, 34)
             else:
@@ -161,7 +200,7 @@ def _preview_icon(
             gradient.setColorAt(0, QColor(source.gradient.start_color))
             gradient.setColorAt(1, QColor(source.gradient.end_color))
             fill = gradient
-        p.setBrush(fill)
+        p.setBrush(progress_fill_brush(style, track, QBrush(fill), color))
         progress_width = track.width() * (source.progress_value if source is not None else .62)
         progress_width = max(0.0, min(track.width(), progress_width))
         p.drawRoundedRect(QRectF(track.left(), track.top(), progress_width, track.height()), radius, radius)
@@ -172,7 +211,7 @@ def _preview_icon(
                                  track.height() * .68, track.height() * .68))
         elif resolved_knob == "circle":
             radius = full.height() / 2
-            center = max(radius, min(full.width() - radius, center))
+            center = max(full.left() + radius, min(full.right() - radius, center))
             p.drawEllipse(QRectF(center - radius, full.center().y() - radius,
                                  radius * 2, radius * 2))
         elif resolved_knob == "bar":
@@ -239,19 +278,13 @@ def _preview_icon(
             show_peak=source.level_meter_show_peak if source else True,
         )
     elif kind == "waveform":
-        # The current Canvas waveform draws this same stroke for all three
-        # stored waveform_style values; don't invent a fill or mirror that the
-        # final render does not yet produce.
         rect = QRectF(9, 13, 94, 46)
-        path = QPainterPath(QPointF(rect.left(), rect.center().y()))
-        for index in range(32):
-            x = rect.left() + index * rect.width() / 31
-            level = .22 + .64 * abs(sin(index * .38 + .8))
-            y = rect.center().y() - sin(index * .72) * level * rect.height() * .36
-            path.lineTo(x, y)
-        p.setPen(QPen(color, 2))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawPath(path)
+        count = max(24, min(128, source.visualizer_bars if source else 32))
+        levels = [0.22 + 0.64 * abs(sin(index * 0.38 + 0.8)) for index in range(count)]
+        paint_waveform(
+            p, rect, levels, style=key, color=color,
+            line_width=source.visualizer_line_width if source else 2.0,
+        )
     elif kind == "particle":
         # Reuse the actual particle painter, including deterministic sample
         # placement, geometry, alpha, seeded shape and animation.
@@ -496,7 +529,13 @@ class _PresetTileDelegate(QStyledItemDelegate):
     def _icon(self, combo: VisualPresetComboBox, value: str, scale: float, active: bool) -> QIcon:
         kind, source = combo.preview_kind, combo._preview_source
         # A representative frame keeps entrance and exit cards legible at rest.
-        seconds = .8 if kind == "entrance" else .32 if kind == "exit" else .6
+        # Resting cards sample a visible phase independent of user duration.
+        if kind == "entrance":
+            seconds = max(0.3, source.animation_in_duration if source else 1.6) * 0.72
+        elif kind == "exit":
+            seconds = max(0.3, source.animation_out_duration if source else 1.6) * 0.26
+        else:
+            seconds = .6
         if active and kind in _ANIMATED_KINDS and value not in {"none", "custom"}:
             return _preview_icon(kind, value, seconds + self.seconds, source, scale=scale)
         key = (value, scale)
@@ -524,15 +563,20 @@ class VisualPresetComboBox(QComboBox):
         self._list: QListView | None = None
         self._started = 0.0
         self._timer = QTimer(self)
-        self._timer.setInterval(65)
+        # Keep multiple live thumbnail cards responsive without pegging Qt paint.
+        self._timer.setInterval(90)
         self._timer.timeout.connect(self._refresh_previews)
         self.currentIndexChanged.connect(self._update_applied_tile)
 
     def set_preview_source(self, source: Source | None) -> None:
-        """Use the active element's appearance and dismiss menus for replaced elements."""
+        """Use the selected element's appearance, even after in-place edits."""
         if source is not self._preview_source:
             self.hidePopup()
         self._preview_source = source
+        self.invalidate_previews()
+
+    def invalidate_previews(self) -> None:
+        """Discard cached icons when mutable Source appearance changes."""
         if self._list is not None:
             self._list.itemDelegate().invalidate_previews()
 
@@ -666,6 +710,22 @@ class VisualPresetComboBox(QComboBox):
         super().changeEvent(event)
         if event.type() == QEvent.Type.EnabledChange and not self.isEnabled():
             self.hidePopup()
+        elif event.type() in {
+            QEvent.Type.StyleChange, QEvent.Type.FontChange, QEvent.Type.PaletteChange,
+        }:
+            self.invalidate_previews()
+            if self._popup is not None:
+                self._layout_popup()
+
+    def moveEvent(self, event) -> None:
+        super().moveEvent(event)
+        if getattr(self, "_popup", None) is not None:
+            self._layout_popup()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if getattr(self, "_popup", None) is not None:
+            self._layout_popup()
 
     def _choose(self, index: QModelIndex) -> None:
         if (self._popup is None or not index.isValid()

@@ -8,6 +8,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter
 
 from app.canvas.renderers.base import paint_background, paint_selection_guide
+from app.utils.progress_style_paint import progress_fill_brush
 
 if TYPE_CHECKING:
     from app.canvas.source_item import SourceItem
@@ -35,7 +36,7 @@ def render(
         track_color = QColor("#1B2530")
     painter.setBrush(track_color)
     painter.drawRoundedRect(rect, radius, radius)
-    painter.setBrush(fill)
+    painter.setBrush(progress_fill_brush(style, rect, fill, QColor(item.source.fill_color)))
     progress_width = rect.width() * max(0.0, min(1.0, item.source.progress_value))
     if style == "apple":
         progress_width = rect.width() * max(0.0, min(1.0, item.source.progress_value))
