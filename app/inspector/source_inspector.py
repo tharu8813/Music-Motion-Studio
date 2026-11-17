@@ -324,6 +324,12 @@ class SourceInspector(QScrollArea):
             ("Clip", "clip"),
         ):
             self.text_overflow_combo.addItem(label, value)
+        self.time_format_combo = QComboBox()
+        for label, value in (
+            ("Automatic", "HH:mm"), ("Minutes:seconds", "mm:ss"),
+            ("Hours:minutes:seconds", "HH:mm:ss"),
+        ):
+            self.time_format_combo.addItem(label, value)
         self.image_fit_combo = QComboBox()
         for label, value in (("Cover", "cover"), ("Contain", "contain"), ("Stretch", "stretch")):
             self.image_fit_combo.addItem(label, value)
@@ -371,6 +377,7 @@ class SourceInspector(QScrollArea):
         self.visualizer.add_rows(self._add_labeled_row, content_form, VisualizerSection.EARLY_KEYS)
         self._add_labeled_row(text_form, "text_alignment", self.text_alignment_combo)
         self._add_labeled_row(text_form, "text_overflow", self.text_overflow_combo)
+        self._add_labeled_row(text_form, "time_format", self.time_format_combo)
         self._add_labeled_row(content_form, "image_fit", self.image_fit_combo)
         self._add_labeled_row(content_form, "background_mode", self.background_mode_combo)
         self._add_labeled_row(content_form, "background_ambient", self.background_ambient_check)
@@ -575,6 +582,7 @@ class SourceInspector(QScrollArea):
             *(self.visualizer.widgets[key] for key in VisualizerSection.EARLY_KEYS),
             self.x_spin, self.y_spin,
             self.text_alignment_combo, self.text_overflow_combo,
+            self.time_format_combo,
             self.image_fit_combo, self.progress_value_spin,
             self.progress_mode_combo, self.progress_knob_combo,
             *self.typography.widgets.values(), self.gradient_angle_spin,
@@ -698,6 +706,7 @@ class SourceInspector(QScrollArea):
             "progress_style": ("진행 바의 모서리와 채움 형태를 미리 정의된 디자인으로 변경합니다.", "Changes the progress bar's corners and fill treatment using a preset design."),
             "text_alignment": ("요소 영역 안에서 텍스트를 왼쪽, 가운데 또는 오른쪽으로 정렬합니다.", "Aligns text left, center, or right inside the source box."),
             "text_overflow": ("영역보다 긴 문장을 줄바꿈할지, 말줄임표로 줄일지, 영역 밖을 자를지 정합니다.", "Chooses whether long text wraps, ends with an ellipsis, or is clipped to the source box."),
+            "time_format": ("시간 토큰의 표시 형식입니다. 자동은 한 시간 미만에서 분:초, 한 시간부터 시:분:초로 바꿉니다.", "Controls the time tokens. Auto shows minutes:seconds below an hour and hours:minutes:seconds above it."),
             "image_fit": ("원본 비율을 유지하며 채우기, 전체 이미지 맞추기 또는 영역에 늘이기 중 하나를 선택합니다.", "Chooses cover, contain, or stretch behavior for the image inside its source box."),
             "background_mode": ("단색·그라데이션, 지정 이미지 또는 현재 앨범 커버를 배경으로 사용합니다.", "Uses a color/gradient, selected image, or current album artwork as the background."),
             "background_ambient": ("앨범 커버를 확대하고 흐리게 처리해 캔버스를 채우는 앰비언트 배경을 만듭니다.", "Expands and blurs album artwork to create an ambient full-Canvas background."),
@@ -1011,8 +1020,11 @@ class SourceInspector(QScrollArea):
         self._set_field_visible("video_settings", source_type is SourceType.VIDEO)
         self._set_field_visible("progress_style", source_type is SourceType.PROGRESS_BAR)
         self._set_field_visible("visualizer_style", source_type is SourceType.AUDIO_VISUALIZER)
-        self._set_field_visible("visualizer_bars", source_type is SourceType.AUDIO_VISUALIZER)
-        self._set_field_visible("visualizer_line_width", source_type is SourceType.AUDIO_VISUALIZER)
+        waveform_or_visualizer = source_type in {
+            SourceType.AUDIO_VISUALIZER, SourceType.AUDIO_WAVEFORM,
+        }
+        self._set_field_visible("visualizer_bars", waveform_or_visualizer)
+        self._set_field_visible("visualizer_line_width", waveform_or_visualizer)
         self._set_field_visible("visualizer_sensitivity", source_type is SourceType.AUDIO_VISUALIZER)
         self._set_field_visible("visualizer_reactivity", source_type is SourceType.AUDIO_VISUALIZER)
         for key in (
@@ -1025,6 +1037,7 @@ class SourceInspector(QScrollArea):
         self._set_field_visible(
             "text_overflow", source_type in {SourceType.TEXT, SourceType.TRACK_LIST}
         )
+        self._set_field_visible("time_format", source_type is SourceType.TIME)
         self._set_field_visible("image_fit", source_type in self.IMAGE_BACKED_TYPES)
         self._set_field_visible("background_mode", is_background)
         album_art_background = (
@@ -1238,6 +1251,9 @@ class SourceInspector(QScrollArea):
             lambda _index: self._update(
                 "text_overflow", self.text_overflow_combo.currentData()
             )
+        )
+        self.time_format_combo.currentIndexChanged.connect(
+            lambda _index: self._update("time_format", self.time_format_combo.currentData())
         )
         self.image_fit_combo.currentIndexChanged.connect(lambda _index: self._update("image_fit_mode", self.image_fit_combo.currentData()))
         self.background_mode_combo.currentIndexChanged.connect(self._update_background_mode)
@@ -1642,7 +1658,8 @@ class SourceInspector(QScrollArea):
             "그림자 색상 편집" if korean else "Edit shadow color",
             self,
             tracks=self._dialog_tracks(),
-            show_personal_color=all(entry.source_type in TEXT_SOURCE_TYPES for entry in self._selected_sources()),
+            # Shadow colors support artwork-based coloring for every source type.
+            show_personal_color=True,
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._commit_color_dialog(dialog, "shadow", "color")
@@ -1773,6 +1790,7 @@ class SourceInspector(QScrollArea):
             "shape": ("도형", "Shape"), "progress_style": ("진행 바 스타일", "Progress style"),
             "text_alignment": ("텍스트 정렬", "Text alignment"),
             "text_overflow": ("긴 텍스트 처리", "Long text handling"),
+            "time_format": ("시간 표시 형식", "Time display format"),
             "image_fit": ("이미지 맞춤", "Image fit"),
             "progress_value": ("진행 값", "Progress value"), "progress_track_color": ("트랙 색", "Track color"),
             "x": ("X", "X"), "y": ("Y", "Y"), "width": ("너비", "Width"),
@@ -1873,6 +1891,11 @@ class SourceInspector(QScrollArea):
         )
         for index, label in enumerate(overflow_labels):
             self.text_overflow_combo.setItemText(index, label)
+        for index, label in enumerate(
+            ("자동", "분:초", "시:분:초") if korean
+            else ("Automatic", "Minutes:seconds", "Hours:minutes:seconds")
+        ):
+            self.time_format_combo.setItemText(index, label)
         for combo in (self.animation_in_combo, self.animation_out_combo):
             for index in range(combo.count()):
                 combo.setItemText(
@@ -2213,6 +2236,7 @@ class SourceInspector(QScrollArea):
             "progress_style": self.progress_style_combo,
             "text_alignment": self.text_alignment_combo,
             "text_overflow": self.text_overflow_combo,
+            "time_format": self.time_format_combo,
             "image_fit_mode": self.image_fit_combo,
             "background_mode": self.background_mode_combo,
             "progress_mode": self.progress_mode_combo,
@@ -2319,6 +2343,9 @@ class SourceInspector(QScrollArea):
             self.text_alignment_combo.setCurrentIndex(max(0, self.text_alignment_combo.findData(source.text_alignment)))
             self.text_overflow_combo.setCurrentIndex(
                 max(0, self.text_overflow_combo.findData(source.text_overflow))
+            )
+            self.time_format_combo.setCurrentIndex(
+                max(0, self.time_format_combo.findData(source.time_format))
             )
             self.image_fit_combo.setCurrentIndex(max(0, self.image_fit_combo.findData(source.image_fit_mode)))
             self.background_mode_combo.setCurrentIndex(max(0, self.background_mode_combo.findData(source.background_mode)))

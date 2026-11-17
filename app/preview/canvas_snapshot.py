@@ -1066,6 +1066,7 @@ class CanvasSnapshot:
                     template, track, track_number, track_total,
                     global_seconds - elapsed_seconds,
                     elapsed_seconds, playlist_duration_seconds,
+                    time_format=source.time_format if source.source_type is SourceType.TIME else "HH:mm",
                 )
                 graphics_item.update()
             if source.source_type is SourceType.LYRICS:

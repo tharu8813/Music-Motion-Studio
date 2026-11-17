@@ -29,13 +29,17 @@ TEXT_TEMPLATE_TOKEN_NAMES = (
 def expand_track_template(template: str, track: PlaylistTrack, track_number: int,
                           track_total: int, start_seconds: float,
                           track_elapsed_seconds: float = 0.0,
-                          playlist_duration_seconds: float | None = None) -> str:
+                          playlist_duration_seconds: float | None = None, *,
+                          time_format: str = "HH:mm") -> str:
     """Replace track and whole-video time tokens while preserving unknown tokens."""
     video_current_seconds = max(0.0, start_seconds + track_elapsed_seconds)
     video_total_seconds = (
         max(video_current_seconds, playlist_duration_seconds)
         if playlist_duration_seconds is not None else video_current_seconds
     )
+    def clock(seconds: float) -> str:
+        return format_timestamp(seconds, time_format=time_format)
+
     values = {
         "title": track.title,
         "artist": track.artist,
@@ -45,12 +49,12 @@ def expand_track_template(template: str, track: PlaylistTrack, track_number: int
         "filename": track.filename,
         # Legacy aliases intentionally now follow the current song, which is
         # the expected meaning beside the current song's total duration.
-        "current_time": format_timestamp(track_elapsed_seconds),
-        "total_time": format_timestamp(track.duration_seconds),
-        "track_current_time": format_timestamp(track_elapsed_seconds),
-        "track_total_time": format_timestamp(track.duration_seconds),
-        "video_current_time": format_timestamp(video_current_seconds),
-        "video_total_time": format_timestamp(video_total_seconds),
+        "current_time": clock(track_elapsed_seconds),
+        "total_time": clock(track.duration_seconds),
+        "track_current_time": clock(track_elapsed_seconds),
+        "track_total_time": clock(track.duration_seconds),
+        "video_current_time": clock(video_current_seconds),
+        "video_total_time": clock(video_total_seconds),
     }
     return re.sub(
         r"%([a-z_]+)%",
@@ -95,6 +99,17 @@ def expand_placeholder_labels(template: str, korean: bool = False) -> str:
     )
 
 
-def format_timestamp(seconds: float) -> str:
-    """Format a duration as MM:SS or HH:MM:SS for display templates."""
-    return format_clock(int(seconds))
+def format_timestamp(seconds: float, *, time_format: str = "HH:mm") -> str:
+    """Render a time token using the time source\'s chosen duration format.
+
+    ``HH:mm`` is the historical default and retains automatic MM:SS / HH:MM:SS
+    formatting for existing projects and ordinary text template sources.
+    """
+    total = max(0, int(seconds))
+    if time_format == "mm:ss":
+        return format_clock(total, hours=False)
+    if time_format == "HH:mm:ss":
+        hours, remainder = divmod(total, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    return format_clock(total)

@@ -428,7 +428,7 @@ def shows_mask(source: Source) -> bool:
 TYPE_SPECIFIC_FIELD_KEYS: tuple[str, ...] = (
     "subtitle_auto_shrink", "subtitle_auto_wrap", "subtitle_wrap_to_source", "subtitle_wrap_width",
     "text", "font_size", "font_weight", "font_family",
-    "text_stroke_color", "text_stroke_width", "text_alignment", "text_overflow",
+    "text_stroke_color", "text_stroke_width", "text_alignment", "text_overflow", "time_format",
     *(key for key, _section in TypographySection.ROWS),
     *MotionSection.REACTIVE_KEYS,
     "file", "image_fit", "blur", "brightness", "contrast",

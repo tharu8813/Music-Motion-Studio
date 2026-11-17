@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 _OWN_FIELD_KEYS = (
     "text", "font_size", "font_weight", "font_family",
-    "text_stroke_color", "text_stroke_width", "text_alignment",
+    "text_stroke_color", "text_stroke_width", "text_alignment", "time_format",
 )
 
 
