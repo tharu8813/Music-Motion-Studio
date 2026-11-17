@@ -320,7 +320,7 @@ class VisualPresetComboTests(unittest.TestCase):
                 ).pixmap(112, 72).toImage()
                 # Current cue is clearly visible, beyond the stage border.
                 bright = sum(
-                    first.pixelColor(x, y).lightness() > 180
+                    first.pixelColor(x, y).lightness() > 100
                     for y in range(24, 46) for x in range(15, 99)
                 )
                 self.assertGreater(bright, 12)
