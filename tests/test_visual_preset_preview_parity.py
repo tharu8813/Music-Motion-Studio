@@ -143,5 +143,50 @@ class VisualPresetPreviewParityTests(unittest.TestCase):
             self.assertFalse(combo._timer.isActive())
 
 
+    def test_entrance_cards_remain_visible_even_when_duration_divides_old_sample_time(self) -> None:
+        source = Source(
+            SourceType.TEXT, "Fade", fill_color="#00000000",
+            outline_color="#FFFFFF", animation_in_duration=0.4,
+        )
+        combo = VisualPresetComboBox("entrance")
+        self.addCleanup(combo.close)
+        self.addCleanup(combo.deleteLater)
+        combo.addItem("Fade", "fade")
+        combo.set_preview_source(source)
+        combo.showPopup()
+        delegate = combo._list.itemDelegate()
+        for duration in (0.2, 0.4, 0.8, 1.6):
+            with self.subTest(duration=duration):
+                source.animation_in_duration = duration
+                combo.set_preview_source(source)
+                image = delegate._icon(combo, "fade", 1.0, False).pixmap(112, 72).toImage()
+                self.assertGreater(
+                    image.pixelColor(56, 27).lightness()
+                    - image.pixelColor(12, 12).lightness(), 45,
+                )
+        combo.hidePopup()
+
+    def test_inspector_source_change_refreshes_open_gallery_without_dismissal(self) -> None:
+        from app.inspector.source_inspector import SourceInspector
+        from app.services.source_store import SourceStore
+        from app.utils.i18n import Translator
+
+        store = SourceStore()
+        inspector = SourceInspector(store, Translator())
+        self.addCleanup(inspector.close)
+        self.addCleanup(inspector.deleteLater)
+        source = Source(SourceType.TEXT, "Live", outline_color="#44FF00")
+        store.add(source)
+        combo = inspector.animation_in_combo
+        combo.showPopup()
+        delegate = combo._list.itemDelegate()
+        original = delegate._icon(combo, "slide_left", 1.0, False).pixmap(112, 72).toImage()
+        store.update(source.id, outline_color="#CC33FF")
+        self.assertIsNotNone(combo._list)
+        updated = delegate._icon(combo, "slide_left", 1.0, False).pixmap(112, 72).toImage()
+        self.assertNotEqual(original, updated)
+        combo.hidePopup()
+
+
 if __name__ == "__main__":
     unittest.main()
