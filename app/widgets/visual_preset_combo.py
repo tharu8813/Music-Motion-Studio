@@ -551,15 +551,20 @@ class VisualPresetComboBox(QComboBox):
         self._list: QListView | None = None
         self._started = 0.0
         self._timer = QTimer(self)
-        self._timer.setInterval(65)
+        # Keep multiple live thumbnail cards responsive without pegging Qt paint.
+        self._timer.setInterval(90)
         self._timer.timeout.connect(self._refresh_previews)
         self.currentIndexChanged.connect(self._update_applied_tile)
 
     def set_preview_source(self, source: Source | None) -> None:
-        """Use the active element's appearance and dismiss menus for replaced elements."""
+        """Use the selected element's appearance, even after in-place edits."""
         if source is not self._preview_source:
             self.hidePopup()
         self._preview_source = source
+        self.invalidate_previews()
+
+    def invalidate_previews(self) -> None:
+        """Discard cached icons when mutable Source appearance changes."""
         if self._list is not None:
             self._list.itemDelegate().invalidate_previews()
 
@@ -693,6 +698,22 @@ class VisualPresetComboBox(QComboBox):
         super().changeEvent(event)
         if event.type() == QEvent.Type.EnabledChange and not self.isEnabled():
             self.hidePopup()
+        elif event.type() in {
+            QEvent.Type.StyleChange, QEvent.Type.FontChange, QEvent.Type.PaletteChange,
+        }:
+            self.invalidate_previews()
+            if self._popup is not None:
+                self._layout_popup()
+
+    def moveEvent(self, event) -> None:
+        super().moveEvent(event)
+        if self._popup is not None:
+            self._layout_popup()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if self._popup is not None:
+            self._layout_popup()
 
     def _choose(self, index: QModelIndex) -> None:
         if (self._popup is None or not index.isValid()
