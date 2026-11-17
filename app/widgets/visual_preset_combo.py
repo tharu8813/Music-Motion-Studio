@@ -14,7 +14,7 @@ from weakref import ref
 
 from PySide6.QtCore import QEvent, QModelIndex, QPointF, QRect, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import (
-    QBrush, QColor, QCursor, QGuiApplication, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap,
+    QBrush, QColor, QCursor, QFont, QFontMetricsF, QGuiApplication, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap,
 )
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QFrame, QListView, QStyle,
@@ -88,8 +88,97 @@ def _paint_motion(painter: QPainter, rect: QRectF, pose, color: QColor) -> None:
     painter.restore()
 
 
+def _gallery_progress(kind: str, elapsed: float) -> float:
+    """Readable, repeating demonstration time, independent of saved effect duration.
+
+    Actual animation_in/out_duration continues to control Canvas/export.
+    Holding a visible frame between cycles prevents quick exits and lets
+    users compare motion shapes without racing the popup.
+    """
+    lead, action, hold = {
+        "entrance": (0.22, 1.30, 0.58),
+        "exit": (0.50, 1.35, 0.40),
+        "lyric": (0.30, 1.45, 0.50),
+    }[kind]
+    phase = max(0.0, elapsed) % (lead + action + hold)
+    if phase <= lead:
+        return 0.0
+    return min(1.0, (phase - lead) / action)
+
+
+def _paint_lyric_thumbnail(
+    painter: QPainter, style: str, progress: float, source: Source | None, color: QColor,
+) -> None:
+    """Paint legible previous/current/next *text*, not three anonymous strokes.
+
+    Use real lyric transition poses but magnify tiny default motion within the
+    thumbnail so glow, zoom and travel are distinguishable. Only the sample
+    is modified: no Source fields are changed or persisted.
+    """
+    base = source if source is not None else Source(SourceType.LYRICS, "Lyrics")
+    sample = replace(
+        base, subtitle_animation=style,
+        subtitle_motion_distance=max(30.0, base.subtitle_motion_distance),
+        subtitle_zoom_amount=max(0.28, base.subtitle_zoom_amount),
+        subtitle_glow_strength=max(0.9, base.subtitle_glow_strength),
+        subtitle_glow_radius=max(7.0, base.subtitle_glow_radius),
+        subtitle_stagger=max(0.36, base.subtitle_stagger),
+    )
+    labels = ("LAST LINE", "SING WITH ME", "NEXT LINE")
+    for index, label in enumerate(labels):
+        current = index == 1
+        row_progress = (
+            stagger_progress(sample, progress, index, 0, 2)
+            if style == "cascade" else progress
+        )
+        travel, factor, glow, _reveal, opacity = cue_effect_pose(
+            sample, row_progress, 0.8, current=True, transitioning=style != "none",
+        )
+        if style == "cascade":
+            # Cascade delays successive cue rows; the underlying pose is
+            # static for this style, so show the ordered reveal explicitly.
+            opacity = 0.18 + 0.82 * row_progress
+            travel = 12.0 * (1.0 - row_progress)
+            factor = 0.86 + 0.14 * row_progress
+        elif not current:
+            travel, factor, glow, opacity = 0.0, 1.0, 0.0, 1.0
+
+        direction = sample.subtitle_flow_direction
+        shift = max(-14.0, min(14.0, travel * 0.70))
+        dx = (shift if direction == "left" else -shift) if direction in {"left", "right"} else 0.0
+        dy = (-shift if direction == "down" else shift) if direction not in {"left", "right"} else 0.0
+        alpha = (1.0 if current else 0.40) * max(0.06, min(1.0, opacity))
+        font = QFont("Segoe UI")
+        font.setPixelSize(11 if current else 9)
+        font.setBold(current)
+
+        painter.save()
+        painter.setOpacity(alpha)
+        painter.translate(56.0 + dx, (35.0 if current else 14.0 if index == 0 else 56.0) + dy)
+        painter.scale(factor, factor)
+        painter.setFont(font)
+        bounds = QRectF(-48, -10, 96, 20)
+        alignment = Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextSingleLine
+        if current and style == "glow":
+            metrics = QFontMetricsF(font)
+            text_path = QPainterPath()
+            text_path.addText(
+                QPointF(-metrics.horizontalAdvance(label) / 2.0, metrics.ascent() * 0.40),
+                font, label,
+            )
+            halo = QColor(color)
+            halo.setAlphaF(min(0.70, 0.17 + glow * 0.36))
+            painter.setPen(QPen(halo, 6.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(text_path)
+        painter.setPen(QPen(color if current else QColor(COLORS["muted"])))
+        painter.drawText(bounds, alignment, label)
+        painter.restore()
+
+
 def _preview_icon(
-    kind: str, value: object, seconds: float, source: Source | None = None, *, scale: float = 1.0,
+    kind: str, value: object, seconds: float, source: Source | None = None, *,
+    scale: float = 1.0, demo_progress: float | None = None, demo_loop_period: float | None = None,
 ) -> QIcon:
     """Render at the display scale while keeping the sample coordinates in logical pixels."""
     pix = QPixmap(ceil(_ICON_SIZE.width() * scale), ceil(_ICON_SIZE.height() * scale))
@@ -116,36 +205,11 @@ def _preview_icon(
         period = max(0.8, source.subtitle_animation_duration if source else 1.6)
     else:
         period = 1.6
-    t = (seconds % period) / period
+    t = demo_progress if demo_progress is not None else (seconds % period) / period
     color = _preview_color(kind, source, accent)
 
     if kind == "lyric":
-        # Lyric cue transitions do NOT use the source entrance/exit curves.
-        # These are the exact tuple values consumed by the Canvas lyric painter.
-        sample = replace(source, subtitle_animation=key) if source is not None else (
-            Source(SourceType.LYRICS, "Preview", subtitle_animation=key)
-        )
-        for idx in range(3):
-            phase = stagger_progress(sample, t, idx, 0, 2) if key == "cascade" else t
-            travel, scale, glow, _reveal, opacity = cue_effect_pose(
-                sample, phase, 0.55, current=True, transitioning=key != "none"
-            )
-            p.save()
-            p.setOpacity(max(0.15, min(1.0, opacity)) * (1.0 if idx == 1 else .4))
-            dx = 0.0
-            dy = max(-16.0, min(16.0, travel * .62))
-            if sample.subtitle_flow_direction in {"left", "right"}:
-                dx, dy = (dy if sample.subtitle_flow_direction == "left" else -dy), 0.0
-            p.translate(56 + dx, 17 + idx * 17 + dy)
-            p.scale(scale, scale)
-            p.setPen(QPen(color, 3 if idx == 1 else 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-            p.drawLine(-25, 0, 23 if idx == 1 else 12, 0)
-            if key == "glow" and idx == 1:
-                halo = QColor(color)
-                halo.setAlphaF(min(.45, max(0, glow * .5)))
-                p.setPen(QPen(halo, 8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-                p.drawLine(-25, 0, 23, 0)
-            p.restore()
+        _paint_lyric_thumbnail(p, key, t, source, color)
     elif kind in {"entrance", "exit", "loop", "reactive"}:
         if key == "custom":
             p.setPen(QPen(accent, 2))
@@ -160,7 +224,9 @@ def _preview_icon(
             if kind == "loop":
                 pose = loop_pose(
                     key, seconds,
-                    source.loop_motion_period if source else 1.6,
+                    demo_loop_period if demo_loop_period is not None else (
+                        source.loop_motion_period if source else 1.6
+                    ),
                     max(1.0, source.loop_motion_amount) if source else 1.0,
                     source.width if source else 180, source.height if source else 100,
                 )
@@ -537,6 +603,16 @@ class _PresetTileDelegate(QStyledItemDelegate):
         else:
             seconds = .6
         if active and kind in _ANIMATED_KINDS and value not in {"none", "custom"}:
+            if kind in {"entrance", "exit", "lyric"}:
+                return _preview_icon(
+                    kind, value, 0.0, source, scale=scale,
+                    demo_progress=_gallery_progress(kind, self.seconds),
+                )
+            if kind == "loop":
+                return _preview_icon(
+                    kind, value, self.seconds, source, scale=scale,
+                    demo_loop_period=1.45,
+                )
             return _preview_icon(kind, value, seconds + self.seconds, source, scale=scale)
         key = (value, scale)
         if key not in self._still_icons:
@@ -563,8 +639,8 @@ class VisualPresetComboBox(QComboBox):
         self._list: QListView | None = None
         self._started = 0.0
         self._timer = QTimer(self)
-        # Keep multiple live thumbnail cards responsive without pegging Qt paint.
-        self._timer.setInterval(90)
+        # Fluid motion without running full Canvas renders for every tile.
+        self._timer.setInterval(70)
         self._timer.timeout.connect(self._refresh_previews)
         self.currentIndexChanged.connect(self._update_applied_tile)
 
