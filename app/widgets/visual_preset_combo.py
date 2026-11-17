@@ -73,7 +73,11 @@ def _paint_motion(painter: QPainter, rect: QRectF, pose, color: QColor) -> None:
     painter.save()
     painter.setOpacity(max(0.0, min(1.0, pose.opacity)))
     painter.translate(rect.center())
-    painter.translate(pose.dx * 0.75, pose.dy * 0.75)
+    # Normalize huge source-space motion to the small thumbnail stage.
+    painter.translate(
+        max(-20.0, min(20.0, pose.dx * 0.75)),
+        max(-16.0, min(16.0, pose.dy * 0.75)),
+    )
     painter.rotate(pose.rotation)
     painter.scale(pose.scale * pose.scale_x, pose.scale)
     painter.setPen(Qt.PenStyle.NoPen)
@@ -129,7 +133,7 @@ def _preview_icon(
             p.save()
             p.setOpacity(max(0.15, min(1.0, opacity)) * (1.0 if idx == 1 else .4))
             dx = 0.0
-            dy = travel * .62
+            dy = max(-16.0, min(16.0, travel * .62))
             if sample.subtitle_flow_direction in {"left", "right"}:
                 dx, dy = (dy if sample.subtitle_flow_direction == "left" else -dy), 0.0
             p.translate(56 + dx, 17 + idx * 17 + dy)
