@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 from app.animation.curves import animation_pose, loop_pose, music_reactive_pose
 from app.canvas.renderers.base import linear_gradient
 from app.animation.lyrics import cue_effect_pose, intro_exit_pose, stagger_progress
-from app.models.source import Source, SourceType, TEXT_SOURCE_TYPES
+from app.models.source import Source, SourceType
 from app.services.app_settings_service import preset_preview_on_hover
 from app.ui.design_system import COLORS
 from app.utils.level_meter_painter import paint_level_meter
@@ -49,7 +49,7 @@ def _preview_color(kind: str, source: Source | None, accent: QColor) -> QColor:
     if source is None:
         return QColor(accent)
     glyph_motion = kind in {"entrance", "exit", "loop", "reactive", "lyric", "intro", "intro_exit"}
-    if glyph_motion and source.source_type in TEXT_SOURCE_TYPES:
+    if glyph_motion and source.source_type in {SourceType.TEXT, SourceType.TIME, SourceType.LYRICS}:
         value = (
             source.subtitle_accent_color
             if source.source_type is SourceType.LYRICS and source.subtitle_accent_enabled
@@ -60,9 +60,11 @@ def _preview_color(kind: str, source: Source | None, accent: QColor) -> QColor:
     color = QColor(value)
     if not color.isValid():
         return QColor(accent)
+    if color.alphaF() < 0.2:
+        return QColor(accent)
     if glyph_motion:
         stage = QColor(COLORS["stage"])
-        if color.alphaF() < 0.2 or abs(color.lightness() - stage.lightness()) * color.alphaF() < 50:
+        if abs(color.lightness() - stage.lightness()) * color.alphaF() < 50:
             return QColor(accent)
     return color
 
@@ -523,7 +525,13 @@ class _PresetTileDelegate(QStyledItemDelegate):
     def _icon(self, combo: VisualPresetComboBox, value: str, scale: float, active: bool) -> QIcon:
         kind, source = combo.preview_kind, combo._preview_source
         # A representative frame keeps entrance and exit cards legible at rest.
-        seconds = .8 if kind == "entrance" else .32 if kind == "exit" else .6
+        # Resting cards sample a visible phase independent of user duration.
+        if kind == "entrance":
+            seconds = max(0.3, source.animation_in_duration if source else 1.6) * 0.72
+        elif kind == "exit":
+            seconds = max(0.3, source.animation_out_duration if source else 1.6) * 0.26
+        else:
+            seconds = .6
         if active and kind in _ANIMATED_KINDS and value not in {"none", "custom"}:
             return _preview_icon(kind, value, seconds + self.seconds, source, scale=scale)
         key = (value, scale)
@@ -707,12 +715,12 @@ class VisualPresetComboBox(QComboBox):
 
     def moveEvent(self, event) -> None:
         super().moveEvent(event)
-        if self._popup is not None:
+        if getattr(self, "_popup", None) is not None:
             self._layout_popup()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        if self._popup is not None:
+        if getattr(self, "_popup", None) is not None:
             self._layout_popup()
 
     def _choose(self, index: QModelIndex) -> None:
