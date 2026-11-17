@@ -26,6 +26,7 @@ from app.utils.mask_shapes import mask_path
 from app.utils.source_decoration import mirror_content, paint_frame
 from app.utils.particle_painter import paint_particles
 from app.utils.visualizer_paint import draw_visualizer_content
+from app.utils.waveform_paint import paint_waveform
 from app.utils.subprocess_utils import hidden_process_kwargs
 from app.renderer.canvas_pipe import CanvasPipeError, PipedCanvasStream, piped_export_supported
 from app.renderer.native_export import analyze_pcm_windows, reduce_frequency_bands
@@ -1019,23 +1020,10 @@ class PythonVisualizerRenderer:
         if mask_shape != "none":
             painter.setClipPath(mask_path(rect, mask_shape))
         if kind == "waveform":
-            path = QPainterPath(QPointF(rect.left(), rect.center().y()))
-            for index, level in enumerate(levels):
-                x = rect.left() + index * rect.width() / max(1, count - 1)
-                amplitude = float(level) * rect.height() * 0.45
-                if effect_style == "filled":
-                    y = rect.center().y() - amplitude
-                else:
-                    y = rect.center().y() - amplitude
-                path.lineTo(x, y)
-            if effect_style == "filled":
-                path.lineTo(rect.right(), rect.bottom())
-                path.lineTo(rect.left(), rect.bottom())
-                path.closeSubpath()
-                fill = QColor(color)
-                fill.setAlpha(max(32, color.alpha() // 2))
-                painter.fillPath(path, fill)
-            painter.drawPath(path)
+            paint_waveform(
+                painter, rect, levels, style=effect_style,
+                color=color, line_width=line_width,
+            )
         elif kind == "level_meter":
             meter_values = channel_values or (
                 (float(np.percentile(levels, 80)),)
