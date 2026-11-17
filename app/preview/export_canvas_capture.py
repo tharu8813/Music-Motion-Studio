@@ -241,6 +241,7 @@ class ExportCanvasCapturer:
                     global_seconds - sample.elapsed_seconds,
                     sample.elapsed_seconds,
                     self.playlist_duration,
+                    time_format=source.time_format if source.source_type is SourceType.TIME else "HH:mm",
                 ),
             )
         elif source.source_type is SourceType.LYRICS:
