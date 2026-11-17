@@ -1020,8 +1020,11 @@ class SourceInspector(QScrollArea):
         self._set_field_visible("video_settings", source_type is SourceType.VIDEO)
         self._set_field_visible("progress_style", source_type is SourceType.PROGRESS_BAR)
         self._set_field_visible("visualizer_style", source_type is SourceType.AUDIO_VISUALIZER)
-        self._set_field_visible("visualizer_bars", source_type is SourceType.AUDIO_VISUALIZER)
-        self._set_field_visible("visualizer_line_width", source_type is SourceType.AUDIO_VISUALIZER)
+        waveform_or_visualizer = source_type in {
+            SourceType.AUDIO_VISUALIZER, SourceType.AUDIO_WAVEFORM,
+        }
+        self._set_field_visible("visualizer_bars", waveform_or_visualizer)
+        self._set_field_visible("visualizer_line_width", waveform_or_visualizer)
         self._set_field_visible("visualizer_sensitivity", source_type is SourceType.AUDIO_VISUALIZER)
         self._set_field_visible("visualizer_reactivity", source_type is SourceType.AUDIO_VISUALIZER)
         for key in (
