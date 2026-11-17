@@ -1655,7 +1655,8 @@ class SourceInspector(QScrollArea):
             "그림자 색상 편집" if korean else "Edit shadow color",
             self,
             tracks=self._dialog_tracks(),
-            show_personal_color=all(entry.source_type in TEXT_SOURCE_TYPES for entry in self._selected_sources()),
+            # Shadow colors support artwork-based coloring for every source type.
+            show_personal_color=True,
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._commit_color_dialog(dialog, "shadow", "color")
