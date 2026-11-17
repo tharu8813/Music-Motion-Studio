@@ -234,7 +234,7 @@ class VisualPresetComboTests(unittest.TestCase):
             combo = self.make_combo(kind)
             for fill in ("#00000000", "#151718", "#44FF00"):
                 with self.subTest(kind=kind, preset=preset, fill=fill):
-                    combo.set_preview_source(Source(SourceType.TEXT, "Sample", fill_color=fill))
+                    combo.set_preview_source(Source(SourceType.TEXT, "Sample", fill_color=fill, outline_color=fill))
                     combo.showPopup()
                     delegate = combo._list.itemDelegate()
                     image = delegate._icon(combo, preset, 1.0, False).pixmap(112, 72).toImage()
