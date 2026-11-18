@@ -1566,6 +1566,31 @@ class SourceItem(QGraphicsObject):
             elif style == "queue" and is_current:
                 accent = QColor(source.track_list_current_background)
                 painter.fillRect(QRectF(row.left(), row.top(), 4.0, row.height()), accent)
+            elif style == "spotlight" and is_current:
+                accent = QColor(source.track_list_current_background)
+                accent.setAlpha(max(140, accent.alpha()))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(accent)
+                painter.drawRoundedRect(row, min(9.0, row.height() / 3.0),
+                                        min(9.0, row.height() / 3.0))
+                painter.fillRect(
+                    QRectF(row.left(), row.top(), max(3.0, row.width() * 0.014), row.height()),
+                    QColor(source.track_list_current_color),
+                )
+            elif style == "outline" and is_current:
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.setPen(QPen(QColor(source.track_list_current_color), 2.0))
+                painter.drawRoundedRect(row, min(8.0, row.height() / 3.0),
+                                        min(8.0, row.height() / 3.0))
+            elif style == "stripes":
+                stripe = QColor(
+                    source.track_list_current_background if is_current
+                    else source.track_list_inactive_color
+                )
+                stripe.setAlpha(145 if is_current else (36 if index % 2 == 0 else 16))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(stripe)
+                painter.drawRoundedRect(row, 2.0, 2.0)
 
             if source.track_list_show_dividers and index < len(lines) - 1:
                 divider = QColor(source.track_list_inactive_color)
@@ -1592,7 +1617,7 @@ class SourceItem(QGraphicsObject):
                     opacity *= max(0.2, 1.0 - distance * 0.22)
                 color.setAlphaF(opacity)
             painter.setPen(color)
-            text_rect = row.adjusted(10 if style in {"cards", "glass", "pills", "queue"} else 2,
+            text_rect = row.adjusted(10 if style in {"cards", "glass", "pills", "queue", "spotlight", "outline", "stripes"} else 2,
                                      0, -8, 0)
             line = raw_line.lstrip()
             if line.startswith(("▶", "●", "▌")):
