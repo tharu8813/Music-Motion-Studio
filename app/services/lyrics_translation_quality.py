@@ -15,6 +15,8 @@ _WORDS = re.compile(r"[A-Za-z]+(?:['’][A-Za-z]+)?")
 _KOREAN = re.compile(r"[\uac00-\ud7a3]")
 _JAPANESE_KANA = re.compile(r"[\u3040-\u30ff]")
 _DOTTED_INITIALISM = re.compile(r"(?:[A-Za-z]\.\s*){2,}[A-Za-z][!?.,\s]*$")
+# Narrow whitelist of conventional initialisms, not arbitrary capitalized lyrics.
+_CONVENTIONAL_ACRONYMS = frozenset({"NASA", "BTS", "USA", "UN", "UNESCO", "CPU", "GPU", "AI", "DJ"})
 _ENGLISH_CLUES = frozenset((
     "a", "an", "and", "are", "as", "at", "be", "been", "but", "can",
     "come", "did", "do", "does", "for", "from", "have", "has", "had",
@@ -86,7 +88,8 @@ def confidently_unneeded(source: str, source_language: str, target_language: str
     if (source_language.casefold() != "auto"
             and source_language.casefold() == target_language.casefold()):
         return True
-    if not any(char.isalpha() for char in text) or _DOTTED_INITIALISM.fullmatch(text):
+    if (not any(char.isalpha() for char in text) or _DOTTED_INITIALISM.fullmatch(text)
+            or text.strip(" .,!?:;") in _CONVENTIONAL_ACRONYMS):
         return True
     target = target_language.casefold().split("-")[0]
     if target == "ko" and _KOREAN.search(text):
