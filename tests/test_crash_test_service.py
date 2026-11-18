@@ -84,7 +84,6 @@ class CrashTestServiceTests(unittest.TestCase):
             with patch("app.utils.crash_test_service.report_unexpected_error"):
                 run_crash_test("caught_exception")
                 run_crash_test("repeated_exception")
-                run_crash_test("main_exception") if False else None
         abort.assert_not_called()
 
 
