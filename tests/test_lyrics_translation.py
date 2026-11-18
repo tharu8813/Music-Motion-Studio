@@ -135,6 +135,8 @@ class TranslationServiceTests(unittest.TestCase):
                         return {"stop_reason": "end_turn", "content": [{"type": "text", "text": raw}]}
                     if provider == "gemini":
                         return {"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": raw}]}}]}
+                    if provider == "ollama":
+                        return {"done": True, "done_reason": "stop", "message": {"content": raw}}
                     return {"choices": [{"finish_reason": "stop", "message": {"content": raw}}]}
                 config = replace(self.config, provider=provider, model="chosen-model", endpoint="http://localhost:1234/v1")
                 self.assertEqual(LyricsTranslationService(transport).translate(
@@ -152,13 +154,14 @@ class TranslationServiceTests(unittest.TestCase):
         requests = []
         def transport(url, body=None, headers=None, **kwargs):
             requests.append(body)
-            return {"choices": [{"finish_reason": "stop", "message": {"content": raw}}]}
+            return {"done": True, "done_reason": "stop", "message": {"content": raw}}
         events = []
         config = TranslationConfig("ollama", model="qwen2.5-coder:7b",
                                    endpoint="http://localhost:11434/v1")
         with self.assertRaisesRegex(TranslationError, "Missing translations"):
             LyricsTranslationService(transport).translate(self.cues, config, activity=events.append)
-        self.assertEqual(requests[0]["response_format"], {"type": "json_object"})
+        self.assertEqual(requests[0]["format"], "json")
+        self.assertIs(requests[0]["think"], False)
         self.assertTrue(any(e.get("stage") == "complete" and e["row"] == 0
                             and e["text"] == "안녕\n세상" for e in events))
         self.assertTrue(any(e.get("stage") == "failure" and e["rows"] == [1] for e in events))
@@ -170,8 +173,10 @@ class TranslationServiceTests(unittest.TestCase):
         timeouts = []
         def transport(url, body=None, headers=None, **kwargs):
             timeouts.append(kwargs.get("timeout"))
-            return {"choices": [{"finish_reason": "stop", "message": {"content":
-                json.dumps({"translations": [{"id": 0, "text": "안녕"}]})}}]}
+            raw = json.dumps({"translations": [{"id": 0, "text": "안녕"}]})
+            if url.endswith("/api/chat"):
+                return {"done": True, "done_reason": "stop", "message": {"content": raw}}
+            return {"choices": [{"finish_reason": "stop", "message": {"content": raw}}]}
         cues = [{"text": "Hello"}]
         for provider, expected in (("ollama", LOCAL_LLM_TRANSLATION_TIMEOUT),
                                    ("lmstudio", LOCAL_LLM_TRANSLATION_TIMEOUT),
@@ -220,7 +225,7 @@ class TranslationServiceTests(unittest.TestCase):
     def test_local_llm_shows_exact_json_error_location(self):
         raw = '{"translations": ['
         def transport(url, body=None, headers=None, **kwargs):
-            return {"choices": [{"finish_reason": "stop", "message": {"content": raw}}]}
+            return {"done": True, "done_reason": "stop", "message": {"content": raw}}
         events = []
         config = TranslationConfig("ollama", model="qwen2.5-coder:7b",
                                    endpoint="http://localhost:11434/v1")
