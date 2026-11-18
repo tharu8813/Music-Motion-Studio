@@ -220,7 +220,14 @@ def paint_generic_fallback(item: "SourceItem", painter: QPainter, rect: QRectF) 
             )
         painter.restore()
     else:
+        # Qt's drawText may clip its own glyph fill, but the separate glyph
+        # outline and blurred shadow are painted without that implicit clip.
+        # Match the explicit clip used by single-line/ellipsis text so wrapped
+        # lines cannot bleed beyond the source's text box.
+        painter.save()
+        painter.setClipRect(text_rect, Qt.ClipOperation.IntersectClip)
         item._draw_text(painter, text_rect, flags | Qt.TextFlag.TextWordWrap, text)
+        painter.restore()
 
 
 def paint_selection_guide(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
