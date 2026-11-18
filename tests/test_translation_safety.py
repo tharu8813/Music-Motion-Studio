@@ -320,29 +320,37 @@ class ModelPublicationSafetyTests(unittest.TestCase):
             ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
         kernel.CreateFileW.restype = wintypes.HANDLE
         kernel.CloseHandle.argtypes = [wintypes.HANDLE]
-        handle, timer, errors = None, None, []
+        handle, errors = None, []
         original = Path.rename
         def rename(source, target):
+            nonlocal handle
             try:
                 return original(source, target)
             except PermissionError as error:
                 errors.append(error.winerror)
+                # Release the directory handle only after the actual rename
+                # denial. Fixed-duration timers race with slow Windows runners.
+                if handle is not None:
+                    kernel.CloseHandle(handle)
+                    handle = None
                 raise
         def progress(value, total):
-            nonlocal handle, timer
+            nonlocal handle
             if value == total:
-                path = next(self.models.root.glob(".install-*/en_ko/model/model.bin"))
-                handle = kernel.CreateFileW(str(path), 0x80000000, 3, None, 3, 0, None)
+                # The installer renames en_ko itself, not model.bin. Lock the
+                # directory being renamed with DELETE sharing disabled.
+                path = next(self.models.root.glob(".install-*/en_ko"))
+                handle = kernel.CreateFileW(
+                    str(path), 0x80, 0x1 | 0x2, None, 3, 0x02000000, None)
                 if handle == ctypes.c_void_p(-1).value:
+                    handle = None
                     raise ctypes.WinError(ctypes.get_last_error())
-                timer = Timer(.2, lambda: kernel.CloseHandle(handle))
-                timer.start()
         try:
             with patch.object(Path, "rename", rename):
                 model = self.models.install(self.archive, progress=progress)
         finally:
-            if timer:
-                timer.join(2)
+            if handle is not None:
+                kernel.CloseHandle(handle)
         self.assertTrue(any(code in {5, 32, 33} for code in errors))
         self.assertTrue(model.directory.is_dir())
         self.assertFalse(list(self.models.root.glob(".install-*")))
