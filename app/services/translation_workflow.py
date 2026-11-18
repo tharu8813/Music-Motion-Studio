@@ -23,7 +23,6 @@ class TranslationWorkflow(QObject):
         self._rows, self._snapshot = [], None
         self._received, self._failed_rows, self.diagnostics = {}, {}, []
         self._current_config = None
-        self._connection_request = None
         self.status = ""
 
     def tr_text(self, ko, en):
@@ -96,10 +95,6 @@ class TranslationWorkflow(QObject):
         self.review._commit_editor()
         self.review.capture_draft()
         self.operation = operation
-        # Bind discovery results to the exact provider/endpoint/credential used
-        # when the request began, rather than whichever settings are visible later.
-        self._connection_request = ((self.services._provider, self.services.connection_signature())
-                                    if operation in {"models", "connection", "local_llm_models"} else None)
         self._snapshot = deepcopy(self.draft.rows) if operation == "translate" else None
         if operation == "translate" and not self._rows:
             self._rows = sorted(self.review._editable_rows)
@@ -156,18 +151,10 @@ class TranslationWorkflow(QObject):
     def _finished(self):
         worker, self.worker = self.worker, None
         review, services = self.review, self.services
-        request = self._connection_request
-        self._connection_request = None
-        request_is_current = (request is None or
-                              request == (services._provider, services.connection_signature()))
-        if not request_is_current:
-            worker.error = self.tr_text(
-                "연결 설정이 변경되어 이전 조회 결과를 무시했습니다. 다시 확인하세요.",
-                "Connection settings changed; discarded an outdated result. Retry the check.")
         review._set_review_busy(False)
         services._settings_panel.setEnabled(True)
         save_error = ""
-        if self.operation in {"models", "connection", "local_llm_models"} and worker.error and request_is_current:
+        if self.operation in {"models", "connection", "local_llm_models"} and worker.error:
             services.record_connection(False)
         if worker.error or worker.cancel.is_set():
             if self._snapshot is not None:
@@ -271,12 +258,8 @@ class TranslationWorkflow(QObject):
             self.set_status(self.status + "\n" + save_error)
         review._update_selection()
         worker.deleteLater()
-        completed = (self.operation == "translate" and not worker.error
-                     and not worker.cancel.is_set() and worker.value is not None)
-        # Discard any late activity events from the finished worker.
-        self.operation = ""
         self.busy_changed.emit(False)
-        if completed:
+        if self.operation == "translate" and not worker.error and not worker.cancel.is_set() and worker.value is not None:
             self.completed.emit()
 
     def _save_draft(self):

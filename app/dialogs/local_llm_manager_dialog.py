@@ -29,8 +29,6 @@ class LocalLLMManagerDialog(QDialog):
         self._download_speed = None
         self._updating_models = False
         self._discovered = False
-        # Timestamp of the latest successful server model listing, not dialog close.
-        self.models_verified_at = None
         install_help_shortcut(self, ("lyrics_editor", "lyrics_translation"), translator=translator)
         self.setWindowTitle(self.tr_text("로컬 LLM 관리자", "Local LLM manager"))
         self.resize(1000, 760)
@@ -494,9 +492,6 @@ class LocalLLMManagerDialog(QDialog):
     def _start(self, operation, work):
         if self.worker:
             return
-        # A pending refresh or model mutation invalidates older success evidence.
-        if operation != "details":
-            self.models_verified_at = None
         self.operation = operation
         self._download_sample = None
         self._download_speed = None
@@ -549,7 +544,6 @@ class LocalLLMManagerDialog(QDialog):
             self.tabs.setCurrentIndex(2)
             self.status.setText(self.tr_text("서버가 제공한 모델 정보입니다.", "Model information returned by the local server."))
         else:
-            self.models_verified_at = monotonic()
             first_discovery = not self._discovered
             self._discovered = True
             previous = self._selected()

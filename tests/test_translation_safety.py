@@ -7,7 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
-from threading import Barrier, Event, Timer
+from threading import Barrier, Event
 import time
 import unittest
 from unittest.mock import Mock, patch
@@ -320,30 +320,47 @@ class ModelPublicationSafetyTests(unittest.TestCase):
             ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
         kernel.CreateFileW.restype = wintypes.HANDLE
         kernel.CloseHandle.argtypes = [wintypes.HANDLE]
-        handle, timer, errors = None, None, []
+        handle, attempts, injected = None, 0, []
         original = Path.rename
+
         def rename(source, target):
-            try:
-                return original(source, target)
-            except PermissionError as error:
-                errors.append(error.winerror)
-                raise
+            nonlocal handle, attempts
+            # Windows runners do not consistently deny renaming a directory
+            # merely because a child (or the directory) has an open handle.
+            # Inject one real-shaped sharing violation at the exact atomic
+            # publication boundary, then verify the installer retries it.
+            if source.name == "en_ko" and source.parent.name.startswith(".install-"):
+                attempts += 1
+                if attempts == 1:
+                    self.assertIsNotNone(handle, "Native directory handle was not opened")
+                    error = PermissionError("Windows sharing violation during model publication")
+                    error.winerror = 32  # ERROR_SHARING_VIOLATION
+                    injected.append(error.winerror)
+                    kernel.CloseHandle(handle)
+                    handle = None
+                    raise error
+            return original(source, target)
+
         def progress(value, total):
-            nonlocal handle, timer
+            nonlocal handle
             if value == total:
-                path = next(self.models.root.glob(".install-*/en_ko/model/model.bin"))
-                handle = kernel.CreateFileW(str(path), 0x80000000, 3, None, 3, 0, None)
+                # Open the exact directory that the installer will rename. The
+                # injected failure, rather than OS timing, verifies recovery.
+                path = next(self.models.root.glob(".install-*/en_ko"))
+                handle = kernel.CreateFileW(
+                    str(path), 0x80, 0x1 | 0x2, None, 3, 0x02000000, None)
                 if handle == ctypes.c_void_p(-1).value:
+                    handle = None
                     raise ctypes.WinError(ctypes.get_last_error())
-                timer = Timer(.2, lambda: kernel.CloseHandle(handle))
-                timer.start()
+
         try:
             with patch.object(Path, "rename", rename):
                 model = self.models.install(self.archive, progress=progress)
         finally:
-            if timer:
-                timer.join(2)
-        self.assertTrue(any(code in {5, 32, 33} for code in errors))
+            if handle is not None:
+                kernel.CloseHandle(handle)
+        self.assertEqual(injected, [32])
+        self.assertGreaterEqual(attempts, 2, "Model publication must retry after a sharing violation")
         self.assertTrue(model.directory.is_dir())
         self.assertFalse(list(self.models.root.glob(".install-*")))
 
