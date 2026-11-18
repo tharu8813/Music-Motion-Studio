@@ -137,7 +137,8 @@ def _paint_lyric_thumbnail(
         if style == "cascade":
             # Cascade delays successive cue rows; the underlying pose is
             # static for this style, so show the ordered reveal explicitly.
-            opacity = 0.18 + 0.82 * row_progress
+            # Retain a visible cue while the remaining rows stagger in.
+            opacity = (0.42 if current else 0.28) + (0.58 if current else 0.72) * row_progress
             travel = 12.0 * (1.0 - row_progress)
             factor = 0.86 + 0.14 * row_progress
         elif not current:
