@@ -138,12 +138,13 @@ class LocalLLMManagerDialog(QDialog):
         installed_management.addStretch()
         installed_layout.addLayout(installed_management)
         download_layout.addWidget(QLabel(self.tr_text(
-            "모델 찾기 · 실제 가사 품질 순위가 아니며 코딩 모델도 번역 정확도를 보장하지 않습니다.",
-            "Find models · not a lyric-quality ranking; coding models do not guarantee translation accuracy.")))
+            "가사 번역에 적합한 다국어 모델을 우선 보여줍니다. 아래에서 선택하고 바로 설치할 수 있습니다. 실제 품질과 성능은 가사·PC 환경에 따라 다릅니다.",
+            "Multilingual models suited to lyrics are shown first. Select one to download directly; actual quality and speed depend on your lyrics and hardware.")))
         catalog_filters = QHBoxLayout()
         self.catalog_search = QLineEdit()
         self.catalog_search.setPlaceholderText(self.tr_text("모델 이름·특징 검색", "Search model names or features"))
         self.catalog_category = QComboBox()
+        self.catalog_category.addItem(self.tr_text("가사 번역 추천", "Recommended for lyrics"), "lyrics")
         self.catalog_category.addItem(self.tr_text("모든 종류", "All types"), "all")
         self.catalog_category.addItem(self.tr_text("코딩 · JSON", "Coding · JSON"), "coder")
         self.catalog_category.addItem(self.tr_text("다국어 · 번역", "Multilingual · translation"), "multilingual")
@@ -159,11 +160,17 @@ class LocalLLMManagerDialog(QDialog):
         self.recommended = QListWidget()
         self.recommended.setMinimumHeight(170)
         self.recommended.setAccessibleName(self.tr_text("추천 다운로드 모델 목록", "Recommended model catalog"))
-        for guide in MODEL_GUIDES:
+        # Translation-first ordering is a suitability shortlist, not an
+        # unverified quality benchmark. All existing coding models remain in
+        # the catalog under their own filter.
+        guides = sorted(MODEL_GUIDES, key=lambda g: (g.get("lyric_rank", 999), MODEL_GUIDES.index(g)))
+        for guide in guides:
             if self.service.provider == "lmstudio" and not guide.get("lmstudio"):
                 continue
             title = guide["ko" if translator.is_korean else "en"][0]
-            kind = self.tr_text("코딩", "Coding") if guide["focus"] == "coder" else self.tr_text("다국어", "Multilingual")
+            kind = (self.tr_text("가사 번역", "Lyrics") if guide.get("lyric_rank") else
+                    self.tr_text("코딩", "Coding") if guide["focus"] == "coder" else
+                    self.tr_text("다국어", "Multilingual"))
             item = QListWidgetItem(f"{title} · {guide['size']} · {kind}")
             item.setData(Qt.ItemDataRole.UserRole, guide)
             self.recommended.addItem(item)
@@ -183,8 +190,8 @@ class LocalLLMManagerDialog(QDialog):
         self.download_button = QPushButton(self.tr_text("선택한 모델 다운로드·설치", "Download and install selected model"))
         download_layout.addWidget(self.download_button)
         self.download_hint = QLabel(self.tr_text(
-            "다운로드 후 설치된 모델이 자동으로 선택됩니다. '이 모델 사용'을 눌러 번역에 적용하세요.",
-            "After download, the model is selected in Installed. Choose 'Use this model' to apply it to translations."))
+            "추천 목록에서 선택 → 바로 다운로드 → 설치 완료 후 '이 모델 사용'. 이미 설치된 모델은 다운로드 없이 사용할 수 있습니다.",
+            "Choose a recommendation → download directly → 'Use this model' after installation. Existing models can be selected without redownloading."))
         self.download_hint.setWordWrap(True)
         download_layout.addWidget(self.download_hint)
         self.tabs.addTab(installed_page, self.tr_text("설치된 모델", "Installed"))
@@ -265,7 +272,9 @@ class LocalLLMManagerDialog(QDialog):
             item = self.recommended.item(i)
             guide = item.data(Qt.ItemDataRole.UserRole)
             title = guide["ko" if self.translator.is_korean else "en"][0]
-            kind = self.tr_text("코딩", "Coding") if guide["focus"] == "coder" else self.tr_text("다국어", "Multilingual")
+            kind = (self.tr_text("가사 번역", "Lyrics") if guide.get("lyric_rank") else
+                    self.tr_text("코딩", "Coding") if guide["focus"] == "coder" else
+                    self.tr_text("다국어", "Multilingual"))
             installed = self._installed_index(guide["id"]) >= 0
             suffix = " · " + self.tr_text("설치됨", "Installed") if installed else ""
             item.setText(f"{title} · {guide['size']} · {kind}{suffix}")
@@ -306,7 +315,8 @@ class LocalLLMManagerDialog(QDialog):
             guide = item.data(Qt.ItemDataRole.UserRole)
             matches = (not term or term in (item.text() + " " + guide["id"] + " "
                 + " ".join(guide["ko" if self.translator.is_korean else "en"])).casefold())
-            shown = matches and (category == "all" or guide["focus"] == category) and (
+            shown = matches and (category == "all" or category == "lyrics" and bool(guide.get("lyric_rank"))
+                or guide["focus"] == category) and (
                 size == "all" or guide["tier"] == size)
             item.setHidden(not shown)
             visible += int(shown)
