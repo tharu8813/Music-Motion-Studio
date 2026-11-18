@@ -245,6 +245,11 @@ def _qt_message_handler(message_type: QtMsgType, context: object, message: str) 
             _CRASH_BRIDGE.report_requested.emit("QtCriticalMessage", message, trace)
 
 
+def record_crash_occurrence() -> int:
+    """Share the same repeat counter with recoverable project-load reports."""
+    return _CRASH_BRIDGE._tracker.record() if _CRASH_BRIDGE is not None else 1
+
+
 def _find_editor_window(application: QApplication | None) -> QWidget | None:
     """Prefer the actual editor over a dialog or a splash screen."""
     if application is None:
