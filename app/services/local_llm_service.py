@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import atexit
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
 import os
@@ -144,9 +145,20 @@ class LocalLLMService:
             raise TranslationError("로컬 LLM 서버에 연결할 수 없거나 응답이 올바르지 않습니다. 실행 구성요소 설치·시작 또는 서버 주소를 확인하세요. / Cannot reach the local LLM server; install/start the runtime or check the URL.") from None
 
     def list_models(self, cancel=None):
-        data = self._request("/api/tags" if self.provider == "ollama" else "/api/v1/models", cancel=cancel, timeout=5)
-        rows = []
+        """Fetch one model index and check uncached Ollama capabilities concurrently.
+
+        /api/show can block for seconds per model. A bounded worker pool avoids
+        serial O(N*timeout) startup without bypassing completion/remote checks.
+        The per-service digest cache is reused across refreshes; failed probes
+        aren't cached so a transient server error can recover next time.
+        """
+        data = self._request("/api/tags" if self.provider == "ollama" else "/api/v1/models",
+                             cancel=cancel, timeout=5)
+        candidates, pending = [], []
         for item in data.get("models", []):
+            check_cancel(cancel)
+            if not isinstance(item, dict):
+                continue
             name = item.get("name") if self.provider == "ollama" else item.get("key")
             if not isinstance(name, str) or not name:
                 continue
@@ -156,18 +168,49 @@ class LocalLLMService:
                 continue
             if self.provider == "ollama":
                 cache_key = (name, item.get("digest"))
+                # Explicit tag capabilities are enough to discard an embedding
+                # model immediately; the remote flag still needs /api/show.
+                tag_capabilities = item.get("capabilities")
+                if isinstance(tag_capabilities, list) and "completion" not in tag_capabilities:
+                    continue
                 if cache_key not in self._capabilities:
-                    try:
-                        metadata = self._request("/api/show", {"model": name}, cancel=cancel, timeout=5)
-                        self._capabilities[cache_key] = (metadata.get("capabilities"), bool(metadata.get("remote_host")))
-                    except TranslationError:
-                        # Older servers may not expose capabilities. Keep their
-                        # existing model list usable, without guessing a family.
-                        self._capabilities[cache_key] = (None, False)
-                capabilities, remote = self._capabilities[cache_key]
+                    pending.append((cache_key, name))
+            candidates.append((name, item))
+
+        if pending:
+            def inspect(entry):
+                key, model = entry
+                check_cancel(cancel)
+                try:
+                    info = self._request("/api/show", {"model": model}, cancel=cancel, timeout=4)
+                    if not isinstance(info, dict):
+                        return key, None
+                    return key, (info.get("capabilities"), bool(info.get("remote_host")))
+                except TranslationError:
+                    # An older/offline server may omit /api/show. It remains
+                    # usable with the previous optimistic fallback behavior.
+                    return key, None
+
+            # Avoid excessive concurrent requests to a CPU-bound local server.
+            # Each success is remembered by model name+digest. No credentials,
+            # prompts or model weights enter this cache.
+            with ThreadPoolExecutor(max_workers=min(4, len(pending)),
+                                    thread_name_prefix="llm-model-probe") as pool:
+                futures = [pool.submit(inspect, entry) for entry in pending]
+                for future in as_completed(futures):
+                    check_cancel(cancel)
+                    key, found = future.result()
+                    if found is not None:
+                        self._capabilities[key] = found
+        check_cancel(cancel)
+
+        rows = []
+        for name, item in candidates:
+            if self.provider == "ollama":
+                capabilities, remote = self._capabilities.get((name, item.get("digest")), (None, False))
                 if remote or capabilities is not None and "completion" not in capabilities:
                     continue
-            details = item.get("details", {})
+            details = item.get("details") or {}
             rows.append({"id": name, "name": item.get("display_name", name),
                 "size": item.get("size", item.get("size_bytes", 0)),
                 "parameters": details.get("parameter_size", item.get("params_string", "")),
