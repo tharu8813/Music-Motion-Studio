@@ -9,6 +9,7 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 
 from app.canvas.renderers.base import paint_background, paint_selection_guide
+from app.utils.now_playing_style_paint import paint_now_playing_surface
 
 if TYPE_CHECKING:
     from app.canvas.source_item import SourceItem
@@ -25,21 +26,10 @@ def render(
 def paint_card(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
     card_color = QColor(item.source.fill_color)
     text_color = QColor(item.source.outline_color)
-    if item.source.now_playing_style == "minimal":
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(Qt.PenStyle.NoPen)
-    elif item.source.now_playing_style == "glass":
-        if card_color.lightness() > 185:
-            card_color = QColor("#1B2638")
-            text_color = QColor("#F8FAFC")
-        card_color.setAlpha(205)
-        painter.setBrush(card_color)
-        outline = QColor(text_color)
-        outline.setAlpha(185)
-        painter.setPen(QPen(outline, 1.5))
-    elif card_color.lightness() > 220 and text_color.lightness() > 190:
-        text_color = QColor("#172033")
-    painter.drawRoundedRect(rect, item.source.border_radius, item.source.border_radius)
+    text_color = paint_now_playing_surface(
+        painter, rect, item.source.now_playing_style,
+        card_color, text_color, item.source.border_radius,
+    )
     # The first line of the resolved text is the fixed heading slot; the
     # heading itself comes from now_playing_label (empty hides it).
     lines = [line for line in (item._render_text() or "NOW PLAYING").splitlines() if line.strip()]
