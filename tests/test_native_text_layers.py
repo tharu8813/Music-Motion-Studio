@@ -7,14 +7,18 @@ from tempfile import TemporaryDirectory
 import unittest
 
 import numpy as np
+from PySide6.QtCore import QRectF
+from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QApplication
 
+from app.canvas.source_item import SourceItem
 from app.models.playlist import PlaylistTrack
 from app.models.source import Source, SourceType
 from app.preview.native_canvas_layer_packets import (
     NativeCanvasBgraLayer, NativeCanvasFrame, NativeCanvasTextLayer, save_native_canvas_frame,
 )
 from app.renderer.native_frame_transport import FrameReuseState, frame_chunks, HEADER
+from app.renderer.native_text_layers import NativeTextCache
 from app.renderer.native_gpu_optimizations import NativeGpuOptimizations
 from app.renderer.native_project_frames import produce_complete_project_frames
 from tests.test_native_canvas_dynamic_overlays import sample_wav
@@ -28,6 +32,52 @@ class NativeTextLayerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def test_wrapped_glyph_shadow_is_clipped_in_qt_and_native_text_quads(self):
+        source = Source(
+            SourceType.TEXT, "Title",
+            text="A title too long to fit in one line of its box",
+            width=210, height=62, font_size=36,
+            text_overflow="wrap", text_alignment="left",
+            fill_color="#00000000", outline_color="#FFFFFF",
+            text_stroke_width=3, text_stroke_color="#3366FF",
+            text_shadow_glyph=True,
+        )
+        source.shadow.enabled = True
+        source.shadow.color = "#FF8844"
+        source.shadow.blur_radius = 18
+        source.shadow.offset_y = 12
+        item = SourceItem(source)
+
+        image = QImage(300, 180, QImage.Format.Format_ARGB32_Premultiplied)
+        image.fill(0)
+        painter = QPainter(image)
+        try:
+            item.paint(painter, None)
+        finally:
+            painter.end()
+
+        self.assertTrue(any(
+            image.pixelColor(x, y).alpha() > 0
+            for y in range(10, 50) for x in range(12, 195)
+        ))
+        # The source text rectangle ends at y=56. No blurred glyph pixels
+        # should reach the artist or progress bar underneath it.
+        self.assertTrue(all(
+            image.pixelColor(x, y).alpha() == 0
+            for y in range(59, 180) for x in range(300)
+        ))
+
+        # Rust GPU text export carries the active QPainter clip in each quad,
+        # rather than clipping the atlas tile itself.
+        cache = NativeTextCache([(), (item,)], enabled=True)
+        layer = cache.capture("layer:0", QRectF(0, 0, 300, 180), 300, 180)
+        self.assertIsInstance(layer, NativeCanvasTextLayer)
+        self.assertTrue(layer.quads)
+        self.assertTrue(all(
+            clip[1] >= 6 and clip[3] <= 56
+            for _, _, clip, _ in layer.quads
+        ))
 
     def frames(self, audio, enabled, counters, *, scale=1, layer_limit=8):
         project = project_fixture()
