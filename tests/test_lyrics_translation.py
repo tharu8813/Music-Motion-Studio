@@ -87,7 +87,8 @@ class TranslationServiceTests(unittest.TestCase):
             result = LyricsTranslationService(transport).translate([{"text": "original variant"}],
                 replace(self.config, source=source, target=target))
             self.assertEqual(result, ["changed variant"])
-            self.assertEqual(len(calls), 1)
+            # A separate first-pass analysis request precedes translation.
+            self.assertEqual(len(calls), 2)
 
     def test_duplicate_review_text_is_not_stored_and_existing_duplicate_is_hidden(self):
         cues = apply_translations(self.cues, ["안녕", None], self.config)
