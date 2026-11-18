@@ -39,10 +39,18 @@ def paint_now_playing_surface(
     elif style == "gradient":
         if card.alpha() < 30:
             card = QColor("#203B45")
-        gradient = QLinearGradient(rect.topLeft(), rect.bottomRight())
-        gradient.setColorAt(0.0, card.lighter(145))
-        gradient.setColorAt(1.0, card.darker(145))
-        painter.setBrush(gradient)
+        if painter.brush().style() in {
+            Qt.BrushStyle.LinearGradientPattern,
+            Qt.BrushStyle.RadialGradientPattern,
+            Qt.BrushStyle.ConicalGradientPattern,
+        }:
+            # A source's explicit gradient colors take priority.
+            pass
+        else:
+            gradient = QLinearGradient(rect.topLeft(), rect.bottomRight())
+            gradient.setColorAt(0.0, card.lighter(145))
+            gradient.setColorAt(1.0, card.darker(145))
+            painter.setBrush(gradient)
         painter.setPen(Qt.PenStyle.NoPen)
     elif card.lightness() > 220 and foreground.lightness() > 190:
         foreground = QColor("#172033")
