@@ -159,16 +159,14 @@ def request_json(url: str, body=None, headers=None, *, form=False, stream=False,
     if body is not None:
         data = (urlencode(body).encode() if form else json.dumps(body, ensure_ascii=False).encode())
         request_headers["Content-Type"] = "application/x-www-form-urlencoded" if form else "application/json"
-    finished = Event()
     handlers = [_NoRedirect()]
-    # Ollama and LM Studio can block on a large model for minutes. Track the
-    # loopback socket so cancellation interrupts its pending read immediately.
+    # Read loopback model HTTP responses with short cancellation checks.
     # No custom handler is installed for remote/provider HTTPS requests.
     parsed_url = urlsplit(url)
     if (cancel is not None and parsed_url.scheme == "http"
             and parsed_url.hostname in {"localhost", "127.0.0.1", "::1"}):
         from app.services.translation_http_cancel import CancelableLocalHTTPHandler
-        handlers.append(CancelableLocalHTTPHandler(cancel, finished))
+        handlers.append(CancelableLocalHTTPHandler(cancel))
     try:
         with build_opener(*handlers).open(Request(url, data=data, headers=request_headers), timeout=timeout) as response:
             if stream:
@@ -244,8 +242,6 @@ def request_json(url: str, body=None, headers=None, *, form=False, stream=False,
     except (UnicodeError, json.JSONDecodeError, TypeError, AttributeError):
         check_cancel(cancel)
         raise TranslationError("번역 서비스 응답을 읽을 수 없습니다. / Invalid translation response.") from None
-    finally:
-        finished.set()
 
 
 def approved_translation(cue: dict) -> str:
