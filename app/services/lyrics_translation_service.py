@@ -17,7 +17,8 @@ from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from app.services.lyrics_translation_prompt import (
-    build_translation_prompt, lyric_text, neighboring_context, reference_translations,
+    build_translation_prompt, build_song_analysis_prompt, parse_song_analysis,
+    lyric_text, neighboring_context, reference_translations,
     whole_song_context, LOCAL_SONG_CONTEXT_MAX_CHARS, SONG_CONTEXT_MAX_CHARS,
 )
 
@@ -313,6 +314,10 @@ class LyricsTranslationService:
                 progress(len(rows), len(rows))
             return result
         completed: dict[str, tuple[int, str]] = {}
+        # One bounded first pass creates a shared song-wide editorial plan.
+        # If the model cannot return a usable plan, preserve the older context
+        # translation path rather than discarding valid work or user edits.
+        plan = self._song_plan(cues, config, cancel, activity) if config.provider in LLM_PROVIDERS else None
         batch, length = [], 0
         processed = 0
         if progress:
@@ -326,13 +331,16 @@ class LyricsTranslationService:
                 activity({"stage": "working", "rows": [index for index, _text in batch]})
             try:
                 if config.provider in LLM_PROVIDERS:
+                    context_budget = (1200 if config.provider in LOCAL_LLM_PROVIDERS
+                                      else 2400) if plan is not None else (
+                                          LOCAL_SONG_CONTEXT_MAX_CHARS if config.provider in LOCAL_LLM_PROVIDERS
+                                          else SONG_CONTEXT_MAX_CHARS)
                     song_context = whole_song_context(cues, {index for index, _text in batch},
-                        max_chars=LOCAL_SONG_CONTEXT_MAX_CHARS if config.provider in LOCAL_LLM_PROVIDERS
-                        else SONG_CONTEXT_MAX_CHARS)
+                        max_chars=context_budget)
                     translated = self._translate_batch(batch, config, cancel, activity=activity,
                         neighbors=neighboring_context(cues, batch[0][0], batch[-1][0]),
                         references=reference_translations(batch, completed),
-                        song_context=song_context)
+                        song_context=song_context, plan=plan)
                 else:
                     translated = self._translate_batch(batch, config, cancel)
             except TranslationError as error:
@@ -393,15 +401,8 @@ class LyricsTranslationService:
         check_cancel(cancel)
         return result
 
-    def _translate_batch(self, rows, c, cancel, *, neighbors=None, references=None,
-                         song_context=None, activity=None):
-        texts = [text for _index, text in rows]
-        if c.provider == "local_nmt":
-            if self.local_engine is None:
-                from app.services.local_translation_service import LocalTranslationEngine, LocalTranslationModels
-                self.local_engine = LocalTranslationEngine(self.local_models or LocalTranslationModels())
-            return self.local_engine.translate(texts, c, cancel)
-
+    def _llm_completion(self, c, cancel, instruction: str, prompt: str) -> str:
+        """Use the same provider adapter for stage 1 analysis and stage 2 translation."""
         def req(url, body=None, headers=None, **kw):
             check_cancel(cancel)
             if c.provider in LOCAL_LLM_PROVIDERS:
@@ -410,11 +411,81 @@ class LyricsTranslationService:
             check_cancel(cancel)
             return value
 
+        headers = {"Authorization": "Bearer " + c.key} if c.key else {}
+        raw = None
+        if c.provider in {"chatgpt", "openai"}:
+            raw = req("https://api.openai.com/v1/responses", {"model": c.model, "instructions": instruction,
+                "input": [{"role": "user", "content": prompt}], "store": False, "stream": True}, headers, stream=True)
+        elif c.provider == "claude":
+            data = req("https://api.anthropic.com/v1/messages", {"model": c.model, "max_tokens": 8192,
+                "system": instruction, "messages": [{"role": "user", "content": prompt}]},
+                {"x-api-key": c.key, "anthropic-version": "2023-06-01"})
+            if data.get("stop_reason") not in {"end_turn", "stop_sequence"}:
+                raise TranslationError("Claude 번역이 완료되지 않았습니다. / Claude translation is incomplete.")
+            raw = "".join(block.get("text", "") for block in data.get("content", []) if block.get("type") == "text")
+        elif c.provider == "gemini":
+            data = req("https://generativelanguage.googleapis.com/v1beta/models/" + quote(c.model, safe="") + ":generateContent",
+                {"systemInstruction": {"parts": [{"text": instruction}]},
+                 "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                 "generationConfig": {"responseMimeType": "application/json"}}, {"x-goog-api-key": c.key})
+            candidates = data.get("candidates", [])
+            if not candidates or candidates[0].get("finishReason") != "STOP":
+                raise TranslationError("Gemini 번역이 완료되지 않았습니다. / Gemini translation is incomplete.")
+            raw = "".join(p.get("text", "") for p in candidates[0].get("content", {}).get("parts", []) if not p.get("thought"))
+        else:
+            base = "https://api.x.ai/v1" if c.provider == "grok" else validate_endpoint(c.endpoint)
+            body = {"model": c.model, "stream": False,
+                "messages": [{"role": "system", "content": instruction}, {"role": "user", "content": prompt}]}
+            # Ollama's OpenAI-compatible endpoint supports JSON mode.
+            if c.provider == "ollama":
+                body["response_format"] = {"type": "json_object"}
+            data = req(base + "/chat/completions", body, headers)
+            choices = data.get("choices", [])
+            if not choices:
+                raise TranslationError("LLM이 응답 후보를 반환하지 않았습니다. / No completion choices returned.")
+            raw = choices[0].get("message", {}).get("content", "")
+            finish = choices[0].get("finish_reason")
+            if finish != "stop":
+                raise TranslationError(
+                    f"LLM 생성이 정상 종료되지 않았습니다(finish_reason={finish!s}). / "
+                    f"Generation stopped unexpectedly (finish_reason={finish!s}).")
+        if not isinstance(raw, str):
+            raise TranslationError("LLM 응답이 문자열이 아닙니다. / LLM response content is not text.")
+        return raw
+
+    def _song_plan(self, cues, c, cancel, activity):
+        if activity:
+            activity({"stage": "planning", "total_cues": len(cues)})
+        try:
+            instruction, prompt = build_song_analysis_prompt(
+                cues, source_language=c.source, target_language=c.target,
+                preferences=c.instructions)
+            raw = self._llm_completion(c, cancel, instruction, prompt)
+            plan = parse_song_analysis(raw)
+        except (TranslationError, ValueError, KeyError, TypeError, IndexError, AttributeError):
+            check_cancel(cancel)
+            if activity:
+                activity({"stage": "planning_fallback",
+                          "reason": "곡 전체 분석을 완료하지 못해 기존 문맥 번역으로 계속합니다. / "
+                                    "Song analysis was unavailable; continuing with contextual translation."})
+            return None
+        if activity:
+            activity({"stage": "planning_complete", "plan": plan})
+        return plan
+
+    def _translate_batch(self, rows, c, cancel, *, neighbors=None, references=None,
+                         song_context=None, plan=None, activity=None):
+        texts = [text for _index, text in rows]
+        if c.provider == "local_nmt":
+            if self.local_engine is None:
+                from app.services.local_translation_service import LocalTranslationEngine, LocalTranslationModels
+                self.local_engine = LocalTranslationEngine(self.local_models or LocalTranslationModels())
+            return self.local_engine.translate(texts, c, cancel)
+
         if c.provider in LLM_PROVIDERS:
             instruction, prompt = build_translation_prompt(rows, source_language=c.source,
                 target_language=c.target, preferences=c.instructions, neighbors=neighbors, references=references,
-                song_context=song_context)
-            headers = {"Authorization": "Bearer " + c.key} if c.key else {}
+                song_context=song_context, plan=plan)
             raw = None
 
             def diagnostic(reason, status):
@@ -428,44 +499,7 @@ class LyricsTranslationService:
                     "truncated": len(response) > limit, "reason": reason, "status": status})
 
             try:
-                if c.provider in {"chatgpt", "openai"}:
-                    raw = req("https://api.openai.com/v1/responses", {"model": c.model, "instructions": instruction,
-                        "input": [{"role": "user", "content": prompt}], "store": False, "stream": True}, headers, stream=True)
-                elif c.provider == "claude":
-                    data = req("https://api.anthropic.com/v1/messages", {"model": c.model, "max_tokens": 8192,
-                        "system": instruction, "messages": [{"role": "user", "content": prompt}]},
-                        {"x-api-key": c.key, "anthropic-version": "2023-06-01"})
-                    if data.get("stop_reason") not in {"end_turn", "stop_sequence"}:
-                        raise TranslationError("Claude 번역이 완료되지 않았습니다. / Claude translation is incomplete.")
-                    raw = "".join(block.get("text", "") for block in data.get("content", []) if block.get("type") == "text")
-                elif c.provider == "gemini":
-                    data = req("https://generativelanguage.googleapis.com/v1beta/models/" + quote(c.model, safe="") + ":generateContent",
-                        {"systemInstruction": {"parts": [{"text": instruction}]},
-                         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                         "generationConfig": {"responseMimeType": "application/json"}}, {"x-goog-api-key": c.key})
-                    candidates = data.get("candidates", [])
-                    if not candidates or candidates[0].get("finishReason") != "STOP":
-                        raise TranslationError("Gemini 번역이 완료되지 않았습니다. / Gemini translation is incomplete.")
-                    raw = "".join(p.get("text", "") for p in candidates[0].get("content", {}).get("parts", []) if not p.get("thought"))
-                else:
-                    base = "https://api.x.ai/v1" if c.provider == "grok" else validate_endpoint(c.endpoint)
-                    body = {"model": c.model, "stream": False,
-                        "messages": [{"role": "system", "content": instruction}, {"role": "user", "content": prompt}]}
-                    # Ollama's OpenAI-compatible endpoint supports JSON mode.
-                    if c.provider == "ollama":
-                        body["response_format"] = {"type": "json_object"}
-                    data = req(base + "/chat/completions", body, headers)
-                    choices = data.get("choices", [])
-                    if not choices:
-                        raise TranslationError("LLM이 응답 후보를 반환하지 않았습니다. / No completion choices returned.")
-                    raw = choices[0].get("message", {}).get("content", "")
-                    finish = choices[0].get("finish_reason")
-                    if finish != "stop":
-                        raise TranslationError(
-                            f"LLM 생성이 정상 종료되지 않았습니다(finish_reason={finish!s}). / "
-                            f"Generation stopped unexpectedly (finish_reason={finish!s}).")
-                if not isinstance(raw, str):
-                    raise TranslationError("LLM 응답이 문자열이 아닙니다. / LLM response content is not text.")
+                raw = self._llm_completion(c, cancel, instruction, prompt)
                 cleaned = raw.strip()
                 if cleaned.startswith("```"):
                     if "\n" not in cleaned:
