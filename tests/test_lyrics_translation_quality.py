@@ -224,6 +224,24 @@ class LyricsQualityIntegrationTests(unittest.TestCase):
                     endpoint="http://localhost:11434/v1"))
         self.assertEqual(len(calls), 2)
 
+    def test_negation_reversal_is_corrected_in_targeted_retry(self):
+        requests = []
+        def transport(url, body=None, headers=None, **kwargs):
+            payload = json.loads(body["messages"][1]["content"])
+            if payload.get("stage") == "song_analysis":
+                return self.response({"plan": PLAN})
+            requests.append(payload)
+            return self.response({"translations": [{
+                "id": 0,
+                "text": "이제 네가 그립지 않아" if payload["quality_feedback"]
+                        else "아직도 네가 그리워",
+            }]})
+        output = LyricsTranslationService(transport).translate(
+            [{"text": "I don't miss you anymore."}], self.config())
+        self.assertEqual(output, ["이제 네가 그립지 않아"])
+        self.assertEqual(len(requests), 2)
+        self.assertIn("negated phrase", requests[1]["quality_feedback"])
+
     def test_unexpected_han_gets_targeted_korean_retranslation(self):
         requests = []
         def transport(url, body=None, headers=None, **kwargs):
