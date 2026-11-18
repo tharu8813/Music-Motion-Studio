@@ -438,8 +438,10 @@ class TranslationUITests(unittest.TestCase):
             dialog._translate()
             self.wait(dialog)
         self.assertEqual(dialog.table.item(0, 3).text(), "")
-        self.assertEqual(dialog.table.item(0, 0).checkState(), Qt.CheckState.Checked)
-        self.assertTrue(dialog.apply_button.isEnabled())
+        # Same-language no-op must not automatically select an empty result:
+        # a checked blank would delete an existing approved translation.
+        self.assertEqual(dialog.table.item(0, 0).checkState(), Qt.CheckState.Unchecked)
+        self.assertFalse(dialog.apply_button.isEnabled())
 
     def test_empty_lyrics_disable_translation_and_cannot_be_selected(self):
         self.cues = [{"start": 0, "end": 4, "text": "   "}]
