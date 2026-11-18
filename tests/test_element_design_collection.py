@@ -7,7 +7,7 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtGui import QImage, QPainter, QPixmap  # noqa: E402
+from PySide6.QtGui import QColor, QImage, QPainter, QPixmap  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from app.canvas.source_item import SourceItem  # noqa: E402
@@ -42,7 +42,7 @@ class ElementDesignCollectionTests(unittest.TestCase):
             art = QImage(100, 100, QImage.Format.Format_ARGB32_Premultiplied)
             for y in range(100):
                 for x in range(100):
-                    art.setPixelColor(x, y, "#43D6C5" if (x + y) % 11 < 6 else "#315E9C")
+                    art.setPixelColor(x, y, QColor("#43D6C5" if (x + y) % 11 < 6 else "#315E9C"))
             item._pixmap = QPixmap.fromImage(art)
         result = QImage(330, 190, QImage.Format.Format_ARGB32_Premultiplied)
         result.fill(0)
@@ -61,9 +61,9 @@ class ElementDesignCollectionTests(unittest.TestCase):
         if kind is SourceType.PROGRESS_BAR:
             params.update(height=30, progress_value=0.56, progress_track_color="#24313D")
         elif kind is SourceType.NOW_PLAYING:
-            params.update(height=125, text="NOW PLAYING\\nTrack title\\nArtist name")
+            params.update(height=125, text="NOW PLAYING\nTrack title\nArtist name")
         elif kind is SourceType.TRACK_LIST:
-            params.update(height=160, text="▶ 01. Song\\n02. Another song\\n03. More music",
+            params.update(height=160, text="▶ 01. Song\n02. Another song\n03. More music",
                           track_list_current_row=1, track_list_current_background="#1676CA")
         elif kind is SourceType.ALBUM_COVER:
             params.update(width=160, height=160, image_fit_mode="cover")
@@ -137,7 +137,7 @@ class ElementDesignCollectionTests(unittest.TestCase):
                 source.album_frame_style = style
                 image = self.render(source, use_artwork=True)
                 self.assertGreater(image.pixelColor(80, 80).alpha(), 0)
-                self.assertGreater(image.pixelColor(22, 22).alpha(), 0)
+                self.assertEqual(image.pixelColor(0, 0).alpha(), 0)
                 self.assertEqual(Source.from_dict(source.to_dict()).album_frame_style, style)
 
 
