@@ -311,6 +311,7 @@ class SourceInspector(QScrollArea):
         for label, value in (
             ("Rounded", "rounded"), ("Spotify", "spotify"), ("Apple Music", "apple"),
             ("YouTube", "youtube"), ("Gradient", "gradient"),
+            ("Segments", "segments"), ("Rail", "rail"), ("Neon", "neon"),
         ):
             self.progress_style_combo.addItem(label, value)
         self.visualizer = VisualizerSection(self._spin)
@@ -354,7 +355,11 @@ class SourceInspector(QScrollArea):
                              ("Circle", "circle"), ("Bar", "bar")):
             self.progress_knob_combo.addItem(label, value)
         self.album_frame_combo = VisualPresetComboBox("album_frame")
-        for label, value in (("Rounded", "rounded"), ("Circle", "circle"), ("Polaroid", "polaroid"), ("Glass", "glass")):
+        for label, value in (
+            ("Rounded", "rounded"), ("Circle", "circle"),
+            ("Polaroid", "polaroid"), ("Glass", "glass"),
+            ("Vinyl", "vinyl"), ("Filmstrip", "filmstrip"),
+        ):
             self.album_frame_combo.addItem(label, value)
         self.track_list = TrackListSection(self._spin, self._color_button)
         self.now_playing = NowPlayingSection(self._spin)
