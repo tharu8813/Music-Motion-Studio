@@ -64,6 +64,10 @@ class LLMResponseFormatError(TranslationError):
     """A bounded format-only retry is safe; auth/network errors are not."""
 
 
+class TransientTranslationError(TranslationError):
+    """The provider returned an unambiguous transient server-side HTTP error."""
+
+
 class TranslationCancelled(Exception):
     pass
 
@@ -191,6 +195,10 @@ def request_json(url: str, body=None, headers=None, *, form=False, stream=False,
                 raise TranslationError("번역 응답이 너무 큽니다. / Translation response is too large.")
             return json.loads(raw) if raw.strip() else {}
     except HTTPError as error:
+        if error.code in {502, 503, 504}:
+            raise TransientTranslationError(
+                f"HTTP {error.code}: 번역 서버가 일시적으로 응답하지 않습니다. / "
+                "Translation service temporarily unavailable.") from None
         if urlsplit(url).hostname in {"localhost", "127.0.0.1", "::1"} and error.code >= 500:
             raise TranslationError(
                 f"로컬 AI 서버가 모델 처리에 실패했습니다(HTTP {error.code}). "
@@ -525,12 +533,27 @@ class LyricsTranslationService:
     def _llm_completion(self, c, cancel, instruction: str, prompt: str, *, output_tokens=None) -> str:
         """Use the same provider adapter for stage 1 analysis and stage 2 translation."""
         def req(url, body=None, headers=None, **kw):
-            check_cancel(cancel)
             if c.provider in LOCAL_LLM_PROVIDERS:
                 kw["timeout"] = LOCAL_LLM_TRANSLATION_TIMEOUT
-            value = self.request(url, body, headers, cancel=cancel, **kw)
-            check_cancel(cancel)
-            return value
+
+            def single_request():
+                check_cancel(cancel)
+                response = self.request(url, body, headers, cancel=cancel, **kw)
+                check_cancel(cancel)
+                return response
+
+            try:
+                return single_request()
+            except TransientTranslationError:
+                # A clear 502/503/504 response is safe to retry once. A socket
+                # timeout, reset connection or 429 may have occurred after a
+                # billable generation, so NEVER automatically replay those.
+                check_cancel(cancel)
+                if cancel is None:
+                    Event().wait(0.5)
+                elif cancel.wait(0.5):
+                    raise TranslationCancelled()
+                return single_request()
 
         headers = {"Authorization": "Bearer " + c.key} if c.key else {}
         output_schema = schema_for_prompt(prompt)
