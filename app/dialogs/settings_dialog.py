@@ -9,7 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import QUrl, Qt, Signal, QStringListModel
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -510,9 +510,10 @@ class SettingsDialog(QDialog):
             "qt_critical", "repeated_exception", "native_abort",
         ):
             action = self.crash_test_menu.addAction("")
-            action.triggered.connect(
-                lambda _checked=False, selected_mode=mode: self._confirm_crash_test(selected_mode)
-            )
+            action.setData(mode)
+            # Use a bound Qt receiver instead of a lambda capturing the dialog:
+            # menu actions otherwise keep a closed SettingsDialog alive.
+            action.triggered.connect(self._on_crash_test_selected)
             self.crash_test_actions[mode] = action
         maintenance_group = QGroupBox()
         maintenance_form = QFormLayout(maintenance_group)
@@ -1653,6 +1654,14 @@ class SettingsDialog(QDialog):
         )
         if answer == QMessageBox.StandardButton.Yes:
             self._request_maintenance("reinstall")
+
+    def _on_crash_test_selected(self, _checked: bool = False) -> None:
+        """Dispatch the originating QAction without retaining the dialog."""
+        action = self.sender()
+        if isinstance(action, QAction):
+            mode = action.data()
+            if isinstance(mode, str):
+                self._confirm_crash_test(mode)
 
     def _confirm_crash_test(self, mode: str) -> None:
         """Make risky diagnostics explicit, without executing inside Settings."""
