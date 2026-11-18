@@ -295,7 +295,8 @@ class LyricsTranslationDialog(QDialog):
         self.readiness_label.setText(message)
         local = s._provider not in CLOUD_LLM_PROVIDERS
         self.privacy_note.setText(self.tr_text("이 컴퓨터에서 번역합니다.", "Translation runs on this computer.") if local else
-            self.tr_text("번역을 시작하면 선택한 클라우드 서비스로 가사를 전송합니다.", "Starting translation sends lyrics to the selected cloud service."))
+            self.tr_text("2단계 LLM 번역은 선택한 행만 재번역하더라도 1단계 분석을 위해 곡의 전체 가사를 선택한 클라우드 서비스에 전송합니다.",
+                         "Two-stage LLM translation sends the entire song to the selected cloud provider for analysis, even when retranslating selected rows."))
         if s._provider == "local_nmt":
             self.privacy_note.setText(self.tr_text("비LLM 번역은 이 컴퓨터에서 실행합니다. 가사·비유·문맥 번역이 부정확할 수 있으므로 결과를 꼭 검토하세요.",
                 "Non-LLM translation runs locally. Review carefully: lyrics, metaphors and context may be inaccurate."))
