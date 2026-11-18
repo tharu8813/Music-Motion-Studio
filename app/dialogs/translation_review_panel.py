@@ -410,6 +410,12 @@ class TranslationReviewPanel(QWidget):
                     self.workflow.set_status(self.tr_text(
                         f"{', '.join(str(i + 1) for i in rows)}번 가사에서 번역 누락·언어 혼입을 발견해 자동으로 다시 번역합니다.",
                         f"Retrying lyric rows {', '.join(str(i + 1) for i in rows)} after detecting untranslated source or unexpected script."))
+            elif event["stage"] == "format_retry":
+                rows = event.get("rows", [])
+                if rows:
+                    self.workflow.set_status(self.tr_text(
+                        f"{', '.join(str(i + 1) for i in rows)}번 가사에서 JSON·ID·줄바꿈 오류를 발견해 한 번 더 요청합니다.",
+                        f"Retrying lyric rows {', '.join(str(i + 1) for i in rows)} once after a JSON, ID or line-break error."))
             elif event["stage"] == "retry":
                 rows = event.get("rows", [])
                 if rows:

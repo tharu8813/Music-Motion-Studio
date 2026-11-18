@@ -160,12 +160,14 @@ class TranslationServiceTests(unittest.TestCase):
                                    endpoint="http://localhost:11434/v1")
         with self.assertRaisesRegex(TranslationError, "Missing translations"):
             LyricsTranslationService(transport).translate(self.cues, config, activity=events.append)
-        self.assertEqual(requests[0]["format"], "json")
+        self.assertIn("plan", requests[0]["format"]["properties"])
         self.assertIs(requests[0]["think"], False)
         self.assertTrue(any(e.get("stage") == "complete" and e["row"] == 0
                             and e["text"] == "안녕\n세상" for e in events))
         self.assertTrue(any(e.get("stage") == "failure" and e["rows"] == [1] for e in events))
-        detail = next(e for e in events if e["stage"] == "diagnostic")
+        # A format retry emits an intermediate "retrying" diagnostic, but
+        # only the final failed response should be asserted here.
+        detail = next(e for e in reversed(events) if e["stage"] == "diagnostic")
         self.assertEqual(detail["raw"], raw)
         self.assertEqual(detail["status"], "failed")
 
