@@ -27,6 +27,10 @@ class TranslationServiceDialog(QDialog):
         self.credentials = TranslationCredentials(settings)
         self.source_combo, self.target_combo, self.mode_combo = source_combo, target_combo, mode_combo
         self._provider, self._changing_provider, self._installed_llms = "", False, {}
+        # Reuse one local service across refreshes and the model manager, so
+        # its successful Ollama capability probes survive repeated openings.
+        self._cached_llm_service = None
+        self._cached_llm_connection = None
         self._languages_restored = False
         self.connection = None
         self.workflow = None
@@ -333,7 +337,11 @@ class TranslationServiceDialog(QDialog):
             self._start("import_local", lambda cancel, progress: self.local_models.install(filename, cancel, progress))
 
     def _llm_service(self):
-        return self.local_llm_factory(self._provider, self.endpoint_edit.text().strip(), self.key_edit.text().strip())
+        connection = (self._provider, self.endpoint_edit.text().strip(), self.key_edit.text().strip())
+        if self._cached_llm_service is None or self._cached_llm_connection != connection:
+            self._cached_llm_service = self.local_llm_factory(*connection)
+            self._cached_llm_connection = connection
+        return self._cached_llm_service
 
     def _populate_llm_models(self, models, selected=""):
         self.model_combo.clear()
