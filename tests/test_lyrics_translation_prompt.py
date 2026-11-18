@@ -258,10 +258,10 @@ class TranslationPromptTests(unittest.TestCase):
 
     def test_blank_and_identical_llm_results_keep_ids_without_duplicate_translations(self):
         cues = [{"text": "이미 한국어인 가사\n다음 줄"}, {"text": "Hello"},
-                {"text": "A name"}, {"text": "한국어와 English가 섞인 가사"}]
+                {"text": "NASA"}, {"text": "한국어와 English가 섞인 가사"}]
         def transport(*args, **kwargs):
             return json.dumps({"translations": [{"id": 0, "text": ""}, {"id": 1, "text": "안녕"},
-                {"id": 2, "text": "A name"}, {"id": 3, "text": "한국어와 영어가 섞인 가사"}]})
+                {"id": 2, "text": "NASA"}, {"id": 3, "text": "한국어와 영어가 섞인 가사"}]})
         result = LyricsTranslationService(transport).translate(cues,
             TranslationConfig("chatgpt", key="test", model="selected"))
         self.assertEqual(result, ["", "안녕", "", "한국어와 영어가 섞인 가사"])

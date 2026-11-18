@@ -404,6 +404,12 @@ class TranslationReviewPanel(QWidget):
                 self.workflow.set_status(self.tr_text(
                     "전체 가사 분석 결과를 받지 못했습니다. 주변 문맥을 활용하는 기본 번역으로 계속합니다.",
                     "Full-song analysis unavailable; continuing with contextual translation."))
+            elif event["stage"] == "quality_retry":
+                rows = event.get("rows", [])
+                if rows:
+                    self.workflow.set_status(self.tr_text(
+                        f"{', '.join(str(i + 1) for i in rows)}번 가사에서 번역 누락·언어 혼입을 발견해 자동으로 다시 번역합니다.",
+                        f"Retrying lyric rows {', '.join(str(i + 1) for i in rows)} after detecting untranslated source or unexpected script."))
             elif event["stage"] == "retry":
                 rows = event.get("rows", [])
                 if rows:

@@ -73,11 +73,20 @@ class TranslationWorkflow(QObject):
                 return
         self._rows = selected
         self._current_config = self.draft.safe_config(config)
+        # Use completed, edited or saved rows outside the current selection as
+        # history, but never mix translation directions or failed model output.
+        previous_translations = {
+            i: row.text for i, row in enumerate(self.draft.rows)
+            if i not in selected and row.text.strip()
+            and row.status not in {"failed", "incomplete", "unneeded", "ready"}
+            and (row.config is None or row.config.target == config.target)
+        }
         # Keep global cue IDs and surrounding context for selective retranslations.
         def work(cancel, progress):
             connected = replace(config, key=self.auth.access_token(cancel)) if config.provider == "chatgpt" and not config.same_language else config
             return (config, self.service.translate(self.draft.cues, connected, cancel, progress,
-                activity=self.worker.activity.emit, **({"selected_rows": selected} if rows is not None else {})))
+                activity=self.worker.activity.emit, **({"selected_rows": selected} if rows is not None else {}),
+                **({"existing_translations": previous_translations} if previous_translations else {})))
         self.start("translate", work)
 
     def start(self, operation, work):
@@ -135,7 +144,8 @@ class TranslationWorkflow(QObject):
                 # Raw model output is intentionally temporary and not persisted in drafts.
                 self.diagnostics.append(event)
                 self.review.set_diagnostics(self.diagnostics)
-        if stage in {"planning", "planning_complete", "planning_fallback", "retry", "working", "complete"}:
+        if stage in {"planning", "planning_complete", "planning_fallback", "retry",
+                     "quality_retry", "working", "complete"}:
             self.review._activity(event)
 
     def _finished(self):
