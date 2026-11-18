@@ -4,7 +4,7 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from time import monotonic
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, MagicMock, patch
 
 from app.services.lyrics_translation_service import (
     TranslationCancelled, request_json,
@@ -86,7 +86,7 @@ class CancelableLocalHTTPTests(unittest.TestCase):
 
     def test_remote_https_does_not_install_local_socket_handler(self):
         opener = Mock()
-        response = Mock()
+        response = MagicMock()
         response.read.return_value = b'{"ok": true}'
         response.__enter__ = Mock(return_value=response)
         response.__exit__ = Mock(return_value=False)
