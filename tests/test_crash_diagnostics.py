@@ -140,6 +140,15 @@ class CrashDialogTests(unittest.TestCase):
         self.assertEqual(window.closed, 1)
         window.deleteLater()
 
+    def test_save_as_during_another_save_does_not_silently_exit(self) -> None:
+        window = FakeEditor()
+        window.project_controller = SimpleNamespace(saving=True)
+        with patch("PySide6.QtWidgets.QMessageBox.warning"):
+            self.assertFalse(handle_crash_exit_choice(window, "save_as"))
+        self.assertEqual(window.saved, [])
+        self.assertEqual(window.closed, 0)
+        window.deleteLater()
+
     def test_failed_save_keeps_editor_open(self) -> None:
         window = FakeEditor()
         window.save_ok = False
