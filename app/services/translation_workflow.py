@@ -145,7 +145,7 @@ class TranslationWorkflow(QObject):
                 self.diagnostics.append(event)
                 self.review.set_diagnostics(self.diagnostics)
         if stage in {"planning", "planning_complete", "planning_fallback", "retry",
-                     "quality_retry", "working", "complete"}:
+                     "quality_retry", "format_retry", "working", "complete"}:
             self.review._activity(event)
 
     def _finished(self):

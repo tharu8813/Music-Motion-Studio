@@ -153,7 +153,9 @@ class TranslationPromptTests(unittest.TestCase):
                     if provider == "ollama":
                         self.assertTrue(url.endswith("/api/chat"))
                         self.assertIs(body["think"], False)
-                        self.assertEqual(body["format"], "json")
+                        self.assertIsInstance(body["format"], dict)
+                        self.assertEqual(set(body["format"]["properties"]),
+                                         {"plan"} if data.get("stage") == "song_analysis" else {"translations"})
                         return {"done": True, "done_reason": "stop", "message": {"content": response}}
                     return {"choices": [{"finish_reason": "stop", "message": {"content": response}}]}
                 config = TranslationConfig(provider, source="ko", target="ja", model="selected-model",

@@ -16,6 +16,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from app.services.lyrics_translation_schema import schema_for_prompt
 from app.services.lyrics_translation_quality import (
     normalized_source, quality_issue, rolling_translation_memory, stable_refrain_sources,
 )
@@ -57,6 +58,10 @@ class TranslationError(ValueError):
 
 class LLMGenerationLimitError(TranslationError):
     """The model ran out of generated tokens; a smaller batch may succeed."""
+
+
+class LLMResponseFormatError(TranslationError):
+    """A bounded format-only retry is safe; auth/network errors are not."""
 
 
 class TranslationCancelled(Exception):
@@ -528,10 +533,33 @@ class LyricsTranslationService:
             return value
 
         headers = {"Authorization": "Bearer " + c.key} if c.key else {}
+        output_schema = schema_for_prompt(prompt)
         raw = None
         if c.provider in {"chatgpt", "openai"}:
-            raw = req("https://api.openai.com/v1/responses", {"model": c.model, "instructions": instruction,
-                "input": [{"role": "user", "content": prompt}], "store": False, "stream": True}, headers, stream=True)
+            body = {"model": c.model, "instructions": instruction,
+                "input": [{"role": "user", "content": prompt}], "store": False, "stream": True}
+            # API-key OpenAI models support strict JSON Schema. Keep the
+            # subscription-backed ChatGPT compatibility path unchanged.
+            if c.provider == "openai" and output_schema:
+                # Array min/max constraints are unsupported by some fine-tuned
+                # models. Our response parser enforces row count separately.
+                cloud_schema = deepcopy(output_schema)
+                translations = cloud_schema["properties"].get("translations")
+                if translations:
+                    translations.pop("minItems", None)
+                    translations.pop("maxItems", None)
+                body["text"] = {"format": {"type": "json_schema",
+                    "name": "song_analysis" if "plan" in output_schema["properties"] else "lyric_translations",
+                    "schema": cloud_schema, "strict": True}}
+            try:
+                raw = req("https://api.openai.com/v1/responses", body, headers, stream=True)
+            except TranslationError as error:
+                if "text" not in body or not str(error).startswith("HTTP 400:"):
+                    raise
+                # Older/custom models can reject strict schema. Only downgrade
+                # the shape constraint once; authentication/rate errors never retry.
+                body.pop("text")
+                raw = req("https://api.openai.com/v1/responses", body, headers, stream=True)
         elif c.provider == "claude":
             data = req("https://api.anthropic.com/v1/messages", {"model": c.model, "max_tokens": 8192,
                 "system": instruction, "messages": [{"role": "user", "content": prompt}]},
@@ -540,10 +568,18 @@ class LyricsTranslationService:
                 raise TranslationError("Claude 번역이 완료되지 않았습니다. / Claude translation is incomplete.")
             raw = "".join(block.get("text", "") for block in data.get("content", []) if block.get("type") == "text")
         elif c.provider == "gemini":
-            data = req("https://generativelanguage.googleapis.com/v1beta/models/" + quote(c.model, safe="") + ":generateContent",
-                {"systemInstruction": {"parts": [{"text": instruction}]},
-                 "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                 "generationConfig": {"responseMimeType": "application/json"}}, {"x-goog-api-key": c.key})
+            endpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + quote(c.model, safe="") + ":generateContent"
+            body = {"systemInstruction": {"parts": [{"text": instruction}]},
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {"responseMimeType": "application/json",
+                    **({"responseJsonSchema": output_schema} if output_schema else {})}}
+            try:
+                data = req(endpoint, body, {"x-goog-api-key": c.key})
+            except TranslationError as error:
+                if "responseJsonSchema" not in body["generationConfig"] or not str(error).startswith("HTTP 400:"):
+                    raise
+                body["generationConfig"].pop("responseJsonSchema")
+                data = req(endpoint, body, {"x-goog-api-key": c.key})
             candidates = data.get("candidates", [])
             if not candidates or candidates[0].get("finishReason") != "STOP":
                 raise TranslationError("Gemini 번역이 완료되지 않았습니다. / Gemini translation is incomplete.")
@@ -553,13 +589,22 @@ class LyricsTranslationService:
             # The OpenAI-compatible endpoint may spend its output allowance
             # thinking before producing any translated JSON (Qwen3.5).
             base = validate_endpoint(c.endpoint).removesuffix("/v1")
-            body = {"model": c.model, "stream": False, "think": False, "format": "json",
+            body = {"model": c.model, "stream": False, "think": False,
+                "format": output_schema or "json",
                 "messages": [{"role": "system", "content": instruction},
                              {"role": "user", "content": prompt}],
                 "options": {"num_ctx": (16384 if len(prompt) > 9000 else
                                         12288 if output_tokens else 8192),
                             "num_predict": output_tokens or 3072}}
-            data = req(base + "/api/chat", body, headers)
+            try:
+                data = req(base + "/api/chat", body, headers)
+            except TranslationError as error:
+                if not output_schema or not str(error).startswith("HTTP 400:"):
+                    raise
+                # Keep old Ollama installations usable if schema formatting
+                # is not supported. The parser still validates IDs and lines.
+                body["format"] = "json"
+                data = req(base + "/api/chat", body, headers)
             message = data.get("message") or {}
             if not isinstance(message, dict):
                 raise TranslationError("Ollama 응답 메시지 형식이 올바르지 않습니다. / Invalid Ollama message.")
@@ -628,7 +673,19 @@ class LyricsTranslationService:
             plan["refrains"] = [entry[:120] for entry in plan["refrains"][:3]]
             for name in ("story", "tone", "voice", "style"):
                 plan[name] = plan[name][:160]
-        except (TranslationError, ValueError, KeyError, TypeError, IndexError, AttributeError):
+        except TranslationError as error:
+            check_cancel(cancel)
+            # Credential, model-request and quota errors cannot be repaired by
+            # rerunning the same provider without the song-wide plan.
+            if str(error).startswith(("HTTP 400:", "HTTP 401:", "HTTP 403:",
+                                      "HTTP 429:", "HTTP 456:")) or "ChatGPT 구독 사용 한도" in str(error):
+                raise
+            if activity:
+                activity({"stage": "planning_fallback",
+                          "reason": "곡 전체 분석을 완료하지 못해 기존 문맥 번역으로 계속합니다. / "
+                                    "Song analysis was unavailable; continuing with contextual translation."})
+            return None
+        except (ValueError, KeyError, TypeError, IndexError, AttributeError):
             check_cancel(cancel)
             if activity:
                 activity({"stage": "planning_fallback",
@@ -641,7 +698,7 @@ class LyricsTranslationService:
 
     def _translate_batch(self, rows, c, cancel, *, neighbors=None, references=None,
                          song_context=None, plan=None, activity=None, output_tokens=None,
-                         previous_translations=None, quality_feedback=""):
+                         previous_translations=None, quality_feedback="", format_retry=False):
         texts = [text for _index, text in rows]
         if c.provider == "local_nmt":
             if self.local_engine is None:
@@ -671,31 +728,31 @@ class LyricsTranslationService:
                 cleaned = raw.strip()
                 if cleaned.startswith("```"):
                     if "\n" not in cleaned:
-                        raise TranslationError("마크다운 코드 블록이 닫히지 않았습니다. / Unclosed markdown code block.")
+                        raise LLMResponseFormatError("마크다운 코드 블록이 닫히지 않았습니다. / Unclosed markdown code block.")
                     cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0].strip()
                 try:
                     document = json.loads(cleaned)
                 except json.JSONDecodeError as error:
-                    raise TranslationError(
+                    raise LLMResponseFormatError(
                         f"JSON 파싱 오류({error.lineno}행 {error.colno}열): {error.msg}. / "
                         f"Invalid JSON at line {error.lineno}, column {error.colno}: {error.msg}.") from None
                 if not isinstance(document, dict) or set(document) != {"translations"}:
-                    raise TranslationError("JSON 최상위 객체에 translations 배열이 필요합니다. / Expected a translations array.")
+                    raise LLMResponseFormatError("JSON 최상위 객체에 translations 배열이 필요합니다. / Expected a translations array.")
                 parsed = document["translations"]
                 if not isinstance(parsed, list):
-                    raise TranslationError("translations 값이 배열이 아닙니다. / translations must be an array.")
+                    raise LLMResponseFormatError("translations 값이 배열이 아닙니다. / translations must be an array.")
                 mapping = {}
                 for value in parsed:
                     if (not isinstance(value, dict) or set(value) != {"id", "text"}
                             or type(value.get("id")) is not int or not isinstance(value.get("text"), str)
                             or value["id"] in mapping):
-                        raise TranslationError(
+                        raise LLMResponseFormatError(
                             "JSON에 잘못된 ID·중복 ID·문자열이 아닌 번역문이 있습니다. / "
                             "Invalid or duplicate ID, or non-string translation text.")
                     mapping[value["id"]] = value["text"]
                 expected = {index for index, _text in rows}
                 if set(mapping) - expected:
-                    raise TranslationError("요청하지 않은 가사 ID가 반환되었습니다. / Unexpected lyric IDs returned.")
+                    raise LLMResponseFormatError("요청하지 않은 가사 ID가 반환되었습니다. / Unexpected lyric IDs returned.")
                 partial, invalid = {}, []
                 for index, original in rows:
                     if index not in mapping:
@@ -711,7 +768,7 @@ class LyricsTranslationService:
                         partial[index] = translated
                 if invalid:
                     numbers = ", ".join(str(index + 1) for index in invalid[:20])
-                    raise TranslationError(
+                    raise LLMResponseFormatError(
                         f"번역 결과 누락 또는 줄바꿈 불일치: 가사 {numbers}번. / "
                         f"Missing translations or incorrect line breaks: lyric rows {numbers}.", partial=partial)
                 diagnostic("JSON 구조 검증 통과 (번역 자연스러움은 미검증) / "
@@ -721,6 +778,32 @@ class LyricsTranslationService:
                 diagnostic(str(error), "retrying")
                 error.diagnosed = c.provider in LOCAL_LLM_PROVIDERS and activity is not None
                 raise
+            except LLMResponseFormatError as error:
+                diagnostic(str(error), "retrying" if not format_retry else "failed")
+                error.diagnosed = c.provider in LOCAL_LLM_PROVIDERS and activity is not None
+                if format_retry:
+                    raise
+                check_cancel(cancel)
+                if activity:
+                    activity({"stage": "format_retry", "rows": [index for index, _text in rows]})
+                # Retry exactly once with a focused correction. A malformed
+                # response must not trigger infinite or billable loops.
+                try:
+                    return self._translate_batch(rows, c, cancel, neighbors=neighbors,
+                        references=references, song_context=song_context, plan=plan,
+                        activity=activity, output_tokens=output_tokens,
+                        previous_translations=previous_translations,
+                        quality_feedback=(quality_feedback + " Previous response violated JSON, ID "
+                                          "or line-break requirements. Return only the specified "
+                                          "IDs and preserve original line breaks.")[:1200],
+                        format_retry=True)
+                except TranslationError as repeated:
+                    # Keep validated rows from either attempt. The caller's
+                    # quality gate will still reject an empty/unchanged row.
+                    partial = dict(error.partial)
+                    partial.update(repeated.partial)
+                    raise TranslationError(str(repeated), partial=partial,
+                                           diagnosed=repeated.diagnosed) from None
             except TranslationError as error:
                 diagnostic(str(error), "failed")
                 error.diagnosed = c.provider in LOCAL_LLM_PROVIDERS and activity is not None
