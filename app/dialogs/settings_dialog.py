@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QMenu,
     QProgressDialog,
     QPushButton,
     QRadioButton,
@@ -494,15 +495,31 @@ class SettingsDialog(QDialog):
         self.maintenance_action = ""
         self.integrity_button = QPushButton()
         self.program_reinstall_button = QPushButton()
+        self.crash_test_button = QPushButton()
         self.reset_button = QPushButton()
         self.reset_button.setObjectName("dangerButton")
         self.integrity_label, self.program_reinstall_label, self.reset_label = QLabel(), QLabel(), QLabel()
         self.integrity_hint, self.program_reinstall_hint, self.reset_hint = QLabel(), QLabel(), QLabel()
+        self.crash_test_label, self.crash_test_hint = QLabel(), QLabel()
+        self.crash_test_button.setObjectName("crashTestButton")
+        self.crash_test_menu = QMenu(self.crash_test_button)
+        self.crash_test_button.setMenu(self.crash_test_menu)
+        self.crash_test_actions = {}
+        for mode in (
+            "main_exception", "worker_exception", "caught_exception",
+            "qt_critical", "repeated_exception", "native_abort",
+        ):
+            action = self.crash_test_menu.addAction("")
+            action.triggered.connect(
+                lambda _checked=False, selected_mode=mode: self._confirm_crash_test(selected_mode)
+            )
+            self.crash_test_actions[mode] = action
         maintenance_group = QGroupBox()
         maintenance_form = QFormLayout(maintenance_group)
         for label, hint, button in (
             (self.integrity_label, self.integrity_hint, self.integrity_button),
             (self.program_reinstall_label, self.program_reinstall_hint, self.program_reinstall_button),
+            (self.crash_test_label, self.crash_test_hint, self.crash_test_button),
             (self.reset_label, self.reset_hint, self.reset_button),
         ):
             hint.setObjectName("mutedLabel")
@@ -1181,6 +1198,25 @@ class SettingsDialog(QDialog):
             "version. Projects and settings are kept."
         )
         self.program_reinstall_button.setText("재설치" if korean else "Reinstall")
+        self.crash_test_label.setText("크래시 테스트" if korean else "Crash diagnostics test")
+        self.crash_test_hint.setText(
+            "진단 시스템을 시험하기 위해 선택한 오류를 의도적으로 발생시킵니다. "
+            "프로세스 비정상 종료 테스트는 저장되지 않은 작업이 사라집니다."
+            if korean else
+            "Intentionally triggers a selected failure to verify diagnostics. "
+            "The native process-abort test will lose unsaved work."
+        )
+        self.crash_test_button.setText("오류 종류 선택…" if korean else "Choose error type…")
+        labels = {
+            "main_exception": ("메인 스레드 Python 예외", "Main-thread Python exception"),
+            "worker_exception": ("백그라운드 스레드 예외", "Background-thread exception"),
+            "caught_exception": ("작업 중 처리된 예외", "Caught operation exception"),
+            "qt_critical": ("Qt 치명적 로그 메시지", "Qt critical log message"),
+            "repeated_exception": ("연속 오류 2회 (종료 메뉴 테스트)", "Two repeated errors (exit menu test)"),
+            "native_abort": ("실제 프로세스 비정상 종료", "Real abnormal process termination"),
+        }
+        for mode, (ko, en) in labels.items():
+            self.crash_test_actions[mode].setText(ko if korean else en)
         self.reset_label.setText("프로그램 초기화" if korean else "Reset program")
         self.reset_hint.setText(
             "모든 설정·최근 프로젝트 목록·창 배치와 분석·미리보기 캐시를 지우고 처음 설치한 상태로 "
@@ -1617,6 +1653,47 @@ class SettingsDialog(QDialog):
         )
         if answer == QMessageBox.StandardButton.Yes:
             self._request_maintenance("reinstall")
+
+    def _confirm_crash_test(self, mode: str) -> None:
+        """Make risky diagnostics explicit, without executing inside Settings."""
+        from app.utils.crash_test_service import CRASH_TEST_MODES
+
+        if mode not in CRASH_TEST_MODES:
+            return
+        korean = self.translator.is_korean
+        native = mode == "native_abort"
+        title = "실제 비정상 종료 테스트" if korean else "Real process-crash test"
+        if not native:
+            title = "크래시 보고서 테스트" if korean else "Crash report test"
+        label = self.crash_test_actions[mode].text()
+        if native:
+            explanation = (
+                f"'{label}'을 실행할까요?\\n\\n"
+                "프로그램이 즉시 비정상 종료되며, 저장되지 않은 프로젝트 변경사항은 사라집니다. "
+                "작업 스레드 정리도 수행되지 않습니다. 다음 실행에서 비정상 종료 보고를 확인할 수 있습니다."
+                if korean else
+                f"Run '{label}'?\\n\\n"
+                "The application will terminate immediately. Unsaved project "
+                "changes will be lost and background workers will not be cleaned up. "
+                "The next startup can show an abnormal shutdown report."
+            )
+        else:
+            explanation = (
+                f"'{label}' 테스트를 실행할까요?\\n\\n"
+                "현재 설정 창을 닫고 의도적으로 오류를 발생시킵니다. "
+                "변경 중인 설정은 저장되지 않으며, 프로젝트는 유지됩니다."
+                if korean else
+                f"Run the '{label}' test?\\n\\n"
+                "Settings will close before the intentional error. "
+                "Unsaved settings changes will be discarded; the project remains open."
+            )
+        answer = QMessageBox.warning(
+            self, title, explanation.replace("\\\\n", "\\n"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self._request_maintenance(f"crash-test:{mode}")
 
     def _confirm_reset(self) -> None:
         korean = self.translator.is_korean
