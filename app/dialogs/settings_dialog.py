@@ -1668,22 +1668,22 @@ class SettingsDialog(QDialog):
         label = self.crash_test_actions[mode].text()
         if native:
             explanation = (
-                f"'{label}'을 실행할까요?\\n\\n"
+                f"'{label}'을 실행할까요?\n\n"
                 "프로그램이 즉시 비정상 종료되며, 저장되지 않은 프로젝트 변경사항은 사라집니다. "
                 "작업 스레드 정리도 수행되지 않습니다. 다음 실행에서 비정상 종료 보고를 확인할 수 있습니다."
                 if korean else
-                f"Run '{label}'?\\n\\n"
+                f"Run '{label}'?\n\n"
                 "The application will terminate immediately. Unsaved project "
                 "changes will be lost and background workers will not be cleaned up. "
                 "The next startup can show an abnormal shutdown report."
             )
         else:
             explanation = (
-                f"'{label}' 테스트를 실행할까요?\\n\\n"
+                f"'{label}' 테스트를 실행할까요?\n\n"
                 "현재 설정 창을 닫고 의도적으로 오류를 발생시킵니다. "
                 "변경 중인 설정은 저장되지 않으며, 프로젝트는 유지됩니다."
                 if korean else
-                f"Run the '{label}' test?\\n\\n"
+                f"Run the '{label}' test?\n\n"
                 "Settings will close before the intentional error. "
                 "Unsaved settings changes will be discarded; the project remains open."
             )
