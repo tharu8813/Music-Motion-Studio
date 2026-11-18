@@ -239,10 +239,12 @@ class MainWindow(QMainWindow):
         self.project_settings = ProjectSettings()
         self.playlist_export_service = PlaylistExportService()
         self.settings_service = AppSettingsService(self)
-        # Renderer selection is process-scoped. Saving a different backend does
-        # not mutate an already-created OpenGL/widget hierarchy mid-session.
+        self.safe_mode = bool(QApplication.instance().property("safe_mode"))
+        # Session-only CPU fallback for startup recovery. Never overwrite the
+        # user's saved preview preference, even if Settings is opened.
+        # Renderer selection is process-scoped and must precede widget creation.
         self._preview_backend_for_session = (
-            self.settings_service.current.preview_backend
+            "cpu" if self.safe_mode else self.settings_service.current.preview_backend
         )
         self.smooth_scroll = SmoothScrollService(
             self.settings_service.current.smooth_scrolling,
@@ -403,6 +405,10 @@ class MainWindow(QMainWindow):
             self.translator.is_korean, self,
         )
         self.statusBar().addPermanentWidget(self.activity_progress)
+        if self.safe_mode:
+            self.statusBar().showMessage(
+                "안전 모드: CPU 미리보기 · 자동 업데이트·백그라운드 분석 비활성화"
+            )
         from app.widgets.warning_indicator import WarningIndicator
         self.warning_indicator = WarningIndicator(self.translator.is_korean, self)
         self.statusBar().insertWidget(0, self.warning_indicator)
@@ -2261,6 +2267,10 @@ class MainWindow(QMainWindow):
 
         FFmpeg is available as a fallback for sources the local decoder cannot read.
         """
+        if self.safe_mode:
+            # Avoid automatic heavy decoders after an interrupted prior session.
+            # Manual track analysis remains explicitly available to the user.
+            return
         if self.project_settings.transition_mode != "automix":
             return
         tracks = [track for track in self.playlist_service.tracks if track.enabled]
