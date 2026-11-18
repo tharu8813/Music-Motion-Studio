@@ -338,6 +338,18 @@ def handle_crash_exit_choice(window: QWidget | None, choice: str) -> bool:
         )
         return False
 
+    # A save already in flight cannot be retroactively converted to Save As.
+    # Reusing its result would incorrectly close without creating a new file.
+    controller = getattr(window, "project_controller", None)
+    if choice == "save_as" and getattr(controller, "saving", False):
+        QMessageBox.warning(
+            window,
+            "다른 이름으로 저장 불가" if korean else "Save As unavailable",
+            "이미 프로젝트 저장이 진행 중입니다. 완료 후 다시 시도하세요."
+            if korean else "A project save is already running. Retry after it finishes.",
+        )
+        return False
+
     if choice == "discard":
         response = QMessageBox.warning(
             window,
