@@ -27,6 +27,10 @@ class TranslationServiceDialog(QDialog):
         self.credentials = TranslationCredentials(settings)
         self.source_combo, self.target_combo, self.mode_combo = source_combo, target_combo, mode_combo
         self._provider, self._changing_provider, self._installed_llms = "", False, {}
+        # Reuse one local service across refreshes and the model manager, so
+        # its successful Ollama capability probes survive repeated openings.
+        self._cached_llm_service = None
+        self._cached_llm_connection = None
         self._languages_restored = False
         self.connection = None
         self.workflow = None
@@ -63,7 +67,8 @@ class TranslationServiceDialog(QDialog):
         self.account_button = QPushButton(self.tr_text("OpenAI 계정 관리…", "Manage OpenAI account…"))
         self.local_models_button = QPushButton(self.tr_text("이 언어 모델 자동 설치", "Install model for these languages"))
         self.import_local_button = QPushButton(self.tr_text("모델 파일 직접 가져오기…", "Import a model file…"))
-        self.llm_manager_button = QPushButton(self.tr_text("로컬 LLM 관리자…", "Local LLM manager…"))
+        self.llm_manager_button = QPushButton(self.tr_text(
+            "가사 번역용 LLM 추천·다운로드…", "Recommend and download a lyric translation LLM…"))
         self.local_pair_note = QLabel()
         self.local_pair_note.setWordWrap(True)
         self.local_pair_note.setTextFormat(Qt.TextFormat.PlainText)
@@ -332,7 +337,11 @@ class TranslationServiceDialog(QDialog):
             self._start("import_local", lambda cancel, progress: self.local_models.install(filename, cancel, progress))
 
     def _llm_service(self):
-        return self.local_llm_factory(self._provider, self.endpoint_edit.text().strip(), self.key_edit.text().strip())
+        connection = (self._provider, self.endpoint_edit.text().strip(), self.key_edit.text().strip())
+        if self._cached_llm_service is None or self._cached_llm_connection != connection:
+            self._cached_llm_service = self.local_llm_factory(*connection)
+            self._cached_llm_connection = connection
+        return self._cached_llm_service
 
     def _populate_llm_models(self, models, selected=""):
         self.model_combo.clear()

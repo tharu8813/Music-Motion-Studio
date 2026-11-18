@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import atexit
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
 import os
@@ -34,12 +35,12 @@ MODEL_GUIDES = (
     {"id":"qwen2.5-coder:32b","size":"≈ 20 GB","focus":"coder","tier":"large","lmstudio":"","url":"https://ollama.com/library/qwen2.5-coder","ko":["Qwen2.5 Coder 32B · 고사양","대규모 코딩 특화 모델","가용 메모리와 속도를 반드시 확인하세요."],"en":["Qwen2.5 Coder 32B · demanding","Large coding-specialized model.","Check available RAM and speed."]},
     {"id":"qwen3-coder:30b","size":"≈ 19 GB","focus":"coder","tier":"large","lmstudio":"","url":"https://ollama.com/library/qwen3-coder","ko":["Qwen3 Coder 30B · 고사양","최신 계열 코딩 지시와 구조화 출력 비교용","가사 번역 품질은 별도 검증이 필요합니다."],"en":["Qwen3 Coder 30B · demanding","For coding instructions and structured-output comparisons.","Lyric quality requires independent testing."]},
     {"id":"devstral-small-2:24b","size":"≈ 15 GB","focus":"coder","tier":"large","lmstudio":"","url":"https://ollama.com/library/devstral-small-2","ko":["Devstral Small 2 24B · 다른 코딩 계열","코딩 작업 특화 모델 계열을 비교할 때","다국어 가사 번역 모델로 검증된 것은 아닙니다."],"en":["Devstral Small 2 24B · coding alternative","Alternative software-oriented model family.","Not validated for multilingual lyrics."]},
-    {"id":"qwen3.5:4b","size":"≈ 3.4 GB","focus":"multilingual","tier":"small","lmstudio":"","url":"https://ollama.com/library/qwen3.5","ko":["Qwen3.5 4B · 다국어 경량","다국어 문맥을 중시할 때 비교할 범용 모델","코딩 전용은 아니며 JSON 준수 여부를 확인하세요."],"en":["Qwen3.5 4B · multilingual compact","General model for multilingual context.","Not coder-specific; test its JSON output."]},
-    {"id":"qwen3.5:9b","size":"≈ 6.6 GB","focus":"multilingual","tier":"medium","lmstudio":"","url":"https://ollama.com/library/qwen3.5","ko":["Qwen3.5 9B · 다국어 균형","여러 언어의 가사와 구조화 지시를 함께 시험","메모리·속도와 언어별 편차를 고려하세요."],"en":["Qwen3.5 9B · multilingual balance","Try multilingual lyrics and structured instructions.","Consider RAM, speed, and uneven language quality."]},
-    {"id":"qwen3.5:27b","size":"≈ 17 GB","focus":"multilingual","tier":"large","lmstudio":"","url":"https://ollama.com/library/qwen3.5","ko":["Qwen3.5 27B · 고사양 다국어","복잡한 다국어 번역을 시도할 범용 대형 모델","메모리 요구량이 크고 정확도를 보장하지 않습니다."],"en":["Qwen3.5 27B · multilingual large","Larger general model for complex multilingual tasks.","High memory needs; results are not guaranteed."]},
+    {"id":"qwen3.5:4b","lyric_rank":2,"size":"≈ 3.4 GB","focus":"multilingual","tier":"small","lmstudio":"","url":"https://ollama.com/library/qwen3.5","ko":["Qwen3.5 4B · 가사 번역 경량 추천","작은 용량으로 곡의 주제와 문체를 분석하는 2단계 번역을 시도하기 좋습니다.","긴 곡의 맥락과 비유에 약할 수 있으므로 번역 결과를 검토하세요."],"en":["Qwen3.5 4B · lightweight lyric option","Compact multilingual model for two-stage contextual lyric translation.","Long songs and subtle metaphors still need review."]},
+    {"id":"qwen3.5:9b","lyric_rank":1,"size":"≈ 6.6 GB","focus":"multilingual","tier":"medium","lmstudio":"","url":"https://ollama.com/library/qwen3.5","ko":["Qwen3.5 9B · 가사 번역 우선 추천","가사 전체 문맥 분석, 반복 후렴, 다국어 표현을 균형 있게 처리할 후보입니다.","8GB급 GPU에서는 문맥·실행 설정에 따라 RAM을 병용해 느릴 수 있습니다."],"en":["Qwen3.5 9B · preferred for lyrics","Balanced candidate for full-song context and two-stage translation.","May spill to RAM on 8GB GPUs; review nuanced lyrics."]},
+    {"id":"qwen3.5:27b","lyric_rank":3,"size":"≈ 17 GB","focus":"multilingual","tier":"large","lmstudio":"","url":"https://ollama.com/library/qwen3.5","ko":["Qwen3.5 27B · 정밀 번역 고사양","긴 가사와 복합적인 은유를 세밀하게 살펴볼 때 고려할 큰 모델입니다.","실행 메모리 부담이 높고 CPU 병용 시 번역이 느릴 수 있습니다."],"en":["Qwen3.5 27B · high-end lyric option","A larger model to try on subtle imagery and complex multilingual lyrics.","Large memory requirements and potentially slower CPU inference."]},
     {"id":"qwen3:4b","size":"≈ 2.5 GB","focus":"multilingual","tier":"small","lmstudio":"https://huggingface.co/Qwen/Qwen3-4B-GGUF","url":"https://ollama.com/library/qwen3","ko":["Qwen3 4B · 기존 경량","다국어 지시와 일반 번역용 범용 대안","작은 모델은 JSON 형식·문맥을 놓칠 수 있습니다."],"en":["Qwen3 4B · existing compact","Small general multilingual alternative.","May miss JSON rules or nuance."]},
-    {"id":"qwen3:8b","size":"≈ 5.2 GB","focus":"multilingual","tier":"medium","lmstudio":"https://huggingface.co/Qwen/Qwen3-8B-GGUF","url":"https://ollama.com/library/qwen3","ko":["Qwen3 8B · 기존 모델","일반 다국어 지시를 시험할 균형형","코딩 전용이 아니며 가사 품질을 보장하지 않습니다."],"en":["Qwen3 8B · existing model","Balanced general multilingual alternative.","Not coder-specific; lyric quality is unverified."]},
-    {"id":"gemma3:4b","size":"≈ 3.4 GB","focus":"multilingual","tier":"small","lmstudio":"https://huggingface.co/lmstudio-community/gemma-3-4b-it-GGUF","url":"https://ollama.com/library/gemma3","ko":["Gemma 3 4B · 다른 계열","다양한 언어를 지원하는 비교용 대안","언어별 품질과 이용 조건을 확인하세요."],"en":["Gemma 3 4B · alternative","Alternative multilingual family.","Language quality varies; check model terms."]},
+    {"id":"qwen3:8b","lyric_rank":5,"size":"≈ 5.2 GB","focus":"multilingual","tier":"medium","lmstudio":"https://huggingface.co/Qwen/Qwen3-8B-GGUF","url":"https://ollama.com/library/qwen3","ko":["Qwen3 8B · 기존 모델","일반 다국어 지시를 시험할 균형형","코딩 전용이 아니며 가사 품질을 보장하지 않습니다."],"en":["Qwen3 8B · existing model","Balanced general multilingual alternative.","Not coder-specific; lyric quality is unverified."]},
+    {"id":"gemma3:4b","lyric_rank":4,"size":"≈ 3.4 GB","focus":"multilingual","tier":"small","lmstudio":"https://huggingface.co/lmstudio-community/gemma-3-4b-it-GGUF","url":"https://ollama.com/library/gemma3","ko":["Gemma 3 4B · 다른 계열","다양한 언어를 지원하는 비교용 대안","언어별 품질과 이용 조건을 확인하세요."],"en":["Gemma 3 4B · alternative","Alternative multilingual family.","Language quality varies; check model terms."]},
 )
 
 
@@ -144,9 +145,20 @@ class LocalLLMService:
             raise TranslationError("로컬 LLM 서버에 연결할 수 없거나 응답이 올바르지 않습니다. 실행 구성요소 설치·시작 또는 서버 주소를 확인하세요. / Cannot reach the local LLM server; install/start the runtime or check the URL.") from None
 
     def list_models(self, cancel=None):
-        data = self._request("/api/tags" if self.provider == "ollama" else "/api/v1/models", cancel=cancel, timeout=5)
-        rows = []
+        """Fetch one model index and check uncached Ollama capabilities concurrently.
+
+        /api/show can block for seconds per model. A bounded worker pool avoids
+        serial O(N*timeout) startup without bypassing completion/remote checks.
+        The per-service digest cache is reused across refreshes; failed probes
+        aren't cached so a transient server error can recover next time.
+        """
+        data = self._request("/api/tags" if self.provider == "ollama" else "/api/v1/models",
+                             cancel=cancel, timeout=5)
+        candidates, pending = [], []
         for item in data.get("models", []):
+            check_cancel(cancel)
+            if not isinstance(item, dict):
+                continue
             name = item.get("name") if self.provider == "ollama" else item.get("key")
             if not isinstance(name, str) or not name:
                 continue
@@ -156,18 +168,49 @@ class LocalLLMService:
                 continue
             if self.provider == "ollama":
                 cache_key = (name, item.get("digest"))
+                # Explicit tag capabilities are enough to discard an embedding
+                # model immediately; the remote flag still needs /api/show.
+                tag_capabilities = item.get("capabilities")
+                if isinstance(tag_capabilities, list) and "completion" not in tag_capabilities:
+                    continue
                 if cache_key not in self._capabilities:
-                    try:
-                        metadata = self._request("/api/show", {"model": name}, cancel=cancel, timeout=5)
-                        self._capabilities[cache_key] = (metadata.get("capabilities"), bool(metadata.get("remote_host")))
-                    except TranslationError:
-                        # Older servers may not expose capabilities. Keep their
-                        # existing model list usable, without guessing a family.
-                        self._capabilities[cache_key] = (None, False)
-                capabilities, remote = self._capabilities[cache_key]
+                    pending.append((cache_key, name))
+            candidates.append((name, item))
+
+        if pending:
+            def inspect(entry):
+                key, model = entry
+                check_cancel(cancel)
+                try:
+                    info = self._request("/api/show", {"model": model}, cancel=cancel, timeout=4)
+                    if not isinstance(info, dict):
+                        return key, None
+                    return key, (info.get("capabilities"), bool(info.get("remote_host")))
+                except TranslationError:
+                    # An older/offline server may omit /api/show. It remains
+                    # usable with the previous optimistic fallback behavior.
+                    return key, None
+
+            # Avoid excessive concurrent requests to a CPU-bound local server.
+            # Each success is remembered by model name+digest. No credentials,
+            # prompts or model weights enter this cache.
+            with ThreadPoolExecutor(max_workers=min(4, len(pending)),
+                                    thread_name_prefix="llm-model-probe") as pool:
+                futures = [pool.submit(inspect, entry) for entry in pending]
+                for future in as_completed(futures):
+                    check_cancel(cancel)
+                    key, found = future.result()
+                    if found is not None:
+                        self._capabilities[key] = found
+        check_cancel(cancel)
+
+        rows = []
+        for name, item in candidates:
+            if self.provider == "ollama":
+                capabilities, remote = self._capabilities.get((name, item.get("digest")), (None, False))
                 if remote or capabilities is not None and "completion" not in capabilities:
                     continue
-            details = item.get("details", {})
+            details = item.get("details") or {}
             rows.append({"id": name, "name": item.get("display_name", name),
                 "size": item.get("size", item.get("size_bytes", 0)),
                 "parameters": details.get("parameter_size", item.get("params_string", "")),

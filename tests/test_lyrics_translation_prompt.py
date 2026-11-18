@@ -3,7 +3,8 @@ import json
 import unittest
 
 from app.services.lyrics_translation_prompt import (
-    CONTEXT_CHARS_PER_SIDE, DEFAULT_LYRICS_TRANSLATION_PROMPT, REFERENCE_CHARS,
+    CONTEXT_CHARS_PER_SIDE, DEFAULT_LYRICS_TRANSLATION_PROMPT, SONG_ANALYSIS_PROMPT,
+    build_song_analysis_prompt, parse_song_analysis, REFERENCE_CHARS,
     SONG_CONTEXT_MAX_CHARS, LOCAL_SONG_CONTEXT_MAX_CHARS,
     build_translation_prompt, neighboring_context, reference_translations, whole_song_context,
 )
@@ -101,42 +102,90 @@ class TranslationPromptTests(unittest.TestCase):
         self.assertEqual(references, [{"id": 2, "source_text": "Again", "text": "다시"}])
         self.assertLessEqual(sum(len(r["source_text"]) + len(r["text"]) for r in references), REFERENCE_CHARS)
 
-    def test_every_llm_adapter_uses_same_prompt_with_separate_preferences(self):
+    def test_every_llm_adapter_uses_same_two_stage_prompts(self):
         instruction_seen, payloads = [], []
+        plan = {"story": "A quiet parting", "tone": "wistful", "voice": "speaker ambiguous",
+                "style": "natural and faithful", "refrains": ["moon"], "glossary": []}
+        planning_output = json.dumps({"plan": plan})
         output = json.dumps({"translations": [{"id": 0, "text": "月は君の名前を覚えている。"}]})
         for provider in sorted(LLM_PROVIDERS):
             with self.subTest(provider=provider):
                 def transport(url, body=None, headers=None, **kwargs):
                     if provider in {"chatgpt", "openai"}:
-                        instruction_seen.append(body["instructions"])
-                        payloads.append(json.loads(body["input"][0]["content"]))
-                        return output
+                        instr = body["instructions"]
+                        data = json.loads(body["input"][0]["content"])
+                        response = planning_output if data.get("stage") == "song_analysis" else output
+                        instruction_seen.append(instr)
+                        payloads.append(data)
+                        return response
                     if provider == "claude":
-                        instruction_seen.append(body["system"])
-                        payloads.append(json.loads(body["messages"][0]["content"]))
-                        return {"stop_reason": "end_turn", "content": [{"type": "text", "text": output}]}
+                        instr = body["system"]
+                        data = json.loads(body["messages"][0]["content"])
+                        response = planning_output if data.get("stage") == "song_analysis" else output
+                        instruction_seen.append(instr)
+                        payloads.append(data)
+                        return {"stop_reason": "end_turn", "content": [{"type": "text", "text": response}]}
                     if provider == "gemini":
-                        instruction_seen.append(body["systemInstruction"]["parts"][0]["text"])
-                        payloads.append(json.loads(body["contents"][0]["parts"][0]["text"]))
-                        return {"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": output}]}}]}
-                    instruction_seen.append(body["messages"][0]["content"])
-                    payloads.append(json.loads(body["messages"][1]["content"]))
-                    return {"choices": [{"finish_reason": "stop", "message": {"content": output}}]}
+                        instr = body["systemInstruction"]["parts"][0]["text"]
+                        data = json.loads(body["contents"][0]["parts"][0]["text"])
+                        response = planning_output if data.get("stage") == "song_analysis" else output
+                        instruction_seen.append(instr)
+                        payloads.append(data)
+                        return {"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": response}]}}]}
+                    instr = body["messages"][0]["content"]
+                    data = json.loads(body["messages"][1]["content"])
+                    response = planning_output if data.get("stage") == "song_analysis" else output
+                    instruction_seen.append(instr)
+                    payloads.append(data)
+                    if provider == "ollama":
+                        self.assertTrue(url.endswith("/api/chat"))
+                        self.assertIs(body["think"], False)
+                        self.assertEqual(body["format"], "json")
+                        return {"done": True, "done_reason": "stop", "message": {"content": response}}
+                    return {"choices": [{"finish_reason": "stop", "message": {"content": response}}]}
                 config = TranslationConfig(provider, source="ko", target="ja", model="selected-model",
                     key="test", endpoint="http://localhost:1234/v1", instructions="Keep names unchanged.")
                 result = LyricsTranslationService(transport).translate([{"text": "달은 네 이름을 간직한다."}], config)
                 self.assertEqual(result, ["月は君の名前を覚えている。"])
-        self.assertEqual(instruction_seen, [DEFAULT_LYRICS_TRANSLATION_PROMPT] * len(LLM_PROVIDERS))
-        for payload in payloads:
+        self.assertEqual(instruction_seen, [value for _ in sorted(LLM_PROVIDERS)
+            for value in (SONG_ANALYSIS_PROMPT, DEFAULT_LYRICS_TRANSLATION_PROMPT)])
+        for i, payload in enumerate(payloads):
             self.assertEqual(payload["style_preferences"], "Keep names unchanged.")
             self.assertEqual(payload["source_language"], "ko")
             self.assertEqual(payload["target_language"], "ja")
+            if i % 2 == 0:
+                self.assertEqual(payload["full_song"]["cues"], [{"id": 0, "text": "달은 네 이름을 간직한다."}])
+            else:
+                self.assertEqual(payload["translation_plan"], plan)
+                self.assertEqual(payload["lyrics"], [{"id": 0, "text": "달은 네 이름을 간직한다."}])
+
+    def test_song_analysis_validates_exact_plan_and_never_drops_source_cues(self):
+        cues = [{"text": "Verse 1"}, {"text": ""}, {"text": "Chorus"},
+                {"text": "Verse 2"}]
+        instruction, raw = build_song_analysis_prompt(
+            cues, source_language="auto", target_language="ko", preferences="존댓말 금지")
+        self.assertEqual(instruction, SONG_ANALYSIS_PROMPT)
+        data = json.loads(raw)
+        self.assertEqual(data["full_song"]["total_cues"], 4)
+        self.assertEqual([row["id"] for row in data["full_song"]["cues"]], [0, 2, 3])
+        self.assertEqual(data["style_preferences"], "존댓말 금지")
+        valid = {"story": "Story", "tone": "Soft", "voice": "Unknown", "style": "Simple",
+                 "refrains": ["Chorus"], "glossary": [{"source": "Verse", "target": "절"}]}
+        self.assertEqual(parse_song_analysis(json.dumps({"plan": valid})), valid)
+        for malformed in ({"plan": {}}, {"translations": []},
+                          {"plan": {**valid, "glossary": [{"source": "x"}]}},
+                          {"plan": {**valid, "refrains": ["x"] * 6}}):
+            with self.subTest(malformed=malformed), self.assertRaises(ValueError):
+                parse_song_analysis(json.dumps(malformed))
 
     def test_batch_context_and_previous_repetition_do_not_replace_actual_requests(self):
         cues = [{"text": "Again"}] + [{"text": f"Line {i}"} for i in range(1, 20)] + [{"text": "Again"}]
         calls = []
         def transport(url, body=None, headers=None, **kwargs):
             payload = json.loads(body["input"][0]["content"])
+            if payload.get("stage") == "song_analysis":
+                return json.dumps({"plan": {"story": "Together", "tone": "calm", "voice": "neutral",
+                    "style": "natural faithful", "refrains": ["Again"], "glossary": []}})
             calls.append(payload)
             return json.dumps({"translations": [{"id": row["id"], "text": "번역"} for row in payload["lyrics"]]})
         result = LyricsTranslationService(transport).translate(cues, TranslationConfig("chatgpt", model="selected", key="test"))
@@ -157,14 +206,18 @@ class TranslationPromptTests(unittest.TestCase):
         requests = []
         def transport(url, body=None, headers=None, **kwargs):
             data = json.loads(body["messages"][1]["content"])
+            if data.get("stage") == "song_analysis":
+                return {"done": True, "done_reason": "stop", "message": {"content":
+                    json.dumps({"plan": {"story": "Verses", "tone": "direct", "voice": "neutral",
+                        "style": "natural faithful", "refrains": [], "glossary": []}})}}
             requests.append(data)
-            return {"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(
+            return {"done": True, "done_reason": "stop", "message": {"content": json.dumps(
                 {"translations": [{"id": row["id"], "text": f"번역 {row['id']}"}
-                                 for row in data["lyrics"]]})}}]}
+                                 for row in data["lyrics"]]})}}
         config = TranslationConfig("ollama", model="qwen2.5-coder:7b",
                                    endpoint="http://localhost:11434/v1")
         output = LyricsTranslationService(transport).translate(cues, config)
-        self.assertEqual([len(request["lyrics"]) for request in requests], [12, 12, 6])
+        self.assertEqual([len(request["lyrics"]) for request in requests], [6] * 5)
         self.assertEqual(output[29], "번역 29")
         for request in requests:
             context = request["song_context"]
@@ -219,6 +272,9 @@ class TranslationPromptTests(unittest.TestCase):
         payloads = []
         def transport(url, body=None, headers=None, **kwargs):
             payload = json.loads(body["input"][0]["content"])
+            if payload.get("stage") == "song_analysis":
+                return json.dumps({"plan": {"story": "Refrain", "tone": "neutral", "voice": "unspecified",
+                    "style": "faithful", "refrains": [], "glossary": []}})
             payloads.append(payload)
             return json.dumps({"translations": [{"id": row["id"], "text": ""} for row in payload["lyrics"]]})
         self.assertEqual(LyricsTranslationService(transport).translate(cues,

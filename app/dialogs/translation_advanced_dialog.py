@@ -1,7 +1,9 @@
 """Optional translation preferences, separate from service setup and review."""
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QLabel,
     QLineEdit, QPlainTextEdit, QScrollArea, QTabWidget, QVBoxLayout, QWidget)
-from app.services.lyrics_translation_prompt import DEFAULT_LYRICS_TRANSLATION_PROMPT
+from app.services.lyrics_translation_prompt import (
+    DEFAULT_LYRICS_TRANSLATION_PROMPT, SONG_ANALYSIS_PROMPT,
+)
 from app.services.lyrics_translation_service import LLM_PROVIDERS, LOCAL_LLM_PROVIDERS, TranslationError
 from app.dialogs.help_dialog import install_help_shortcut
 
@@ -35,8 +37,8 @@ class TranslationAdvancedDialog(QDialog):
         self.endpoint_label = QLabel(tr("로컬 서버 주소", "Local server URL"))
         self.endpoint_label.setBuddy(self.endpoint_edit)
         form.addRow(self.endpoint_label, self.endpoint_edit)
-        note = QLabel(tr("문체·존댓말·용어 등의 요청을 적으세요. 기본 번역 기준은 원문에 충실한 직역입니다.",
-                        "Add preferences for tone, register or terminology. The default is faithful, literal translation."))
+        note = QLabel(tr("문체·존댓말·용어 등의 요청을 적으세요. 기본 번역은 원문의 의미에 충실하면서 자연스러운 표현을 우선합니다.",
+                        "Add preferences for tone, register or terminology. The default preserves meaning with natural wording."))
         note.setWordWrap(True)
         form.addRow(note)
         self.instructions_edit = services.instructions_edit
@@ -49,10 +51,13 @@ class TranslationAdvancedDialog(QDialog):
         scroll.setWidgetResizable(True)
         scroll.setWidget(preferences)
         tabs.addTab(scroll, tr("문체 및 연결", "Style and connection"))
+        self.analysis_prompt = QPlainTextEdit(SONG_ANALYSIS_PROMPT)
+        self.analysis_prompt.setReadOnly(True)
+        tabs.addTab(self.analysis_prompt, tr("1단계 · 전체 가사 분석", "Stage 1 · Whole-song analysis"))
         self.prompt = QPlainTextEdit(DEFAULT_LYRICS_TRANSLATION_PROMPT)
         self.prompt.setReadOnly(True)
         self.prompt.setAccessibleName(tr("가사 번역 기본 프롬프트", "Default lyric translation prompt"))
-        tabs.addTab(self.prompt, tr("기본 프롬프트", "Default prompt"))
+        tabs.addTab(self.prompt, tr("2단계 · 가사 번역", "Stage 2 · Translate lyrics"))
         root.addWidget(tabs, 1)
         self.status_label = QLabel()
         self.status_label.setWordWrap(True)

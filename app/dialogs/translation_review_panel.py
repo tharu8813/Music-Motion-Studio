@@ -392,7 +392,25 @@ class TranslationReviewPanel(QWidget):
         scroll = self.table.verticalScrollBar().value()
         self.table.blockSignals(True)
         try:
-            if event["stage"] == "working":
+            if event["stage"] == "planning":
+                self.workflow.set_status(self.tr_text(
+                    "1단계 · 전체 가사의 흐름과 문체를 분석하고 있습니다. 분석이 끝나면 2단계 번역을 시작합니다.",
+                    "Stage 1 · Analyzing the whole song's meaning and style before translating."))
+            elif event["stage"] == "planning_complete":
+                self.workflow.set_status(self.tr_text(
+                    "1단계 분석 완료 · 정한 문체와 반복 표현을 공유해 2단계 번역을 시작합니다.",
+                    "Stage 1 complete · Applying the shared style and terminology in Stage 2."))
+            elif event["stage"] == "planning_fallback":
+                self.workflow.set_status(self.tr_text(
+                    "전체 가사 분석 결과를 받지 못했습니다. 주변 문맥을 활용하는 기본 번역으로 계속합니다.",
+                    "Full-song analysis unavailable; continuing with contextual translation."))
+            elif event["stage"] == "retry":
+                rows = event.get("rows", [])
+                if rows:
+                    self.workflow.set_status(self.tr_text(
+                        f"로컬 AI 출력 한도에 도달해 {rows[0] + 1}~{rows[-1] + 1}번 가사를 작은 묶음으로 자동 재시도 중입니다.",
+                        f"Local AI output limit reached; automatically retrying rows {rows[0] + 1}–{rows[-1] + 1} in smaller batches."))
+            elif event["stage"] == "working":
                 for row in event["rows"]:
                     self.table.item(row, 4).setText(self.tr_text("번역 중…", "Translating…"))
                     for column in range(self.table.columnCount()):

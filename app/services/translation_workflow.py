@@ -135,7 +135,7 @@ class TranslationWorkflow(QObject):
                 # Raw model output is intentionally temporary and not persisted in drafts.
                 self.diagnostics.append(event)
                 self.review.set_diagnostics(self.diagnostics)
-        if stage in {"working", "complete"}:
+        if stage in {"planning", "planning_complete", "planning_fallback", "retry", "working", "complete"}:
             self.review._activity(event)
 
     def _finished(self):
