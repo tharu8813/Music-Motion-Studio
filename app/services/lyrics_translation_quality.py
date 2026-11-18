@@ -92,7 +92,8 @@ def confidently_unneeded(source: str, source_language: str, target_language: str
     if target == "ko" and _KOREAN.search(text):
         # "BTS와 함께" is less dangerous to recheck than "I love you, 사랑해"
         # being silently marked as already translated.
-        return all(not char.isalpha() or bool(_KOREAN.fullmatch(char)) for char in text)
+        return all(not char.isalpha() or bool(_KOREAN.fullmatch(char))
+                   or "\u3400" <= char <= "\u9fff" for char in text)
     if target == "ja" and _JAPANESE_KANA.search(text):
         # Kana is positive evidence, unlike shared Han/Kanji characters.
         return all(not char.isalpha() or bool(_JAPANESE_KANA.fullmatch(char))
