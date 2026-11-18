@@ -404,6 +404,12 @@ class TranslationReviewPanel(QWidget):
                 self.workflow.set_status(self.tr_text(
                     "전체 가사 분석 결과를 받지 못했습니다. 주변 문맥을 활용하는 기본 번역으로 계속합니다.",
                     "Full-song analysis unavailable; continuing with contextual translation."))
+            elif event["stage"] == "retry":
+                rows = event.get("rows", [])
+                if rows:
+                    self.workflow.set_status(self.tr_text(
+                        f"로컬 AI 출력 한도에 도달해 {rows[0] + 1}~{rows[-1] + 1}번 가사를 작은 묶음으로 자동 재시도 중입니다.",
+                        f"Local AI output limit reached; automatically retrying rows {rows[0] + 1}–{rows[-1] + 1} in smaller batches."))
             elif event["stage"] == "working":
                 for row in event["rows"]:
                     self.table.item(row, 4).setText(self.tr_text("번역 중…", "Translating…"))
