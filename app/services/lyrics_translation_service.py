@@ -408,8 +408,8 @@ class LyricsTranslationService:
                                             if index not in still_bad})
                             numbers = ", ".join(str(index + 1) for index in still_bad)
                             raise TranslationError(
-                                f"한국어 번역 검증 실패: 가사 {numbers}번은 다시 번역해야 합니다. / "
-                                f"Korean translation quality check failed for lyric rows {numbers}.",
+                                f"가사 번역 검증 실패: {numbers}번 줄은 다시 검토해야 합니다. / "
+                                f"Lyric translation quality check failed for rows {numbers}.",
                                 partial=partial)
                         return [corrections.get(index, value)
                                 for (index, _), value in zip(subset, translated)]
@@ -446,20 +446,27 @@ class LyricsTranslationService:
                 else:
                     translated = self._translate_batch(batch, config, cancel)
             except TranslationError as error:
-                # Preserve valid rows already returned in an otherwise invalid batch.
+                # A partial JSON row is NOT necessarily a completed translation.
+                # Revalidate it here: malformed later rows and quality retries
+                # can raise before the ordinary post-batch quality gate runs.
                 valid_ids = {index for index, _text in batch}
+                accepted = set()
                 for index, original in batch:
                     if index not in error.partial:
                         continue
                     value = error.partial[index]
                     if value is not None and not isinstance(value, str):
                         continue
+                    if (config.provider in LLM_PROVIDERS
+                            and quality_issue(original, value, config.source, config.target)):
+                        continue
                     final = translation_text(original, value) if value is not None else ""
+                    accepted.add(index)
                     result[index] = final
                     if activity:
                         activity({"stage": "complete", "row": index, "text": final})
                 if activity:
-                    activity({"stage": "failure", "rows": sorted(valid_ids - set(error.partial)),
+                    activity({"stage": "failure", "rows": sorted(valid_ids - accepted),
                         "reason": str(error)})
                     if config.provider in LOCAL_LLM_PROVIDERS and not error.diagnosed:
                         activity({"stage": "diagnostic", "provider": config.provider, "model": config.model,

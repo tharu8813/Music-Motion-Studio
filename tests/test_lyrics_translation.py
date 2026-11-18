@@ -395,7 +395,7 @@ class TranslationUITests(unittest.TestCase):
         self.assertNotIn("translation", self.cues[0])
         self.assertNotIn("test-key", Path(self.settings.fileName()).read_text(encoding="utf-8"))
 
-    def test_unnecessary_result_stays_blank_and_removes_old_translation_only_after_apply(self):
+    def test_copied_english_is_a_failure_and_never_auto_deletes_previous_translation(self):
         self.cues = apply_translations(self.cues, ["이전 번역"], TranslationConfig("google"))
         dialog = self.dialog()
         dialog.workflow.service = LyricsTranslationService(lambda *args, **kwargs:
@@ -403,12 +403,29 @@ class TranslationUITests(unittest.TestCase):
         with patch("app.services.translation_workflow.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
             dialog._translate()
         self.wait(dialog)
-        self.assertEqual(dialog.table.item(0, 3).text(), "")
-        self.assertEqual(dialog.table.item(0, 0).checkState(), Qt.CheckState.Checked)
-        self.assertTrue(dialog.apply_button.isEnabled())
+        self.assertEqual(dialog.table.item(0, 3).text(), "이전 번역")
+        self.assertEqual(dialog.draft.rows[0].status, "failed")
+        self.assertEqual(dialog.table.item(0, 0).checkState(), Qt.CheckState.Unchecked)
         self.assertEqual(dialog.selected_cues, self.cues)
-        with patch("app.dialogs.translation_review_panel.QMessageBox.warning", return_value=QMessageBox.StandardButton.Yes):
+        self.assertEqual(self.cues[0]["translation"]["text"], "이전 번역")
+
+    def test_verified_unneeded_result_requires_manual_check_before_deleting_old_translation(self):
+        self.cues = [{"start": 0, "end": 4, "text": "이미 한국어"}]
+        self.cues = apply_translations(self.cues, ["이전 번역"], TranslationConfig("google"))
+        dialog = self.dialog()
+        dialog.workflow.service = LyricsTranslationService(lambda *args, **kwargs:
+            json.dumps({"translations": [{"id": 0, "text": ""}]}))
+        with patch("app.services.translation_workflow.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
+            dialog._translate()
+        self.wait(dialog)
+        self.assertEqual(dialog.draft.rows[0].status, "unneeded")
+        self.assertEqual(dialog.table.item(0, 3).text(), "")
+        self.assertEqual(dialog.table.item(0, 0).checkState(), Qt.CheckState.Unchecked)
+        self.assertFalse(dialog.apply_button.isEnabled())
+        dialog.table.item(0, 0).setCheckState(Qt.CheckState.Checked)
+        with patch("app.dialogs.translation_review_panel.QMessageBox.warning", return_value=QMessageBox.StandardButton.Yes) as warning:
             dialog._apply()
+        warning.assert_called_once()
         self.assertNotIn("translation", dialog.selected_cues[0])
         self.assertEqual(self.cues[0]["translation"]["text"], "이전 번역")
 
@@ -421,8 +438,10 @@ class TranslationUITests(unittest.TestCase):
             dialog._translate()
             self.wait(dialog)
         self.assertEqual(dialog.table.item(0, 3).text(), "")
-        self.assertEqual(dialog.table.item(0, 0).checkState(), Qt.CheckState.Checked)
-        self.assertTrue(dialog.apply_button.isEnabled())
+        # Same-language no-op must not automatically select an empty result:
+        # a checked blank would delete an existing approved translation.
+        self.assertEqual(dialog.table.item(0, 0).checkState(), Qt.CheckState.Unchecked)
+        self.assertFalse(dialog.apply_button.isEnabled())
 
     def test_empty_lyrics_disable_translation_and_cannot_be_selected(self):
         self.cues = [{"start": 0, "end": 4, "text": "   "}]

@@ -32,6 +32,21 @@ class QualityGateTests(unittest.TestCase):
         self.assertIsNone(quality_issue("Hello", "안녕", "en", "ko"))
         self.assertIsNone(quality_issue("이미 한글", "", "auto", "ko"))
 
+    def test_empty_or_copied_lyrics_are_not_silent_success_in_any_language(self):
+        for source, direction, target in (
+                ("LOVE", "auto", "ko"), ("Forever", "auto", "ko"),
+                ("Dreaming", "auto", "ko"), ("Hello", "en", "ja"),
+                ("사랑해", "ko", "en"), ("Hola", "auto", "en"),
+                ("こんにちは", "ja", "ko")):
+            with self.subTest(source=source, direction=direction, target=target):
+                self.assertIsNotNone(quality_issue(source, "", direction, target))
+                self.assertIsNotNone(quality_issue(source, source, direction, target))
+        for source, direction, target in (
+                ("이미 한국어", "auto", "ko"), ("L.O.V.E", "en", "ko"),
+                ("こんにちは", "auto", "ja"), ("...", "auto", "en")):
+            with self.subTest(source=source, target=target):
+                self.assertIsNone(quality_issue(source, "", direction, target))
+
     def test_unexpected_chinese_script_is_flagged_but_existing_source_is_allowed(self):
         self.assertIn("Unexpected Han", quality_issue("We're holding the reins", "우리가 쥔 缰绳", "en", "ko"))
         self.assertIsNone(quality_issue("龍의 노래", "龍의 노래", "auto", "ko"))
@@ -171,6 +186,61 @@ class LyricsQualityIntegrationTests(unittest.TestCase):
         cues = [{"text": "이미 한국어 가사"}, {"text": "L.O.V.E"}]
         result = LyricsTranslationService(transport).translate(cues, self.config())
         self.assertEqual(result, ["", ""])
+
+    def test_partial_empty_row_is_rejected_after_retry_json_failure(self):
+        events, calls = [], []
+        def transport(url, body=None, headers=None, **kwargs):
+            payload = json.loads(body["messages"][1]["content"])
+            if payload.get("stage") == "song_analysis":
+                return self.response({"plan": PLAN})
+            calls.append(payload)
+            if payload["quality_feedback"]:
+                # First invalid row still blank, second row absent: a partial
+                # None must not be promoted to completed/unneeded.
+                return self.response({"translations": [{"id": 0, "text": ""}]})
+            return self.response({"translations": [
+                {"id": 0, "text": ""}, {"id": 1, "text": ""}]})
+        with self.assertRaises(TranslationError):
+            LyricsTranslationService(transport).translate(
+                [{"text": "Forever"}, {"text": "Dreaming"}],
+                self.config(), activity=events.append)
+        self.assertEqual(len(calls), 2)
+        self.assertFalse(any(event["stage"] == "complete" for event in events))
+        failure = next(event for event in events if event["stage"] == "failure")
+        self.assertEqual(failure["rows"], [0, 1])
+
+    def test_non_korean_unchanged_result_is_retried_not_skipped(self):
+        calls = []
+        def transport(url, body=None, headers=None, **kwargs):
+            payload = json.loads(body["messages"][1]["content"])
+            if payload.get("stage") == "song_analysis":
+                return self.response({"plan": PLAN})
+            calls.append(payload)
+            return self.response({"translations": [{"id": 0, "text": "Hello"}]})
+        with self.assertRaisesRegex(TranslationError, "quality check failed"):
+            LyricsTranslationService(transport).translate(
+                [{"text": "Hello"}], self.config().__class__(
+                    "ollama", source="en", target="ja", model="qwen3.5:9b",
+                    endpoint="http://localhost:11434/v1"))
+        self.assertEqual(len(calls), 2)
+
+    def test_negation_reversal_is_corrected_in_targeted_retry(self):
+        requests = []
+        def transport(url, body=None, headers=None, **kwargs):
+            payload = json.loads(body["messages"][1]["content"])
+            if payload.get("stage") == "song_analysis":
+                return self.response({"plan": PLAN})
+            requests.append(payload)
+            return self.response({"translations": [{
+                "id": 0,
+                "text": "이제 네가 그립지 않아" if payload["quality_feedback"]
+                        else "아직도 네가 그리워",
+            }]})
+        output = LyricsTranslationService(transport).translate(
+            [{"text": "I don't miss you anymore."}], self.config())
+        self.assertEqual(output, ["이제 네가 그립지 않아"])
+        self.assertEqual(len(requests), 2)
+        self.assertIn("negated phrase", requests[1]["quality_feedback"])
 
     def test_unexpected_han_gets_targeted_korean_retranslation(self):
         requests = []

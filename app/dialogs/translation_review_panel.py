@@ -439,6 +439,9 @@ class TranslationReviewPanel(QWidget):
                         f"묶음 안 {lines}번째 줄에서 모델이 빈 결과를 반환했습니다. 모델의 언어 방향을 확인하거나 번역문을 직접 입력하세요. 이 행은 자동 선택하지 않습니다.",
                         f"The model returned no translation for line(s) {lines} in this cue. Check the model language pair or enter a translation. This row is not selected automatically."))
                 else:
+                    if not text:
+                        # Do not leave a previously checked deletion selected.
+                        self.table.item(row, 0).setCheckState(Qt.CheckState.Unchecked)
                     self.table.item(row, 4).setText(self.tr_text("완료", "Complete") if text else self.tr_text("번역 불필요", "Not needed"))
                 for column in range(self.table.columnCount()):
                     self.table.item(row, column).setData(Qt.ItemDataRole.BackgroundRole, None)

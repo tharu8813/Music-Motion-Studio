@@ -13,6 +13,10 @@ from app.services.lyrics_translation_prompt import lyric_text
 
 _WORDS = re.compile(r"[A-Za-z]+(?:['’][A-Za-z]+)?")
 _KOREAN = re.compile(r"[\uac00-\ud7a3]")
+_JAPANESE_KANA = re.compile(r"[\u3040-\u30ff]")
+_DOTTED_INITIALISM = re.compile(r"(?:[A-Za-z]\.\s*){2,}[A-Za-z][!?.,\s]*$")
+# Narrow whitelist of conventional initialisms, not arbitrary capitalized lyrics.
+_CONVENTIONAL_ACRONYMS = frozenset({"NASA", "BTS", "USA", "UN", "UNESCO", "CPU", "GPU", "AI", "DJ"})
 _ENGLISH_CLUES = frozenset((
     "a", "an", "and", "are", "as", "at", "be", "been", "but", "can",
     "come", "did", "do", "does", "for", "from", "have", "has", "had",
@@ -71,18 +75,81 @@ def _unexpected_han(source: str, translated: str) -> bool:
     return any(han(char) and char not in src for char in translated)
 
 
+def confidently_unneeded(source: str, source_language: str, target_language: str) -> bool:
+    """A conservative exception for empty/unchanged LLM output, not language detection.
+
+    If the language is uncertain, require a translation or explicit user review.
+    Never infer that arbitrary Latin text is English or that an uppercase lyric
+    is an acronym: those shortcuts silently dropped one-word song lyrics.
+    """
+    text = lyric_text({"text": source})
+    if not text:
+        return True
+    if (source_language.casefold() != "auto"
+            and source_language.casefold() == target_language.casefold()):
+        return True
+    if (not any(char.isalpha() for char in text) or _DOTTED_INITIALISM.fullmatch(text)
+            or text.strip(" .,!?:;") in _CONVENTIONAL_ACRONYMS):
+        return True
+    target = target_language.casefold().split("-")[0]
+    if target == "ko" and _KOREAN.search(text):
+        # "BTS와 함께" is less dangerous to recheck than "I love you, 사랑해"
+        # being silently marked as already translated.
+        return all(not char.isalpha() or bool(_KOREAN.fullmatch(char))
+                   or "\u3400" <= char <= "\u9fff" for char in text)
+    if target == "ja" and _JAPANESE_KANA.search(text):
+        # Kana is positive evidence, unlike shared Han/Kanji characters.
+        return all(not char.isalpha() or bool(_JAPANESE_KANA.fullmatch(char))
+                   or "\u3400" <= char <= "\u9fff" for char in text)
+    return False
+
+
+# Narrow high-confidence polarity guard. This is NOT a general semantic validator:
+# naturally rephrased negatives can be correct without a literal negation word.
+_EN_NEGATED_VERB = re.compile(
+    r"\b(?:don't|doesn't|didn't|do not|does not|did not|never)\s+"
+    r"(?:(?:really|even|ever)\s+)?(?P<verb>miss|love|leave|want|need|remember)\b",
+    re.IGNORECASE,
+)
+_KOREAN_NEGATION = re.compile(r"않|없|아니|아냐|못|싫|그만|절대|더\s*이상|(?:^|\s)안(?:\s|$)")
+_KOREAN_POSITIVE_VERBS = {
+    "miss": re.compile(r"그리워|보고\s*싶"),
+    "love": re.compile(r"사랑해|사랑하|사랑했|좋아해"),
+    "leave": re.compile(r"떠났|떠나|가버렸"),
+    "want": re.compile(r"원해|원하|바라"),
+    "need": re.compile(r"필요해|필요하"),
+    "remember": re.compile(r"기억해|기억하"),
+}
+
+
+def obvious_negation_loss(source: str, translated: str) -> bool:
+    """Catch select opposite-polarity mistranslations without guessing at lyrics."""
+    match = _EN_NEGATED_VERB.search(source)
+    if not match or _KOREAN_NEGATION.search(translated):
+        return False
+    return bool(_KOREAN_POSITIVE_VERBS[match.group("verb").casefold()].search(translated))
+
+
 def quality_issue(source: str, translated: str | None,
                   source_language: str, target_language: str) -> str | None:
-    """A quality signal for targeted retry, not a quality score."""
+    """A quality signal for targeted retry, not a semantic quality score."""
+    unchanged = not translated or normalized_source(translated) == normalized_source(source)
+    if unchanged:
+        if confidently_unneeded(source, source_language, target_language):
+            return None
+        if should_translate_english(source, source_language, target_language):
+            return "영어 원문을 번역하지 않았습니다. / English lyric was left untranslated."
+        return "가사 번역이 누락되었거나 원문 그대로입니다. / Lyric was left untranslated or unchanged."
     if target_language.casefold().split("-")[0] != "ko":
         return None
-    if translated and _unexpected_han(source, translated):
+    if _unexpected_han(source, translated):
         return "한국어 번역에 원문에 없는 한자가 섞였습니다. / Unexpected Han characters in Korean translation."
+    if (source_language.casefold().split("-")[0] in {"auto", "en"}
+            and obvious_negation_loss(source, translated)):
+        return "부정 의미가 긍정으로 바뀐 것으로 보입니다. / A negated phrase appears to have become affirmative."
     if not should_translate_english(source, source_language, target_language):
         return None
-    if not translated or normalized_source(translated) == normalized_source(source):
-        return "영어 원문을 번역하지 않았습니다. / English lyric was left untranslated."
-    # A model may echo the original English sentence instead of translating it.
+    # A model may echo another English sentence instead of translating it.
     if not _KOREAN.search(translated):
         source_words = _english_words(source)
         translated_words = _english_words(translated)
