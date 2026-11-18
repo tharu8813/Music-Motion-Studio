@@ -222,7 +222,8 @@ def build_crash_report(
         f"{recent_log_lines(log_path)}\n\n"
         "PRIVACY NOTICE: This report can contain local file paths, project "
         "names and recent log messages. Review it before sharing. "
-        "Environment variables and authentication credentials are not collected.\n"
+        "Environment variables are not collected; recent logs could contain "
+        "sensitive data, including credentials if an earlier component logged them.\n"
     )
 
 
