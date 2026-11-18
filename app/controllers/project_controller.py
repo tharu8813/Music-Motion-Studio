@@ -739,6 +739,7 @@ class ProjectController:
             log_path=str(log_directory()),
             report_path=report_path,
             repeat_count=repeat_count,
+            workspace_restored=rollback_error is None,
             korean=korean,
             parent=window,
         )
