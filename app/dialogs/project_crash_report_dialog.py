@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QHBoxLayout,
+    QMenu,
     QLabel,
     QPlainTextEdit,
     QPushButton,
@@ -32,10 +34,15 @@ class ProjectCrashReportDialog(QDialog):
         report_text: str,
         log_path: str,
         korean: bool,
+        report_path: str | None = None,
+        repeat_count: int = 1,
+        workspace_restored: bool = True,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setModal(True)
+        self.exit_choice: str | None = None
+        self._korean = korean
         self.setMinimumSize(760, 520)
         self.resize(820, 580)
         self.setWindowTitle(
@@ -48,9 +55,17 @@ class ProjectCrashReportDialog(QDialog):
         )
         heading.setObjectName("panelTitle")
         description = QLabel(
-            "문제가 있는 프로젝트는 적용하지 않았으며, 기존 프로젝트와 프로그램은 계속 사용할 수 있습니다."
-            if korean else
-            "The problematic project was not applied. Your existing project and the application remain available."
+            (
+                "기존 작업공간 복원에도 실패했습니다. 원본 프로젝트를 덮어쓰지 마세요. "
+                "오류 보고서를 보관하고 필요한 경우 다른 이름으로 저장하세요."
+                if korean else
+                "Restoring the previous workspace also failed. Do not overwrite "
+                "the original project. Keep the report and consider Save As."
+            ) if not workspace_restored else (
+                "문제가 있는 프로젝트는 적용하지 않았으며, 기존 프로젝트와 프로그램은 계속 사용할 수 있습니다."
+                if korean else
+                "The problematic project was not applied. Your existing project and the application remain available."
+            )
         )
         description.setWordWrap(True)
 
@@ -58,6 +73,7 @@ class ProjectCrashReportDialog(QDialog):
 
         def add_row(korean_label: str, english_label: str, value: str) -> None:
             label = QLabel(value or "-")
+            label.setTextFormat(Qt.TextFormat.PlainText)
             label.setWordWrap(True)
             label.setTextInteractionFlags(
                 label.textInteractionFlags()
@@ -73,6 +89,10 @@ class ProjectCrashReportDialog(QDialog):
             add_row("근본 원인", "Root cause", f"{cause_type}: {cause_message}")
         add_row("권장 조치", "Suggested action", guidance)
         add_row("로그 폴더", "Log folder", log_path)
+        add_row("저장된 보고서", "Saved report", report_path or
+                ("보고서를 저장하지 못했습니다." if korean else "Report file unavailable."))
+        self.repeat_label = QLabel()
+        form.addRow("연속 오류" if korean else "Recent failures", self.repeat_label)
 
         details_label = QLabel("상세 보고서" if korean else "Detailed report")
         details_label.setObjectName("sectionTitle")
@@ -86,6 +106,21 @@ class ProjectCrashReportDialog(QDialog):
         self.copy_button.clicked.connect(
             lambda: QApplication.clipboard().setText(self.details.toPlainText())
         )
+        self.exit_button = QPushButton("종료 옵션" if korean else "Exit options")
+        self.exit_button.setObjectName("crashExitOptions")
+        exit_menu = QMenu(self.exit_button)
+        for choice, ko, en in (
+            ("save", "프로젝트를 저장하고 종료", "Save project and exit"),
+            ("save_as", "프로젝트를 다른 이름으로 저장하고 종료", "Save project as and exit"),
+            ("discard", "프로젝트를 저장하지 않고 종료", "Exit without saving"),
+            ("force", "강제 종료", "Force quit"),
+        ):
+            action = exit_menu.addAction(ko if korean else en)
+            action.triggered.connect(
+                lambda _checked=False, mode=choice: self._choose_exit(mode)
+            )
+        self.exit_button.setMenu(exit_menu)
+        self.set_repeat_count(repeat_count)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.button(QDialogButtonBox.StandardButton.Close).setText(
             "닫기" if korean else "Close"
@@ -99,5 +134,25 @@ class ProjectCrashReportDialog(QDialog):
         layout.addLayout(form)
         layout.addWidget(details_label)
         layout.addWidget(self.details, 1)
-        layout.addWidget(self.copy_button)
+        actions = QHBoxLayout()
+        actions.addWidget(self.copy_button)
+        actions.addStretch()
+        actions.addWidget(self.exit_button)
+        layout.addLayout(actions)
+        layout.addWidget(QLabel(
+            "보고서에 파일 경로와 최근 로그가 포함될 수 있습니다. 공유 전에 확인하세요."
+            if korean else "This report may include local paths and recent logs. Review before sharing."
+        ))
         layout.addWidget(buttons)
+
+    def set_repeat_count(self, count: int) -> None:
+        count = max(1, count)
+        self.repeat_label.setText(
+            f"최근 90초간 {count}회" if self._korean else
+            f"{count} report(s) in the last 90 seconds"
+        )
+        self.exit_button.setVisible(count >= 2)
+
+    def _choose_exit(self, choice: str) -> None:
+        self.exit_choice = choice
+        self.accept()
