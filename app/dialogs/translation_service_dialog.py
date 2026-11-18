@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 
-from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtCore import QSignalBlocker, QTimer, Qt, Signal
 from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QFormLayout, QFrame, QHBoxLayout, QFileDialog, QLabel, QLineEdit, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from app.dialogs.help_dialog import install_help_shortcut
@@ -202,11 +202,21 @@ class TranslationServiceDialog(QDialog):
         provider = self.provider_combo.currentData()
         if not provider or self._provider == provider:
             return
+        # Do not replace the active configuration while a worker is using it.
+        if self.worker:
+            if self._provider:
+                with QSignalBlocker(self.provider_combo):
+                    self.provider_combo.setCurrentIndex(self.provider_combo.findData(self._provider))
+            return
         if self._provider:
             try:
                 self._save_settings()
             except TranslationError as error:
                 self.status_label.setText(str(error))
+                # Keep the visible selection consistent with the actual configuration.
+                with QSignalBlocker(self.provider_combo):
+                    self.provider_combo.setCurrentIndex(self.provider_combo.findData(self._provider))
+                return
         self._provider = provider
         self._changing_provider = True
         self.settings.setValue("translation/provider", provider)
@@ -261,10 +271,22 @@ class TranslationServiceDialog(QDialog):
         self.changed.emit()
 
     def _mode_changed(self, *_args):
-        self._save_settings()
         old = self._provider
+        old_mode = ("cloud_llm" if old in CLOUD_LLM_PROVIDERS else
+                    "local_llm" if old in LOCAL_LLM_PROVIDERS else "local")
+        if self.worker:
+            with QSignalBlocker(self.mode_combo):
+                self.mode_combo.setCurrentIndex(self.mode_combo.findData(old_mode))
+            return
+        try:
+            self._save_settings()
+        except TranslationError as error:
+            self.status_label.setText(str(error))
+            if old:
+                with QSignalBlocker(self.mode_combo):
+                    self.mode_combo.setCurrentIndex(self.mode_combo.findData(old_mode))
+            return
         if old:
-            old_mode = "cloud_llm" if old in CLOUD_LLM_PROVIDERS else "local_llm" if old in LOCAL_LLM_PROVIDERS else "local"
             self.settings.setValue("translation/last_" + old_mode, old)
         self._provider = ""
         self.provider_combo.blockSignals(True)
@@ -316,9 +338,10 @@ class TranslationServiceDialog(QDialog):
         key = self.credentials.load("chatgpt").get("access_token", "") if config.provider == "chatgpt" else config.key
         return (config.provider, config.endpoint, hashlib.sha256(key.encode()).hexdigest())
 
-    def record_connection(self, connected, models=()):
+    def record_connection(self, connected, models=(), *, signature=None, checked_at=None):
         from time import monotonic
-        self.connection = (self.connection_signature(), connected, frozenset(models), monotonic())
+        self.connection = (signature if signature is not None else self.connection_signature(),
+                           connected, frozenset(models), monotonic() if checked_at is None else checked_at)
 
     def verified_connection(self):
         from time import monotonic
@@ -390,14 +413,21 @@ class TranslationServiceDialog(QDialog):
         provider = self._provider
         signature = self.connection_signature()
         def finished(_result):
-            self._installed_llms[provider] = dialog.models
-            if self._provider == provider:
-                if dialog._discovered:
+            # A previous successful discovery must not hide a later refresh failure,
+            # cancellation, or an old result from another server configuration.
+            current_connection = self._provider == provider and signature == self.connection_signature()
+            verified_at = dialog.models_verified_at
+            if current_connection:
+                if dialog._discovered and verified_at is not None:
+                    self._installed_llms[provider] = dialog.models
                     self._populate_llm_models(dialog.models, dialog.selected_model or self._model_value())
                     if not self._model_value():
                         self.settings.remove("translation/config/" + provider + "/model")
-                    if signature == self.connection_signature():
-                        self.record_connection(True, [model["id"] for model in dialog.models])
+                    self.record_connection(True, [model["id"] for model in dialog.models],
+                                           signature=signature, checked_at=verified_at)
+                else:
+                    # Unknown is not the same as a successful connection.
+                    self.connection = None
                 try:
                     self._save_settings()
                 except TranslationError as error:
