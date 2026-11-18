@@ -5,6 +5,8 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import QRectF
+from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QApplication
 
 from app.canvas.source_item import SourceItem
@@ -47,6 +49,45 @@ class AutomaticLineCountTests(unittest.TestCase):
         item = self._track_list(500, count=2)
         self.assertEqual(item.effective_track_list_count(), 2)
         self.assertEqual(len(item.track_list_display_lines()), 2)
+
+    def test_manual_track_count_is_capped_by_available_height(self) -> None:
+        item = self._track_list(95, count=15)
+        self.assertGreaterEqual(item.effective_track_list_count(), 1)
+        self.assertLess(item.effective_track_list_count(), 15)
+        self.assertEqual(
+            len(item.track_list_display_lines()), item.effective_track_list_count(),
+        )
+
+    def test_new_row_designs_use_card_spacing_in_auto_count(self) -> None:
+        item = self._track_list(210)
+        item.source.track_list_style = "cards"
+        card_rows = item.effective_track_list_count()
+        for style in ("spotlight", "outline", "stripes"):
+            with self.subTest(style=style):
+                item.source.track_list_style = style
+                self.assertEqual(item.effective_track_list_count(), card_rows)
+
+    def test_tiny_track_list_never_paints_outside_the_source(self) -> None:
+        for style in ("cards", "spotlight", "outline", "stripes"):
+            with self.subTest(style=style):
+                source = Source(
+                    SourceType.TRACK_LIST, "Many rows",
+                    width=160, height=90, font_size=20,
+                    track_list_style=style, track_list_count=15,
+                    track_list_row_spacing=40, track_list_item_padding=10,
+                    text="\n".join(f"{index:02d}. Track" for index in range(15)),
+                    fill_color="#213347",
+                )
+                item = SourceItem(source)
+                image = QImage(180, 260, QImage.Format.Format_ARGB32_Premultiplied)
+                image.fill(0)
+                painter = QPainter(image)
+                item.paint(painter, None)
+                painter.end()
+                self.assertTrue(
+                    all(image.pixelColor(x, y).alpha() == 0
+                        for x in range(0, 160, 4) for y in range(91, 255, 4))
+                )
 
     def test_automatic_lyric_context_uses_height_and_multiline_cost(self) -> None:
         cues = [
