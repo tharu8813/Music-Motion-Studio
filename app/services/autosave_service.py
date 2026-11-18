@@ -15,6 +15,10 @@ from app.models.project import ProjectDocument
 from app.services.project_service import ProjectError
 
 
+class AutosaveSuperseded(ProjectError):
+    """A queued recovery write became obsolete after the workspace was cleared."""
+
+
 @dataclass(frozen=True, slots=True)
 class RecoverySnapshot:
     """One durable recovery document plus the project it belongs to."""
@@ -84,8 +88,11 @@ class AutosaveService:
                 json.dump(payload, temporary, ensure_ascii=False, indent=2)
                 temporary.flush()
             with self._write_lock:
-                if expected_generation is None or expected_generation == self.generation:
-                    temporary_path.replace(target)
+                if expected_generation is not None and expected_generation != self.generation:
+                    # Do not claim that a stale backup was persisted.  Let the
+                    # worker quietly discard it without flashing "Autosaved".
+                    raise AutosaveSuperseded("Recovery write superseded by a newer project state.")
+                temporary_path.replace(target)
             return target
         except (OSError, TypeError, ValueError) as error:
             raise ProjectError(f"Could not save recovery snapshot: {error}") from error

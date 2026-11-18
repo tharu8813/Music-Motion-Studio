@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 from PySide6.QtCore import QThread, Signal
 
-from app.services.autosave_service import AutosaveService
+from app.services.autosave_service import AutosaveService, AutosaveSuperseded
 from app.services.project_service import ProjectError
 
 
@@ -42,6 +42,10 @@ class AutosaveWorker(QThread):
                 self._document_data, self._project_path, self._saved_at,
                 expected_generation=self._generation,
             )
+        except AutosaveSuperseded:
+            # A save/clear or project switch already superseded this work.
+            # It is neither a persisted snapshot nor a user-facing error.
+            return
         except ProjectError as error:
             self.failed.emit(str(error))
         except Exception as error:  # a worker thread must never crash the app

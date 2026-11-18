@@ -66,13 +66,9 @@ def paint_progress_design(
         filled = QRectF(rect.left(), mid - thin * 0.8, rect.width() * value, thin * 1.6)
         painter.setBrush(fill)
         painter.drawRoundedRect(filled, thin * 0.8, thin * 0.8)
-        if value > 0.0:
-            tip = rect.left() + rect.width() * value
-            painter.setBrush(fill_color)
-            painter.drawEllipse(
-                QRectF(tip - radius * 0.32, mid - radius * 0.32,
-                       radius * 0.64, radius * 0.64)
-            )
+        # The progress_knob setting is painted by the common renderer.
+        # Never add an implicit Rail knob here: "none" must really be none,
+        # and explicit circle/bar handles must not overlap a second marker.
     else:
         radius = rect.height() / 2.0
         painter.setBrush(track_color)

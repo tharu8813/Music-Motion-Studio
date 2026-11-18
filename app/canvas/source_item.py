@@ -1419,8 +1419,6 @@ class SourceItem(QGraphicsObject):
     def effective_track_list_count(self) -> int:
         """Return the configured track count or a readable automatic count."""
         configured = int(self.source.track_list_count)
-        if configured > 0:
-            return max(1, min(15, configured))
         padding = max(0.0, min(40.0, self.source.track_list_item_padding))
         available = max(1.0, self.source.height - padding * 2.0)
         spacing = max(0.0, min(40.0, self.source.track_list_row_spacing))
@@ -1442,14 +1440,18 @@ class SourceItem(QGraphicsObject):
         )
         style_padding = (
             8.0
-            if self.source.track_list_style in {"cards", "glass", "pills"}
+            if self.source.track_list_style in {
+                "cards", "glass", "pills", "spotlight", "outline", "stripes",
+            }
             else 3.0
         )
         readable_row_height = max(18.0, glyph_height + style_padding)
         count = int(
             (available + spacing) / (readable_row_height + spacing)
         )
-        return max(1, min(15, count))
+        # A manual count is an upper limit, not permission to paint beyond the
+        # source.  Large fonts/padding and tiny elements can fit fewer rows.
+        return max(1, min(15, count, configured if configured > 0 else 15))
 
     def _apply_image_filters(
         self, pixmap: QPixmap, *, include_blur: bool = True,
@@ -1532,6 +1534,10 @@ class SourceItem(QGraphicsObject):
         lines = self.track_list_display_lines()
         if not lines or inner.isEmpty():
             return
+        # Clip the *rows*, not the decorated source background.  Even one row
+        # with oversized font must not bleed into neighbouring elements.
+        painter.save()
+        painter.setClipRect(inner, Qt.ClipOperation.IntersectClip)
         current_row = source.track_list_current_row
         if not 0 <= current_row < len(lines):
             current_row = next(
@@ -1540,7 +1546,7 @@ class SourceItem(QGraphicsObject):
                 0,
             )
         spacing = max(0.0, min(40.0, source.track_list_row_spacing))
-        row_height = max(12.0, (inner.height() - spacing * (len(lines) - 1)) / len(lines))
+        row_height = max(0.0, (inner.height() - spacing * (len(lines) - 1)) / len(lines))
         alignment = {
             "center": Qt.AlignmentFlag.AlignHCenter,
             "right": Qt.AlignmentFlag.AlignRight,
@@ -1640,6 +1646,7 @@ class SourceItem(QGraphicsObject):
                 flags |= Qt.TextFlag.TextWordWrap
             self._draw_text(painter, text_rect, flags, line)
             painter.restore()
+        painter.restore()
 
     def track_list_display_lines(self) -> list[str]:
         """Return real or editor-placeholder rows limited by effective count."""

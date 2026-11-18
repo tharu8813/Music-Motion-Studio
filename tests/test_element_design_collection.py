@@ -7,7 +7,8 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtGui import QColor, QImage, QPainter, QPixmap  # noqa: E402
+from PySide6.QtCore import QRectF  # noqa: E402
+from PySide6.QtGui import QBrush, QColor, QImage, QPainter, QPixmap  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from app.canvas.source_item import SourceItem  # noqa: E402
@@ -16,6 +17,7 @@ from app.models.source import Source, SourceType  # noqa: E402
 from app.services.source_store import SourceStore  # noqa: E402
 from app.utils.i18n import Translator  # noqa: E402
 from app.widgets.visual_preset_combo import _preview_icon  # noqa: E402
+from app.utils.progress_style_paint import paint_progress_design  # noqa: E402
 
 
 DESIGN_FAMILIES = {
@@ -129,6 +131,29 @@ class ElementDesignCollectionTests(unittest.TestCase):
                 source.progress_value = 1.0
                 full = self.render(source)
                 self.assertNotEqual(empty, full)
+
+    def test_rail_only_shows_a_knob_when_the_knob_option_enables_it(self) -> None:
+        # The shared Rail painter must not sneak in an extra solid marker.
+        image = QImage(240, 45, QImage.Format.Format_ARGB32_Premultiplied)
+        image.fill(0)
+        painter = QPainter(image)
+        transparent = QColor("#00000000")
+        painted = paint_progress_design(
+            painter, QRectF(5, 5, 220, 30), "rail", 0.5,
+            transparent, QBrush(transparent), QColor("#F00000"),
+        )
+        painter.end()
+        self.assertTrue(painted)
+        self.assertEqual(image.pixelColor(115, 20).alpha(), 0)
+
+        # The knob layer remains available when explicitly requested.
+        source = self.source(SourceType.PROGRESS_BAR)
+        source.progress_style = "rail"
+        source.progress_knob = "none"
+        without_knob = self.render(source)
+        source.progress_knob = "circle"
+        with_knob = self.render(source)
+        self.assertNotEqual(without_knob, with_knob)
 
     def test_album_framing_preserves_square_source_and_cover_content(self) -> None:
         source = self.source(SourceType.ALBUM_COVER)
