@@ -432,7 +432,8 @@ class TranslationServiceDialog(QDialog):
                     self._save_settings()
                 except TranslationError as error:
                     self.status_label.setText(str(error))
-                self.changed.emit()
+            # Refresh the parent even when the manager's original connection is stale.
+            self.changed.emit()
         self.manager.finished.connect(finished)
         self.manager.busy_changed.connect(self.changed)
         self.manager.show()
