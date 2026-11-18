@@ -44,17 +44,23 @@ def should_translate_english(source: str, source_language: str, target_language:
     if target_language.casefold().split("-")[0] != "ko":
         return False
     words = _english_words(source)
-    if not words or _KOREAN.search(source):
+    if not words:
         return False
     if not any(len(word) > 1 and not word.isupper() for word in words):
         return False
     language = source_language.casefold().split("-")[0]
-    if language == "en":
-        return True
-    if language != "auto":
+    if language not in {"en", "auto"}:
         return False
     lower = [word.casefold() for word in words]
-    return (bool(_ENGLISH_CLUES.intersection(lower)) or len(words) >= 3)
+    clues = bool(_ENGLISH_CLUES.intersection(lower))
+    if _KOREAN.search(source):
+        # Mixed-language cues still need translation if an actual English
+        # phrase is present; do not flag isolated English names or acronyms.
+        return (clues and len(words) >= 2 and
+                sum(len(word) for word in words if len(word) > 1) >= 6)
+    if language == "en":
+        return True
+    return clues or len(words) >= 3
 
 
 def _unexpected_han(source: str, translated: str) -> bool:
