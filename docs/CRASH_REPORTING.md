@@ -31,11 +31,35 @@ Simply closing the crash dialog does not exit the editor. A cancelled or
 failed save leaves the editor open. Project-load failures defer any selected
 exit until the load guard is released.
 
+## Restart after a forced or abnormal shutdown
+
+An interrupted previous session is **not treated as a new exception**.
+A leftover `running.marker` no longer opens the detailed crash-report dialog,
+increments the repeated-crash counter, or generates another crash-report file.
+Instead, before the editor and GPU preview widgets are created, startup asks:
+
+- **안전 모드로 실행 / Safe Mode**: use the CPU preview backend for this session,
+  skip automatic update checks and background AutoMix analysis, and postpone
+  cache/temporary-directory cleanup tasks. Projects and saved user preferences
+  remain unchanged. Previously saved autosave/recovery snapshots still use the
+  usual project recovery workflow.
+- **일반 모드로 실행 / Normal Mode**: run with normal settings and startup tasks.
+
+Closing the choice defaults to Safe Mode. Safe Mode is **session-only**: a clean
+restart uses normal settings again. For support and diagnosis, `--safe-mode`
+starts directly in Safe Mode without the prompt. `--smoke-test` never opens
+a blocking startup dialog.
+
+A running marker still records the session for recovery detection and is
+removed by a normal Qt application exit. Actual unhandled exceptions, Qt
+critical messages and project-loading errors still receive detailed reports
+and keep the repeated-error Exit options menu.
+
 ## Native limitations and QA
 
 OS-level kills and native access violations cannot reliably show Qt UI.
 Existing native-crash.log and abnormal-shutdown markers remain the fallback.
-Reports are saved locally; they are never automatically uploaded.
+Reports are saved locally for **actual errors**; they are never automatically uploaded.
 
 Run: python -m unittest -v tests.test_crash_diagnostics
 Windows deployment CI also runs Python compileall and all test modules.
@@ -57,8 +81,7 @@ test is dispatched, leaving the editor free to display its crash UI.
 The first five choices exercise the application's installed exception/report
 pipeline and do not intentionally exit the process. The last choice is
 irreversible: it skips saves and worker cleanup and should only be run with a
-throwaway project or after saving every edit. The existing next-start
-abnormal-shutdown report and native-crash.log are its diagnostics.
+throwaway project or after saving every edit. The next-start **safe-start choice** and native-crash.log are its diagnostics.
 
 Test each nonfatal mode, then validate the repeated-report Exit options
 menu. Only perform the native abort test manually in a disposable Windows
