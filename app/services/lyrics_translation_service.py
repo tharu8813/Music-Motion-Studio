@@ -462,6 +462,11 @@ class LyricsTranslationService:
                 preferences=c.instructions)
             raw = self._llm_completion(c, cancel, instruction, prompt)
             plan = parse_song_analysis(raw)
+            # A planning model may hallucinate a "canonical" phrase. Only let
+            # glossary entries grounded in the actual full song reach stage 2.
+            source_text = "\n".join(lyric_text(row) for row in cues).casefold()
+            plan["glossary"] = [entry for entry in plan["glossary"]
+                                if entry["source"].casefold() in source_text]
         except (TranslationError, ValueError, KeyError, TypeError, IndexError, AttributeError):
             check_cancel(cancel)
             if activity:
