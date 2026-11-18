@@ -8,7 +8,8 @@ import json
 
 from app.models.project import ProjectDocument
 from app.models.playlist import PlaylistTrack
-from app.services.autosave_service import AutosaveService
+from app.services.autosave_service import AutosaveService, AutosaveSuperseded
+from app.services.autosave_worker import AutosaveWorker
 from app.services.project_service import ProjectError
 
 
@@ -76,6 +77,33 @@ class AutosaveServiceTests(unittest.TestCase):
             recovered = service.latest_recovery()
             self.assertEqual(recovered.saved_at, saved_at)
             self.assertEqual(recovered.document.playlist[0].title, "A")
+
+    def test_superseded_recovery_write_cannot_recreate_cleared_snapshot(self) -> None:
+        with TemporaryDirectory(prefix="pvs-autosave-") as directory:
+            service = AutosaveService(Path(directory))
+            existing = service.save(_document(), None)
+            expected = service.generation
+            service.clear(None)
+            self.assertFalse(existing.path.exists())
+            with self.assertRaises(AutosaveSuperseded):
+                service.write_document_data(
+                    _document().to_dict(), None, expected_generation=expected,
+                )
+            self.assertFalse(existing.path.exists())
+            self.assertEqual(list(service.directory.glob("*.tmp")), [])
+
+    def test_stale_autosave_worker_emits_neither_success_nor_failure(self) -> None:
+        with TemporaryDirectory(prefix="pvs-autosave-") as directory:
+            service = AutosaveService(Path(directory))
+            worker = AutosaveWorker(service, _document().to_dict(), None)
+            success, failure = [], []
+            worker.succeeded.connect(success.append)
+            worker.failed.connect(failure.append)
+            service.clear(None)
+            worker.run()
+            self.assertEqual(success, [])
+            self.assertEqual(failure, [])
+            self.assertEqual(service.recoveries(), [])
 
     def test_write_document_data_leaves_no_temp_file_on_failure(self) -> None:
         with TemporaryDirectory(prefix="pvs-autosave-") as directory:
