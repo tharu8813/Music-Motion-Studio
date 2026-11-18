@@ -34,8 +34,9 @@ def paint_progress_design(
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setPen(Qt.PenStyle.NoPen)
     if style == "segments":
-        count = 12
-        gap = min(4.0, max(1.0, rect.width() * 0.012))
+        # Keep narrow bars usable instead of producing negative-width slots.
+        count = min(12, max(1, int(rect.width() / 6.0)))
+        gap = min(4.0, max(0.8, rect.width() * 0.012))
         block = (rect.width() - gap * (count - 1)) / count
         if block <= 0.0:
             painter.restore()
