@@ -80,6 +80,56 @@ def _memory_description() -> str:
     return "unavailable"
 
 
+def _windows_hardware() -> list[str]:
+    """Best-effort native registry queries; never launch a diagnostic subprocess."""
+    if os.name != "nt":
+        return []
+    results: list[str] = []
+    try:
+        import winreg
+
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"HARDWARE\DESCRIPTION\System\CentralProcessor\0",
+        ) as key:
+            results.append(f"CPU model: {winreg.QueryValueEx(key, 'ProcessorNameString')[0]}")
+    except (OSError, ImportError):
+        pass
+    try:
+        import winreg
+
+        display_key = (
+            r"SYSTEM\CurrentControlSet\Control\Class"
+            r"\{4d36e968-e325-11ce-bfc1-08002be10318}"
+        )
+        found: set[str] = set()
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, display_key) as root:
+            for index in range(32):
+                try:
+                    name = winreg.EnumKey(root, index)
+                except OSError:
+                    break
+                if not (len(name) == 4 and name.isdigit()):
+                    continue
+                try:
+                    with winreg.OpenKey(root, name) as adapter:
+                        label = str(winreg.QueryValueEx(adapter, "DriverDesc")[0])
+                        try:
+                            driver = str(winreg.QueryValueEx(adapter, "DriverVersion")[0])
+                        except OSError:
+                            driver = "unknown"
+                    if label and label not in found:
+                        results.append(f"Display adapter: {label} (driver {driver})")
+                        found.add(label)
+                    if len(found) >= 4:
+                        break
+                except OSError:
+                    continue
+    except (OSError, ImportError):
+        pass
+    return results
+
+
 def collect_environment(window=None) -> str:
     """Capture actionable environment facts without dumping secrets or env vars."""
     now = datetime.now(timezone.utc)
@@ -99,6 +149,7 @@ def collect_environment(window=None) -> str:
         f"Process uptime: {max(0, int(time.monotonic() - _SESSION_STARTED))} seconds",
         f"Thread: {__import__('threading').current_thread().name}",
     ]
+    lines.extend(_windows_hardware())
     if window is not None:
         project_path = getattr(window, "current_project_path", None)
         lines.append(f"Project: {project_path or '(none)'}")
@@ -163,6 +214,7 @@ def build_crash_report(
         f"{PRODUCT_NAME} crash report\n"
         f"Report ID: {report_id}\n"
         f"Repeated reports within 90 seconds: {repeat_count}\n"
+        f"Error signature: {crash_signature(exception_type, traceback_text)}\n"
         f"Exception: {exception_type}: {message or '(no exception message)'}\n\n"
         f"ENVIRONMENT\n{collect_environment(window)}\n\n"
         f"TRACEBACK / CONTEXT\n{stack}\n\n"
