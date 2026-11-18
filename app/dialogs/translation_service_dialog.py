@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 
-from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtCore import QSignalBlocker, QTimer, Qt, Signal
 from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QFormLayout, QFrame, QHBoxLayout, QFileDialog, QLabel, QLineEdit, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from app.dialogs.help_dialog import install_help_shortcut
@@ -206,7 +206,13 @@ class TranslationServiceDialog(QDialog):
             try:
                 self._save_settings()
             except TranslationError as error:
+                # Keep the selector and active provider together if persistence
+                # fails. Do not load a second provider over unsaved editor values.
+                with QSignalBlocker(self.provider_combo):
+                    self.provider_combo.setCurrentIndex(
+                        self.provider_combo.findData(self._provider))
                 self.status_label.setText(str(error))
+                return
         self._provider = provider
         self._changing_provider = True
         self.settings.setValue("translation/provider", provider)
@@ -261,10 +267,20 @@ class TranslationServiceDialog(QDialog):
         self.changed.emit()
 
     def _mode_changed(self, *_args):
-        self._save_settings()
         old = self._provider
+        old_mode = ("cloud_llm" if old in CLOUD_LLM_PROVIDERS else
+                    "local_llm" if old in LOCAL_LLM_PROVIDERS else "local")
+        try:
+            self._save_settings()
+        except TranslationError as error:
+            # The method combo lives in the parent dialog. Roll it back without
+            # emitting a second mode change, and preserve the provider controls.
+            if old:
+                with QSignalBlocker(self.mode_combo):
+                    self.mode_combo.setCurrentIndex(self.mode_combo.findData(old_mode))
+            self.status_label.setText(str(error))
+            return
         if old:
-            old_mode = "cloud_llm" if old in CLOUD_LLM_PROVIDERS else "local_llm" if old in LOCAL_LLM_PROVIDERS else "local"
             self.settings.setValue("translation/last_" + old_mode, old)
         self._provider = ""
         self.provider_combo.blockSignals(True)
