@@ -263,15 +263,15 @@ class VisualPresetComboTests(unittest.TestCase):
 
 
     def test_gallery_effects_have_readable_uniform_demonstration_timing(self):
-        # Enter and exit both take about 1.3 seconds to display their motion,
+        # Enter demonstrates quickly; exit deliberately lasts longer.
         # regardless of source-configured duration.
-        self.assertAlmostEqual(_gallery_progress("entrance", .22 + 1.30 / 2), .5)
+        self.assertAlmostEqual(_gallery_progress("entrance", .12 + 0.90 / 2), .5)
         self.assertAlmostEqual(_gallery_progress("exit", .50 + 1.35 / 2), .5)
         self.assertAlmostEqual(_gallery_progress("lyric", .30 + 1.45 / 2), .5)
         self.assertEqual(_gallery_progress("exit", .30), 0.0)
         self.assertEqual(_gallery_progress("exit", 2.10), 1.0)
-        self.assertEqual(_gallery_progress("entrance", 1.70), 1.0)
-        self.assertEqual(_gallery_progress("entrance", 2.10), 0.0)
+        self.assertEqual(_gallery_progress("entrance", 1.20), 1.0)
+        self.assertEqual(_gallery_progress("entrance", 1.40), 0.0)
         self.assertEqual(_gallery_progress("entrance", -2.0), 0.0)
 
     def test_active_gallery_speed_is_not_tied_to_saved_animation_durations(self):
