@@ -318,10 +318,10 @@ class VisualPresetComboTests(unittest.TestCase):
                 middle = _preview_icon(
                     "lyric", effect, 0, source, demo_progress=.65
                 ).pixmap(112, 72).toImage()
-                # Current cue is clearly visible, beyond the stage border.
+                # Current cue remains legible even while moving above/below center.
                 bright = sum(
                     first.pixelColor(x, y).lightness() > 100
-                    for y in range(24, 46) for x in range(15, 99)
+                    for y in range(8, 65) for x in range(15, 99)
                 )
                 self.assertGreater(bright, 12)
                 if effect != "none":
