@@ -326,7 +326,8 @@ class VisualPresetComboTests(unittest.TestCase):
                 self.assertGreater(bright, 12)
                 if effect != "none":
                     self.assertNotEqual(first, middle)
-                gallery_frames[effect] = middle
+                # Early in the transition shows bounce/zoom before their easing settles.
+                gallery_frames[effect] = first
         for effect in ("glow", "crossfade", "zoom", "cascade", "bounce"):
             with self.subTest(distinct_effect=effect):
                 self.assertNotEqual(gallery_frames[effect], gallery_frames["none"])
