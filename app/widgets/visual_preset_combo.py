@@ -96,7 +96,7 @@ def _gallery_progress(kind: str, elapsed: float) -> float:
     users compare motion shapes without racing the popup.
     """
     lead, action, hold = {
-        "entrance": (0.22, 1.30, 0.58),
+        "entrance": (0.12, 0.90, 0.38),
         "exit": (0.50, 1.35, 0.40),
         "lyric": (0.30, 1.45, 0.50),
     }[kind]
@@ -611,7 +611,7 @@ class _PresetTileDelegate(QStyledItemDelegate):
             if kind == "loop":
                 return _preview_icon(
                     kind, value, self.seconds, source, scale=scale,
-                    demo_loop_period=1.45,
+                    demo_loop_period=1.30,
                 )
             return _preview_icon(kind, value, seconds + self.seconds, source, scale=scale)
         key = (value, scale)
