@@ -14,7 +14,7 @@ from app.services.lyrics_translation_prompt import lyric_text
 _WORDS = re.compile(r"[A-Za-z]+(?:['’][A-Za-z]+)?")
 _KOREAN = re.compile(r"[\uac00-\ud7a3]")
 _JAPANESE_KANA = re.compile(r"[\u3040-\u30ff]")
-_DOTTED_INITIALISM = re.compile(r"(?:[A-Za-z]\\.\\s*){2,}[!?.,\\s]*$")
+_DOTTED_INITIALISM = re.compile(r"(?:[A-Za-z]\.\s*){2,}[A-Za-z][!?.,\s]*$")
 _ENGLISH_CLUES = frozenset((
     "a", "an", "and", "are", "as", "at", "be", "been", "but", "can",
     "come", "did", "do", "does", "for", "from", "have", "has", "had",
