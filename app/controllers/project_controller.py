@@ -27,7 +27,10 @@ from app.services.export_storage_service import format_bytes
 from app.services.project_load_worker import ProjectLoadWorker
 from app.services.project_save_worker import ProjectSaveWorker
 from app.services.project_service import ProjectError, ProjectLoadCancelled, ProjectService
-from app.utils.logging_setup import log_directory
+from app.utils.logging_setup import (
+    log_directory, record_crash_occurrence, handle_crash_exit_choice,
+)
+from app.utils.crash_diagnostics import build_crash_report, save_crash_report
 from app import __version__
 
 from app.services.project_session import ProjectSession
@@ -52,6 +55,7 @@ class ProjectController:
         self.save_succeeded: bool | None = None
         self.media_relinked = False
         self.loading = False
+        self._pending_crash_exit_choice: str | None = None
 
     @property
     def saving(self) -> bool:
@@ -469,6 +473,15 @@ class ProjectController:
         finally:
             self.loading = False
             self.window.activity_progress.finish("project_load")
+            # A failed load is still unwinding here. Run any selected exit
+            # only after the load guard has cleared and the UI is idle.
+            choice = self._pending_crash_exit_choice
+            self._pending_crash_exit_choice = None
+            if choice is not None:
+                QTimer.singleShot(
+                    0, self.window,
+                    lambda selected=choice: handle_crash_exit_choice(self.window, selected),
+                )
 
     def _load_path(self, path: Path) -> bool:
         window = self.window
@@ -692,16 +705,29 @@ class ProjectController:
                 )
             )
         resolved_path = path.absolute()
-        report = (
-            f"Music Motion Studio {__version__}\n"
+        report_context = (
             f"Project: {resolved_path}\n"
             f"Stage: {stage}\n"
             f"Exception: {type(error).__name__}: {error}\n"
             f"Root cause: {type(cause).__name__}: {cause}\n"
-            f"Workspace restored: {'no' if rollback_error else 'yes'}\n\n"
-            f"TRACEBACK\n{traceback_text}{rollback_text}"
+            f"Workspace restored: {'no' if rollback_error else 'yes'}\n"
+            f"Suggested action: {guidance}\n\n"
+            f"{traceback_text}{rollback_text}"
         )
-        ProjectCrashReportDialog(
+        repeat_count = record_crash_occurrence()
+        app_log_path = getattr(logging.getLogger(), "_playlist_canvas_log_path", None)
+        report = build_crash_report(
+            type(error).__name__, str(error), report_context, app_log_path,
+            window=window, repeat_count=repeat_count,
+        )
+        report_path: str | None = None
+        try:
+            report_path = str(save_crash_report(
+                report, log_directory() / "crash-reports",
+            ))
+        except OSError:
+            LOGGER.warning("Could not persist project load crash report", exc_info=True)
+        dialog = ProjectCrashReportDialog(
             project_path=str(resolved_path),
             stage=stage,
             exception_type=type(error).__name__,
@@ -711,9 +737,14 @@ class ProjectController:
             guidance=guidance,
             report_text=report,
             log_path=str(log_directory()),
+            report_path=report_path,
+            repeat_count=repeat_count,
             korean=korean,
             parent=window,
-        ).exec()
+        )
+        dialog.exec()
+        if dialog.exit_choice:
+            self._pending_crash_exit_choice = dialog.exit_choice
 
     @staticmethod
     def load_guidance(error: BaseException, korean: bool) -> str:
