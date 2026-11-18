@@ -31,7 +31,9 @@ from app.utils.level_meter_painter import paint_level_meter
 from app.utils.particle_painter import paint_particles
 from app.utils.visualizer_paint import draw_visualizer_content
 from app.utils.mask_shapes import mask_path
-from app.utils.progress_style_paint import progress_fill_brush
+from app.utils.progress_style_paint import progress_fill_brush, paint_progress_design
+from app.utils.now_playing_style_paint import paint_now_playing_surface
+from app.utils.album_frame_paint import album_art_rect, paint_album_frame_back, paint_album_frame_front
 from app.utils.waveform_paint import paint_waveform
 
 
@@ -259,19 +261,24 @@ def _preview_icon(
         elif style == "spotify":
             track_color = QColor("#1B2530")
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(track_color)
-        p.drawRoundedRect(track, radius, radius)
         fill = color
         if source is not None and source.gradient.enabled and not source.text_gradient:
             gradient = linear_gradient(track, source.gradient.angle)
             gradient.setColorAt(0, QColor(source.gradient.start_color))
             gradient.setColorAt(1, QColor(source.gradient.end_color))
             fill = gradient
-        p.setBrush(progress_fill_brush(style, track, QBrush(fill), color))
-        progress_width = track.width() * (source.progress_value if source is not None else .62)
-        progress_width = max(0.0, min(track.width(), progress_width))
-        p.drawRoundedRect(QRectF(track.left(), track.top(), progress_width, track.height()), radius, radius)
-        center = track.left() + progress_width
+        fill_brush = progress_fill_brush(style, track, QBrush(fill), color)
+        ratio = max(0.0, min(1.0, source.progress_value if source is not None else .62))
+        if not paint_progress_design(p, track, style, ratio, track_color, fill_brush, color):
+            p.setBrush(track_color)
+            p.drawRoundedRect(track, radius, radius)
+            p.setBrush(fill_brush)
+            p.drawRoundedRect(
+                QRectF(track.left(), track.top(), track.width() * ratio, track.height()),
+                radius, radius,
+            )
+        p.setBrush(fill_brush)
+        center = track.left() + track.width() * ratio
         if resolved_knob == "spotify":
             p.drawEllipse(QRectF(center - track.height() * .34,
                                  track.center().y() - track.height() * .34,
@@ -289,9 +296,12 @@ def _preview_icon(
     elif kind == "album_frame":
         # Album covers use paint_image_content's clip and surface rules.
         # The picture is a deliberately generic test tile, not a fake cover.
-        outer = QRectF(32, 8, 48, 56)
+        outer = QRectF(30, 10, 52, 52) if key in {"vinyl", "filmstrip"} else QRectF(32, 8, 48, 56)
         art = QRectF(outer)
         p.setPen(Qt.PenStyle.NoPen)
+        if key in {"vinyl", "filmstrip"}:
+            paint_album_frame_back(p, outer, key)
+            art = album_art_rect(outer, key)
         if key == "polaroid":
             p.setPen(QPen(QColor("#FFFFFF"), 1))
             p.setBrush(QColor("#F8FAFC"))
@@ -301,6 +311,10 @@ def _preview_icon(
         if key == "circle":
             art = QRectF(32, 12, 48, 48)
             clip.addEllipse(art)
+        elif key == "vinyl":
+            clip.addEllipse(art)
+        elif key == "filmstrip":
+            clip.addRect(art)
         elif key != "polaroid":
             clip.addRoundedRect(art, source.border_radius if source else 0,
                                 source.border_radius if source else 0)
@@ -318,6 +332,7 @@ def _preview_icon(
         p.drawLine(int(art.center().x()), int(art.top() + 16),
                    int(art.right() - 5), int(art.bottom() - 10))
         p.restore()
+        paint_album_frame_front(p, outer, key)
         if key == "glass":
             p.setBrush(QColor(255, 255, 255, 40))
             p.setPen(QPen(QColor(255, 255, 255, 180), 1.5))
@@ -455,23 +470,19 @@ def _preview_icon(
         p.restore()
     elif kind == "now_playing":
         rect = QRectF(12, 9, 88, 54)
+        text = QColor(source.outline_color) if source else QColor("#F8FAFC")
         p.setPen(Qt.PenStyle.NoPen)
-        if key == "minimal":
-            p.setBrush(Qt.BrushStyle.NoBrush)
-        elif key == "glass":
-            card = QColor(color)
-            if card.lightness() > 185:
-                card = QColor("#1B2638")
-            card.setAlpha(205)
-            p.setBrush(card)
-            outline = QColor(source.outline_color) if source else QColor("#F8FAFC")
-            outline.setAlpha(185)
-            p.setPen(QPen(outline, 1.5))
+        if source is not None and source.gradient.enabled and not source.text_gradient:
+            custom = linear_gradient(rect, source.gradient.angle)
+            custom.setColorAt(0, QColor(source.gradient.start_color))
+            custom.setColorAt(1, QColor(source.gradient.end_color))
+            p.setBrush(QBrush(custom))
         else:
             p.setBrush(color)
-        radius = source.border_radius if source is not None else 7
-        p.drawRoundedRect(rect, radius, radius)
-        text = QColor(source.outline_color) if source is not None else QColor("#F8FAFC")
+        text = paint_now_playing_surface(
+            p, rect, key, color, text,
+            source.border_radius if source else 7,
+        )
         p.setPen(QPen(text, 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawLine(24, 24, 50, 24)
         p.setPen(QPen(text, 4.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
@@ -500,6 +511,28 @@ def _preview_icon(
                 p.drawRoundedRect(row, rad, rad)
             elif key == "queue" and current:
                 p.fillRect(QRectF(row.left(), row.top(), 3, row.height()), QColor(COLORS["accent"]))
+            elif key == "spotlight" and current:
+                highlight = QColor(source.track_list_current_background) if source else QColor(COLORS["selection"])
+                highlight.setAlpha(max(140, highlight.alpha()))
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(highlight)
+                p.drawRoundedRect(row, 4, 4)
+                p.fillRect(
+                    QRectF(row.left(), row.top(), 3, row.height()),
+                    QColor(source.track_list_current_color) if source else accent,
+                )
+            elif key == "outline" and current:
+                p.setPen(QPen(QColor(source.track_list_current_color) if source else accent, 1.6))
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawRoundedRect(row, 4, 4)
+            elif key == "stripes":
+                stripe = QColor(
+                    source.track_list_current_background if current else source.track_list_inactive_color
+                ) if source else QColor(COLORS["selection"] if current else COLORS["muted"])
+                stripe.setAlpha(145 if current else (36 if index % 2 == 0 else 16))
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(stripe)
+                p.drawRoundedRect(row, 2, 2)
             c = QColor(source.track_list_current_color if current else source.track_list_inactive_color) if source else (
                 accent if current else muted
             )

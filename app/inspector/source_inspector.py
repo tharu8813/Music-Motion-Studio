@@ -311,6 +311,7 @@ class SourceInspector(QScrollArea):
         for label, value in (
             ("Rounded", "rounded"), ("Spotify", "spotify"), ("Apple Music", "apple"),
             ("YouTube", "youtube"), ("Gradient", "gradient"),
+            ("Segments", "segments"), ("Rail", "rail"), ("Neon", "neon"),
         ):
             self.progress_style_combo.addItem(label, value)
         self.visualizer = VisualizerSection(self._spin)
@@ -354,7 +355,11 @@ class SourceInspector(QScrollArea):
                              ("Circle", "circle"), ("Bar", "bar")):
             self.progress_knob_combo.addItem(label, value)
         self.album_frame_combo = VisualPresetComboBox("album_frame")
-        for label, value in (("Rounded", "rounded"), ("Circle", "circle"), ("Polaroid", "polaroid"), ("Glass", "glass")):
+        for label, value in (
+            ("Rounded", "rounded"), ("Circle", "circle"),
+            ("Polaroid", "polaroid"), ("Glass", "glass"),
+            ("Vinyl", "vinyl"), ("Filmstrip", "filmstrip"),
+        ):
             self.album_frame_combo.addItem(label, value)
         self.track_list = TrackListSection(self._spin, self._color_button)
         self.now_playing = NowPlayingSection(self._spin)
@@ -1955,6 +1960,22 @@ class SourceInspector(QScrollArea):
             else ("Style default", "None", "Circle", "Bar")
         ):
             self.progress_knob_combo.setItemText(index, label)
+        for combo, labels_ko, labels_en in (
+            (
+                self.progress_style_combo,
+                ("둥근형", "스포티파이", "애플뮤직", "유튜브", "그라데이션",
+                 "분할 블록", "레일", "네온"),
+                ("Rounded", "Spotify", "Apple Music", "YouTube", "Gradient",
+                 "Segments", "Rail", "Neon"),
+            ),
+            (
+                self.album_frame_combo,
+                ("둥근형", "원형", "폴라로이드", "글래스", "바이닐", "필름스트립"),
+                ("Rounded", "Circle", "Polaroid", "Glass", "Vinyl", "Filmstrip"),
+            ),
+        ):
+            for index, text in enumerate(labels_ko if korean else labels_en):
+                combo.setItemText(index, text)
         # Field-specific guidance beyond _property_help_text. It is merged into
         # the hover help by _install_property_tooltips; a plain setToolTip here
         # would be overwritten by it.

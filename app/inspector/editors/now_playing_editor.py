@@ -60,7 +60,10 @@ class NowPlayingSection(FieldSection):
 
     def __init__(self, spin: Callable[[float, float, float], QDoubleSpinBox]) -> None:
         style = VisualPresetComboBox("now_playing")
-        for label, value in (("Card", "card"), ("Minimal", "minimal"), ("Glass", "glass")):
+        for label, value in (
+            ("Card", "card"), ("Minimal", "minimal"), ("Glass", "glass"),
+            ("Outline", "outline"), ("Accent", "accent"), ("Gradient", "gradient"),
+        ):
             style.addItem(label, value)
         exit_combo = VisualPresetComboBox("exit")
         for label, value in (("Fade", "fade"), ("Slide up", "slide_up"), ("Slide down", "slide_down"), ("Zoom", "zoom")):
@@ -79,7 +82,9 @@ class NowPlayingSection(FieldSection):
 
     def retranslate(self, korean: bool) -> None:
         for key, labels in (
-            ("now_playing_style", ("카드", "미니멀", "글래스") if korean else ("Card", "Minimal", "Glass")),
+            ("now_playing_style",
+             ("카드", "미니멀", "글래스", "윤곽선", "강조선", "그라데이션") if korean
+             else ("Card", "Minimal", "Glass", "Outline", "Accent", "Gradient")),
             ("now_playing_exit", ("페이드", "위쪽 슬라이드", "아래쪽 슬라이드", "줌")
              if korean else ("Fade", "Slide up", "Slide down", "Zoom")),
             ("now_playing_align", ("왼쪽", "가운데", "오른쪽") if korean else ("Left", "Center", "Right")),

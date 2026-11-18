@@ -18,6 +18,7 @@ from PySide6.QtGui import QBrush, QColor, QImage, QLinearGradient, QPainter, QPa
 
 from app.models.source import TEXT_SOURCE_TYPES, SourceType
 from app.utils.mask_shapes import mask_path
+from app.utils.album_frame_paint import album_art_rect, paint_album_frame_back, paint_album_frame_front
 from app.utils.source_decoration import mirror_content, paint_frame
 
 if TYPE_CHECKING:
@@ -129,6 +130,13 @@ def paint_image_content(item: "SourceItem", painter: QPainter, rect: QRectF, fra
     if frame_style == "circle":
         painter.drawEllipse(rect)
         clip_path.addEllipse(rect)
+    elif frame_style in {"vinyl", "filmstrip"}:
+        paint_album_frame_back(painter, rect, frame_style)
+        display_rect = album_art_rect(rect, frame_style)
+        if frame_style == "vinyl":
+            clip_path.addEllipse(display_rect)
+        else:
+            clip_path.addRect(display_rect)
     elif frame_style == "polaroid":
         painter.setPen(QPen(QColor("#FFFFFF"), max(1.0, item.source.outline_width)))
         painter.setBrush(QColor("#F8FAFC"))
@@ -159,6 +167,7 @@ def paint_image_content(item: "SourceItem", painter: QPainter, rect: QRectF, fra
     else:
         painter.drawImage(target, image)
     painter.restore()
+    paint_album_frame_front(painter, rect, frame_style)
     if frame_style == "glass":
         painter.setBrush(QColor(255, 255, 255, 40))
         painter.setPen(QPen(QColor(255, 255, 255, 180), 1.5))

@@ -98,6 +98,7 @@ class TrackListSection(FieldSection):
             ("Compact", "compact"), ("Cards", "cards"), ("Queue", "queue"),
             ("Minimal", "minimal"), ("Scroll / fade", "scroll"),
             ("Glass", "glass"), ("Pills", "pills"),
+            ("Spotlight", "spotlight"), ("Outline", "outline"), ("Stripes", "stripes"),
         ):
             style.addItem(label, value)
         window = QComboBox()
@@ -143,8 +144,13 @@ class TrackListSection(FieldSection):
 
     def retranslate(self, korean: bool) -> None:
         for key, labels in (
-            ("track_list_style", ("컴팩트", "카드", "재생 대기열", "미니멀", "스크롤 / 페이드", "글래스", "필")
-             if korean else ("Compact", "Cards", "Queue", "Minimal", "Scroll / fade", "Glass", "Pills")),
+            ("track_list_style", (
+                "컴팩트", "카드", "재생 대기열", "미니멀", "스크롤 / 페이드", "글래스", "필",
+                "스포트라이트", "윤곽선", "줄무늬",
+             ) if korean else (
+                "Compact", "Cards", "Queue", "Minimal", "Scroll / fade", "Glass", "Pills",
+                "Spotlight", "Outline", "Stripes",
+             )),
             ("track_list_window", ("이전 + 현재 + 다음", "현재 + 다음 곡", "이전 곡 + 현재")
              if korean else ("Previous + current + next", "Current + upcoming", "History + current")),
             ("track_list_marker", ("재생 ▶", "점 ●", "강조선 ▌", "표시 없음")
