@@ -337,6 +337,7 @@ class TranslationSetupUITests(unittest.TestCase):
         manager.tabs.setCurrentIndex(1)
         installed = next(manager.recommended.item(i) for i in range(manager.recommended.count())
             if manager.recommended.item(i).data(Qt.ItemDataRole.UserRole)["id"] == "qwen2.5-coder:7b")
+        manager.catalog_category.setCurrentIndex(manager.catalog_category.findData("coder"))
         manager.recommended.setCurrentItem(installed)
         self.assertIn("설치됨", installed.text())
         self.assertIn("바로 사용", manager.download_button.text())
