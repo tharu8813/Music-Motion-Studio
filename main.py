@@ -187,13 +187,22 @@ def main() -> int:
     install_exception_hook()
     # Ask before constructing hardware-backed widgets and restoring projects.
     # A forced stop is expected to leave a marker, not a new Python exception.
-    if application.property("previous_abnormal_shutdown") and "--smoke-test" not in sys.argv:
+    prompt_needed = (application.property("previous_abnormal_shutdown")
+                     and "--smoke-test" not in sys.argv and "--safe-mode" not in sys.argv)
+    if prompt_needed:
+        # Hiding the splash momentarily leaves no application windows. Keep
+        # Qt from interpreting that transition as an app shutdown.
+        application.setQuitOnLastWindowClosed(False)
         splash.hide()
-    safe_mode = choose_startup_mode(
-        application, smoke_test="--smoke-test" in sys.argv,
-        force_safe_mode="--safe-mode" in sys.argv,
-    )
-    splash.show()
+    try:
+        safe_mode = choose_startup_mode(
+            application, smoke_test="--smoke-test" in sys.argv,
+            force_safe_mode="--safe-mode" in sys.argv,
+        )
+    finally:
+        if prompt_needed:
+            splash.show()
+            application.setQuitOnLastWindowClosed(True)
     from app.utils.temp_cleanup import sweep_stale_temp_dirs
 
     if not safe_mode:
