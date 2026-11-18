@@ -157,6 +157,17 @@ def collect_environment(window=None) -> str:
         lines.append(f"Unsaved changes: {getattr(session, 'dirty', 'unknown')}")
         controller = getattr(window, "project_controller", None)
         lines.append(f"Project save running: {getattr(controller, 'saving', 'unknown')}")
+        settings = getattr(getattr(window, "settings_service", None), "current", None)
+        lines.append(f"FFmpeg setting: {getattr(settings, 'ffmpeg_path', '') or '(auto-detect)'}")
+        lines.append(
+            f"Export preparation active: "
+            f"{getattr(window, '_export_preparation_cancel', None) is not None}"
+        )
+        try:
+            worker = getattr(window, "_render_worker", None)
+            lines.append(f"Export worker running: {bool(worker and worker.isRunning())}")
+        except (AttributeError, RuntimeError):
+            lines.append("Export worker running: unknown")
     try:
         from PySide6 import __version__ as pyside_version
         from PySide6.QtCore import qVersion
