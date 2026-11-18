@@ -101,6 +101,32 @@ def confidently_unneeded(source: str, source_language: str, target_language: str
     return False
 
 
+# Narrow high-confidence polarity guard. This is NOT a general semantic validator:
+# naturally rephrased negatives can be correct without a literal negation word.
+_EN_NEGATED_VERB = re.compile(
+    r"\b(?:don't|doesn't|didn't|do not|does not|did not|never)\s+"
+    r"(?:(?:really|even|ever)\s+)?(?P<verb>miss|love|leave|want|need|remember)\b",
+    re.IGNORECASE,
+)
+_KOREAN_NEGATION = re.compile(r"않|없|아니|아냐|못|싫|그만|절대|더\s*이상|(?:^|\s)안(?:\s|$)")
+_KOREAN_POSITIVE_VERBS = {
+    "miss": re.compile(r"그리워|보고\s*싶"),
+    "love": re.compile(r"사랑해|사랑하|사랑했|좋아해"),
+    "leave": re.compile(r"떠났|떠나|가버렸"),
+    "want": re.compile(r"원해|원하|바라"),
+    "need": re.compile(r"필요해|필요하"),
+    "remember": re.compile(r"기억해|기억하"),
+}
+
+
+def obvious_negation_loss(source: str, translated: str) -> bool:
+    """Catch select opposite-polarity mistranslations without guessing at lyrics."""
+    match = _EN_NEGATED_VERB.search(source)
+    if not match or _KOREAN_NEGATION.search(translated):
+        return False
+    return bool(_KOREAN_POSITIVE_VERBS[match.group("verb").casefold()].search(translated))
+
+
 def quality_issue(source: str, translated: str | None,
                   source_language: str, target_language: str) -> str | None:
     """A quality signal for targeted retry, not a semantic quality score."""
@@ -115,6 +141,9 @@ def quality_issue(source: str, translated: str | None,
         return None
     if _unexpected_han(source, translated):
         return "한국어 번역에 원문에 없는 한자가 섞였습니다. / Unexpected Han characters in Korean translation."
+    if (source_language.casefold().split("-")[0] in {"auto", "en"}
+            and obvious_negation_loss(source, translated)):
+        return "부정 의미가 긍정으로 바뀐 것으로 보입니다. / A negated phrase appears to have become affirmative."
     if not should_translate_english(source, source_language, target_language):
         return None
     # A model may echo another English sentence instead of translating it.
