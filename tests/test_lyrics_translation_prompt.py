@@ -137,12 +137,17 @@ class TranslationPromptTests(unittest.TestCase):
                     response = planning_output if data.get("stage") == "song_analysis" else output
                     instruction_seen.append(instr)
                     payloads.append(data)
+                    if provider == "ollama":
+                        self.assertTrue(url.endswith("/api/chat"))
+                        self.assertIs(body["think"], False)
+                        self.assertEqual(body["format"], "json")
+                        return {"done": True, "done_reason": "stop", "message": {"content": response}}
                     return {"choices": [{"finish_reason": "stop", "message": {"content": response}}]}
                 config = TranslationConfig(provider, source="ko", target="ja", model="selected-model",
                     key="test", endpoint="http://localhost:1234/v1", instructions="Keep names unchanged.")
                 result = LyricsTranslationService(transport).translate([{"text": "달은 네 이름을 간직한다."}], config)
                 self.assertEqual(result, ["月は君の名前を覚えている。"])
-        self.assertEqual(instruction_seen, [value for _ in LLM_PROVIDERS
+        self.assertEqual(instruction_seen, [value for _ in sorted(LLM_PROVIDERS)
             for value in (SONG_ANALYSIS_PROMPT, DEFAULT_LYRICS_TRANSLATION_PROMPT)])
         for i, payload in enumerate(payloads):
             self.assertEqual(payload["style_preferences"], "Keep names unchanged.")
@@ -202,17 +207,17 @@ class TranslationPromptTests(unittest.TestCase):
         def transport(url, body=None, headers=None, **kwargs):
             data = json.loads(body["messages"][1]["content"])
             if data.get("stage") == "song_analysis":
-                return {"choices": [{"finish_reason": "stop", "message": {"content":
+                return {"done": True, "done_reason": "stop", "message": {"content":
                     json.dumps({"plan": {"story": "Verses", "tone": "direct", "voice": "neutral",
-                        "style": "natural faithful", "refrains": [], "glossary": []}})}}]}
+                        "style": "natural faithful", "refrains": [], "glossary": []}})}}
             requests.append(data)
-            return {"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(
+            return {"done": True, "done_reason": "stop", "message": {"content": json.dumps(
                 {"translations": [{"id": row["id"], "text": f"번역 {row['id']}"}
-                                 for row in data["lyrics"]]})}}]}
+                                 for row in data["lyrics"]]})}}
         config = TranslationConfig("ollama", model="qwen2.5-coder:7b",
                                    endpoint="http://localhost:11434/v1")
         output = LyricsTranslationService(transport).translate(cues, config)
-        self.assertEqual([len(request["lyrics"]) for request in requests], [12, 12, 6])
+        self.assertEqual([len(request["lyrics"]) for request in requests], [6] * 5)
         self.assertEqual(output[29], "번역 29")
         for request in requests:
             context = request["song_context"]
