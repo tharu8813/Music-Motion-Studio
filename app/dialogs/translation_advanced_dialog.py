@@ -37,8 +37,8 @@ class TranslationAdvancedDialog(QDialog):
         self.endpoint_label = QLabel(tr("로컬 서버 주소", "Local server URL"))
         self.endpoint_label.setBuddy(self.endpoint_edit)
         form.addRow(self.endpoint_label, self.endpoint_edit)
-        note = QLabel(tr("문체·존댓말·용어 등의 요청을 적으세요. 기본 번역 기준은 원문에 충실한 직역입니다.",
-                        "Add preferences for tone, register or terminology. The default is faithful, literal translation."))
+        note = QLabel(tr("문체·존댓말·용어 등의 요청을 적으세요. 기본 번역은 원문의 의미에 충실하면서 자연스러운 표현을 우선합니다.",
+                        "Add preferences for tone, register or terminology. The default preserves meaning with natural wording."))
         note.setWordWrap(True)
         form.addRow(note)
         self.instructions_edit = services.instructions_edit
