@@ -36,6 +36,7 @@ class ProjectCrashReportDialog(QDialog):
         korean: bool,
         report_path: str | None = None,
         repeat_count: int = 1,
+        workspace_restored: bool = True,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -54,9 +55,17 @@ class ProjectCrashReportDialog(QDialog):
         )
         heading.setObjectName("panelTitle")
         description = QLabel(
-            "문제가 있는 프로젝트는 적용하지 않았으며, 기존 프로젝트와 프로그램은 계속 사용할 수 있습니다."
-            if korean else
-            "The problematic project was not applied. Your existing project and the application remain available."
+            (
+                "기존 작업공간 복원에도 실패했습니다. 원본 프로젝트를 덮어쓰지 마세요. "
+                "오류 보고서를 보관하고 필요한 경우 다른 이름으로 저장하세요."
+                if korean else
+                "Restoring the previous workspace also failed. Do not overwrite "
+                "the original project. Keep the report and consider Save As."
+            ) if not workspace_restored else (
+                "문제가 있는 프로젝트는 적용하지 않았으며, 기존 프로젝트와 프로그램은 계속 사용할 수 있습니다."
+                if korean else
+                "The problematic project was not applied. Your existing project and the application remain available."
+            )
         )
         description.setWordWrap(True)
 
@@ -64,6 +73,7 @@ class ProjectCrashReportDialog(QDialog):
 
         def add_row(korean_label: str, english_label: str, value: str) -> None:
             label = QLabel(value or "-")
+            label.setTextFormat(Qt.TextFormat.PlainText)
             label.setWordWrap(True)
             label.setTextInteractionFlags(
                 label.textInteractionFlags()
