@@ -21,6 +21,8 @@ class QualityGateTests(unittest.TestCase):
         self.assertTrue(should_translate_english("We are here", "auto", "ko"))
         self.assertTrue(should_translate_english("A name", "auto", "ko"))
         self.assertFalse(should_translate_english("한국어 가사", "auto", "ko"))
+        self.assertTrue(should_translate_english("I love you, 사랑해", "auto", "ko"))
+        self.assertFalse(should_translate_english("BTS와 함께", "auto", "ko"))
         self.assertFalse(should_translate_english("L.O.V.E", "auto", "ko"))
         self.assertFalse(should_translate_english("NASA", "en", "ko"))
         self.assertFalse(should_translate_english("Hello", "en", "ja"))
