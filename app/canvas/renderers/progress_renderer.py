@@ -8,7 +8,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter
 
 from app.canvas.renderers.base import paint_background, paint_selection_guide
-from app.utils.progress_style_paint import progress_fill_brush
+from app.utils.progress_style_paint import progress_fill_brush, paint_progress_design
 
 if TYPE_CHECKING:
     from app.canvas.source_item import SourceItem
@@ -34,13 +34,20 @@ def render(
         track_color.setAlpha(80)
     elif style == "spotify":
         track_color = QColor("#1B2530")
-    painter.setBrush(track_color)
-    painter.drawRoundedRect(rect, radius, radius)
-    painter.setBrush(progress_fill_brush(style, rect, fill, QColor(item.source.fill_color)))
-    progress_width = rect.width() * max(0.0, min(1.0, item.source.progress_value))
-    if style == "apple":
-        progress_width = rect.width() * max(0.0, min(1.0, item.source.progress_value))
-    painter.drawRoundedRect(QRectF(rect.left(), rect.top(), progress_width, rect.height()), radius, radius)
+    ratio = max(0.0, min(1.0, item.source.progress_value))
+    fill_brush = progress_fill_brush(style, rect, fill, QColor(item.source.fill_color))
+    if not paint_progress_design(
+        painter, rect, style, ratio, track_color, fill_brush, QColor(item.source.fill_color),
+    ):
+        painter.setBrush(track_color)
+        painter.drawRoundedRect(rect, radius, radius)
+        painter.setBrush(fill_brush)
+        painter.drawRoundedRect(
+            QRectF(rect.left(), rect.top(), rect.width() * ratio, rect.height()),
+            radius, radius,
+        )
+    progress_width = rect.width() * ratio
+    painter.setBrush(fill_brush)
     center = QPointF(rect.left() + progress_width, rect.center().y())
     painter.setPen(Qt.PenStyle.NoPen)
     if knob == "spotify":
