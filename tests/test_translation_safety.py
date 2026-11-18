@@ -7,7 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
-from threading import Barrier, Event, Timer
+from threading import Barrier, Event
 import time
 import unittest
 from unittest.mock import Mock, patch
