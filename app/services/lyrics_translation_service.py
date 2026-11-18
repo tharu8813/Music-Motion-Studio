@@ -475,7 +475,8 @@ class LyricsTranslationService:
             body = {"model": c.model, "stream": False, "think": False, "format": "json",
                 "messages": [{"role": "system", "content": instruction},
                              {"role": "user", "content": prompt}],
-                "options": {"num_ctx": 8192, "num_predict": output_tokens or 3072}}
+                "options": {"num_ctx": 12288 if output_tokens else 8192,
+                            "num_predict": output_tokens or 3072}}
             data = req(base + "/api/chat", body, headers)
             message = data.get("message") or {}
             if not isinstance(message, dict):
@@ -490,10 +491,12 @@ class LyricsTranslationService:
             if finish not in {None, "stop"}:
                 raise TranslationError(f"로컬 LLM이 생성 중 종료되었습니다(done_reason={finish!s}). / "
                                        f"Generation ended unexpectedly (done_reason={finish!s}).")
-            if not isinstance(raw, str) or not raw.strip() and message.get("thinking"):
+            if not isinstance(raw, str):
+                raise TranslationError("Ollama 응답 본문이 문자열이 아닙니다. / Invalid Ollama response.")
+            if not raw.strip():
                 raise LLMGenerationLimitError(
-                    "로컬 LLM이 번역 대신 추론 텍스트만 생성했습니다. / "
-                    "Local LLM generated reasoning without a translation.")
+                    "로컬 LLM이 번역문을 생성하지 못했습니다. / "
+                    "Local LLM produced no translation text.")
         else:
             base = "https://api.x.ai/v1" if c.provider == "grok" else validate_endpoint(c.endpoint)
             body = {"model": c.model, "stream": False,
