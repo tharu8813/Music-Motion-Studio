@@ -43,6 +43,28 @@ class LyricQualityBenchmarkTests(unittest.TestCase):
         self.assertEqual(report["cases"][0]["original"][0], "I don't miss you anymore.")
         self.assertTrue(all(case["elapsed_seconds"] >= 0 for case in report["cases"]))
 
+    def test_multiline_case_contains_real_newlines(self):
+        sample = next(case for case in CASES if case["id"] == "multiline")
+        self.assertTrue(all("\n" in source for source in sample["cues"]))
+
+    def test_truncated_model_output_is_reported_as_failure(self):
+        class TruncatedModel:
+            def translate(self, cues, config):
+                return ["번역 하나"]
+        report = run_benchmark(TruncatedModel(), self.config(), cases=CASES[:1])
+        self.assertEqual(report["summary"]["failed_cases"], 1)
+        self.assertIn("Expected 3 translations", report["cases"][0]["error"])
+
+    def test_multiline_mismatch_is_flagged(self):
+        class FlatteningModel:
+            def translate(self, cues, config):
+                return ["한국어 한줄" for _ in cues]
+        sample = next(case for case in CASES if case["id"] == "multiline")
+        report = run_benchmark(FlatteningModel(), self.config(), cases=(sample,))
+        self.assertEqual(report["summary"]["quality_flags"], 2)
+        self.assertTrue(all("line breaks" in entry["reason"]
+                            for entry in report["cases"][0]["quality_flags"]))
+
     def test_failed_model_is_reported_without_fabricated_translation(self):
         report = run_benchmark(RecordingModel(fail=True), self.config(), cases=CASES[:1])
         self.assertEqual(report["summary"]["failed_cases"], 1)
