@@ -297,8 +297,44 @@ class MainWindowProjectTests(MainWindowTestCase):
         with patch.object(self.window, "_offer_recovery", return_value=True) as offer:
             with patch("app.controllers.project_controller.StartupDialog") as startup_dialog:
                 self.assertTrue(self.window.show_startup_dialog())
-        offer.assert_called_once_with()
+        offer.assert_called_once_with(confirm=False)
         startup_dialog.assert_not_called()
+
+    def test_startup_silently_restores_unsaved_workspace_without_prompt(self) -> None:
+        # A real recovery snapshot must still be restored, not thrown away
+        # merely to hide the blocking confirmation dialog.
+        with TemporaryDirectory(prefix="pvs-silent-startup-recovery-") as directory:
+            original_autosave = self.window.autosave
+            self.window.autosave = AutosaveService(Path(directory))
+            try:
+                marker = Source(SourceType.TEXT, "SILENTLY_RECOVERED_WORK")
+                self.window.store.replace([marker])
+                self.window.project_session.dirty = True
+                saved = self.window.autosave.save(
+                    self.window._project_document(), None, dirty=True,
+                )
+                self.window.store.replace([])
+                with (
+                    patch.object(
+                        QMessageBox, "question",
+                        side_effect=AssertionError("Startup recovery must not prompt"),
+                    ) as question,
+                    patch(
+                        "app.controllers.project_controller.StartupDialog",
+                    ) as chooser,
+                ):
+                    self.assertTrue(self.window.show_startup_dialog())
+                question.assert_not_called()
+                chooser.assert_not_called()
+                self.assertEqual(
+                    [source.name for source in self.window.store.sources()],
+                    ["SILENTLY_RECOVERED_WORK"],
+                )
+                self.assertTrue(self.window.project_session.dirty)
+                self.assertIsNone(self.window.current_project_path)
+                self.assertTrue(saved.path.is_file())
+            finally:
+                self.window.autosave = original_autosave
 
     def test_update_backs_up_and_resumes_workspace_without_confirmation(self) -> None:
         from main import open_initial_workspace
