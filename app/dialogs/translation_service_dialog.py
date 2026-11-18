@@ -63,7 +63,8 @@ class TranslationServiceDialog(QDialog):
         self.account_button = QPushButton(self.tr_text("OpenAI 계정 관리…", "Manage OpenAI account…"))
         self.local_models_button = QPushButton(self.tr_text("이 언어 모델 자동 설치", "Install model for these languages"))
         self.import_local_button = QPushButton(self.tr_text("모델 파일 직접 가져오기…", "Import a model file…"))
-        self.llm_manager_button = QPushButton(self.tr_text("로컬 LLM 관리자…", "Local LLM manager…"))
+        self.llm_manager_button = QPushButton(self.tr_text(
+            "가사 번역용 LLM 추천·다운로드…", "Recommend and download a lyric translation LLM…"))
         self.local_pair_note = QLabel()
         self.local_pair_note.setWordWrap(True)
         self.local_pair_note.setTextFormat(Qt.TextFormat.PlainText)
