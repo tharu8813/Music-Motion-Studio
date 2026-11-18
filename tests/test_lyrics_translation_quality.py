@@ -204,7 +204,11 @@ class LyricsQualityIntegrationTests(unittest.TestCase):
             LyricsTranslationService(transport).translate(
                 [{"text": "Forever"}, {"text": "Dreaming"}],
                 self.config(), activity=events.append)
-        self.assertEqual(len(calls), 2)
+        # Quality retry receives an incomplete response. P1 then retries
+        # the malformed JSON/ID contract once more; neither result may be
+        # promoted to a successful or unnecessary translation.
+        self.assertEqual(len(calls), 3)
+        self.assertIn("Previous response violated", calls[2]["quality_feedback"])
         self.assertFalse(any(event["stage"] == "complete" for event in events))
         failure = next(event for event in events if event["stage"] == "failure")
         self.assertEqual(failure["rows"], [0, 1])
