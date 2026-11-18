@@ -159,8 +159,16 @@ def request_json(url: str, body=None, headers=None, *, form=False, stream=False,
     if body is not None:
         data = (urlencode(body).encode() if form else json.dumps(body, ensure_ascii=False).encode())
         request_headers["Content-Type"] = "application/x-www-form-urlencoded" if form else "application/json"
+    handlers = [_NoRedirect()]
+    # Read loopback model HTTP responses with short cancellation checks.
+    # No custom handler is installed for remote/provider HTTPS requests.
+    parsed_url = urlsplit(url)
+    if (cancel is not None and parsed_url.scheme == "http"
+            and parsed_url.hostname in {"localhost", "127.0.0.1", "::1"}):
+        from app.services.translation_http_cancel import CancelableLocalHTTPHandler
+        handlers.append(CancelableLocalHTTPHandler(cancel))
     try:
-        with build_opener(_NoRedirect()).open(Request(url, data=data, headers=request_headers), timeout=timeout) as response:
+        with build_opener(*handlers).open(Request(url, data=data, headers=request_headers), timeout=timeout) as response:
             if stream:
                 chunks, completed, total = [], False, 0
                 for raw in response:
@@ -195,6 +203,7 @@ def request_json(url: str, body=None, headers=None, *, form=False, stream=False,
                 raise TranslationError("번역 응답이 너무 큽니다. / Translation response is too large.")
             return json.loads(raw) if raw.strip() else {}
     except HTTPError as error:
+        check_cancel(cancel)
         if error.code in {502, 503, 504}:
             raise TransientTranslationError(
                 f"HTTP {error.code}: 번역 서버가 일시적으로 응답하지 않습니다. / "
@@ -214,6 +223,7 @@ def request_json(url: str, body=None, headers=None, *, form=False, stream=False,
         }
         raise TranslationError(f"HTTP {error.code}: " + messages.get(error.code, "번역 서비스 요청에 실패했습니다. / Translation request failed.")) from None
     except (URLError, TimeoutError, OSError, HTTPException) as error:
+        check_cancel(cancel)
         if urlsplit(url).hostname in {"localhost", "127.0.0.1", "::1"}:
             reason = getattr(error, "reason", error)
             if isinstance(reason, TimeoutError):
@@ -230,6 +240,7 @@ def request_json(url: str, body=None, headers=None, *, form=False, stream=False,
                 "확인하세요. / Local LLM connection failed; check runtime crashes, memory and connectivity.") from None
         raise TranslationError("번역 서비스에 연결할 수 없습니다. / Cannot connect to the translation service.") from None
     except (UnicodeError, json.JSONDecodeError, TypeError, AttributeError):
+        check_cancel(cancel)
         raise TranslationError("번역 서비스 응답을 읽을 수 없습니다. / Invalid translation response.") from None
 
 
