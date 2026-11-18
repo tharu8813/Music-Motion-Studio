@@ -52,6 +52,10 @@ class TranslationError(ValueError):
         self.diagnosed = diagnosed
 
 
+class LLMGenerationLimitError(TranslationError):
+    """The model ran out of generated tokens; a smaller batch may succeed."""
+
+
 class TranslationCancelled(Exception):
     pass
 
@@ -337,10 +341,41 @@ class LyricsTranslationService:
                                           else SONG_CONTEXT_MAX_CHARS)
                     song_context = whole_song_context(cues, {index for index, _text in batch},
                         max_chars=context_budget)
-                    translated = self._translate_batch(batch, config, cancel, activity=activity,
-                        neighbors=neighboring_context(cues, batch[0][0], batch[-1][0]),
-                        references=reference_translations(batch, completed),
-                        song_context=song_context, plan=plan)
+                    def translate_subset(subset, *, output_tokens=None):
+                        return self._translate_batch(subset, config, cancel, activity=activity,
+                            neighbors=neighboring_context(cues, subset[0][0], subset[-1][0]),
+                            references=reference_translations(subset, completed),
+                            song_context=song_context, plan=plan, output_tokens=output_tokens)
+
+                    def retry_limited(subset, *, larger_output=False):
+                        check_cancel(cancel)
+                        try:
+                            return translate_subset(subset, output_tokens=6144 if larger_output else None)
+                        except LLMGenerationLimitError as limit_error:
+                            check_cancel(cancel)
+                            if activity:
+                                activity({"stage": "retry", "rows": [index for index, _ in subset],
+                                    "reason": "로컬 AI 출력 한도 초과: 작은 묶음으로 자동 재시도 중 / "
+                                              "Generation limit reached: retrying a smaller batch"})
+                            if len(subset) == 1:
+                                if larger_output:
+                                    raise
+                                return retry_limited(subset, larger_output=True)
+                            middle = max(1, len(subset) // 2)
+                            first, second = subset[:middle], subset[middle:]
+                            left = retry_limited(first)
+                            try:
+                                right = retry_limited(second)
+                            except TranslationError as error:
+                                # An already translated left half must survive
+                                # if the right half remains invalid.
+                                partial = {index: value for (index, _), value in zip(first, left)}
+                                partial.update(error.partial)
+                                raise TranslationError(str(error), partial=partial,
+                                                       diagnosed=error.diagnosed) from None
+                            return left + right
+
+                    translated = retry_limited(batch) if config.provider in LOCAL_LLM_PROVIDERS else translate_subset(batch)
                 else:
                     translated = self._translate_batch(batch, config, cancel)
             except TranslationError as error:
@@ -389,8 +424,8 @@ class LyricsTranslationService:
             if progress:
                 progress(processed, len(rows))
             batch, length = [], 0
-        max_batch_rows = 1 if config.provider == "local_nmt" else 12 if config.provider in LOCAL_LLM_PROVIDERS else 20
-        max_batch_chars = 1800 if config.provider in LOCAL_LLM_PROVIDERS else 4000
+        max_batch_rows = 1 if config.provider == "local_nmt" else 6 if config.provider in LOCAL_LLM_PROVIDERS else 20
+        max_batch_chars = 1200 if config.provider in LOCAL_LLM_PROVIDERS else 4000
         for index, text in rows:
             check_cancel(cancel)
             if batch and (len(batch) >= max_batch_rows or length + len(text) > max_batch_chars):
@@ -401,7 +436,7 @@ class LyricsTranslationService:
         check_cancel(cancel)
         return result
 
-    def _llm_completion(self, c, cancel, instruction: str, prompt: str) -> str:
+    def _llm_completion(self, c, cancel, instruction: str, prompt: str, *, output_tokens=None) -> str:
         """Use the same provider adapter for stage 1 analysis and stage 2 translation."""
         def req(url, body=None, headers=None, **kw):
             check_cancel(cancel)
@@ -431,20 +466,50 @@ class LyricsTranslationService:
             candidates = data.get("candidates", [])
             if not candidates or candidates[0].get("finishReason") != "STOP":
                 raise TranslationError("Gemini 번역이 완료되지 않았습니다. / Gemini translation is incomplete.")
-            raw = "".join(p.get("text", "") for p in candidates[0].get("content", {}).get("parts", []) if not p.get("thought"))
+            raw = "".join(p.get("text", "") for p in candidates[0].get("content", []) if isinstance(p, dict) and p.get("text") and not p.get("thought"))
+        elif c.provider == "ollama":
+            # The native endpoint supports a reliable top-level think=False.
+            # The OpenAI-compatible endpoint may spend its output allowance
+            # thinking before producing any translated JSON (Qwen3.5).
+            base = validate_endpoint(c.endpoint).removesuffix("/v1")
+            body = {"model": c.model, "stream": False, "think": False, "format": "json",
+                "messages": [{"role": "system", "content": instruction},
+                             {"role": "user", "content": prompt}],
+                "options": {"num_ctx": 8192, "num_predict": output_tokens or 3072}}
+            data = req(base + "/api/chat", body, headers)
+            message = data.get("message") or {}
+            if not isinstance(message, dict):
+                raise TranslationError("Ollama 응답 메시지 형식이 올바르지 않습니다. / Invalid Ollama message.")
+            raw = message.get("content", "")
+            finish = data.get("done_reason")
+            if data.get("done") is False:
+                raise TranslationError("Ollama 응답이 완료되지 않았습니다. / Ollama response is incomplete.")
+            if finish in {"length", "max_tokens"}:
+                raise LLMGenerationLimitError(
+                    "로컬 LLM의 생성 토큰 한도에 도달했습니다. / Local LLM generation token budget exhausted.")
+            if finish not in {None, "stop"}:
+                raise TranslationError(f"로컬 LLM이 생성 중 종료되었습니다(done_reason={finish!s}). / "
+                                       f"Generation ended unexpectedly (done_reason={finish!s}).")
+            if not isinstance(raw, str) or not raw.strip() and message.get("thinking"):
+                raise LLMGenerationLimitError(
+                    "로컬 LLM이 번역 대신 추론 텍스트만 생성했습니다. / "
+                    "Local LLM generated reasoning without a translation.")
         else:
             base = "https://api.x.ai/v1" if c.provider == "grok" else validate_endpoint(c.endpoint)
             body = {"model": c.model, "stream": False,
                 "messages": [{"role": "system", "content": instruction}, {"role": "user", "content": prompt}]}
-            # Ollama's OpenAI-compatible endpoint supports JSON mode.
-            if c.provider == "ollama":
-                body["response_format"] = {"type": "json_object"}
+            if c.provider in LOCAL_LLM_PROVIDERS:
+                body["max_tokens"] = output_tokens or 3072
             data = req(base + "/chat/completions", body, headers)
             choices = data.get("choices", [])
             if not choices:
                 raise TranslationError("LLM이 응답 후보를 반환하지 않았습니다. / No completion choices returned.")
             raw = choices[0].get("message", {}).get("content", "")
             finish = choices[0].get("finish_reason")
+            if finish == "length":
+                raise LLMGenerationLimitError(
+                    "LLM 생성 토큰 한도에 도달했습니다(finish_reason=length). / "
+                    "LLM generation token budget exhausted (finish_reason=length).")
             if finish != "stop":
                 raise TranslationError(
                     f"LLM 생성이 정상 종료되지 않았습니다(finish_reason={finish!s}). / "
@@ -479,7 +544,7 @@ class LyricsTranslationService:
         return plan
 
     def _translate_batch(self, rows, c, cancel, *, neighbors=None, references=None,
-                         song_context=None, plan=None, activity=None):
+                         song_context=None, plan=None, activity=None, output_tokens=None):
         texts = [text for _index, text in rows]
         if c.provider == "local_nmt":
             if self.local_engine is None:
@@ -504,7 +569,7 @@ class LyricsTranslationService:
                     "truncated": len(response) > limit, "reason": reason, "status": status})
 
             try:
-                raw = self._llm_completion(c, cancel, instruction, prompt)
+                raw = self._llm_completion(c, cancel, instruction, prompt, output_tokens=output_tokens)
                 cleaned = raw.strip()
                 if cleaned.startswith("```"):
                     if "\n" not in cleaned:
@@ -553,6 +618,10 @@ class LyricsTranslationService:
                         f"Missing translations or incorrect line breaks: lyric rows {numbers}.", partial=partial)
                 diagnostic("JSON 형식 검증 통과 / Valid JSON response", "success")
                 return [partial[index] for index, _text in rows]
+            except LLMGenerationLimitError as error:
+                diagnostic(str(error), "retrying")
+                error.diagnosed = c.provider in LOCAL_LLM_PROVIDERS and activity is not None
+                raise
             except TranslationError as error:
                 diagnostic(str(error), "failed")
                 error.diagnosed = c.provider in LOCAL_LLM_PROVIDERS and activity is not None
