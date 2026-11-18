@@ -109,10 +109,27 @@ class CrashTestSettingsTests(unittest.TestCase):
                 self.assertEqual(len(actions), 6)
                 self.assertTrue(all(action.text() for action in actions))
                 self.assertEqual(len(dialog.crash_test_actions), 6)
+                self.assertEqual(
+                    {action.data() for action in actions}, set(CRASH_TEST_MODES)
+                )
                 dialog.retranslate()
                 self.assertTrue(all(action.text() for action in actions))
             finally:
                 dialog.deleteLater()
+
+    def test_menu_trigger_dispatches_mode_without_a_capturing_lambda(self) -> None:
+        dialog = self._dialog(Language.KOREAN)
+        try:
+            with patch(
+                "PySide6.QtWidgets.QMessageBox.warning",
+                return_value=QMessageBox.StandardButton.Yes,
+            ) as confirm:
+                dialog.crash_test_actions["repeated_exception"].trigger()
+            confirm.assert_called_once()
+            self.assertEqual(dialog.maintenance_action, "crash-test:repeated_exception")
+            self.assertEqual(dialog.result(), dialog.DialogCode.Rejected)
+        finally:
+            dialog.close()
 
     def test_repeated_mode_requires_confirmation_and_defers_action(self) -> None:
         dialog = self._dialog(Language.KOREAN)
