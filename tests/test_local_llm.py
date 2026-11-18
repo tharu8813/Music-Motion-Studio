@@ -4,7 +4,7 @@ from io import BytesIO
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from threading import Event
+from threading import Barrier, Event, Lock
 import time
 import unittest
 from unittest.mock import Mock, patch
@@ -109,6 +109,59 @@ class LocalLLMServiceTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in self.service.list_models()], ["qwen3:4b"])
         self.service.list_models()
         self.assertEqual(opener.open.call_count, 5)  # two tag lists, three cached inspections
+
+    def test_ollama_model_inspection_runs_in_parallel_and_refresh_reuses_cache(self):
+        inspected, active, peak = [], 0, 0
+        gate = Barrier(2, timeout=2)
+        lock = Lock()
+        names = ["qwen3:4b", "qwen3:8b", "embed:latest", "remote:latest"]
+        def request(path, body=None, **kwargs):
+            nonlocal active, peak
+            if path == "/api/tags":
+                return {"models": [{"name": name, "digest": name + "-sha"} for name in names]}
+            self.assertEqual(path, "/api/show")
+            name = body["model"]
+            with lock:
+                inspected.append(name)
+                active += 1
+                peak = max(peak, active)
+            try:
+                if len(inspected) <= 2:
+                    gate.wait()
+                return {"capabilities": ["embedding"] if name.startswith("embed") else ["completion"],
+                        "remote_host": bool(name.startswith("remote"))}
+            finally:
+                with lock:
+                    active -= 1
+        with patch.object(self.service, "_request", side_effect=request):
+            self.assertEqual([r["id"] for r in self.service.list_models()],
+                             ["qwen3:4b", "qwen3:8b"])
+            self.assertGreaterEqual(peak, 2)
+            self.assertEqual(len(inspected), 4)
+            self.service.list_models()
+            self.assertEqual(len(inspected), 4)
+        # A changed digest must trigger a fresh check, even if the name stays.
+        with patch.object(self.service, "_request", side_effect=lambda path, body=None, **kwargs:
+                {"models": [{"name": "qwen3:4b", "digest": "updated"}]} if path == "/api/tags"
+                else {"capabilities": ["embedding"]}) as request:
+            self.assertEqual(self.service.list_models(), [])
+            self.assertEqual(request.call_count, 2)
+
+    def test_failed_model_inspection_is_retried_on_refresh(self):
+        attempts = []
+        def request(path, body=None, **kwargs):
+            if path == "/api/tags":
+                return {"models": [{"name": "qwen3:4b", "digest": "same"}]}
+            attempts.append(body["model"])
+            if len(attempts) == 1:
+                raise TranslationError("Temporary error")
+            return {"capabilities": ["completion"]}
+        with patch.object(self.service, "_request", side_effect=request):
+            self.assertEqual([r["id"] for r in self.service.list_models()], ["qwen3:4b"])
+            self.assertEqual([r["id"] for r in self.service.list_models()], ["qwen3:4b"])
+            self.assertEqual(len(attempts), 2)
+            self.service.list_models()
+            self.assertEqual(len(attempts), 2)
 
     def test_cancelled_pull_closes_response_and_stops_before_final_listing(self):
         cancel = Event()
@@ -262,6 +315,24 @@ class TranslationSetupUITests(unittest.TestCase):
         dialog.mode_combo.setCurrentIndex(0)
         self.assertEqual({dialog.provider_combo.itemData(i) for i in range(dialog.provider_combo.count())}, CLOUD_LLM_PROVIDERS)
         self.assertTrue(dialog.local_accuracy_warning.isHidden())
+
+    def test_service_model_refresh_reuses_same_connection_and_capability_cache(self):
+        self.settings.setValue("translation/provider", "ollama")
+        instances = []
+        def factory(*args):
+            service = Mock()
+            service.discover.return_value = [installed_row()]
+            instances.append(service)
+            return service
+        dialog = self.dialog(local_llm_factory=factory)
+        self.until(lambda: dialog.worker is None)
+        service_dialog = dialog.service_dialog
+        first = service_dialog._llm_service()
+        self.assertIs(first, service_dialog._llm_service())
+        self.assertEqual(len(instances), 1)
+        service_dialog.endpoint_edit.setText("http://localhost:11435/v1")
+        self.assertIsNot(first, service_dialog._llm_service())
+        self.assertEqual(len(instances), 2)
 
     def test_languages_filter_models_and_inline_install_preserves_selected_languages(self):
         models = LocalTranslationModels(self.root / "models")
