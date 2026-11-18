@@ -245,10 +245,11 @@ class ProjectController:
     def show_startup_dialog(self) -> bool:
         """Choose a project, or keep the app open with project tools disabled."""
         window = self.window
-        # Recovery belongs before the project choice.  Requiring the user to click
-        # "New project" first meant a newer snapshot could be silently skipped when
-        # they opened the older saved project from Recents.
-        if window._offer_recovery():
+        # Restore a pending workspace quietly instead of showing a modal
+        # confirmation every launch. Keep the snapshot and project save state
+        # intact; this follows the existing no-confirmation update recovery path.
+        # Recovery must still run before the project chooser to avoid losing edits.
+        if window._offer_recovery(confirm=False):
             return True
         while window.isVisible():
             dialog = StartupDialog(window.translator, window.recent_projects, window)
