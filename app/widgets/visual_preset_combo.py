@@ -472,7 +472,13 @@ def _preview_icon(
         rect = QRectF(12, 9, 88, 54)
         text = QColor(source.outline_color) if source else QColor("#F8FAFC")
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(color)
+        if source is not None and source.gradient.enabled and not source.text_gradient:
+            custom = linear_gradient(rect, source.gradient.angle)
+            custom.setColorAt(0, QColor(source.gradient.start_color))
+            custom.setColorAt(1, QColor(source.gradient.end_color))
+            p.setBrush(QBrush(custom))
+        else:
+            p.setBrush(color)
         text = paint_now_playing_surface(
             p, rect, key, color, text,
             source.border_radius if source else 7,
