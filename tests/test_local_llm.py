@@ -335,7 +335,10 @@ class TranslationSetupUITests(unittest.TestCase):
         self.addCleanup(manager.deleteLater)
         self.until(lambda: manager.worker is None and manager.table.rowCount() == 1)
         manager.tabs.setCurrentIndex(1)
-        self.assertIn("설치됨", manager.recommended.item(0).text())
+        installed = next(manager.recommended.item(i) for i in range(manager.recommended.count())
+            if manager.recommended.item(i).data(Qt.ItemDataRole.UserRole)["id"] == "qwen2.5-coder:7b")
+        manager.recommended.setCurrentItem(installed)
+        self.assertIn("설치됨", installed.text())
         self.assertIn("바로 사용", manager.download_button.text())
         manager._download()
         self.assertEqual(manager.selected_model, "qwen2.5-coder:7b")
@@ -386,6 +389,24 @@ class TranslationSetupUITests(unittest.TestCase):
         self.assertEqual(dialog.model_combo.currentIndex(), -1)
         self.assertEqual(dialog._model_value(), "")
 
+    def test_lyric_model_recommendations_download_using_existing_manager(self):
+        service = Mock(provider="ollama")
+        service.discover.return_value = []
+        service.download.return_value = [installed_row("qwen3.5:9b")]
+        manager = LocalLLMManagerDialog(Translator(), service=service)
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None)
+        self.assertEqual(manager.catalog_category.currentData(), "lyrics")
+        self.assertEqual(manager.recommended.currentItem().data(Qt.ItemDataRole.UserRole)["id"], "qwen3.5:9b")
+        self.assertIn("가사 번역", manager.recommended.currentItem().text())
+        self.assertEqual(manager.download_name.text(), "qwen3.5:9b")
+        manager._download()
+        self.until(lambda: manager.worker is None)
+        self.assertEqual(service.download.call_args.args[0], "qwen3.5:9b")
+        self.assertEqual(manager._selected()["id"], "qwen3.5:9b")
+        manager._use()
+        self.assertEqual(manager.selected_model, "qwen3.5:9b")
+
     def test_manager_shows_tradeoffs_downloads_and_selects_installed_model(self):
         service = Mock(provider="ollama")
         service.discover.return_value = [installed_row()]
@@ -395,10 +416,13 @@ class TranslationSetupUITests(unittest.TestCase):
         self.until(lambda: manager.worker is None and manager.table.rowCount() == 1)
         manager.tabs.setCurrentIndex(1)
         self.assertGreaterEqual(manager.recommended.count(), 10)
-        self.assertEqual(manager.recommended.item(0).data(Qt.ItemDataRole.UserRole)["id"], "qwen2.5-coder:7b")
+        self.assertEqual(manager.catalog_category.currentData(), "lyrics")
+        self.assertEqual(manager.recommended.item(0).data(Qt.ItemDataRole.UserRole)["id"], "qwen3.5:9b")
         manager.catalog_category.setCurrentIndex(manager.catalog_category.findData("coder"))
         self.assertTrue(any(manager.recommended.item(i).isHidden() for i in range(manager.recommended.count())))
-        manager.recommended.setCurrentRow(1)
+        coder_small = next(i for i in range(manager.recommended.count())
+            if manager.recommended.item(i).data(Qt.ItemDataRole.UserRole)["id"] == "qwen2.5-coder:3b")
+        manager.recommended.setCurrentRow(coder_small)
         self.assertEqual(manager.download_name.text(), "qwen2.5-coder:3b")
         self.assertIn("장점:", manager.description.toPlainText())
         self.assertIn("주의:", manager.description.toPlainText())
