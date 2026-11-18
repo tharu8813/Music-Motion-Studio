@@ -1688,7 +1688,7 @@ class SettingsDialog(QDialog):
                 "Unsaved settings changes will be discarded; the project remains open."
             )
         answer = QMessageBox.warning(
-            self, title, explanation.replace("\\\\n", "\\n"),
+            self, title, explanation,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
