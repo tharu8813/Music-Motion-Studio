@@ -466,7 +466,7 @@ class LyricsTranslationService:
             candidates = data.get("candidates", [])
             if not candidates or candidates[0].get("finishReason") != "STOP":
                 raise TranslationError("Gemini 번역이 완료되지 않았습니다. / Gemini translation is incomplete.")
-            raw = "".join(p.get("text", "") for p in candidates[0].get("content", []) if isinstance(p, dict) and p.get("text") and not p.get("thought"))
+            raw = "".join(p.get("text", "") for p in candidates[0].get("content", {}).get("parts", []) if not p.get("thought"))
         elif c.provider == "ollama":
             # The native endpoint supports a reliable top-level think=False.
             # The OpenAI-compatible endpoint may spend its output allowance
