@@ -3819,6 +3819,18 @@ class MainWindow(QMainWindow):
                 self._check_for_updates(manual=True, reinstall=True)
             elif dialog.maintenance_action == "reset":
                 self._reset_program()
+            elif dialog.maintenance_action.startswith("crash-test:"):
+                mode = dialog.maintenance_action.partition(":")[2]
+                from app.utils.crash_test_service import CRASH_TEST_MODES, run_crash_test
+
+                if mode in CRASH_TEST_MODES:
+                    # Keep crash handling outside the Settings modal event
+                    # loop. Intentional native abort never runs from inside
+                    # the dialog or while settings widgets are being destroyed.
+                    QTimer.singleShot(
+                        0, self,
+                        lambda selected=mode: run_crash_test(selected),
+                    )
             return
         selected_settings = dialog.app_settings
         self.settings_service.save(selected_settings)
