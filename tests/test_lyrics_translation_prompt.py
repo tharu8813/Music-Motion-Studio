@@ -14,6 +14,19 @@ from app.services.lyrics_translation_service import (
 
 
 class TranslationPromptTests(unittest.TestCase):
+    def test_system_prompts_are_short_and_keep_essential_contract(self):
+        # Prevent instructional bloat from creeping back into 9B-class models.
+        self.assertLess(len(SONG_ANALYSIS_PROMPT), 1100)
+        self.assertLess(len(DEFAULT_LYRICS_TRANSLATION_PROMPT), 2000)
+        for essential in ("translation_plan", "previous_translations",
+                          "quality_feedback", "source_language", "target_language",
+                          "style_preferences", "context_only", "song_context",
+                          "exactly once", "line breaks"):
+            with self.subTest(essential=essential):
+                self.assertIn(essential, DEFAULT_LYRICS_TRANSLATION_PROMPT)
+        for essential in ("full_song.cues", "glossary", "refrains", "voice"):
+            self.assertIn(essential, SONG_ANALYSIS_PROMPT)
+
     def test_language_pairs_and_regional_variants_are_input_data(self):
         for source, target, text in (("en", "ko", "The moon keeps your name."),
             ("ja", "en-GB", "月は君の名前を覚えている。"),
@@ -192,16 +205,17 @@ class TranslationPromptTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual(result, ["번역"] * 21)
         self.assertEqual(calls[0]["context_only"]["after"][0]["id"], 20)
-        self.assertEqual(calls[0]["song_context"]["coverage"], "full")
-        self.assertEqual(calls[0]["song_context"]["cues"], [{"id": 20, "text": "Again"}])
+        self.assertEqual(calls[0]["song_context"]["coverage"], "in_plan")
+        self.assertEqual(calls[0]["song_context"]["cues"], [])
         self.assertEqual([row["id"] for row in calls[1]["context_only"]["before"]], [18, 19])
         self.assertEqual(calls[1]["context_only"]["reference_translations"],
                          [{"id": 0, "source_text": "Again", "text": "번역"}])
         self.assertEqual(calls[1]["lyrics"], [{"id": 20, "text": "Again"}])
-        self.assertEqual(calls[1]["song_context"]["coverage"], "full")
-        self.assertEqual([row["id"] for row in calls[1]["song_context"]["cues"]], list(range(20)))
+        self.assertEqual(calls[1]["song_context"]["coverage"], "in_plan")
+        self.assertEqual(calls[1]["song_context"]["cues"], [])
+        self.assertIn(0, [row["id"] for row in calls[1]["context_only"]["previous_translations"]])
 
-    def test_local_llm_keeps_small_json_batches_but_sees_full_song_context(self):
+    def test_local_llm_batches_share_compact_plan_instead_of_resending_full_song(self):
         cues = [{"text": f"Verse {i}"} for i in range(30)]
         requests = []
         def transport(url, body=None, headers=None, **kwargs):
@@ -221,13 +235,13 @@ class TranslationPromptTests(unittest.TestCase):
         self.assertEqual(output[29], "번역 29")
         for request in requests:
             context = request["song_context"]
-            self.assertEqual(context["coverage"], "full")
-            actual_ids = {row["id"] for row in request["lyrics"]}
-            context_ids = {row["id"] for row in context["cues"]}
-            self.assertFalse(actual_ids & context_ids)
-            self.assertEqual(actual_ids | context_ids, set(range(30)))
-            self.assertLessEqual(sum(len(row["text"]) for row in context["cues"]),
-                                 LOCAL_SONG_CONTEXT_MAX_CHARS)
+            self.assertEqual(context["coverage"], "in_plan")
+            self.assertEqual(context["cues"], [])
+            self.assertEqual(context["total_cues"], 30)
+            self.assertEqual(request["translation_plan"]["story"], "Verses")
+            self.assertLessEqual(
+                sum(len(row["source_text"]) + len(row["text"])
+                    for row in request["context_only"]["previous_translations"]), 900)
 
     def test_returning_context_only_ids_or_explanations_is_rejected(self):
         config = TranslationConfig("chatgpt", model="selected", key="test")

@@ -76,6 +76,7 @@ class TwoStageTranslationTests(unittest.TestCase):
             activity=events.append)
         self.assertEqual(output, ["번역"])
         self.assertIsNone(requests[1]["translation_plan"])
+        self.assertEqual(requests[1]["song_context"]["coverage"], "full")
         self.assertIn("planning_fallback", [event["stage"] for event in events])
 
     def test_cancel_during_analysis_prevents_all_translation_batches(self):

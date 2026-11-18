@@ -350,19 +350,24 @@ class LyricsTranslationService:
                 activity({"stage": "working", "rows": [index for index, _text in batch]})
             try:
                 if config.provider in LLM_PROVIDERS:
-                    context_budget = (1200 if config.provider in LOCAL_LLM_PROVIDERS
-                                      else 2400) if plan is not None else (
-                                          LOCAL_SONG_CONTEXT_MAX_CHARS if config.provider in LOCAL_LLM_PROVIDERS
-                                          else SONG_CONTEXT_MAX_CHARS)
-                    song_context = whole_song_context(cues, {index for index, _text in batch},
-                        max_chars=context_budget)
+                    # Stage 1 already read the full song. Avoid sending the same
+                    # source lyrics again with every Stage 2 request.
+                    if plan is not None:
+                        song_context = {"coverage": "in_plan", "total_cues": len(cues),
+                                        "omitted_cues": 0, "cues": []}
+                    else:
+                        song_context = whole_song_context(cues, {index for index, _text in batch},
+                            max_chars=(LOCAL_SONG_CONTEXT_MAX_CHARS
+                                       if config.provider in LOCAL_LLM_PROVIDERS
+                                       else SONG_CONTEXT_MAX_CHARS))
                     def translate_subset(subset, *, output_tokens=None):
                         # Earlier translated cues must accompany ALL later
                         # batches, not just identical refrain source strings.
                         memory = rolling_translation_memory(sorted(
                             (record for record in history if record[0] < subset[0][0]),
-                            key=lambda record: record[0]), max_chars=1600 if
-                            config.provider in LOCAL_LLM_PROVIDERS else 2200)
+                            key=lambda record: record[0]), max_chars=900 if
+                            config.provider in LOCAL_LLM_PROVIDERS else 1600,
+                            max_recent=6 if config.provider in LOCAL_LLM_PROVIDERS else 8)
                         common = dict(
                             neighbors=neighboring_context(cues, subset[0][0], subset[-1][0]),
                             references=reference_translations(subset, completed),
@@ -608,8 +613,14 @@ class LyricsTranslationService:
             # A planning model may hallucinate a "canonical" phrase. Only let
             # glossary entries grounded in the actual full song reach stage 2.
             source_text = "\n".join(lyric_text(row) for row in cues).casefold()
-            plan["glossary"] = [entry for entry in plan["glossary"]
-                                if entry["source"].casefold() in source_text]
+            plan["glossary"] = [
+                {"source": entry["source"][:80], "target": entry["target"][:80]}
+                for entry in plan["glossary"]
+                if entry["source"].casefold() in source_text
+            ][:6]
+            plan["refrains"] = [entry[:120] for entry in plan["refrains"][:3]]
+            for name in ("story", "tone", "voice", "style"):
+                plan[name] = plan[name][:160]
         except (TranslationError, ValueError, KeyError, TypeError, IndexError, AttributeError):
             check_cancel(cancel)
             if activity:
