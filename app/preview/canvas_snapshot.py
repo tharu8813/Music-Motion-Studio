@@ -1296,7 +1296,10 @@ class CanvasSnapshot:
                                 displayed = display_cue(original) if source.subtitle_translation_enabled else original
                                 rows = lyric_display_lines(LyricsService.decode_line_breaks(displayed.get("text", "")))
                                 row_offset += max(1, len(rows))
-                    source.text = "\n".join(block for block in blocks if block) or source.subtitle_fallback
+                    # Empty timed cues still reserve a strip slot (block_line_counts uses max(1, ...)).
+                    # Preserve that slot in rendered text with an invisible row; dropping it
+                    # shifts every following slot and can crash window_edges (KeyError).
+                    source.text = "\n".join(block if block else "\u200b" for block in blocks) or source.subtitle_fallback
                     relative_index = max(0, cue_index - first)
                     intro_state = graphics_item._subtitle_intro_state
                     if intro_state is not None and intro_state.held_cue_index is not None:

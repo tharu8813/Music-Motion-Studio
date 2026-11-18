@@ -188,6 +188,75 @@ class LyricsContinuousStripTests(unittest.TestCase):
                 with self.subTest(direction=direction, time=time):
                     self.assertEqual(actual, reference)
 
+    def test_empty_lyric_cues_keep_continuous_strip_slots_for_preview_and_export(self):
+        # Reproduce a user export with vertical scroll, automatic context,
+        # different cue/line spacing and blank timed cues in the lyric data.
+        # Keep the fixture synthetic: never commit the user's project or media.
+        scene, item, track = self.scene(
+            height=560, subtitle_auto_wrap=False, subtitle_flow_direction="up",
+            subtitle_context_lines=-1, subtitle_next_lines=-1,
+            subtitle_line_spacing=20, subtitle_cue_spacing=14,
+            subtitle_translation_enabled=True, subtitle_intro_enabled=False,
+        )
+        track.lyrics = [
+            {"start": index * 2, "end": (index + 1) * 2,
+             "text": "" if index in (0, 13, 18, 25, 29) else f"Lyric {index}"}
+            for index in range(30)
+        ]
+        track.duration_seconds = 60
+
+        original_paint = lyrics_renderer.paint_lines
+        seen_blank_slot = False
+
+        def check_slots(graphics, painter, rect):
+            nonlocal seen_blank_slot
+            layout = graphics._subtitle_cue_layout
+            strip_window = graphics._subtitle_strip_window
+            if strip_window is not None:
+                rendered = lyrics_renderer.lyric_display_lines(
+                    graphics._render_text() or graphics.source.subtitle_fallback
+                )
+                self.assertEqual(len(rendered), len(layout))
+                slots = {slot for slot, _inner, _total in layout}
+                first_old, last_old, first_new, last_new = strip_window
+                for slot in (first_old, last_old - 1, first_new, last_new - 1):
+                    self.assertIn(slot, slots)
+                seen_blank_slot |= "\u200b" in rendered
+            return original_paint(graphics, painter, rect)
+
+        # The previously missing slot can be at either edge of the old/new
+        # scroll window. Include a boundary, a pre-boundary and reverse seek.
+        times = (0, 1.999, 2, 23.999, 24, 25.999, 26, 26.2, 28,
+                 33.999, 34, 35.999, 36, 36.2, 48, 50, 50.2, 58)
+        with patch.object(lyrics_renderer, "paint_lines", side_effect=check_slots):
+            for timestamp in times:
+                with self.subTest(timestamp=timestamp):
+                    frame = CanvasSnapshot.capture_track(
+                        scene, track, 1, 1, 0, elapsed_seconds=timestamp,
+                        playlist_duration_seconds=60, playlist_tracks=[track],
+                        timeline_seconds=timestamp,
+                    )
+                    self.assertFalse(frame.isNull())
+                    self.assertIsNone(item._subtitle_strip_window)
+        self.assertTrue(seen_blank_slot)
+
+        capturer = ExportCanvasCapturer(
+            scene, [track], 30, set(), [(None, None)],
+            lambda *_: None, lambda: None, lambda *_: None,
+        )
+        capturer.stage_frame = lambda image, duration, key: RenderFrame(image, duration)
+        for timestamp in (26.2, 36.2, 50.2):
+            with self.subTest(export_timestamp=timestamp):
+                preview = CanvasSnapshot.capture_track(
+                    scene, track, 1, 1, 0, elapsed_seconds=timestamp,
+                    playlist_duration_seconds=60, playlist_tracks=[track],
+                    timeline_seconds=timestamp,
+                )
+                exported = capturer.capture(
+                    ExportFrameSample(track, 1, 0, .1, timestamp, timestamp),
+                ).image
+                self.assertEqual(preview, exported)
+
     def test_preview_export_and_reverse_seeking_match_at_two_resolutions(self):
         scene, item, track = self.scene()
         original = deepcopy(item.source.to_dict())
