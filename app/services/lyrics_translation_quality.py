@@ -97,7 +97,7 @@ def confidently_unneeded(source: str, source_language: str, target_language: str
     if target == "ja" and _JAPANESE_KANA.search(text):
         # Kana is positive evidence, unlike shared Han/Kanji characters.
         return all(not char.isalpha() or bool(_JAPANESE_KANA.fullmatch(char))
-                   or "\\u3400" <= char <= "\\u9fff" for char in text)
+                   or "\u3400" <= char <= "\u9fff" for char in text)
     return False
 
 
