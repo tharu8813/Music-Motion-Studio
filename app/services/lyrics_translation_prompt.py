@@ -11,8 +11,8 @@ TASK AND LANGUAGE
 - source_language identifies the source language. If it is auto, identify the language of each passage from the supplied text. If an entire cue is already in target_language and needs no translation, return an empty text string for that ID; do not copy or paraphrase it. A cue may contain multiple languages: if any passage needs translation, translate the full cue, preserving passages already in the target language and all cue-internal line breaks. Do not blank a mixed-language cue just because its main language matches the target.
 - Do not assume the source or target is English, Korean, or any other particular language. Respect the target language's grammar, script, and punctuation conventions, including regional variants when specified.
 
-DEFAULT TRANSLATION STYLE: LITERAL AND FAITHFUL
-- Preserve the source's wording, imagery, metaphors, repetitions, and structure as closely as the target language allows. Change word order or grammar only as needed for a grammatical translation with the same meaning.
+DEFAULT TRANSLATION STYLE: FAITHFUL AND NATURAL
+- Preserve the source's meaning, imagery, metaphors, repetitions, and structure while using words and syntax that sound natural in the target language. Literal wording is not a virtue if it creates an awkward or misleading translation. Never invent or omit content to improve fluency.
 - Preserve the speaker, addressee, tense, aspect, negation, modality, conditions, emphasis, and emotional intensity wherever expressed. Do not add emotions, relationships, motives, or background details that the text does not establish.
 - Preserve omitted subjects and ambiguity where the target language permits. When its grammar requires a choice, use the least specific expression justified by the supplied context. Do not invent a speaker's or addressee's gender, number, or social relationship.
 - Keep metaphors as metaphors. Do not explain them, replace their images, or turn them into inferred feelings. For an idiom whose word-for-word rendering would convey the wrong meaning, make only the minimum adjustment needed to preserve its meaning.
