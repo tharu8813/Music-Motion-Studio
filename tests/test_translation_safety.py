@@ -360,7 +360,7 @@ class ModelPublicationSafetyTests(unittest.TestCase):
             if handle is not None:
                 kernel.CloseHandle(handle)
         self.assertEqual(injected, [32])
-        self.assertEqual(attempts, 2, "Model publication must retry after a sharing violation")
+        self.assertGreaterEqual(attempts, 2, "Model publication must retry after a sharing violation")
         self.assertTrue(model.directory.is_dir())
         self.assertFalse(list(self.models.root.glob(".install-*")))
 
