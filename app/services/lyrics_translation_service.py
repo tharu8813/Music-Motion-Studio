@@ -475,7 +475,8 @@ class LyricsTranslationService:
             body = {"model": c.model, "stream": False, "think": False, "format": "json",
                 "messages": [{"role": "system", "content": instruction},
                              {"role": "user", "content": prompt}],
-                "options": {"num_ctx": 12288 if output_tokens else 8192,
+                "options": {"num_ctx": (16384 if len(prompt) > 9000 else
+                                        12288 if output_tokens else 8192),
                             "num_predict": output_tokens or 3072}}
             data = req(base + "/api/chat", body, headers)
             message = data.get("message") or {}
@@ -528,6 +529,11 @@ class LyricsTranslationService:
             instruction, prompt = build_song_analysis_prompt(
                 cues, source_language=c.source, target_language=c.target,
                 preferences=c.instructions)
+            if c.provider in LOCAL_LLM_PROVIDERS and sum(
+                    len(lyric_text(cue)) for cue in cues) > 16000:
+                # A long multilingual song may exceed a local model's
+                # practical context; never silently analyze truncated text.
+                raise ValueError("Song too long for reliable full-song local analysis")
             raw = self._llm_completion(c, cancel, instruction, prompt)
             plan = parse_song_analysis(raw)
             # A planning model may hallucinate a "canonical" phrase. Only let
