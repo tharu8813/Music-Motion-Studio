@@ -1,7 +1,9 @@
 """Optional translation preferences, separate from service setup and review."""
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QLabel,
     QLineEdit, QPlainTextEdit, QScrollArea, QTabWidget, QVBoxLayout, QWidget)
-from app.services.lyrics_translation_prompt import DEFAULT_LYRICS_TRANSLATION_PROMPT
+from app.services.lyrics_translation_prompt import (
+    DEFAULT_LYRICS_TRANSLATION_PROMPT, SONG_ANALYSIS_PROMPT,
+)
 from app.services.lyrics_translation_service import LLM_PROVIDERS, LOCAL_LLM_PROVIDERS, TranslationError
 from app.dialogs.help_dialog import install_help_shortcut
 
@@ -49,10 +51,13 @@ class TranslationAdvancedDialog(QDialog):
         scroll.setWidgetResizable(True)
         scroll.setWidget(preferences)
         tabs.addTab(scroll, tr("문체 및 연결", "Style and connection"))
+        self.analysis_prompt = QPlainTextEdit(SONG_ANALYSIS_PROMPT)
+        self.analysis_prompt.setReadOnly(True)
+        tabs.addTab(self.analysis_prompt, tr("1단계 · 전체 가사 분석", "Stage 1 · Whole-song analysis"))
         self.prompt = QPlainTextEdit(DEFAULT_LYRICS_TRANSLATION_PROMPT)
         self.prompt.setReadOnly(True)
         self.prompt.setAccessibleName(tr("가사 번역 기본 프롬프트", "Default lyric translation prompt"))
-        tabs.addTab(self.prompt, tr("기본 프롬프트", "Default prompt"))
+        tabs.addTab(self.prompt, tr("2단계 · 가사 번역", "Stage 2 · Translate lyrics"))
         root.addWidget(tabs, 1)
         self.status_label = QLabel()
         self.status_label.setWordWrap(True)
