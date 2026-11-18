@@ -165,7 +165,12 @@ def install_exception_hook() -> None:
 
 
 def _install_abnormal_shutdown_marker(application: QApplication) -> None:
-    """Report a prior native/forced termination on the next successful startup."""
+    """Remember an unclean prior exit without treating it as a fresh exception.
+
+    Only a *real* exception is sent through the crash-report pipeline.
+    Startup can offer a session-only safe mode before initializing the editor.
+    """
+    previous = ""
     try:
         marker = _run_marker_path()
         previous = marker.read_text(encoding="utf-8") if marker.is_file() else ""
@@ -176,7 +181,10 @@ def _install_abnormal_shutdown_marker(application: QApplication) -> None:
         )
     except OSError:
         LOGGER.warning("Could not maintain the abnormal-shutdown marker", exc_info=True)
+        application.setProperty("previous_abnormal_shutdown", False)
         return
+
+    application.setProperty("previous_abnormal_shutdown", bool(previous.strip()))
 
     def clear_marker() -> None:
         try:
@@ -185,15 +193,8 @@ def _install_abnormal_shutdown_marker(application: QApplication) -> None:
             LOGGER.warning("Could not remove the run marker", exc_info=True)
 
     application.aboutToQuit.connect(clear_marker)
-    if previous and _CRASH_BRIDGE is not None:
-        QTimer.singleShot(
-            0,
-            lambda: _CRASH_BRIDGE.report_requested.emit(
-                "Previous abnormal shutdown",
-                "The previous app session did not close normally.",
-                "A previous application session ended without a normal shutdown.\n\n" + previous,
-            ),
-        )
+    if previous.strip():
+        LOGGER.warning("Previous session ended without a clean shutdown; offering safe startup")
 
 
 def _exception_hook(exc_type: Type[BaseException], exception: BaseException,
