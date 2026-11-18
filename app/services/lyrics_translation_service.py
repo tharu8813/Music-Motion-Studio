@@ -408,8 +408,8 @@ class LyricsTranslationService:
                                             if index not in still_bad})
                             numbers = ", ".join(str(index + 1) for index in still_bad)
                             raise TranslationError(
-                                f"한국어 번역 검증 실패: 가사 {numbers}번은 다시 번역해야 합니다. / "
-                                f"Korean translation quality check failed for lyric rows {numbers}.",
+                                f"가사 번역 검증 실패: {numbers}번 줄은 다시 검토해야 합니다. / "
+                                f"Lyric translation quality check failed for rows {numbers}.",
                                 partial=partial)
                         return [corrections.get(index, value)
                                 for (index, _), value in zip(subset, translated)]
