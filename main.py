@@ -26,7 +26,7 @@ if __name__ == "__main__" and not getattr(sys, "frozen", False):
 
 from PySide6.QtCore import QSettings, QStandardPaths, QTimer
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app import LEGACY_PRODUCT_NAMES, PRODUCT_NAME, __version__
 from app.ui.launch_splash import LaunchSplash
@@ -117,6 +117,36 @@ def _configure_product_identity(application: QApplication) -> None:
     current.sync()
 
 
+def choose_startup_mode(application: QApplication, *, smoke_test: bool = False,
+                        force_safe_mode: bool = False) -> bool:
+    """Prompt after an unclean exit. Return True for this session's safe mode.
+
+    This is not a new crash: no traceback is generated or saved. 'Normal'
+    preserves current settings; 'Safe' changes only temporary runtime flags.
+    """
+    if force_safe_mode:
+        application.setProperty("safe_mode", True)
+        return True
+    application.setProperty("safe_mode", False)
+    if smoke_test or not bool(application.property("previous_abnormal_shutdown")):
+        return False
+    choice = QMessageBox.question(
+        None,
+        "이전 실행이 비정상적으로 종료됨 / Previous shutdown",
+        "프로그램이 지난번에 정상적으로 종료되지 않았습니다.\\n"
+        "안전 모드로 실행할까요?\\n\\n"
+        "안전 모드에서는 CPU 미리보기를 사용하고 자동 업데이트 확인과 "
+        "백그라운드 분석을 잠시 중지합니다. 프로젝트와 설정은 그대로 유지됩니다.\\n\\n"
+        "The previous session did not close normally. Start in Safe Mode?\\n"
+        "Safe Mode uses CPU preview and skips automatic updates and background analysis.",
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.Yes,
+    )
+    enabled = choice == QMessageBox.StandardButton.Yes
+    application.setProperty("safe_mode", enabled)
+    return enabled
+
+
 def main() -> int:
     """Create and run the Qt application."""
     if len(sys.argv) > 1 and sys.argv[1] == "--native-gpu-export":
@@ -145,15 +175,26 @@ def main() -> int:
     splash.show()
     splash.set_status("프로그램을 불러오는 중…", "Loading the application…", 10)
     install_exception_hook()
+    # Ask before constructing hardware-backed widgets and restoring projects.
+    # A forced stop is expected to leave a marker, not a new Python exception.
+    if application.property("previous_abnormal_shutdown") and "--smoke-test" not in sys.argv:
+        splash.hide()
+    safe_mode = choose_startup_mode(
+        application, smoke_test="--smoke-test" in sys.argv,
+        force_safe_mode="--safe-mode" in sys.argv,
+    )
+    splash.show()
     from app.utils.temp_cleanup import sweep_stale_temp_dirs
 
-    threading.Thread(target=sweep_stale_temp_dirs, daemon=True).start()
+    if not safe_mode:
+        threading.Thread(target=sweep_stale_temp_dirs, daemon=True).start()
     splash.set_status("분석 환경을 준비하는 중…", "Preparing audio analysis…", 30)
     from app.automix.cache import cache_directories, prune_caches
 
     # Imports stay on this thread: a daemon thread still importing when the
     # app quits hung interpreter shutdown. The thread only touches files.
-    threading.Thread(target=prune_caches, args=(cache_directories(),), daemon=True).start()
+    if not safe_mode:
+        threading.Thread(target=prune_caches, args=(cache_directories(),), daemon=True).start()
     splash.set_status("편집 도구를 불러오는 중…", "Loading editing tools…", 50)
     from app.ui.main_window import MainWindow
 
@@ -167,7 +208,8 @@ def main() -> int:
         QTimer.singleShot(0, application.quit)
         return application.exec()
     window.set_project_open(False)
-    window.schedule_automatic_update_check()
+    if not safe_mode:
+        window.schedule_automatic_update_check()
     from app.dialogs.welcome_dialog import MAIN_GUIDE, MAIN_GUIDE_TITLE, WELCOME_KEY, GuideDialog, first_time
 
     if update_recovery is None and first_time(WELCOME_KEY):
