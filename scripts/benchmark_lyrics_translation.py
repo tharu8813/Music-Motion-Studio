@@ -101,7 +101,7 @@ def run_benchmark(service, config: TranslationConfig, *, cases=CASES) -> dict:
                     f"Expected {len(original)} translations, got {len(translated)}")
             case["translations"] = translated
             for index, (source, target) in enumerate(zip(sample["cues"], translated)):
-                if source.count("\\n") != target.count("\\n"):
+                if source.count("\n") != target.count("\n"):
                     case["quality_flags"].append({
                         "row": index + 1, "reason": "Original line breaks were not preserved"})
                 issue = quality_issue(source, target, sample["source_language"], config.target)
