@@ -59,13 +59,16 @@ def paint_now_playing_surface(
     if style == "accent":
         stripe = QColor(foreground)
         stripe.setAlpha(max(180, stripe.alpha()))
-        stripe_width = max(3.0, min(8.0, rect.width() * 0.018))
-        inset = max(5.0, min(16.0, rect.height() * 0.10))
+        # Keep the stripe inside the card's margin, clear of the 16px
+        # text inset used by the actual now-playing renderer.
+        stripe_width = max(2.5, min(6.0, rect.width() * 0.014))
+        inset_x = max(2.5, min(7.0, rect.width() * 0.018))
+        inset_y = max(5.0, min(16.0, rect.height() * 0.10))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(stripe)
         painter.drawRoundedRect(
-            QRectF(rect.left() + inset, rect.top() + inset,
-                   stripe_width, max(0.0, rect.height() - inset * 2.0)),
+            QRectF(rect.left() + inset_x, rect.top() + inset_y,
+                   stripe_width, max(0.0, rect.height() - inset_y * 2.0)),
             stripe_width / 2.0, stripe_width / 2.0,
         )
     return foreground
