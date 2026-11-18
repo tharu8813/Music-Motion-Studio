@@ -138,11 +138,11 @@ jobs:
           $sha = (Get-FileHash -LiteralPath $setups[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           "$sha  $($setups[0].Name)" | Set-Content -Path 'output-setup/installer.sha256' -Encoding ascii
 
-      - name: Upload tested 1.4.1.0 Setup candidate
+      - name: Upload tested 1.4.1.1 Setup candidate
         if: success()
         uses: actions/upload-artifact@v6
         with:
-          name: music-motion-studio-1.4.1.0-setup-candidate
+          name: music-motion-studio-1.4.1.1-setup-candidate
           path: |
             output-setup/Music Motion Studio-*-setup.exe
             output-setup/installer.sha256

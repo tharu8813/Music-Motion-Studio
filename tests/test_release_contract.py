@@ -109,6 +109,13 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertEqual(len(parts), 4)
         self.assertTrue(all(part.isdigit() for part in parts))
 
+    def test_current_version_has_korean_release_notes(self) -> None:
+        notes = ROOT / "docs" / "releases" / f"{__version__}.md"
+        self.assertTrue(notes.is_file(), f"Missing release notes: {notes.name}")
+        content = notes.read_text(encoding="utf-8")
+        self.assertIn(f"# Music Motion Studio {__version__}", content)
+        self.assertIn("## 설치 및 호환성", content)
+
     def test_windows_and_python_packaging_versions_are_synchronized(self) -> None:
         parts = ", ".join(__version__.split("."))
         version_info = (ROOT / "windows_version_info.txt").read_text(
