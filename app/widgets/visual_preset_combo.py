@@ -595,12 +595,12 @@ class _PresetTileDelegate(QStyledItemDelegate):
 
     def _icon(self, combo: VisualPresetComboBox, value: str, scale: float, active: bool) -> QIcon:
         kind, source = combo.preview_kind, combo._preview_source
-        # Resting cards capture the middle of a *recognizable effect*, not the
-        # nearly-settled tail of an eased entrance or lyric transition.
+        # Keep entrance/exit still frames bright and legible; lyric and loop
+        # samples instead show an easily distinguishable transition phase.
         if kind == "entrance":
-            seconds = max(0.3, source.animation_in_duration if source else 1.6) * 0.32
+            seconds = max(0.3, source.animation_in_duration if source else 1.6) * 0.72
         elif kind == "exit":
-            seconds = max(0.3, source.animation_out_duration if source else 1.6) * 0.32
+            seconds = max(0.3, source.animation_out_duration if source else 1.6) * 0.26
         elif kind == "lyric":
             seconds = max(0.8, source.subtitle_animation_duration if source else 1.6) * 0.26
         elif kind == "loop":
