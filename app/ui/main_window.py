@@ -5436,7 +5436,8 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(message, 5000)
             event.ignore()
             return
-        if self.project_session.dirty and not self._update_install_authorized:
+        if (self.project_session.dirty and not self._update_install_authorized
+                and not getattr(self, "_crash_report_discard_on_close", False)):
             korean = self.translator.is_korean
             response = QMessageBox.warning(
                 self,
