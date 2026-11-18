@@ -204,7 +204,10 @@ def _exception_hook(exc_type: Type[BaseException], exception: BaseException,
     if application is None or _CRASH_BRIDGE is None:
         sys.__excepthook__(exc_type, exception, traceback)
         return
-    traceback_text = "".join(traceback_module.format_exception(exc_type, exception, traceback))
+    traceback_text = (
+        f"Occurred in thread: {threading.current_thread().name}\n\n"
+        + "".join(traceback_module.format_exception(exc_type, exception, traceback))
+    )
     _CRASH_BRIDGE.report_requested.emit(exc_type.__name__, str(exception), traceback_text)
 
 
