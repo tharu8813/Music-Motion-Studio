@@ -130,19 +130,29 @@ def choose_startup_mode(application: QApplication, *, smoke_test: bool = False,
     application.setProperty("safe_mode", False)
     if smoke_test or not bool(application.property("previous_abnormal_shutdown")):
         return False
-    choice = QMessageBox.question(
-        None,
-        "이전 실행이 비정상적으로 종료됨 / Previous shutdown",
-        "프로그램이 지난번에 정상적으로 종료되지 않았습니다.\\n"
-        "안전 모드로 실행할까요?\\n\\n"
-        "안전 모드에서는 CPU 미리보기를 사용하고 자동 업데이트 확인과 "
-        "백그라운드 분석을 잠시 중지합니다. 프로젝트와 설정은 그대로 유지됩니다.\\n\\n"
-        "The previous session did not close normally. Start in Safe Mode?\\n"
-        "Safe Mode uses CPU preview and skips automatic updates and background analysis.",
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        QMessageBox.StandardButton.Yes,
+    dialog = QMessageBox()
+    dialog.setIcon(QMessageBox.Icon.Warning)
+    dialog.setWindowTitle("이전 실행이 비정상 종료됨 / Previous shutdown")
+    dialog.setText(
+        "이전 실행이 정상적으로 종료되지 않았습니다.\\n"
+        "안전 모드로 시작할까요?\\n\\n"
+        "The previous session did not close normally. Start in Safe Mode?"
     )
-    enabled = choice == QMessageBox.StandardButton.Yes
+    dialog.setInformativeText(
+        "안전 모드에서는 CPU 미리보기를 사용하고 자동 업데이트 확인과 "
+        "백그라운드 분석을 일시 중지합니다. 프로젝트와 저장된 설정은 변경하지 않습니다.\\n\\n"
+        "Safe Mode uses CPU preview and suspends automatic updates and background analysis."
+    )
+    safe_button = dialog.addButton(
+        "안전 모드로 실행 / Safe Mode", QMessageBox.ButtonRole.AcceptRole
+    )
+    normal_button = dialog.addButton(
+        "일반 모드로 실행 / Normal Mode", QMessageBox.ButtonRole.RejectRole
+    )
+    dialog.setDefaultButton(safe_button)
+    dialog.exec()
+    # Esc/close is treated as the conservative safe choice, never silent exit.
+    enabled = dialog.clickedButton() is not normal_button
     application.setProperty("safe_mode", enabled)
     return enabled
 
