@@ -274,8 +274,11 @@ class TranslationPromptTests(unittest.TestCase):
         cues = [{"text": "이미 한국어인 가사\n다음 줄"}, {"text": "Hello"},
                 {"text": "NASA"}, {"text": "한국어와 English가 섞인 가사"}]
         def transport(*args, **kwargs):
-            return json.dumps({"translations": [{"id": 0, "text": ""}, {"id": 1, "text": "안녕"},
-                {"id": 2, "text": "NASA"}, {"id": 3, "text": "한국어와 영어가 섞인 가사"}]})
+            payload = json.loads(args[1]["input"][0]["content"])
+            # Follow the requested IDs even if a quality retry selects fewer rows.
+            texts = {0: "", 1: "안녕", 2: "NASA", 3: "한국어와 영어가 섞인 가사"}
+            return json.dumps({"translations": [
+                {"id": row["id"], "text": texts[row["id"]]} for row in payload["lyrics"]]})
         result = LyricsTranslationService(transport).translate(cues,
             TranslationConfig("chatgpt", key="test", model="selected"))
         self.assertEqual(result, ["", "안녕", "", "한국어와 영어가 섞인 가사"])
