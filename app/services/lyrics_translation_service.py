@@ -16,6 +16,9 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from app.services.lyrics_translation_quality import (
+    normalized_source, quality_issue, rolling_translation_memory, stable_refrain_sources,
+)
 from app.services.lyrics_translation_prompt import (
     build_translation_prompt, build_song_analysis_prompt, parse_song_analysis,
     lyric_text, neighboring_context, reference_translations,
@@ -298,7 +301,7 @@ class LyricsTranslationService:
         return rows
 
     def translate(self, cues: list[dict], config: TranslationConfig, cancel=None, progress=None, *, activity=None,
-                  selected_rows=None) -> list[str]:
+                  selected_rows=None, existing_translations=None) -> list[str]:
         check_cancel(cancel)
         config.validate()
         rows = self.prepare(cues)
@@ -318,6 +321,18 @@ class LyricsTranslationService:
                 progress(len(rows), len(rows))
             return result
         completed: dict[str, tuple[int, str]] = {}
+        stable_refrains = stable_refrain_sources(cues)
+        canonical_refrains: dict[str, str] = {}
+        # Translation memories stay inside this one operation. Only completed,
+        # non-selected prior translations can be referenced. Never overwrite
+        # user edits or infer provenance from an unrelated draft.
+        selected_ids = {index for index, _ in rows}
+        history: list[tuple[int, str, str]] = []
+        for raw_index, target_text in sorted((existing_translations or {}).items()):
+            if (type(raw_index) is int and 0 <= raw_index < len(cues)
+                    and raw_index not in selected_ids and isinstance(target_text, str)
+                    and target_text.strip()):
+                history.append((raw_index, lyric_text(cues[raw_index]), target_text.strip()))
         # One bounded first pass creates a shared song-wide editorial plan.
         # If the model cannot return a usable plan, preserve the older context
         # translation path rather than discarding valid work or user edits.
@@ -342,10 +357,57 @@ class LyricsTranslationService:
                     song_context = whole_song_context(cues, {index for index, _text in batch},
                         max_chars=context_budget)
                     def translate_subset(subset, *, output_tokens=None):
-                        return self._translate_batch(subset, config, cancel, activity=activity,
+                        # Earlier translated cues must accompany ALL later
+                        # batches, not just identical refrain source strings.
+                        memory = rolling_translation_memory(sorted(
+                            (record for record in history if record[0] < subset[0][0]),
+                            key=lambda record: record[0]), max_chars=1600 if
+                            config.provider in LOCAL_LLM_PROVIDERS else 2200)
+                        common = dict(
                             neighbors=neighboring_context(cues, subset[0][0], subset[-1][0]),
                             references=reference_translations(subset, completed),
-                            song_context=song_context, plan=plan, output_tokens=output_tokens)
+                            previous_translations=memory, song_context=song_context,
+                            plan=plan, activity=activity, output_tokens=output_tokens)
+                        translated = self._translate_batch(subset, config, cancel, **common)
+                        # A structurally valid JSON can still echo English,
+                        # return empty strings or accidentally insert Han text.
+                        bad = [(index, original, quality_issue(original, value, config.source, config.target))
+                               for (index, original), value in zip(subset, translated)]
+                        bad = [(index, original, reason) for index, original, reason in bad if reason]
+                        if not bad:
+                            return translated
+                        check_cancel(cancel)
+                        if activity:
+                            activity({"stage": "quality_retry", "rows": [i for i, _, _ in bad]})
+                        subset_bad = [(index, source) for index, source, _ in bad]
+                        issues = "; ".join(f"ID {index}: {reason}" for index, _, reason in bad)[:900]
+                        initial_good = {index: text for (index, _), text in zip(subset, translated)
+                                        if index not in {i for i, _, _ in bad}}
+                        try:
+                            correction = self._translate_batch(subset_bad, config, cancel,
+                                **{**common,
+                                   "neighbors": neighboring_context(cues, subset_bad[0][0], subset_bad[-1][0]),
+                                   "quality_feedback": issues})
+                        except TranslationError as error:
+                            partial = dict(initial_good)
+                            partial.update(error.partial)
+                            raise TranslationError(str(error), partial=partial,
+                                                   diagnosed=error.diagnosed) from None
+                        corrections = dict(zip((index for index, _ in subset_bad), correction))
+                        still_bad = [index for index, source, _ in bad
+                                     if quality_issue(source, corrections.get(index),
+                                                      config.source, config.target)]
+                        if still_bad:
+                            partial = dict(initial_good)
+                            partial.update({index: value for index, value in corrections.items()
+                                            if index not in still_bad})
+                            numbers = ", ".join(str(index + 1) for index in still_bad)
+                            raise TranslationError(
+                                f"한국어 번역 검증 실패: 가사 {numbers}번은 다시 번역해야 합니다. / "
+                                f"Korean translation quality check failed for lyric rows {numbers}.",
+                                partial=partial)
+                        return [corrections.get(index, value)
+                                for (index, _), value in zip(subset, translated)]
 
                     def retry_limited(subset, *, larger_output=False):
                         check_cancel(cancel)
@@ -414,7 +476,14 @@ class LyricsTranslationService:
                     text = text.text
                 result[index] = translation_text(original, text) if text is not None else ""
                 if config.provider in LLM_PROVIDERS and result[index]:
+                    key = normalized_source(original)
+                    if key in stable_refrains:
+                        if key in canonical_refrains:
+                            result[index] = canonical_refrains[key]
+                        else:
+                            canonical_refrains[key] = result[index]
                     completed[original] = (index, result[index])
+                    history.append((index, original, result[index]))
                 if activity:
                     event = {"stage": "complete", "row": index, "text": result[index]}
                     if missing:
@@ -553,7 +622,8 @@ class LyricsTranslationService:
         return plan
 
     def _translate_batch(self, rows, c, cancel, *, neighbors=None, references=None,
-                         song_context=None, plan=None, activity=None, output_tokens=None):
+                         song_context=None, plan=None, activity=None, output_tokens=None,
+                         previous_translations=None, quality_feedback=""):
         texts = [text for _index, text in rows]
         if c.provider == "local_nmt":
             if self.local_engine is None:
@@ -564,7 +634,8 @@ class LyricsTranslationService:
         if c.provider in LLM_PROVIDERS:
             instruction, prompt = build_translation_prompt(rows, source_language=c.source,
                 target_language=c.target, preferences=c.instructions, neighbors=neighbors, references=references,
-                song_context=song_context, plan=plan)
+                song_context=song_context, plan=plan,
+                previous_translations=previous_translations, quality_feedback=quality_feedback)
             raw = None
 
             def diagnostic(reason, status):
@@ -625,7 +696,8 @@ class LyricsTranslationService:
                     raise TranslationError(
                         f"번역 결과 누락 또는 줄바꿈 불일치: 가사 {numbers}번. / "
                         f"Missing translations or incorrect line breaks: lyric rows {numbers}.", partial=partial)
-                diagnostic("JSON 형식 검증 통과 / Valid JSON response", "success")
+                diagnostic("JSON 구조 검증 통과 (번역 자연스러움은 미검증) / "
+                           "JSON structure valid (linguistic quality not verified)", "success")
                 return [partial[index] for index, _text in rows]
             except LLMGenerationLimitError as error:
                 diagnostic(str(error), "retrying")
