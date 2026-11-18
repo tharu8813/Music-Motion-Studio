@@ -178,6 +178,9 @@ class TranslationPromptTests(unittest.TestCase):
         calls = []
         def transport(url, body=None, headers=None, **kwargs):
             payload = json.loads(body["input"][0]["content"])
+            if payload.get("stage") == "song_analysis":
+                return json.dumps({"plan": {"story": "Together", "tone": "calm", "voice": "neutral",
+                    "style": "natural faithful", "refrains": ["Again"], "glossary": []}})
             calls.append(payload)
             return json.dumps({"translations": [{"id": row["id"], "text": "번역"} for row in payload["lyrics"]]})
         result = LyricsTranslationService(transport).translate(cues, TranslationConfig("chatgpt", model="selected", key="test"))
@@ -198,6 +201,10 @@ class TranslationPromptTests(unittest.TestCase):
         requests = []
         def transport(url, body=None, headers=None, **kwargs):
             data = json.loads(body["messages"][1]["content"])
+            if data.get("stage") == "song_analysis":
+                return {"choices": [{"finish_reason": "stop", "message": {"content":
+                    json.dumps({"plan": {"story": "Verses", "tone": "direct", "voice": "neutral",
+                        "style": "natural faithful", "refrains": [], "glossary": []}})}}]}
             requests.append(data)
             return {"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(
                 {"translations": [{"id": row["id"], "text": f"번역 {row['id']}"}
@@ -260,6 +267,9 @@ class TranslationPromptTests(unittest.TestCase):
         payloads = []
         def transport(url, body=None, headers=None, **kwargs):
             payload = json.loads(body["input"][0]["content"])
+            if payload.get("stage") == "song_analysis":
+                return json.dumps({"plan": {"story": "Refrain", "tone": "neutral", "voice": "unspecified",
+                    "style": "faithful", "refrains": [], "glossary": []}})
             payloads.append(payload)
             return json.dumps({"translations": [{"id": row["id"], "text": ""} for row in payload["lyrics"]]})
         self.assertEqual(LyricsTranslationService(transport).translate(cues,
