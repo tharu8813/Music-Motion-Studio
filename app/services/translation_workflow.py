@@ -167,7 +167,9 @@ class TranslationWorkflow(QObject):
                             continue
                         row = self.draft.rows[index]
                         row.text, row.edited = text, False
-                        row.checked = not bool(missing_lines)
+                        # Never auto-select an empty result: applying it would
+                        # delete any existing approved translation on this cue.
+                        row.checked = bool(text) and not bool(missing_lines)
                         row.config = self._current_config or row.config
                         row.status = "incomplete" if missing_lines else "complete" if text else "unneeded"
                         row.detail = (review.table.item(index, 4).toolTip() if missing_lines else "")
@@ -203,7 +205,9 @@ class TranslationWorkflow(QObject):
                 row = self.draft.rows[index]
                 row.text, row.edited = texts[index], False
                 row.config = self.draft.safe_config(config)
-                row.checked = index not in incomplete
+                # Only meaningful generated text is applied by default.
+                # Clearing a previous translation requires an explicit check.
+                row.checked = bool(row.text) and index not in incomplete
                 row.status = "incomplete" if index in incomplete else "complete" if row.text else "unneeded"
                 row.detail = review.table.item(index, 4).toolTip() if index in incomplete else ""
             self.draft.has_result = True
