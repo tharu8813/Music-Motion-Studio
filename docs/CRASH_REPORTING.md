@@ -41,3 +41,25 @@ Run: python -m unittest -v tests.test_crash_diagnostics
 Windows deployment CI also runs Python compileall and all test modules.
 Before releasing, manually validate each exit action on a real .pvsproj
 and while an export or save worker is active.
+
+## Manual crash injection from Settings
+
+Tools > Settings > Maintenance > Program maintenance > Crash diagnostics test.
+
+The button opens a six-item dropdown: main-thread Python exception-hook
+simulation, real background-thread uncaught exception, caught-operation
+exception, Qt critical log message, two successive crash reports (exit-menu
+testing), and actual abnormal process termination using os.abort().
+
+Each selection needs confirmation. The Settings dialog closes before the
+test is dispatched, leaving the editor free to display its crash UI.
+
+The first five choices exercise the application's installed exception/report
+pipeline and do not intentionally exit the process. The last choice is
+irreversible: it skips saves and worker cleanup and should only be run with a
+throwaway project or after saving every edit. The existing next-start
+abnormal-shutdown report and native-crash.log are its diagnostics.
+
+Test each nonfatal mode, then validate the repeated-report Exit options
+menu. Only perform the native abort test manually in a disposable Windows
+session. The normal CI tests mock dangerous termination.
