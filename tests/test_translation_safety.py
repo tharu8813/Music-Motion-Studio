@@ -183,6 +183,65 @@ class TranslationSafetyTests(unittest.TestCase):
             dialog._refresh_summary()
             self.assertIn("미확인", dialog.readiness_label.text())
 
+    def test_readiness_distinguishes_empty_cloud_catalog_from_connection_failure(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        self.assertIn("연결 미확인", dialog.readiness_label.text())
+
+        services.record_connection(False)
+        dialog._refresh_summary()
+        self.assertIn("연결 실패", dialog.readiness_label.text())
+
+        services.record_connection(True, [])
+        dialog._refresh_summary()
+        self.assertIn("모델 목록 비어 있음", dialog.readiness_label.text())
+        self.assertNotIn("연결 실패", dialog.readiness_label.text())
+
+        services.record_connection(True, ["different-model"])
+        dialog._refresh_summary()
+        self.assertIn("조회 목록에 없습니다", dialog.readiness_label.text())
+
+        dialog.key_edit.clear()
+        self.assertIn("설정 확인 필요", dialog.readiness_label.text())
+        self.assertIn("API 키", dialog.readiness_label.text())
+
+    def test_local_llm_no_models_is_installation_state_not_connection_failure(self):
+        self.settings.setValue("translation/provider", "ollama")
+        self.settings.setValue("translation/config/ollama/model", "qwen3:4b")
+        local = Mock(provider="ollama", base="http://localhost:11434")
+        local.discover.return_value = []
+        dialog = self.dialog(local_llm_factory=lambda *args: local)
+        services = dialog.service_dialog
+        self.until(lambda: local.discover.called and dialog.worker is None)
+
+        services.record_connection(True, [])
+        dialog._refresh_summary()
+        self.assertIn("모델 미설치", dialog.readiness_label.text())
+        self.assertNotIn("연결 실패", dialog.readiness_label.text())
+
+        installed = [{"id": "qwen3:4b", "size": 0, "parameters": "4B", "quantization": "Q4"}]
+        services._populate_llm_models(installed, "qwen3:4b")
+        services.record_connection(True, ["qwen3:4b"])
+        dialog._refresh_summary()
+        self.assertIn("연결·모델 확인됨", dialog.readiness_label.text())
+
+        services.record_connection(True, ["another:3b"])
+        dialog._refresh_summary()
+        self.assertIn("선택 모델 미설치", dialog.readiness_label.text())
+
+    def test_local_nmt_missing_language_pair_suggests_installation(self):
+        self.settings.setValue("translation/provider", "local_nmt")
+        from app.services.lyrics_translation_service import LyricsTranslationService
+        service = LyricsTranslationService(local_models=LocalTranslationModels(Path(self.temp.name) / "models"))
+        dialog = self.dialog(service=service)
+        self.assertEqual(dialog.source_combo.currentData(), "en")
+        self.assertEqual(dialog.target_combo.currentData(), "ko")
+        self.assertEqual(dialog._config().model, "")
+        dialog._refresh_summary()
+        self.assertIn("모델 미설치", dialog.readiness_label.text())
+        self.assertIn("en → ko", dialog.readiness_label.text())
+
+
     def test_deleting_draft_resets_edits_without_resaving_or_removing_track_data(self):
         cues = apply_translations(self.cues, ["저장된 번역", None], TranslationConfig("gemini"))
         dialog = self.dialog(cues)
