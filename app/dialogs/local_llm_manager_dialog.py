@@ -29,6 +29,9 @@ class LocalLLMManagerDialog(QDialog):
         self._download_speed = None
         self._download_phase = ""
         self._updating_models = False
+        # Qt can restore a current table row when switching tabs. Following
+        # an unverified download, only a fresh user selection may enable Use.
+        self._require_explicit_selection = False
         self._discovered = False
         # Only a successful model-list response can verify this connection.
         # A prior discovery is not evidence after a failed/cancelled refresh.
@@ -223,7 +226,7 @@ class LocalLLMManagerDialog(QDialog):
         self.setup_button.clicked.connect(lambda: self._start("setup", lambda cancel, progress: self.service.ensure_running(install=True, cancel=cancel, progress=progress)))
         self.refresh_button.clicked.connect(self._refresh)
         self.add_model_button.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
-        self.table.itemSelectionChanged.connect(self._selection)
+        self.table.itemSelectionChanged.connect(self._installed_selection_changed)
         self.table.itemDoubleClicked.connect(lambda *_: self._use())
         self.search.textChanged.connect(self._filter)
         self.recommended.currentRowChanged.connect(self._recommendation)
@@ -274,9 +277,19 @@ class LocalLLMManagerDialog(QDialog):
         self._recommendation()
 
     def _selected(self):
+        if self._require_explicit_selection:
+            return None
         row = self.table.currentRow()
         return (self.models[row] if self.table.selectedItems() and 0 <= row < len(self.models)
                 and not self.table.isRowHidden(row) else None)
+
+    def _installed_selection_changed(self):
+        if (self._require_explicit_selection and not self._updating_models
+                and self.worker is None and self.operation != "download"):
+            # Only a new selection outside the download-finalization path
+            # can make an older installed model actionable again.
+            self._require_explicit_selection = False
+        self._selection()
 
     def _selection(self, *_args):
         if self._updating_models:
@@ -636,7 +649,10 @@ class LocalLLMManagerDialog(QDialog):
                              self.preferred_model if first_discovery and self.operation in {"refresh", "setup"} and self.preferred_model
                              else (previous or {}).get("id", ""))
                 selected = self._installed_index(requested)
-                if self.operation == "download" and selected < 0:
+                if self.operation == "download" and selected < 0 and self.service.provider == "lmstudio":
+                    # LM Studio may publish a downloaded Hugging Face model
+                    # under a different local file ID. Offer a unique new row
+                    # for manual inspection, but never call it verified by name.
                     new_rows = [i for i, row in enumerate(self.models)
                                 if row["id"] not in self._before_download]
                     if len(new_rows) == 1:
@@ -657,11 +673,33 @@ class LocalLLMManagerDialog(QDialog):
                 f"Local AI connected · {len(self.models)} installed models"))
             if self.operation == "download":
                 self.tabs.setCurrentIndex(0)
-                self.status.setText(self.tr_text(
-                    "모델 설치 확인 완료 · '이 모델 사용'을 눌러 적용하세요."
-                    if self._selected() else "서버에서 완료 응답을 받았지만 설치 모델을 목록에서 확인하지 못했습니다. 목록을 새로고침하세요.",
-                    "Model installation verified · click 'Use this model' to apply it."
-                    if self._selected() else "Server reported completion, but the model was not found in the installed list. Refresh models."))
+                # Switching to Installed can restore a previously active row
+                # without a deliberate user choice. Even if Qt visually
+                # restores it, don't consider it a verified downloaded model.
+                self._require_explicit_selection = selected < 0
+                if self._require_explicit_selection:
+                    self.table.setCurrentCell(-1, -1)
+                    self.table.clearSelection()
+                selected_model = self._selected()
+                # A different selected or newly discovered model does not
+                # prove that the user's requested model was installed.
+                target_confirmed = (selected_model is not None
+                                    and self._model_key(selected_model["id"])
+                                    == self._model_key(self._download_target))
+                possible_new_model = (selected_model is not None
+                                      and selected_model["id"] not in self._before_download)
+                if target_confirmed:
+                    self.status.setText(self.tr_text(
+                        "모델 설치 확인 완료 · '이 모델 사용'을 눌러 적용하세요.",
+                        "Model installation verified · click 'Use this model' to apply it."))
+                elif self.service.provider == "lmstudio" and possible_new_model:
+                    self.status.setText(self.tr_text(
+                        "새 로컬 모델을 발견했습니다. 요청한 모델인지 확인한 뒤 사용하세요.",
+                        "A new local model was found. Confirm it matches your request before using it."))
+                else:
+                    self.status.setText(self.tr_text(
+                        "서버에서 완료 응답을 받았지만 요청한 설치 모델을 목록에서 확인하지 못했습니다. 목록을 새로고침하세요.",
+                        "Server reported completion, but the requested model was not found in the installed list. Refresh models."))
             elif self.operation == "delete":
                 self.status.setText(self.tr_text(
                     f"{self._deleted_name} 삭제 완료 · 다른 모델을 사용하려면 직접 선택하세요.",

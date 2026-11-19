@@ -719,6 +719,53 @@ class TranslationSetupUITests(unittest.TestCase):
         self.assertNotIn("설치 확인 완료", manager.status.text())
 
 
+    def test_download_different_ollama_model_does_not_claim_requested_installation(self):
+        service = Mock(provider="ollama")
+        service.discover.return_value = [installed_row("existing:3b")]
+        service.download.return_value = [installed_row("existing:3b"), installed_row("unrelated:7b")]
+        manager = LocalLLMManagerDialog(Translator(), service=service)
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None)
+        manager._download()
+        self.until(lambda: manager.worker is None)
+        self.assertEqual(service.download.call_count, 1)
+        self.assertEqual(service.download.call_args.args[0], "qwen3.5:9b")
+        self.assertIsNone(manager._selected())
+        self.assertIn("요청한 설치 모델을 목록에서 확인하지 못했습니다", manager.status.text())
+        self.assertNotIn("설치 확인 완료", manager.status.text())
+
+    def test_lmstudio_new_file_id_requires_manual_confirmation_not_verified_claim(self):
+        service = Mock(provider="lmstudio")
+        service.discover.return_value = []
+        service.download.return_value = [installed_row("renamed-local-model.gguf")]
+        manager = LocalLLMManagerDialog(Translator(), service=service)
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None)
+        manager._download()
+        self.until(lambda: manager.worker is None)
+        self.assertEqual(manager._selected()["id"], "renamed-local-model.gguf")
+        self.assertIn("요청한 모델인지 확인", manager.status.text())
+        self.assertNotIn("설치 확인 완료", manager.status.text())
+
+    def test_lmstudio_unchanged_installed_list_is_not_download_success(self):
+        service = Mock(provider="lmstudio")
+        service.discover.return_value = [installed_row("old-model.gguf")]
+        service.download.return_value = [installed_row("old-model.gguf")]
+        manager = LocalLLMManagerDialog(Translator(), service=service)
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None)
+        manager._download()
+        self.until(lambda: manager.worker is None)
+        self.assertIsNone(manager._selected())
+        self.assertFalse(manager.use_button.isEnabled())
+        self.assertIn("요청한 설치 모델을 목록에서 확인하지 못했습니다", manager.status.text())
+        self.assertNotIn("설치 확인 완료", manager.status.text())
+        # An existing model remains usable only after explicit selection.
+        manager.table.selectRow(0)
+        self.assertEqual(manager._selected()["id"], "old-model.gguf")
+        self.assertTrue(manager.use_button.isEnabled())
+
+
     def test_manager_can_use_already_installed_catalog_model_without_redownloading(self):
         service = Mock(provider="ollama")
         service.discover.return_value = [installed_row("qwen2.5-coder:7b")]
