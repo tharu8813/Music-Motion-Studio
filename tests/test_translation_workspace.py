@@ -221,6 +221,43 @@ class TranslationWorkspaceTests(unittest.TestCase):
         self.assertNotIn("연결 실패", services.connection_hint.text())
         self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
 
+    def test_service_readiness_matches_editor_during_model_management(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        with patch.object(services, "manager", create=True) as manager:
+            manager.isVisible.return_value = True
+            dialog._refresh_summary()
+            self.assertIn("모델 관리를 마친 뒤", dialog.readiness_label.text())
+            self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
+            self.assertFalse(dialog.translate_button.isEnabled())
+            manager.isVisible.return_value = False
+            dialog._refresh_summary()
+            self.assertIn("연결 미확인", services.connection_hint.text())
+            self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
+
+    def test_service_readiness_matches_editor_without_editable_lyrics(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        with patch.object(dialog.review_panel, "_editable_rows", set()):
+            dialog._refresh_summary()
+            self.assertIn("번역할 가사가 없습니다", dialog.readiness_label.text())
+            self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
+            self.assertFalse(dialog.translate_button.isEnabled())
+        dialog._refresh_summary()
+        self.assertIn("연결 미확인", services.connection_hint.text())
+        self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
+
+    def test_empty_lyrics_state_has_priority_over_open_model_manager(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        with patch.object(services, "manager", create=True) as manager, \
+                patch.object(dialog.review_panel, "_editable_rows", set()):
+            manager.isVisible.return_value = True
+            dialog._refresh_summary()
+            self.assertIn("번역할 가사가 없습니다", dialog.readiness_label.text())
+            self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
+
+
     def test_switching_provider_clears_unrelated_connection_error(self):
         dialog = self.dialog()
         services = dialog.service_dialog
