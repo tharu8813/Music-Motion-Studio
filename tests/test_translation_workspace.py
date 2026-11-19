@@ -131,6 +131,48 @@ class TranslationWorkspaceTests(unittest.TestCase):
         self.assertEqual(dialog.selected_cues[2], self.cues[2])
         self.assertTrue(self.settings.contains(dialog.draft.key))
 
+    def test_provider_switch_save_failure_restores_selection_and_preserves_values(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        self.assertEqual(services._provider, "openai")
+        self.assertEqual(services.provider_combo.currentData(), "openai")
+        services.instructions_edit.setPlainText("Keep the original instructions")
+        previous_key = services.key_edit.text()
+        with patch.object(services, "_save_settings",
+                          side_effect=TranslationError("Settings directory is read-only")):
+            services.provider_combo.setCurrentIndex(services.provider_combo.findData("claude"))
+        self.assertEqual(services._provider, "openai")
+        self.assertEqual(services.provider_combo.currentData(), "openai")
+        self.assertEqual(services.instructions_edit.toPlainText(), "Keep the original instructions")
+        self.assertEqual(services.key_edit.text(), previous_key)
+        self.assertEqual(self.settings.value("translation/provider"), "openai")
+        self.assertIn("read-only", services.status_label.text())
+        # Retry works after the filesystem permission issue has been fixed.
+        services.provider_combo.setCurrentIndex(services.provider_combo.findData("claude"))
+        self.assertEqual(services._provider, "claude")
+        self.assertEqual(services.provider_combo.currentData(), "claude")
+
+    def test_mode_switch_credentials_save_failure_restores_mode_without_rebuilding_form(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        original_provider = services._provider
+        original_model = services._model_value()
+        original_key = services.key_edit.text()
+        self.assertEqual(dialog.mode_combo.currentData(), "cloud_llm")
+        with patch.object(services.credentials, "save",
+                          side_effect=TranslationError("Credential store denied access")):
+            dialog.mode_combo.setCurrentIndex(dialog.mode_combo.findData("local"))
+        self.assertEqual(dialog.mode_combo.currentData(), "cloud_llm")
+        self.assertEqual(services._provider, original_provider)
+        self.assertEqual(services.provider_combo.currentData(), original_provider)
+        self.assertEqual(services._model_value(), original_model)
+        self.assertEqual(services.key_edit.text(), original_key)
+        self.assertIn("Credential store denied access", services.status_label.text())
+        dialog.mode_combo.setCurrentIndex(dialog.mode_combo.findData("local"))
+        self.assertEqual(dialog.mode_combo.currentData(), "local")
+        self.assertEqual(services._provider, "local_nmt")
+
+
     def test_settings_close_during_translation_keeps_live_editor_and_main_close_cancels(self):
         entered = Event()
         def transport(*args, cancel=None, **kwargs):
