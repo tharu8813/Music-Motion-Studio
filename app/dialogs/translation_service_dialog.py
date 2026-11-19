@@ -332,9 +332,11 @@ class TranslationServiceDialog(QDialog):
         key = self.credentials.load("chatgpt").get("access_token", "") if config.provider == "chatgpt" else config.key
         return (config.provider, config.endpoint, hashlib.sha256(key.encode()).hexdigest())
 
-    def record_connection(self, connected, models=()):
+    def record_connection(self, connected, models=(), *, signature=None, checked_at=None):
         from time import monotonic
-        self.connection = (self.connection_signature(), connected, frozenset(models), monotonic())
+        self.connection = (self.connection_signature() if signature is None else signature,
+                           connected, frozenset(models),
+                           monotonic() if checked_at is None else checked_at)
 
     def verified_connection(self):
         from time import monotonic
@@ -406,19 +408,28 @@ class TranslationServiceDialog(QDialog):
         provider = self._provider
         signature = self.connection_signature()
         def finished(_result):
-            self._installed_llms[provider] = dialog.models
-            if self._provider == provider:
-                if dialog._discovered:
+            # The manager can outlive changes to provider, endpoint, or API key.
+            # Never import its previous server's results into a new connection.
+            current = self._provider == provider and signature == self.connection_signature()
+            if current:
+                if dialog._discovered and dialog.models_verified_at is not None:
+                    self._installed_llms[provider] = dialog.models
                     self._populate_llm_models(dialog.models, dialog.selected_model or self._model_value())
                     if not self._model_value():
                         self.settings.remove("translation/config/" + provider + "/model")
-                    if signature == self.connection_signature():
-                        self.record_connection(True, [model["id"] for model in dialog.models])
+                    # Retain the actual probe time, not the time this dialog
+                    # happened to close. A five-minute-old result stays stale.
+                    self.record_connection(True, [model["id"] for model in dialog.models],
+                                           signature=signature, checked_at=dialog.models_verified_at)
+                else:
+                    # Failed and cancelled refreshes make connection unknown,
+                    # not "connected" merely because a prior lookup succeeded.
+                    self.connection = None
                 try:
                     self._save_settings()
                 except TranslationError as error:
                     self.status_label.setText(str(error))
-                self.changed.emit()
+            self.changed.emit()
         self.manager.finished.connect(finished)
         self.manager.busy_changed.connect(self.changed)
         self.manager.show()
