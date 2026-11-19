@@ -320,9 +320,6 @@ class LyricsTranslationDialog(QDialog):
             else:
                 message = self.tr_text("설정 확인 필요 · ", "Check settings · ") + str(error)
         self.readiness_label.setText(message)
-        # The setup window uses the same computed state, including precise
-        # next steps, without independently inferring server connectivity.
-        s.connection_hint.setText(message)
         local = s._provider not in CLOUD_LLM_PROVIDERS
         self.privacy_note.setText(self.tr_text("이 컴퓨터에서 번역합니다.", "Translation runs on this computer.") if local else
             self.tr_text("2단계 LLM 번역은 선택한 행만 재번역하더라도 1단계 분석을 위해 곡의 전체 가사를 선택한 클라우드 서비스에 전송합니다.",
@@ -338,6 +335,10 @@ class LyricsTranslationDialog(QDialog):
                                                     "Close model management before translating."))
         if not self.review_panel._editable_rows:
             self.readiness_label.setText(self.tr_text("번역할 가사가 없습니다. 원문 가사를 먼저 추가하세요.", "Add original lyrics before translating."))
+        # Publish the final readiness message after all higher-priority UI
+        # overrides; otherwise setup and editor can disagree while managing
+        # models or when there are no editable lyrics.
+        s.connection_hint.setText(self.readiness_label.text())
 
     def _status_changed(self, text):
         for window in (self, self.service_dialog):
