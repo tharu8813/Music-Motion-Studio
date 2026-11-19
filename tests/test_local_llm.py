@@ -663,6 +663,8 @@ class TranslationSetupUITests(unittest.TestCase):
         self.assertIn("파일 검증 중", manager.status.text())
         self.assertEqual(manager.download_detail.text(), "")
         self.assertEqual(manager.progress.maximum(), 0)
+        manager._progress(100, 100)
+        self.assertEqual(manager.progress.maximum(), 0)
         manager._download_activity({"status": "writing manifest", "completed": 0, "total": 0})
         self.assertIn("설치 마무리", manager.status.text())
         manager._download_activity({"status": "success", "completed": 0, "total": 0})
