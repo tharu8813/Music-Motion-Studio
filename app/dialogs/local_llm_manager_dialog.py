@@ -660,6 +660,11 @@ class LocalLLMManagerDialog(QDialog):
                 f"Local AI connected · {len(self.models)} installed models"))
             if self.operation == "download":
                 self.tabs.setCurrentIndex(0)
+                if selected < 0:
+                    # Switching back to Installed can restore a previously
+                    # active row in Qt, even after clearSelection() above.
+                    # Never silently offer an old model as the downloaded one.
+                    self.table.clearSelection()
                 selected_model = self._selected()
                 # A different selected or newly discovered model does not
                 # prove that the user's requested model was installed.
