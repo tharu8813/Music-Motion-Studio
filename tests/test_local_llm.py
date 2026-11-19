@@ -398,6 +398,92 @@ class TranslationSetupUITests(unittest.TestCase):
         self.assertTrue(review.isVisible())
         self.assertFalse(review.isWindow())
 
+    def test_manager_failed_refresh_discards_previous_connection_proof(self):
+        self.settings.setValue("translation/provider", "ollama")
+        local = Mock(provider="ollama", base="http://localhost:11434")
+        local.discover.return_value = [installed_row()]
+        dialog = self.dialog(local_llm_factory=lambda *args: local)
+        services = dialog.service_dialog
+        self.until(lambda: dialog.worker is None and services.verified_connection() is not None)
+        self.assertTrue(services.verified_connection()[0])
+
+        services._open_llm_manager()
+        manager = services.manager
+        self.until(lambda: manager.worker is None and manager.models_verified_at is not None)
+        local.discover.side_effect = TranslationError("server disconnected")
+        manager._refresh()
+        self.until(lambda: manager.worker is None and "server disconnected" in manager.status.text())
+        self.assertIsNone(manager.models_verified_at)
+        self.assertIn("연결 실패", manager.engine_state.text())
+        manager.close()
+        self.app.processEvents()
+        self.assertIsNone(services.connection)
+        self.assertIsNone(services.verified_connection())
+
+    def test_manager_cancelled_refresh_discards_previous_connection_proof(self):
+        self.settings.setValue("translation/provider", "ollama")
+        local = Mock(provider="ollama", base="http://localhost:11434")
+        local.discover.return_value = [installed_row()]
+        dialog = self.dialog(local_llm_factory=lambda *args: local)
+        services = dialog.service_dialog
+        self.until(lambda: dialog.worker is None and services.verified_connection() is not None)
+        services._open_llm_manager()
+        manager = services.manager
+        self.until(lambda: manager.worker is None and manager.models_verified_at is not None)
+
+        entered, release = Event(), Event()
+        def delayed(cancel):
+            entered.set()
+            release.wait(3)
+            return [installed_row()]
+        local.discover.side_effect = delayed
+        manager._refresh()
+        self.until(entered.is_set)
+        self.assertIsNone(manager.models_verified_at)
+        manager._cancel()
+        release.set()
+        self.until(lambda: manager.worker is None)
+        self.assertIsNone(manager.models_verified_at)
+        self.assertIn("미확인", manager.engine_state.text())
+        manager.close()
+        self.app.processEvents()
+        self.assertIsNone(services.connection)
+
+    def test_manager_close_keeps_original_probe_age(self):
+        self.settings.setValue("translation/provider", "ollama")
+        local = Mock(provider="ollama", base="http://localhost:11434")
+        local.discover.return_value = [installed_row()]
+        dialog = self.dialog(local_llm_factory=lambda *args: local)
+        services = dialog.service_dialog
+        self.until(lambda: dialog.worker is None and services.verified_connection() is not None)
+        services._open_llm_manager()
+        manager = services.manager
+        self.until(lambda: manager.worker is None and manager.models_verified_at is not None)
+        old_timestamp = time.monotonic() - 400
+        manager.models_verified_at = old_timestamp
+        manager.close()
+        self.app.processEvents()
+        self.assertEqual(services.connection[3], old_timestamp)
+        self.assertIsNone(services.verified_connection())
+
+    def test_manager_close_ignores_results_after_server_setting_changes(self):
+        self.settings.setValue("translation/provider", "ollama")
+        local = Mock(provider="ollama", base="http://localhost:11434")
+        local.discover.return_value = [installed_row()]
+        dialog = self.dialog(local_llm_factory=lambda *args: local)
+        services = dialog.service_dialog
+        self.until(lambda: dialog.worker is None and services.verified_connection() is not None)
+        services._open_llm_manager()
+        manager = services.manager
+        self.until(lambda: manager.worker is None and manager.models_verified_at is not None)
+        previous_connection = services.connection
+        services.endpoint_edit.setText("http://localhost:11435/v1")
+        manager.close()
+        self.app.processEvents()
+        self.assertEqual(services.connection, previous_connection)
+        self.assertIsNone(services.verified_connection())
+
+
     def test_manager_can_use_already_installed_catalog_model_without_redownloading(self):
         service = Mock(provider="ollama")
         service.discover.return_value = [installed_row("qwen2.5-coder:7b")]
