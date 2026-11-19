@@ -131,6 +131,60 @@ class TranslationWorkspaceTests(unittest.TestCase):
         self.assertEqual(dialog.selected_cues[2], self.cues[2])
         self.assertTrue(self.settings.contains(dialog.draft.key))
 
+    def test_service_settings_exposes_one_contextual_check_action_per_provider(self):
+        local = Mock(provider="ollama", base="http://localhost:11434")
+        local.discover.return_value = []
+        dialog = self.dialog(local_llm_factory=lambda *args: local)
+        services = dialog.service_dialog
+
+        self.assertEqual(services._provider, "openai")
+        self.assertTrue(services.models_button.isHidden())
+        self.assertEqual(services.test_button.text(), "연결 확인")
+        services.provider_combo.setCurrentIndex(services.provider_combo.findData("claude"))
+        self.assertEqual(services.test_button.text(), "연결 확인")
+        self.assertTrue(services.models_button.isHidden())
+        services.provider_combo.setCurrentIndex(services.provider_combo.findData("chatgpt"))
+        self.assertEqual(services.test_button.text(), "모델 목록 확인")
+        self.assertTrue(services.models_button.isHidden())
+
+        dialog.mode_combo.setCurrentIndex(dialog.mode_combo.findData("local_llm"))
+        self.until(lambda: dialog.worker is None)
+        self.assertEqual(services.test_button.text(), "설치 모델 새로고침")
+        self.assertTrue(services.models_button.isHidden())
+        self.assertFalse(services.llm_manager_button.isHidden())
+        self.assertEqual(services.llm_manager_button.text(), "모델 관리·설치…")
+
+        dialog.mode_combo.setCurrentIndex(dialog.mode_combo.findData("local"))
+        self.assertEqual(services.test_button.text(), "언어 모델 확인")
+        self.assertTrue(services.models_button.isHidden())
+        self.assertTrue(services.llm_manager_button.isHidden())
+
+    def test_service_contextual_check_button_preserves_existing_operations(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        with patch.object(services, "_start") as start:
+            services.test_button.click()
+            self.assertEqual(start.call_args.args[0], "connection")
+        services.provider_combo.setCurrentIndex(services.provider_combo.findData("chatgpt"))
+        with patch.object(services, "_load_models") as load_models:
+            services.test_button.click()
+            load_models.assert_called_once_with()
+        dialog.mode_combo.setCurrentIndex(dialog.mode_combo.findData("local"))
+        services.local_pair_note.setText("No model installed")
+        with patch.object(services, "_refresh_local_models") as refresh:
+            services.test_button.click()
+            refresh.assert_called_once()
+        self.assertEqual(services.status_label.text(), "No model installed")
+
+    def test_switching_provider_clears_unrelated_connection_error(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        services.status_label.setText("Old provider connection failed")
+        services.provider_combo.setCurrentIndex(services.provider_combo.findData("claude"))
+        self.assertEqual(services._provider, "claude")
+        self.assertEqual(services.status_label.text(), "")
+        self.assertEqual(services.provider_combo.currentData(), "claude")
+
     def test_provider_switch_save_failure_restores_selection_and_preserves_values(self):
         dialog = self.dialog()
         services = dialog.service_dialog
