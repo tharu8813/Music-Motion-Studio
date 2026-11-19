@@ -449,6 +449,27 @@ class TranslationSetupUITests(unittest.TestCase):
         self.app.processEvents()
         self.assertIsNone(services.connection)
 
+    def test_manager_failed_model_operation_invalidates_previous_listing(self):
+        self.settings.setValue("translation/provider", "ollama")
+        local = Mock(provider="ollama", base="http://localhost:11434")
+        local.discover.return_value = [installed_row()]
+        dialog = self.dialog(local_llm_factory=lambda *args: local)
+        services = dialog.service_dialog
+        self.until(lambda: dialog.worker is None and services.verified_connection() is not None)
+        services._open_llm_manager()
+        manager = services.manager
+        self.until(lambda: manager.worker is None and manager.models_verified_at is not None)
+        self.assertIsNotNone(manager._selected())
+        local.memory.side_effect = TranslationError("memory operation failed")
+        manager._memory(True)
+        self.until(lambda: manager.worker is None and "memory operation failed" in manager.status.text())
+        self.assertIsNone(manager.models_verified_at)
+        self.assertIn("미확인", manager.engine_state.text())
+        manager.close()
+        self.app.processEvents()
+        self.assertIsNone(services.verified_connection())
+
+
     def test_manager_close_keeps_original_probe_age(self):
         self.settings.setValue("translation/provider", "ollama")
         local = Mock(provider="ollama", base="http://localhost:11434")
