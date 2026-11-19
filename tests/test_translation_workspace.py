@@ -361,6 +361,47 @@ class TranslationWorkspaceTests(unittest.TestCase):
         self.until(lambda: dialog.worker is None)
         self.assertEqual([(row.text, row.checked, row.status, row.edited) for row in dialog.draft.rows], before)
 
+    def test_cancelled_translation_ignores_delayed_activity_and_progress(self):
+        dialog = self.dialog()
+        entered, release = Event(), Event()
+        progress_seen = []
+        dialog.workflow.progress_changed.connect(lambda value, total: progress_seen.append((value, total)))
+        initial = [(row.text, row.checked, row.status) for row in dialog.draft.rows]
+
+        def work(cancel, progress):
+            entered.set()
+            release.wait(3)
+            # Simulate callbacks already queued by an API request during cancel.
+            progress(1, 3)
+            dialog.worker.activity.emit({"stage": "complete", "row": 0, "text": "late result"})
+            dialog.worker.activity.emit({"stage": "diagnostic", "raw": "late response"})
+            return None
+
+        dialog.workflow._rows = [0]
+        dialog.workflow.start("translate", work)
+        self.until(entered.is_set)
+        dialog.workflow.cancel()
+        release.set()
+        self.until(lambda: dialog.worker is None)
+        self.assertEqual(progress_seen, [])
+        self.assertEqual(dialog.workflow._received, {})
+        self.assertEqual(dialog.workflow.diagnostics, [])
+        self.assertEqual([(row.text, row.checked, row.status) for row in dialog.draft.rows], initial)
+        self.assertEqual(dialog.workflow.operation, "")
+        self.assertIn("취소", dialog.workflow.status)
+
+    def test_finished_translation_drops_delayed_callbacks(self):
+        dialog = self.dialog()
+        progress_seen = []
+        dialog.workflow.progress_changed.connect(lambda value, total: progress_seen.append((value, total)))
+        dialog.workflow.start("translate", lambda cancel, progress: None)
+        self.until(lambda: dialog.worker is None)
+        dialog.workflow._activity({"stage": "complete", "row": 0, "text": "orphaned result"})
+        dialog.workflow._progress(1, 3)
+        self.assertEqual(dialog.workflow._received, {})
+        self.assertEqual(progress_seen, [])
+        self.assertEqual(dialog.workflow.operation, "")
+
     def test_main_close_waits_for_model_manager_worker(self):
         entered = Event()
         local = Mock(provider="ollama", base="http://localhost:11434")
