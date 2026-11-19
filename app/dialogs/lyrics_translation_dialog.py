@@ -335,11 +335,19 @@ class LyricsTranslationDialog(QDialog):
                                                     "Close model management before translating."))
         if not self.review_panel._editable_rows:
             self.readiness_label.setText(self.tr_text("번역할 가사가 없습니다. 원문 가사를 먼저 추가하세요.", "Add original lyrics before translating."))
+        # Publish the final readiness message after all higher-priority UI
+        # overrides; otherwise setup and editor can disagree while managing
+        # models or when there are no editable lyrics.
+        s.connection_hint.setText(self.readiness_label.text())
 
     def _status_changed(self, text):
         for window in (self, self.service_dialog):
             window.status_label.setText(text)
             window.status_label.setVisible(bool(text))
+        # A finished model lookup or connection test updates the verification
+        # cache without editing the controls. Refresh immediately instead of
+        # waiting for the periodic readiness timer.
+        self._refresh_summary()
 
     def _progress(self, value, total):
         for window in (self, self.service_dialog):
