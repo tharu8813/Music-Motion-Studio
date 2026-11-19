@@ -563,6 +563,76 @@ class TranslationSetupUITests(unittest.TestCase):
         self.assertIsNone(services.verified_connection())
 
 
+    def test_catalog_filter_with_no_matches_clears_stale_model_choice(self):
+        service = Mock(provider="ollama")
+        service.discover.return_value = [installed_row()]
+        manager = LocalLLMManagerDialog(Translator(), service=service)
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None)
+        manager.tabs.setCurrentIndex(1)
+        self.assertTrue(manager.download_name.text())
+        self.assertTrue(manager.source_link.text())
+        manager.catalog_search.setText("not-an-existing-model-000")
+        self.assertIn("0개", manager.catalog_count.text())
+        self.assertEqual(manager.download_name.text(), "")
+        self.assertEqual(manager.source_link.text(), "")
+        self.assertIn("검색 결과가 없습니다", manager.description.toPlainText())
+        self.assertFalse(manager.download_button.isEnabled())
+        manager._download()
+        self.assertIn("추천 목록", manager.status.text())
+        service.download.assert_not_called()
+        manager.catalog_search.clear()
+        self.assertTrue(manager.download_name.text())
+        self.assertTrue(manager.download_button.isEnabled())
+        self.assertTrue(manager.source_link.text())
+
+    def test_manual_model_entry_works_without_visible_recommendations(self):
+        service = Mock(provider="ollama")
+        service.discover.return_value = []
+        service.download.return_value = [installed_row("custom-model:3b")]
+        manager = LocalLLMManagerDialog(Translator(), service=service)
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None)
+        manager.tabs.setCurrentIndex(1)
+        manager.catalog_search.setText("no-results-000")
+        manager.manual_toggle.setChecked(True)
+        self.assertFalse(manager.download_button.isEnabled())
+        manager.download_name.setText("custom-model:3b")
+        self.assertTrue(manager.download_button.isEnabled())
+        self.assertIn("입력한 모델", manager.download_button.text())
+        self.assertIn("직접 입력한 모델", manager.description.toPlainText())
+        self.assertEqual(manager.source_link.text(), "")
+        manager._download()
+        self.until(lambda: manager.worker is None)
+        service.download.assert_called_once()
+        self.assertEqual(service.download.call_args.args[0], "custom-model:3b")
+        self.assertEqual(manager._selected()["id"], "custom-model:3b")
+
+    def test_catalog_and_installed_filters_do_not_leave_old_model_details(self):
+        service = Mock(provider="ollama")
+        service.discover.return_value = [installed_row()]
+        manager = LocalLLMManagerDialog(Translator(), service=service)
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None and manager.table.rowCount() == 1)
+        manager.tabs.setCurrentIndex(1)
+        catalog_model = manager.download_name.text()
+        self.assertTrue(manager.source_link.text())
+        manager.manual_toggle.setChecked(True)
+        manager.download_name.setText("special:3b")
+        self.assertIn("직접 입력한 모델", manager.description.toPlainText())
+        manager.manual_toggle.setChecked(False)
+        self.assertEqual(manager.download_name.text(), catalog_model)
+        self.assertTrue(manager.source_link.text())
+
+        manager.tabs.setCurrentIndex(0)
+        manager.table.selectRow(0)
+        self.assertIn("qwen3:4b", manager.description.toPlainText())
+        manager.search.setText("no-installed-result-000")
+        self.assertIsNone(manager._selected())
+        self.assertFalse(manager.use_button.isEnabled())
+        self.assertEqual(manager.description.toPlainText(), "")
+        self.assertEqual(manager.source_link.text(), "")
+
     def test_manager_can_use_already_installed_catalog_model_without_redownloading(self):
         service = Mock(provider="ollama")
         service.discover.return_value = [installed_row("qwen2.5-coder:7b")]
