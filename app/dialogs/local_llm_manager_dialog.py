@@ -29,6 +29,9 @@ class LocalLLMManagerDialog(QDialog):
         self._download_speed = None
         self._updating_models = False
         self._discovered = False
+        # Only a successful model-list response can verify this connection.
+        # A prior discovery is not evidence after a failed/cancelled refresh.
+        self.models_verified_at = None
         install_help_shortcut(self, ("lyrics_editor", "lyrics_translation"), translator=translator)
         self.setWindowTitle(self.tr_text("로컬 LLM 관리자", "Local LLM manager"))
         self.resize(1000, 760)
@@ -492,6 +495,12 @@ class LocalLLMManagerDialog(QDialog):
     def _start(self, operation, work):
         if self.worker:
             return
+        if operation != "details":
+            # Refreshes and mutations can invalidate the earlier model listing.
+            self.models_verified_at = None
+            self.engine_state.setText(self.tr_text(
+                "로컬 AI 연결 및 모델 목록 확인 중…",
+                "Checking local AI connection and installed models…"))
         self.operation = operation
         self._download_sample = None
         self._download_speed = None
@@ -531,10 +540,18 @@ class LocalLLMManagerDialog(QDialog):
                 self.engine_state.setText(self.tr_text(
                     "로컬 AI 연결 실패 · 실행 환경을 준비하거나 연결 주소를 확인하세요.",
                     "Local AI unavailable · prepare the engine or check the server address."))
+            elif self.operation != "details":
+                self.engine_state.setText(self.tr_text(
+                    "로컬 AI 연결 상태 미확인 · 모델 목록을 다시 확인하세요.",
+                    "Local AI connection unverified · refresh the model list."))
             self.status.setText(worker.error + (self.tr_text(
                 " · 같은 모델을 다시 선택해 재시도할 수 있습니다.",
                 " · Select the same model to retry.") if self.operation == "download" else ""))
         elif worker.cancel.is_set():
+            if self.operation != "details":
+                self.engine_state.setText(self.tr_text(
+                    "로컬 AI 연결 상태 미확인 · 모델 목록을 다시 확인하세요.",
+                    "Local AI connection unverified · refresh the model list."))
             self.status.setText(self.tr_text("취소했습니다.", "Cancelled.") + (self.tr_text(
                 " LM Studio 다운로드는 서버에서 계속될 수 있습니다. LM Studio에서 확인하세요.",
                 " LM Studio may continue downloading on the server; check LM Studio.") if self.service.provider == "lmstudio" and self.operation == "download" else ""))
@@ -544,6 +561,9 @@ class LocalLLMManagerDialog(QDialog):
             self.tabs.setCurrentIndex(2)
             self.status.setText(self.tr_text("서버가 제공한 모델 정보입니다.", "Model information returned by the local server."))
         else:
+            # All successful non-details operations return a freshly queried
+            # model index. Do not refresh the proof timestamp on dialog close.
+            self.models_verified_at = monotonic()
             first_discovery = not self._discovered
             self._discovered = True
             previous = self._selected()
