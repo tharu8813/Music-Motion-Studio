@@ -763,6 +763,7 @@ class TranslationSetupUITests(unittest.TestCase):
         # An existing model remains usable only after explicit selection.
         manager.table.selectRow(0)
         self.assertEqual(manager._selected()["id"], "old-model.gguf")
+        self.assertTrue(manager.use_button.isEnabled())
 
 
     def test_manager_can_use_already_installed_catalog_model_without_redownloading(self):
