@@ -176,6 +176,51 @@ class TranslationWorkspaceTests(unittest.TestCase):
             refresh.assert_called_once()
         self.assertEqual(services.status_label.text(), "No model installed")
 
+    def test_service_readiness_hint_matches_editor_and_updates_after_key_changes(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        self.assertIn("연결 미확인", services.connection_hint.text())
+        self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
+        self.assertEqual(services.connection_hint.textFormat(), Qt.TextFormat.PlainText)
+
+        services.record_connection(True, ["chosen-model"])
+        dialog._refresh_summary()
+        self.assertIn("연결·모델 확인됨", services.connection_hint.text())
+        self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
+
+        services.key_edit.setText("rotated-test-credential")
+        self.assertIn("연결 미확인", services.connection_hint.text())
+        services.record_connection(False)
+        dialog._refresh_summary()
+        self.assertIn("연결 실패", services.connection_hint.text())
+        self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
+
+    def test_service_readiness_refreshes_immediately_after_model_lookup(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        self.assertIn("연결 미확인", services.connection_hint.text())
+        dialog.workflow.start("models", lambda cancel, progress: [
+            ("chosen-model", "Chosen model")])
+        self.until(lambda: dialog.worker is None)
+        self.assertEqual(services.verified_connection(),
+                         (True, frozenset({"chosen-model"})))
+        self.assertIn("연결·모델 확인됨", services.connection_hint.text())
+        self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
+
+    def test_service_readiness_shows_missing_local_llm_without_failed_connection(self):
+        self.settings.setValue("translation/provider", "ollama")
+        self.settings.setValue("translation/config/ollama/model", "missing:3b")
+        service = Mock(provider="ollama", base="http://localhost:11434")
+        service.discover.return_value = []
+        dialog = self.dialog(local_llm_factory=lambda *args: service)
+        self.until(lambda: dialog.worker is None and service.discover.called)
+        services = dialog.service_dialog
+        services.record_connection(True, [])
+        dialog._refresh_summary()
+        self.assertIn("모델 미설치", services.connection_hint.text())
+        self.assertNotIn("연결 실패", services.connection_hint.text())
+        self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
+
     def test_switching_provider_clears_unrelated_connection_error(self):
         dialog = self.dialog()
         services = dialog.service_dialog
