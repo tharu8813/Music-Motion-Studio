@@ -106,6 +106,14 @@ class TranslationServiceDialog(QDialog):
         scroll.setWidget(panel)
         root.addWidget(scroll, 1)
         self._settings_panel = panel
+        # Keep the currently actionable readiness hint visible in the settings
+        # window. The parent editor computes it once for both windows so that
+        # connection state, missing models and required settings cannot diverge.
+        self.connection_hint = QLabel()
+        self.connection_hint.setObjectName("translationServiceConnectionHint")
+        self.connection_hint.setWordWrap(True)
+        self.connection_hint.setTextFormat(Qt.TextFormat.PlainText)
+        root.addWidget(self.connection_hint)
         self.status_label = QLabel()
         self.status_label.setWordWrap(True)
         self.status_label.setTextFormat(Qt.TextFormat.PlainText)
