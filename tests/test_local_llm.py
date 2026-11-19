@@ -475,7 +475,7 @@ class TranslationSetupUITests(unittest.TestCase):
         local.discover.return_value = [installed_row()]
         manager = LocalLLMManagerDialog(Translator(), service=local)
         self.addCleanup(manager.deleteLater)
-        self.until(lambda: manager.worker is None)
+        self.until(lambda: manager.worker is None and manager.models_verified_at is not None)
         entered, release = Event(), Event()
 
         def work(cancel, progress):
@@ -503,7 +503,7 @@ class TranslationSetupUITests(unittest.TestCase):
         local.discover.return_value = [installed_row()]
         manager = LocalLLMManagerDialog(Translator(), service=local)
         self.addCleanup(manager.deleteLater)
-        self.until(lambda: manager.worker is None)
+        self.until(lambda: manager.worker is None and manager.models_verified_at is not None)
         entered, release = Event(), Event()
         replacement = Mock()
 
