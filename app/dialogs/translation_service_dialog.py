@@ -9,7 +9,7 @@ from app.dialogs.help_dialog import install_help_shortcut
 from app.services.local_translation_service import LocalTranslationModels
 from app.services.local_llm_service import LOCAL_LLM_PROVIDERS, CLOUD_LLM_PROVIDERS
 from app.ui.design_system import COLORS
-from app.services.lyrics_translation_service import LLM_PROVIDERS, PROVIDERS, TranslationConfig, TranslationError
+from app.services.lyrics_translation_service import PROVIDERS, TranslationConfig, TranslationError
 from app.services.translation_credentials import TranslationCredentials
 
 
