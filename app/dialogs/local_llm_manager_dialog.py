@@ -29,6 +29,9 @@ class LocalLLMManagerDialog(QDialog):
         self._download_speed = None
         self._download_phase = ""
         self._updating_models = False
+        # Qt can restore a current table row when switching tabs. Following
+        # an unverified download, only a fresh user selection may enable Use.
+        self._require_explicit_selection = False
         self._discovered = False
         # Only a successful model-list response can verify this connection.
         # A prior discovery is not evidence after a failed/cancelled refresh.
@@ -223,7 +226,7 @@ class LocalLLMManagerDialog(QDialog):
         self.setup_button.clicked.connect(lambda: self._start("setup", lambda cancel, progress: self.service.ensure_running(install=True, cancel=cancel, progress=progress)))
         self.refresh_button.clicked.connect(self._refresh)
         self.add_model_button.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
-        self.table.itemSelectionChanged.connect(self._selection)
+        self.table.itemSelectionChanged.connect(self._installed_selection_changed)
         self.table.itemDoubleClicked.connect(lambda *_: self._use())
         self.search.textChanged.connect(self._filter)
         self.recommended.currentRowChanged.connect(self._recommendation)
@@ -274,9 +277,19 @@ class LocalLLMManagerDialog(QDialog):
         self._recommendation()
 
     def _selected(self):
+        if self._require_explicit_selection:
+            return None
         row = self.table.currentRow()
         return (self.models[row] if self.table.selectedItems() and 0 <= row < len(self.models)
                 and not self.table.isRowHidden(row) else None)
+
+    def _installed_selection_changed(self):
+        if (self._require_explicit_selection and not self._updating_models
+                and self.worker is None and self.operation != "download"):
+            # Only a new selection outside the download-finalization path
+            # can make an older installed model actionable again.
+            self._require_explicit_selection = False
+        self._selection()
 
     def _selection(self, *_args):
         if self._updating_models:
@@ -660,10 +673,12 @@ class LocalLLMManagerDialog(QDialog):
                 f"Local AI connected · {len(self.models)} installed models"))
             if self.operation == "download":
                 self.tabs.setCurrentIndex(0)
-                if selected < 0:
-                    # Switching back to Installed can restore a previously
-                    # active row in Qt, even after clearSelection() above.
-                    # Never silently offer an old model as the downloaded one.
+                # Switching to Installed can restore a previously active row
+                # without a deliberate user choice. Even if Qt visually
+                # restores it, don't consider it a verified downloaded model.
+                self._require_explicit_selection = selected < 0
+                if self._require_explicit_selection:
+                    self.table.setCurrentCell(-1, -1)
                     self.table.clearSelection()
                 selected_model = self._selected()
                 # A different selected or newly discovered model does not
