@@ -173,6 +173,85 @@ class TranslationWorkspaceTests(unittest.TestCase):
         self.assertEqual(services._provider, "local_nmt")
 
 
+    def test_model_probe_discards_result_when_credentials_change_mid_request(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        services.record_connection(True, ["chosen-model"])
+        previous_connection = services.connection
+        selected_model = services._model_value()
+        entered, release = Event(), Event()
+
+        def work(cancel, progress):
+            entered.set()
+            release.wait(3)
+            return [("stale-model", "Stale model")]
+
+        dialog.workflow.start("models", work)
+        self.until(entered.is_set)
+        services.key_edit.setText("a-new-api-key")
+        release.set()
+        self.until(lambda: dialog.worker is None)
+
+        self.assertEqual(services._model_value(), selected_model)
+        self.assertNotIn("stale-model", [
+            services.model_combo.itemData(i) for i in range(services.model_combo.count())])
+        self.assertEqual(services.connection, previous_connection)
+        self.assertIsNone(services.verified_connection())
+        self.assertIn("변경되어", dialog.workflow.status)
+
+    def test_failed_probe_cannot_mark_changed_endpoint_disconnected(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        services.record_connection(True, ["chosen-model"])
+        previous_connection = services.connection
+        entered, release = Event(), Event()
+
+        def work(cancel, progress):
+            entered.set()
+            release.wait(3)
+            raise TranslationError("Old endpoint refused connection")
+
+        dialog.workflow.start("connection", work)
+        self.until(entered.is_set)
+        services.endpoint_edit.setText("https://new-endpoint.example/v1")
+        release.set()
+        self.until(lambda: dialog.worker is None)
+
+        self.assertEqual(services.connection, previous_connection)
+        self.assertIsNone(services.verified_connection())
+        self.assertIn("변경되어", dialog.workflow.status)
+        self.assertNotIn("Old endpoint refused connection", dialog.workflow.status)
+
+    def test_cancelled_model_probe_never_marks_connection_verified(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        entered, release = Event(), Event()
+
+        def work(cancel, progress):
+            entered.set()
+            release.wait(3)
+            return [("should-not-appear", "Cancelled result")]
+
+        dialog.workflow.start("models", work)
+        self.until(entered.is_set)
+        dialog.workflow.cancel()
+        release.set()
+        self.until(lambda: dialog.worker is None)
+        self.assertIsNone(services.connection)
+        self.assertNotIn("should-not-appear", [
+            services.model_combo.itemData(i) for i in range(services.model_combo.count())])
+
+    def test_current_model_probe_still_updates_model_list_and_connection(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        dialog.workflow.start("models", lambda cancel, progress: [("fresh-model", "Fresh model")])
+        self.until(lambda: dialog.worker is None)
+
+        self.assertIn("fresh-model", [
+            services.model_combo.itemData(i) for i in range(services.model_combo.count())])
+        self.assertEqual(services.verified_connection(), (True, frozenset({"fresh-model"})))
+
+
     def test_settings_close_during_translation_keeps_live_editor_and_main_close_cancels(self):
         entered = Event()
         def transport(*args, cancel=None, **kwargs):

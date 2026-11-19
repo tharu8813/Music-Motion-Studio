@@ -23,6 +23,9 @@ class TranslationWorkflow(QObject):
         self._rows, self._snapshot = [], None
         self._received, self._failed_rows, self.diagnostics = {}, {}, []
         self._current_config = None
+        # Bind model/connection probes to the settings that launched them.
+        # The signature hashes credentials rather than retaining plaintext keys.
+        self._connection_request = None
         self.status = ""
 
     def tr_text(self, ko, en):
@@ -95,6 +98,10 @@ class TranslationWorkflow(QObject):
         self.review._commit_editor()
         self.review.capture_draft()
         self.operation = operation
+        self._connection_request = (
+            (self.services._provider, self.services.connection_signature())
+            if operation in {"models", "connection", "local_llm_models"} else None
+        )
         self._snapshot = deepcopy(self.draft.rows) if operation == "translate" else None
         if operation == "translate" and not self._rows:
             self._rows = sorted(self.review._editable_rows)
@@ -151,12 +158,26 @@ class TranslationWorkflow(QObject):
     def _finished(self):
         worker, self.worker = self.worker, None
         review, services = self.review, self.services
+        requested_connection = self._connection_request
+        self._connection_request = None
+        stale_connection = (
+            requested_connection is not None
+            and requested_connection != (services._provider, services.connection_signature())
+        )
         review._set_review_busy(False)
         services._settings_panel.setEnabled(True)
         save_error = ""
-        if self.operation in {"models", "connection", "local_llm_models"} and worker.error:
+        if (self.operation in {"models", "connection", "local_llm_models"}
+                and worker.error and not stale_connection and not worker.cancel.is_set()):
             services.record_connection(False)
-        if worker.error or worker.cancel.is_set():
+        if stale_connection:
+            # The user may have changed the endpoint, API key or provider while
+            # this request ran. Neither a success nor a failure belongs to the
+            # new configuration, and old models must not replace its selection.
+            self.set_status(self.tr_text(
+                "연결 설정이 변경되어 이전 조회 결과를 무시했습니다. 다시 확인하세요.",
+                "Connection settings changed; ignored the outdated result. Check again."))
+        elif worker.error or worker.cancel.is_set():
             if self._snapshot is not None:
                 self.draft.rows = self._snapshot
                 self.draft.has_result = self._previous_result
