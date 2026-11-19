@@ -470,6 +470,64 @@ class TranslationSetupUITests(unittest.TestCase):
         self.assertIsNone(services.verified_connection())
 
 
+    def test_manager_cancel_drops_late_download_progress_and_activity(self):
+        local = Mock(provider="ollama", base="http://localhost:11434")
+        local.discover.return_value = [installed_row()]
+        manager = LocalLLMManagerDialog(Translator(), service=local)
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None)
+        entered, release = Event(), Event()
+
+        def work(cancel, progress):
+            entered.set()
+            release.wait(3)
+            progress(75, 100)
+            manager.worker.activity.emit({
+                "status": "pulling manifest", "completed": 75, "total": 100})
+            return [installed_row()]
+
+        manager._start("download", work)
+        self.until(entered.is_set)
+        manager._cancel()
+        release.set()
+        self.until(lambda: manager.worker is None)
+        self.assertEqual(manager.download_detail.text(), "")
+        self.assertIn("취소", manager.status.text())
+        self.assertEqual(manager.operation, "")
+        manager._progress(99, 100)
+        manager._download_activity({"status": "late download", "completed": 99, "total": 100})
+        self.assertEqual(manager.download_detail.text(), "")
+
+    def test_manager_closing_disallows_new_worker_and_late_activity(self):
+        local = Mock(provider="ollama", base="http://localhost:11434")
+        local.discover.return_value = [installed_row()]
+        manager = LocalLLMManagerDialog(Translator(), service=local)
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None)
+        entered, release = Event(), Event()
+        replacement = Mock()
+
+        def work(cancel, progress):
+            entered.set()
+            release.wait(3)
+            manager.worker.activity.emit({
+                "status": "pulling manifest", "completed": 1, "total": 2})
+            return [installed_row()]
+
+        manager._start("download", work)
+        self.until(entered.is_set)
+        original_worker = manager.worker
+        manager.reject()
+        self.assertTrue(manager._closing)
+        self.assertTrue(original_worker.cancel.is_set())
+        manager._start("refresh", replacement)
+        self.assertIs(manager.worker, original_worker)
+        release.set()
+        self.until(lambda: manager.worker is None)
+        replacement.assert_not_called()
+        self.assertEqual(manager.download_detail.text(), "")
+        self.assertEqual(manager.operation, "")
+
     def test_manager_close_keeps_original_probe_age(self):
         self.settings.setValue("translation/provider", "ollama")
         local = Mock(provider="ollama", base="http://localhost:11434")
