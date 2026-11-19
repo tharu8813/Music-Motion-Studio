@@ -448,7 +448,11 @@ class LocalLLMManagerDialog(QDialog):
         return f"{size / 1024 ** 2:.1f} MiB"
 
     def _download_activity(self, event):
-        if not isinstance(event, dict) or self.operation != "download":
+        worker = self.worker
+        sender = self.sender()
+        if (worker is None or worker.cancel.is_set() or self._closing
+                or (sender is not None and sender is not worker)
+                or not isinstance(event, dict) or self.operation != "download"):
             return
         label = str(event.get("status", "")).strip()
         done = event.get("completed", 0)
@@ -493,7 +497,7 @@ class LocalLLMManagerDialog(QDialog):
         self.download_detail.setText(message)
 
     def _start(self, operation, work):
-        if self.worker:
+        if self.worker or self._closing:
             return
         if operation != "details":
             # Refreshes and mutations can invalidate the earlier model listing.
@@ -525,11 +529,18 @@ class LocalLLMManagerDialog(QDialog):
         self.busy_changed.emit(True)
 
     def _progress(self, value, total):
+        worker = self.worker
+        sender = self.sender()
+        if (worker is None or worker.cancel.is_set() or self._closing
+                or (sender is not None and sender is not worker)):
+            return
         if total:
             self.progress.setRange(0, 100)
             self.progress.setValue(round(value / total * 100))
 
     def _finished(self):
+        if self.worker is None or (self.sender() is not None and self.sender() is not self.worker):
+            return
         worker, self.worker = self.worker, None
         for widget in (self.tabs, self.setup_button, self.refresh_button):
             widget.setEnabled(True)
@@ -630,6 +641,7 @@ class LocalLLMManagerDialog(QDialog):
             self._selection()
             if self.tabs.currentIndex() == 1:
                 self._recommendation()
+        self.operation = ""
         worker.deleteLater()
         self.busy_changed.emit(False)
         if self._closing:
