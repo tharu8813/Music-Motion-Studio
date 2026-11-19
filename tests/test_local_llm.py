@@ -757,8 +757,12 @@ class TranslationSetupUITests(unittest.TestCase):
         manager._download()
         self.until(lambda: manager.worker is None)
         self.assertIsNone(manager._selected())
+        self.assertFalse(manager.use_button.isEnabled())
         self.assertIn("요청한 설치 모델을 목록에서 확인하지 못했습니다", manager.status.text())
         self.assertNotIn("설치 확인 완료", manager.status.text())
+        # An existing model remains usable only after explicit selection.
+        manager.table.selectRow(0)
+        self.assertEqual(manager._selected()["id"], "old-model.gguf")
 
 
     def test_manager_can_use_already_installed_catalog_model_without_redownloading(self):
