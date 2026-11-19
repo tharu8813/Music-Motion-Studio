@@ -325,9 +325,17 @@ class TranslationServiceDialog(QDialog):
         for model in matching:
             self.model_combo.addItem(model.name, model.id)
         index = self.model_combo.findData(selected)
-        self.model_combo.setCurrentIndex(max(0, index))
+        missing_previous = bool(selected) and index < 0 and bool(matching)
+        # A deleted or incompatible saved model must not silently become the
+        # first installed one. With no saved preference, keep the normal
+        # first-available default for a new local translation setup.
+        self.model_combo.setCurrentIndex(index if selected else (0 if matching else -1))
         if not matching:
-            self.model_combo.setPlaceholderText(self.tr_text("이 언어 방향의 모델이 없습니다", "No model for these languages"))
+            self.model_combo.setPlaceholderText(self.tr_text(
+                "이 언어 방향의 모델이 없습니다", "No model for these languages"))
+        elif missing_previous:
+            self.model_combo.setPlaceholderText(self.tr_text(
+                "이전에 선택한 모델 없음 · 다른 모델 선택", "Previous model missing · choose another"))
         self.model_combo.blockSignals(False)
         same = source.casefold() == target.casefold()
         self.local_models_button.setEnabled(not matching and not same and source != "auto")
@@ -335,6 +343,10 @@ class TranslationServiceDialog(QDialog):
             message = self.tr_text("같은 언어입니다. 모델 설치 없이 번역문을 빈칸으로 처리합니다.", "Identical languages: no model needed; translations stay blank.")
         elif source == "auto":
             message = self.tr_text("로컬 번역 모델은 원문 언어를 직접 선택해야 합니다.", "Choose a source language for local translation.")
+        elif missing_previous:
+            message = self.tr_text(
+                f"전에 선택한 {source} → {target} 모델이 없습니다. 설치된 다른 모델을 직접 선택하세요.",
+                f"The previously selected {source} → {target} model is missing. Choose another installed model explicitly.")
         elif matching:
             message = self.tr_text(f"{source} → {target} 모델 파일 확인됨 · 실행은 번역 시 확인합니다.",
                                    f"{source} → {target} model files found · execution checked when translating.")
