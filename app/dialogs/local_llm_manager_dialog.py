@@ -27,6 +27,7 @@ class LocalLLMManagerDialog(QDialog):
         self._deleted_name = ""
         self._download_sample = None
         self._download_speed = None
+        self._download_phase = ""
         self._updating_models = False
         self._discovered = False
         # Only a successful model-list response can verify this connection.
@@ -469,47 +470,67 @@ class LocalLLMManagerDialog(QDialog):
                 or (sender is not None and sender is not worker)
                 or not isinstance(event, dict) or self.operation != "download"):
             return
-        label = str(event.get("status", "")).strip()
-        done = event.get("completed", 0)
-        total = event.get("total", 0)
+        label = str(event.get("status", "")).strip().casefold()
+        done, total = event.get("completed", 0), event.get("total", 0)
         if not isinstance(done, (int, float)) or not isinstance(total, (int, float)):
             return
-        if self.translator.is_korean:
-            lowered = label.casefold()
-            if lowered.startswith("pulling manifest"):
-                message = "모델 정보를 확인하는 중"
-            elif lowered.startswith("pulling "):
-                message = "모델 파일을 다운로드하는 중"
-            elif lowered.startswith("verifying"):
-                message = "다운로드 파일을 검증하는 중"
-            elif lowered.startswith("writing"):
-                message = "모델 설치를 마무리하는 중"
-            elif lowered in {"downloading", "download"}:
-                message = "모델 다운로드 중"
-            elif lowered in {"success", "completed", "already_downloaded"}:
-                message = "다운로드 완료"
-            else:
-                message = label or "다운로드 중"
+
+        # Ollama and LM Studio expose different status strings. Map only
+        # recognized server events to user-facing stages; unknown server text
+        # must not become a misleading success message or expose server data.
+        if label.startswith("pulling manifest"):
+            phase = "preparing"
+        elif label.startswith("pulling ") or label in {"downloading", "download"}:
+            phase = "downloading"
+        elif label.startswith("verifying"):
+            phase = "verifying"
+        elif label.startswith(("writing", "removing")):
+            phase = "installing"
+        elif label in {"success", "completed", "already_downloaded"}:
+            phase = "checking"
         else:
-            message = label or "Downloading"
-        if total > 0:
-            now = monotonic()
-            sample = self._download_sample
-            if sample and done > sample[0] and now > sample[1] + 0.25:
-                current_speed = (done - sample[0]) / (now - sample[1])
-                self._download_speed = (current_speed if self._download_speed is None
-                                        else self._download_speed * 0.7 + current_speed * 0.3)
-                self._download_sample = (done, now)
-            elif sample is None or done < sample[0]:
-                self._download_sample = (done, now)
-                self._download_speed = None
-            message += f" · {self._bytes(done)} / {self._bytes(total)}"
-            if self._download_speed and self._download_speed > 0:
-                remaining = max(0, int((total - done) / self._download_speed))
-                message += self.tr_text(
-                    f" · {self._bytes(self._download_speed)}/초 · 약 {remaining // 60}분 {remaining % 60}초 남음",
-                    f" · {self._bytes(self._download_speed)}/s · ~{remaining // 60}m {remaining % 60}s left")
-        self.download_detail.setText(message)
+            phase = "working"
+
+        if phase != self._download_phase:
+            self._download_phase = phase
+            self._download_sample = None
+            self._download_speed = None
+            if phase != "downloading":
+                # A 100% transfer is not evidence that verification or model
+                # publication has finished. Return to indeterminate progress.
+                self.progress.setRange(0, 0)
+        stages = {
+            "preparing": self.tr_text("모델 정보를 확인하는 중…", "Checking model information…"),
+            "downloading": self.tr_text("모델 파일 다운로드 중…", "Downloading model files…"),
+            "verifying": self.tr_text("다운로드 파일 검증 중…", "Verifying downloaded files…"),
+            "installing": self.tr_text("모델 설치 마무리 중…", "Finishing model installation…"),
+            "checking": self.tr_text("서버 완료 응답 · 설치된 모델 목록 확인 중…",
+                                     "Server reported completion · checking installed models…"),
+            "working": self.tr_text("모델 설치 작업 진행 중…", "Model installation in progress…"),
+        }
+        self.status.setText(stages[phase])
+        if phase != "downloading" or total <= 0:
+            self.download_detail.clear()
+            return
+
+        done, total = max(0, done), max(0, total)
+        now = monotonic()
+        sample = self._download_sample
+        if sample and done > sample[0] and now > sample[1] + 0.25:
+            current_speed = (done - sample[0]) / (now - sample[1])
+            self._download_speed = (current_speed if self._download_speed is None
+                                    else self._download_speed * 0.7 + current_speed * 0.3)
+            self._download_sample = (done, now)
+        elif sample is None or done < sample[0]:
+            self._download_sample = (done, now)
+            self._download_speed = None
+        detail = f"{self._bytes(done)} / {self._bytes(total)}"
+        if self._download_speed and self._download_speed > 0:
+            remaining = max(0, int((total - done) / self._download_speed))
+            detail += self.tr_text(
+                f" · {self._bytes(self._download_speed)}/초 · 약 {remaining // 60}분 {remaining % 60}초 남음",
+                f" · {self._bytes(self._download_speed)}/s · ~{remaining // 60}m {remaining % 60}s left")
+        self.download_detail.setText(detail)
 
     def _start(self, operation, work):
         if self.worker or self._closing:
@@ -523,6 +544,7 @@ class LocalLLMManagerDialog(QDialog):
         self.operation = operation
         self._download_sample = None
         self._download_speed = None
+        self._download_phase = ""
         self.worker = TranslationWorker(work, self)
         self.worker.finished.connect(self._finished)
         self.worker.progress.connect(self._progress)
@@ -536,9 +558,9 @@ class LocalLLMManagerDialog(QDialog):
         self.cancel_button.show()
         self.cancel_button.setEnabled(True)
         self.status.setText(self.tr_text(
-            "모델을 다운로드하는 중… 취소하거나 완료 후 바로 선택할 수 있습니다." if operation == "download"
+            "모델 정보를 확인하는 중…" if operation == "download"
             else "연결 및 모델 목록을 확인 중…",
-            "Downloading model… you can cancel, or select it once complete." if operation == "download"
+            "Checking model information…" if operation == "download"
             else "Checking connection and installed models…"))
         self.worker.start()
         self.busy_changed.emit(True)
@@ -548,6 +570,10 @@ class LocalLLMManagerDialog(QDialog):
         sender = self.sender()
         if (worker is None or worker.cancel.is_set() or self._closing
                 or (sender is not None and sender is not worker)):
+            return
+        if self.operation == "download" and self._download_phase not in {"", "downloading"}:
+            # Late byte-transfer progress must not show 100% while model
+            # integrity verification or manifest installation is still active.
             return
         if total:
             self.progress.setRange(0, 100)
@@ -570,7 +596,9 @@ class LocalLLMManagerDialog(QDialog):
                 self.engine_state.setText(self.tr_text(
                     "로컬 AI 연결 상태 미확인 · 모델 목록을 다시 확인하세요.",
                     "Local AI connection unverified · refresh the model list."))
-            self.status.setText(worker.error + (self.tr_text(
+            self.status.setText((
+                self.tr_text("모델 다운로드·설치 실패 · ", "Model download/install failed · ")
+                if self.operation == "download" else "") + worker.error + (self.tr_text(
                 " · 같은 모델을 다시 선택해 재시도할 수 있습니다.",
                 " · Select the same model to retry.") if self.operation == "download" else ""))
         elif worker.cancel.is_set():
@@ -630,10 +658,10 @@ class LocalLLMManagerDialog(QDialog):
             if self.operation == "download":
                 self.tabs.setCurrentIndex(0)
                 self.status.setText(self.tr_text(
-                    "모델 다운로드 완료! 선택한 모델을 확인하고 '이 모델 사용'을 누르세요."
-                    if self._selected() else "다운로드가 끝났습니다. 설치된 모델 목록에서 사용할 모델을 선택하세요.",
-                    "Download complete! Review the selected model and click 'Use this model'."
-                    if self._selected() else "Download finished. Choose the model from Installed."))
+                    "모델 설치 확인 완료 · '이 모델 사용'을 눌러 적용하세요."
+                    if self._selected() else "서버에서 완료 응답을 받았지만 설치 모델을 목록에서 확인하지 못했습니다. 목록을 새로고침하세요.",
+                    "Model installation verified · click 'Use this model' to apply it."
+                    if self._selected() else "Server reported completion, but the model was not found in the installed list. Refresh models."))
             elif self.operation == "delete":
                 self.status.setText(self.tr_text(
                     f"{self._deleted_name} 삭제 완료 · 다른 모델을 사용하려면 직접 선택하세요.",
