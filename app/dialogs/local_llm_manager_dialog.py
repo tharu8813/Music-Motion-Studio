@@ -49,16 +49,10 @@ class LocalLLMManagerDialog(QDialog):
         title.setObjectName("dialogTitle")
         root.addWidget(title)
         note = QLabel(self.tr_text(
-            "설치된 모델을 선택하거나 모델을 내려받으세요. 모델 크기는 다운로드 용량이며 실제 메모리는 문맥 길이·양자화·장치에 따라 더 필요합니다.",
-            "Choose an installed model or download one. Download size is not required RAM; memory also depends on context, quantization and hardware."))
+            "설치된 모델을 선택하거나 새 모델을 설치하세요.",
+            "Choose an installed model or install a new one."))
         note.setWordWrap(True)
         root.addWidget(note)
-        self.steps_label = QLabel(self.tr_text(
-            "① 실행 준비  →  ② 모델 찾기·설치  →  ③ 설치된 모델 선택 후 사용",
-            "① Prepare engine  →  ② Find and install  →  ③ Select an installed model"))
-        self.steps_label.setObjectName("panelTitle")
-        self.steps_label.setWordWrap(True)
-        root.addWidget(self.steps_label)
         self.engine_state = QLabel(self.tr_text("로컬 AI 연결을 확인하는 중…", "Checking the local AI connection…"))
         self.engine_state.setObjectName("panelTitle")
         root.addWidget(self.engine_state)
@@ -192,11 +186,6 @@ class LocalLLMManagerDialog(QDialog):
         download_layout.addWidget(self.download_name)
         self.download_button = QPushButton(self.tr_text("선택한 모델 다운로드·설치", "Download and install selected model"))
         download_layout.addWidget(self.download_button)
-        self.download_hint = QLabel(self.tr_text(
-            "추천 목록에서 선택 → 바로 다운로드 → 설치 완료 후 '이 모델 사용'. 이미 설치된 모델은 다운로드 없이 사용할 수 있습니다.",
-            "Choose a recommendation → download directly → 'Use this model' after installation. Existing models can be selected without redownloading."))
-        self.download_hint.setWordWrap(True)
-        download_layout.addWidget(self.download_hint)
         self.tabs.addTab(installed_page, self.tr_text("설치된 모델", "Installed"))
         self.tabs.addTab(download_page, self.tr_text("모델 찾기·설치", "Find and install"))
         self.tabs.addTab(advanced_page, self.tr_text("고급 관리", "Advanced management"))
@@ -307,6 +296,11 @@ class LocalLLMManagerDialog(QDialog):
             self.source_link.clear()
         elif self.tabs.currentIndex() == 1:
             self._recommendation()
+        else:
+            # An installed-model search can hide the previously selected row.
+            # Clear its old details rather than showing a phantom selection.
+            self.description.clear()
+            self.source_link.clear()
 
     def _filter_catalog(self, *_args):
         term = self.catalog_search.text().strip().casefold()
@@ -331,26 +325,40 @@ class LocalLLMManagerDialog(QDialog):
             self.recommended.setCurrentRow(first)
 
     def _recommendation(self, *_args):
+        if self.manual_toggle.isChecked():
+            # Manual model IDs are independent of the catalog filters and
+            # should never display an unrelated recommendation's tradeoffs.
+            self.download_button.setEnabled(
+                self.worker is None and bool(self.download_name.text().strip()))
+            self.download_button.setText(self.tr_text(
+                "입력한 모델 다운로드·설치", "Download entered model"))
+            self.description.setPlainText(self.tr_text(
+                "직접 입력한 모델입니다. 다운로드 전에 모델 이름과 이용 조건을 확인하세요.",
+                "Custom model: verify its name and usage terms before downloading."))
+            self.source_link.clear()
+            return
         item = self.recommended.currentItem()
         if not item or item.isHidden():
-            self.download_button.setEnabled(self.worker is None and self.manual_toggle.isChecked()
-                                            and bool(self.download_name.text().strip()))
+            # A filtered-out recommendation must not leave a stale model name
+            # or details behind that look like an actionable selection.
+            self.download_name.clear()
+            self.download_button.setEnabled(False)
+            self.download_button.setText(self.tr_text(
+                "모델을 선택하세요", "Choose a model"))
+            self.description.setPlainText(self.tr_text(
+                "검색 결과가 없습니다. 검색어나 필터를 변경하세요.",
+                "No matching models. Change your search or filters."))
+            self.source_link.clear()
             return
         guide = item.data(Qt.ItemDataRole.UserRole)
         installed = self._installed_index(guide["id"]) >= 0
         self.download_button.setEnabled(self.worker is None)
         self.download_button.setText(self.tr_text(
-            "입력한 모델 다운로드·설치" if self.manual_toggle.isChecked() else
             "설치된 모델 바로 사용" if installed else "선택한 모델 다운로드·설치",
-            "Download entered model" if self.manual_toggle.isChecked() else
             "Use installed model" if installed else "Download and install selected model"))
         title, strength, limitation = guide["ko" if self.translator.is_korean else "en"]
-        if self.service.provider == "ollama":
-            name = guide["id"]
-        else:
-            name = guide["lmstudio"]
-        if not self.manual_toggle.isChecked():
-            self.download_name.setText(name)
+        name = guide["id"] if self.service.provider == "ollama" else guide["lmstudio"]
+        self.download_name.setText(name)
         self.description.setPlainText(self.tr_text(f"{title}\n장점: {strength}\n주의: {limitation}\n{guide['size']} · 용량은 버전과 양자화에 따라 바뀔 수 있습니다.",
             f"{title}\nStrengths: {strength}\nLimitations: {limitation}\n{guide['size']} · Size varies with version and quantization."))
         self.source_link.setText(f'<a href="{guide["url"]}">' + self.tr_text("모델 공식 정보·이용 조건", "Official model information / terms") + "</a>")
@@ -371,6 +379,13 @@ class LocalLLMManagerDialog(QDialog):
     def _download(self):
         if self.worker:
             return
+        if not self.manual_toggle.isChecked():
+            selected = self.recommended.currentItem()
+            if selected is None or selected.isHidden():
+                self.status.setText(self.tr_text(
+                    "추천 목록에서 모델을 선택하거나 검색 조건을 변경하세요.",
+                    "Choose a visible recommendation or change your search."))
+                return
         name = self.download_name.text().strip()
         if not name:
             self.status.setText(self.tr_text("설치할 모델을 선택하거나 이름을 입력하세요.",
