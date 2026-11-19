@@ -655,7 +655,7 @@ class TranslationSetupUITests(unittest.TestCase):
         manager._download_activity({"status": "pulling 61aa...", "completed": 512 * 1024 ** 2,
                                     "total": 1024 ** 3})
         self.assertIn("다운로드 중", manager.status.text())
-        self.assertIn("0.5 GiB / 1.0 GiB", manager.download_detail.text())
+        self.assertIn("512.0 MiB / 1.0 GiB", manager.download_detail.text())
         manager._progress(50, 100)
         self.assertEqual(manager.progress.maximum(), 100)
 
