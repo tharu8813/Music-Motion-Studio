@@ -571,6 +571,10 @@ class LocalLLMManagerDialog(QDialog):
         if (worker is None or worker.cancel.is_set() or self._closing
                 or (sender is not None and sender is not worker)):
             return
+        if self.operation == "download" and self._download_phase not in {"", "downloading"}:
+            # Late byte-transfer progress must not show 100% while model
+            # integrity verification or manifest installation is still active.
+            return
         if total:
             self.progress.setRange(0, 100)
             self.progress.setValue(round(value / total * 100))
