@@ -150,6 +150,7 @@ from app.preview.gpu_texture_surface import (
     GPU_TEXTURE_SURFACE_AVAILABLE, GpuTexturePreviewSurface,
 )
 from app.renderer.ffmpeg_renderer import (
+    uses_gapless_playlist,
     FFmpegNotFoundError,
     FFmpegRenderer,
     RenderError,
@@ -4192,7 +4193,7 @@ class MainWindow(QMainWindow):
             compiled_plan = None
             tracks = [track for track in self.playlist_service.tracks if track.enabled]
             if (self.project_settings.transition_mode != "none"
-                    or FFmpegRenderer.uses_gapless_playlist(tracks)):
+                    or uses_gapless_playlist(tracks)):
                 from PySide6.QtWidgets import QProgressDialog
                 from app.controllers.preview_audio_controller import prepare_audio_for_ui
                 from app.renderer.ffmpeg_renderer import RenderCancelledError
