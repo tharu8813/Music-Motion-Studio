@@ -192,6 +192,43 @@ class RuntimeContracts(unittest.TestCase):
         self.assertEqual(calls, [self.app.thread()] * 2)
         self.assertEqual(cleanup, [self.app.thread()])
 
+    def test_gui_bridge_uses_resolved_audio_plan_on_worker_and_gui(self):
+        from copy import deepcopy
+        project = project_fixture()
+        original = project.to_dict()
+        corrected = deepcopy(project)
+        corrected.playlist[0].duration_seconds = .48
+        corrected.playlist[1].duration_seconds = .51
+        plan = compile_playlist(corrected.playlist, enabled_only=True)
+        source = GuiProjectFrameSource(project, fps=60, scale=.25)
+        observed, results, errors = [], [], []
+
+        def producer(snapshot, **kwargs):
+            observed.append((snapshot.playlist[0].duration_seconds,
+                             kwargs["compiled_plan"], QThread.currentThread()))
+            yield "frame"
+
+        def consume():
+            try:
+                results.append(next(source))
+            except Exception as error:
+                errors.append(error)
+            finally:
+                source.close()
+
+        with patch("app.renderer.native_project_frames.prepare_project_frame_audio") as analyze, \
+             patch("app.renderer.native_project_frames.produce_complete_project_frames", side_effect=producer):
+            source.prepare("mock.wav", "mock", resolved_project=corrected, compiled_plan=plan)
+            self.assertIs(analyze.call_args.args[1], plan)
+            self.assertAlmostEqual(analyze.call_args.args[0].playlist[0].duration_seconds, .48)
+            worker = Thread(target=consume)
+            worker.start()
+            self.pump(worker)
+        self.assertEqual(errors, [])
+        self.assertEqual(results, ["frame"])
+        self.assertEqual(observed, [(.48, plan, self.app.thread())])
+        self.assertEqual(project.to_dict(), original)
+
     def test_cancel_waiting_gui_pull_does_not_deadlock_or_start_scene(self):
         cancel = Event()
         source = GuiProjectFrameSource(project_fixture(), fps=60, scale=.25, cancel_event=cancel)
