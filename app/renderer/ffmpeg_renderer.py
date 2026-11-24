@@ -17,6 +17,7 @@ from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from contextlib import ExitStack
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from fractions import Fraction
 from pathlib import Path
 from tempfile import TemporaryDirectory, mkstemp
 
@@ -36,6 +37,7 @@ from app.renderer import loudness
 from app.renderer.ffmpeg import filter_graph
 from app.renderer.python_visualizer import PythonVisualizerError, PythonVisualizerRenderer
 from app.utils.subprocess_utils import hidden_process_kwargs
+from app.utils.cancellable_subprocess import run_probe
 from app.services.export_validation_service import ExportValidationResult
 from app.services.export_policy import ExportPolicy
 from app.services.video_encoder_service import DEFAULT_NATIVE_NVENC_PRESET
@@ -2045,6 +2047,41 @@ class FFmpegRenderer:
             plan_callback(compiled)
         return [prepared.path], [compiled.duration_seconds]
 
+    def _aac_presentation_samples(self, track: PlaylistTrack, cancel_event: threading.Event) -> int | None:
+        """Use an MP4 AAC stream's presentation length, not its padded final AAC frame.
+
+        Raw AAC and containers without an exact zero-based stream duration have
+        no reliable end-padding information; never guess from silence.
+        """
+        if Path(track.file_path).suffix.lower() not in {".m4a", ".mp4", ".m4b", ".mov", ".m4v", ".3gp"}:
+            return None
+        probe = self.executable.with_name("ffprobe.exe" if self.executable.suffix.lower() == ".exe" else "ffprobe")
+        if not probe.is_file():
+            found = shutil.which("ffprobe")
+            if not found:
+                return None
+            probe = Path(found)
+        try:
+            result = run_probe([
+                str(probe), "-v", "error", "-select_streams", "a:0",
+                "-show_entries", "stream=codec_name,start_pts,duration_ts,time_base,sample_rate:format=format_name",
+                "-of", "json", track.file_path,
+            ], cancel_event=cancel_event, timeout=15)
+            if result.returncode != 0:
+                return None
+            data = json.loads(result.stdout)
+            stream = data["streams"][0]
+            if (stream.get("codec_name") != "aac" or int(stream["start_pts"]) != 0
+                    or "mp4" not in data["format"]["format_name"].split(",")):
+                return None
+            samples = int(stream["duration_ts"]) * Fraction(stream["time_base"]) * int(stream["sample_rate"])
+            return int(samples) if samples > 0 and samples.denominator == 1 else None
+        except CancelledError as error:
+            raise RenderCancelledError("Rendering was cancelled.") from error
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError, IndexError, TypeError, ZeroDivisionError):
+            LOGGER.debug("AAC presentation sample count unavailable for %s", track.file_path, exc_info=True)
+            return None
+
     @staticmethod
     def _join_gapless_pcm(segments: list[Path], cancel_event: threading.Event) -> tuple[Path, list[float]]:
         """Append interleaved stereo float PCM without timestamp rounding or silence."""
@@ -2092,7 +2129,11 @@ class FFmpegRenderer:
             duration = f"{track.duration_seconds:.6f}"
             pad = f"apad=whole_dur={duration}"
             if sample_accurate:
-                timing_args = ["-af", track.audio_filter] if track.audio_filter else []
+                samples = self._aac_presentation_samples(track, cancel_event)
+                filters = [f"atrim=end_sample={samples}"] if samples is not None else []
+                if track.audio_filter:
+                    filters.append(track.audio_filter)
+                timing_args = ["-af", ",".join(filters)] if filters else []
             else:
                 timing_args = ["-af", f"{track.audio_filter},{pad}" if track.audio_filter else pad, "-t", duration]
 
