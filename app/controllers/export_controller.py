@@ -55,6 +55,7 @@ from app.dialogs.export_complete_dialog import ExportCompleteDialog
 from app.dialogs.export_progress_dialog import ExportProgressDialog
 from app.dialogs.export_settings_dialog import ExportSettingsDialog
 from app.renderer.ffmpeg_renderer import (
+    uses_gapless_playlist,
     EncoderUnavailableError,
     ExportMetadata,
     FFmpegNotFoundError,
@@ -220,7 +221,7 @@ class ExportOrchestrator:
         mode = window.project_settings.transition_mode
         effects = window.project_settings.audio_effects
         if (mode == "none" and not has_audio_effects(effects)
-                and not FFmpegRenderer.uses_gapless_playlist(active_tracks)):
+                and not uses_gapless_playlist(active_tracks)):
             self.clear_audio_staging()
             return None, None
 
@@ -982,7 +983,7 @@ class ExportOrchestrator:
             file_format=export_options.output_format,
         )
         if (is_subtitle_export(output) and window.project_settings.transition_mode == "none"
-                and not FFmpegRenderer.uses_gapless_playlist(active_tracks)):
+                and not uses_gapless_playlist(active_tracks)):
             self.export_subtitles(active_tracks, output)
             return
         try:
