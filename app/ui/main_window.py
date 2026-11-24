@@ -4190,12 +4190,13 @@ class MainWindow(QMainWindow):
             overwrite = True
         try:
             compiled_plan = None
-            if self.project_settings.transition_mode != "none":
+            tracks = [track for track in self.playlist_service.tracks if track.enabled]
+            if (self.project_settings.transition_mode != "none"
+                    or FFmpegRenderer.uses_gapless_playlist(tracks)):
                 from PySide6.QtWidgets import QProgressDialog
                 from app.controllers.preview_audio_controller import prepare_audio_for_ui
                 from app.renderer.ffmpeg_renderer import RenderCancelledError
 
-                tracks = [track for track in self.playlist_service.tracks if track.enabled]
                 if not tracks:
                     raise PlaylistExportError("Select at least one playlist track before creating files.")
                 renderer = FFmpegRenderer(self.settings_service.current.ffmpeg_path or None)
