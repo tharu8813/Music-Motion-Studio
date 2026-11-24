@@ -301,6 +301,11 @@ class VideoFileInput:
     loop_input: bool = False
 
 
+def uses_gapless_playlist(tracks: list[PlaylistTrack]) -> bool:
+    """Automatic sequential placement only; explicit starts retain their contract."""
+    return len(tracks) > 1 and all(track.start_time_seconds is None for track in tracks)
+
+
 class FFmpegRenderer:
     """Normalizes tracks, concatenates them with FFmpeg, then renders an MP4."""
 
@@ -542,7 +547,7 @@ class FFmpegRenderer:
             if storage_path_callback:
                 storage_path_callback("render", temporary)
             resolved_plans = []
-            if prepared_audio_path is None and (transition_mode != "none" or self.uses_gapless_playlist(active_tracks)):
+            if prepared_audio_path is None and (transition_mode != "none" or uses_gapless_playlist(active_tracks)):
                 prepared_audio_path = self.prepare_playlist_audio(
                     active_tracks, temporary, selected_settings,
                     transition_mode=transition_mode, crossfade_seconds=crossfade_seconds,
@@ -1641,7 +1646,7 @@ class FFmpegRenderer:
                 active_tracks, output_directory, total_duration, crossfade_seconds,
                 progress_callback, cancel_event, accept_plan,
             )
-        gapless = sample_accurate and transition_mode == "none" and self.uses_gapless_playlist(active_tracks)
+        gapless = sample_accurate and transition_mode == "none" and uses_gapless_playlist(active_tracks)
         if gapless:
             segments = self._normalize_audio(
                 active_tracks, output_directory, settings, progress_callback, cancel_event,
@@ -2039,11 +2044,6 @@ class FFmpegRenderer:
         if plan_callback is not None:
             plan_callback(compiled)
         return [prepared.path], [compiled.duration_seconds]
-
-    @staticmethod
-    def uses_gapless_playlist(tracks: list[PlaylistTrack]) -> bool:
-        """Automatic sequential placement only; explicit starts retain their contract."""
-        return len(tracks) > 1 and all(track.start_time_seconds is None for track in tracks)
 
     @staticmethod
     def _join_gapless_pcm(segments: list[Path], cancel_event: threading.Event) -> tuple[Path, list[float]]:
