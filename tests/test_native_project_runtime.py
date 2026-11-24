@@ -341,7 +341,16 @@ class RuntimeContracts(unittest.TestCase):
                  patch("app.renderer.native_project_export.render_native_gpu_playlist", return_value=result) as render:
                 calls.attach_mock(probe, "probe")
                 calls.attach_mock(renderer.return_value.prepare_playlist_audio, "audio")
-                renderer.return_value.prepare_playlist_audio.return_value = root / "audio.wav"
+                # A real gapless preparation emits its resolved audio plan.
+                def prepare_audio(*args, **kwargs):
+                    # Preserve stable track IDs from the input snapshot.
+                    from copy import deepcopy
+                    resolved = deepcopy(project)
+                    resolved.playlist[0].duration_seconds = .48
+                    resolved.playlist[1].duration_seconds = .51
+                    kwargs["plan_callback"](compile_playlist(resolved.playlist, enabled_only=True))
+                    return root / "audio.wav"
+                renderer.return_value.prepare_playlist_audio.side_effect = prepare_audio
                 actual = export_project_document(project, result.output_path, native_exe=exe,
                     fps=60, scale=.25, cancel_event=cancel, progress_callback=progress, frame_source=source,
                     native_nvenc_preset="p5", native_nvenc_cq=19)
@@ -350,13 +359,19 @@ class RuntimeContracts(unittest.TestCase):
             self.assertIn("completed_wall_seconds", actual.native_report)
             self.assertIs(render.call_args.kwargs["cancel_event"], cancel)
             self.assertIs(render.call_args.kwargs["progress_callback"], progress)
-            self.assertEqual(render.call_args.kwargs["compiled_plan"].duration_seconds, 1)
+            plan = render.call_args.kwargs["compiled_plan"]
+            self.assertAlmostEqual(plan.duration_seconds, .99)
+            self.assertAlmostEqual(plan.audio.clips[1].timeline_start, .48)
+            self.assertAlmostEqual(render.call_args.kwargs["tracks"][0].duration_seconds, .48)
+            self.assertEqual(project.playlist[0].duration_seconds, .5)
             self.assertEqual(render.call_args.kwargs["adapter_luid"], 42)
             self.assertEqual([call[0] for call in calls.mock_calls], ["probe", "audio"])
             settings = probe.call_args.args[1]
             self.assertEqual((settings.output_width, settings.output_height, settings.fps), (320, 180, 60))
             self.assertEqual((settings.native_nvenc_preset, settings.native_nvenc_cq), ("p5", 19))
             source.prepare.assert_called_once()
+            self.assertIs(source.prepare.call_args.kwargs["compiled_plan"], plan)
+            self.assertAlmostEqual(source.prepare.call_args.kwargs["resolved_project"].playlist[1].duration_seconds, .51)
             source.close.assert_called()
 
     def test_failed_hardware_preflight_skips_audio_and_closes_frame_source(self):
