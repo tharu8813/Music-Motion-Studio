@@ -254,6 +254,7 @@ class ExportPreviewDialog(QDialog):
                 # Attach right away (paused at 0), so the first transition renders before Play.
                 QTimer.singleShot(0, self, lambda: self._report_playhead(force=True))
         elif ((self._transition_mode != "none" or has_audio_effects(audio_effects)
+               or FFmpegRenderer.uses_gapless_playlist(self.tracks)
                or any(track.audio_filter for track in self.tracks))
               and self._preview_proxy_ffmpeg is not None and self.tracks):
             self._blended_audio_temp_dir = TemporaryDirectory(prefix="playlist-preview-audio-", ignore_cleanup_errors=True)
