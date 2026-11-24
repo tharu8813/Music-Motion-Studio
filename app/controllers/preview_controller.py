@@ -28,7 +28,7 @@ from PySide6.QtWidgets import QMessageBox, QWidget
 from app.dialogs.export_preview_dialog import ExportPreviewDialog, TIMELINE_SCALE
 from app.dialogs.preview_loading_dialog import PreviewLoadingDialog
 from app.models.audio_effects import has_audio_effects
-from app.renderer.ffmpeg_renderer import FFmpegNotFoundError, FFmpegRenderer
+from app.renderer.ffmpeg_renderer import FFmpegNotFoundError, FFmpegRenderer, uses_gapless_playlist
 
 if TYPE_CHECKING:
     from app.ui.main_window import MainWindow
@@ -189,7 +189,7 @@ class PreviewController:
         # Per-track volume/EQ only exists in a rendered mix, even without transitions.
         needs_mix = (
             (transition_mode != "none" or has_audio_effects(audio_effects)
-             or FFmpegRenderer.uses_gapless_playlist(tracks) or any(track.audio_filter for track in tracks))
+             or uses_gapless_playlist(tracks) or any(track.audio_filter for track in tracks))
             and executable is not None and bool(tracks)
         )
         korean = window.translator.is_korean
