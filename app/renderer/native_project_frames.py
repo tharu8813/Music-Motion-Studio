@@ -175,6 +175,7 @@ def produce_complete_project_frames(
     raster_counters: dict | None = None,
     optimizations: NativeGpuOptimizations | None = None,
     video_sources: dict[str, NativeVideoSource] | None = None,
+    compiled_plan=None,
 ) -> Iterator[NativeCanvasFrame]:
     """Yield *every* playlist CFR frame lazily in true source Z order.
 
@@ -192,7 +193,7 @@ def produce_complete_project_frames(
     _check_cancel(cancel)
     gpu_video = bool(video_sources)
     validate_project_for_gpu_capture(project, scale=scale, source_policy="dynamic-audio", gpu_video=gpu_video)
-    plan = compile_playlist(project.playlist, enabled_only=True)
+    plan = compiled_plan if compiled_plan is not None else compile_playlist(project.playlist, enabled_only=True)
     tracks = [t for t in project.playlist if t.enabled and t.duration_seconds > 0]
     if not tracks or plan.duration_seconds <= 0:
         raise TimelineValidationError("A complete native export needs enabled playlist tracks")
@@ -487,6 +488,7 @@ class GuiProjectFrameSource(QObject):
         self._audio = None
         self._ffmpeg = None
         self._analysis = None
+        self._compiled_plan = None
         self.video_sources = None
         self._instrumental_by_track = None
         self._track_tempos = None
@@ -497,12 +499,17 @@ class GuiProjectFrameSource(QObject):
         self.requested.connect(self._produce, Qt.ConnectionType.QueuedConnection)
         self.close_requested.connect(self._close_gui, Qt.ConnectionType.QueuedConnection)
 
-    def prepare(self, prepared_audio, ffmpeg):
-        """Set plain values before worker consumption begins."""
+    def prepare(self, prepared_audio, ffmpeg, *, resolved_project=None, compiled_plan=None):
+        """Set detached values before worker consumption begins."""
         if self._iterator is not None or self._closed:
             raise RenderError("Native frame source is already started or closed.")
-        self._audio, self._ffmpeg = Path(prepared_audio), str(ffmpeg)
         _check_cancel(self.cancel_event)
+        if (resolved_project is None) != (compiled_plan is None):
+            raise RenderError("Resolved native project and audio plan must be provided together.")
+        if resolved_project is not None:
+            self.project = deepcopy(resolved_project)
+        self._compiled_plan = compiled_plan
+        self._audio, self._ffmpeg = Path(prepared_audio), str(ffmpeg)
         try:
             tracks = [t for t in self.project.playlist if t.enabled and t.duration_seconds > 0]
             self._track_tempos = prepare_track_tempos(
@@ -514,7 +521,8 @@ class GuiProjectFrameSource(QObject):
                 lambda: _check_cancel(self.cancel_event),
             )
             self._analysis = prepare_project_frame_audio(
-                self.project, compile_playlist(self.project.playlist, enabled_only=True),
+                self.project, self._compiled_plan if self._compiled_plan is not None else
+                compile_playlist(self.project.playlist, enabled_only=True),
                 fps=self.fps, scale=self.scale, prepared_audio=self._audio, ffmpeg=self._ffmpeg,
                 cancel_event=self.cancel_event,
             )
@@ -573,6 +581,7 @@ class GuiProjectFrameSource(QObject):
                     raster_counters=self.raster_counters,
                     optimizations=self.optimizations,
                     video_sources=self.video_sources,
+                    **({"compiled_plan": self._compiled_plan} if self._compiled_plan is not None else {}),
                 )
             self._result = next(self._iterator)
         except StopIteration:
