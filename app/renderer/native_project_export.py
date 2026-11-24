@@ -188,6 +188,10 @@ def _export_project_document(
                 tracks, Path(directory), settings, transition_mode="none", cancel_event=cancel,
                 progress_callback=preparation_progress_callback,
                 audio_effects=project.settings.audio_effects,
+                # The native frame bridge currently freezes its metadata-based plan
+                # before decoding audio; keep it aligned until that bridge accepts
+                # a resolved sample-accurate plan as well.
+                sample_accurate=False,
             )
             audio_seconds = monotonic() - audio_started
             _check_cancel(cancel)
