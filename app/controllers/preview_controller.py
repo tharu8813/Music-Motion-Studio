@@ -188,7 +188,8 @@ class PreviewController:
         audio_effects = window.project_settings.audio_effects
         # Per-track volume/EQ only exists in a rendered mix, even without transitions.
         needs_mix = (
-            (transition_mode != "none" or has_audio_effects(audio_effects) or any(track.audio_filter for track in tracks))
+            (transition_mode != "none" or has_audio_effects(audio_effects)
+             or FFmpegRenderer.uses_gapless_playlist(tracks) or any(track.audio_filter for track in tracks))
             and executable is not None and bool(tracks)
         )
         korean = window.translator.is_korean
