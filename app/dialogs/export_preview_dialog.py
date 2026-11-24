@@ -72,7 +72,7 @@ from app.preview.presentation import PreviewPresentationController
 from app.controllers.preview_audio_controller import PreviewAudioController
 from app.widgets.audio_sync_warning import AudioSyncWarning
 from app.models.audio_effects import has_audio_effects
-from app.renderer.ffmpeg_renderer import FFmpegRenderer, VisualizerOverlay
+from app.renderer.ffmpeg_renderer import FFmpegRenderer, VisualizerOverlay, uses_gapless_playlist
 from app.renderer.python_visualizer import PythonVisualizerRenderer
 from app.services.source_store import SourceStore
 from app.services.preview_audio_settings import preview_volume, save_preview_volume
@@ -254,7 +254,7 @@ class ExportPreviewDialog(QDialog):
                 # Attach right away (paused at 0), so the first transition renders before Play.
                 QTimer.singleShot(0, self, lambda: self._report_playhead(force=True))
         elif ((self._transition_mode != "none" or has_audio_effects(audio_effects)
-               or FFmpegRenderer.uses_gapless_playlist(self.tracks)
+               or uses_gapless_playlist(self.tracks)
                or any(track.audio_filter for track in self.tracks))
               and self._preview_proxy_ffmpeg is not None and self.tracks):
             self._blended_audio_temp_dir = TemporaryDirectory(prefix="playlist-preview-audio-", ignore_cleanup_errors=True)
