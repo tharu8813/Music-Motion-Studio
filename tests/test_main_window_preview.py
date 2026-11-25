@@ -1865,6 +1865,48 @@ class MainWindowPreviewTests(MainWindowTestCase):
                 preview._stop_preview()
                 preview.deleteLater()
 
+    def test_gapless_preview_waits_for_continuous_audio_and_recovers_on_failure(self) -> None:
+        with TemporaryDirectory(prefix="gapless-preview-gate-") as directory:
+            fake_ffmpeg = Path(directory) / "ffmpeg.exe"
+            fake_ffmpeg.touch()
+            tracks = [
+                PlaylistTrack("a.wav", "A", duration_seconds=3.0),
+                PlaylistTrack("b.wav", "B", duration_seconds=3.0),
+            ]
+            for success in (True, False):
+                with self.subTest(success=success), patch(
+                    "app.dialogs.export_preview_dialog.PreviewAudioController.start",
+                ) as start:
+                    preview = ExportPreviewDialog(
+                        self.window.canvas.scene_model, tracks, self.window.translator,
+                        ffmpeg_executable=fake_ffmpeg, parent=self.window,
+                        preferred_backend="cpu", transition_mode="none",
+                    )
+                    try:
+                        start.assert_called_once()
+                        self.assertFalse(preview.play_button.isEnabled())
+                        with patch.object(preview, "_start_audio_at_playhead") as play:
+                            # Programmatic/shortcut toggles cannot bypass the disabled button.
+                            preview.play_button.setChecked(True)
+                            self.assertFalse(preview.play_button.isChecked())
+                            self.assertFalse(preview._playing)
+                            play.assert_not_called()
+                            if success:
+                                target = Path(directory) / "continuous.flac"
+                                preview._on_blended_audio_ready(str(target), preview._compiled_plan)
+                                self.assertEqual(preview._blended_audio_path, target)
+                            else:
+                                preview._on_blended_audio_failed("decode failed")
+                                self.assertIsNone(preview._blended_audio_path)
+                                self.assertIn("decode failed", preview._last_preview_error_detail)
+                            self.assertTrue(preview.play_button.isEnabled())
+                            preview.play_button.setChecked(True)
+                            self.assertTrue(preview._playing)
+                            play.assert_called_once()
+                    finally:
+                        preview._stop_preview()
+                        preview.deleteLater()
+
     def test_blended_audio_ready_swaps_source_and_defers_seek_until_seekable(self) -> None:
         """A source swap must not seek/play until the new source is actually
         ready -- QMediaPlayer.setSource() returns before loading finishes, so

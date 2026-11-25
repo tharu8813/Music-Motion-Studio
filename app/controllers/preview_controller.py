@@ -391,14 +391,16 @@ class PreviewController:
             return
         window = self.window
         korean = window.translator.is_korean
+        gapless_pending = getattr(preview, "_gapless_preview_pending", False)
         window.activity_progress.begin(
             PREVIEW_MIX_ACTIVITY,
             "미리보기 믹스 준비" if korean else "Preparing preview mix",
             0.0,
             detail=(
-                "준비되는 동안 개별 곡 오디오로 재생하고, 완료되면 믹스로 전환합니다."
-                if korean else
-                "Playing per-track audio meanwhile; switches to the mix when ready."
+                ("무간격 오디오 준비가 끝나면 재생할 수 있습니다." if korean else
+                 "Playback will be available when gapless audio is ready.") if gapless_pending else
+                ("준비되는 동안 개별 곡 오디오로 재생하고, 완료되면 믹스로 전환합니다." if korean else
+                 "Playing per-track audio meanwhile; switches to the mix when ready.")
             ),
         )
 
@@ -421,8 +423,9 @@ class PreviewController:
             window.activity_progress.finish(PREVIEW_MIX_ACTIVITY)
             window.statusBar().showMessage(
                 getattr(controller, "fallback_message", None) or (
-                    "미리보기 믹스가 준비되어 재생 중인 위치에서 전환했습니다." if korean else
-                    "Preview mix ready; switched over at the current position."),
+                    ("무간격 오디오 준비 완료" if korean else "Gapless audio ready") if gapless_pending else
+                    ("미리보기 믹스가 준비되어 재생 중인 위치에서 전환했습니다." if korean else
+                     "Preview mix ready; switched over at the current position.")),
                 4000,
             )
 

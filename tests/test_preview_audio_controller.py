@@ -76,6 +76,31 @@ class PreviewAudioControllerTests(unittest.TestCase):
         controller.start([_track("a.mp3")], Path("."), "none", 3.0)
         self.assertIsNone(controller._worker)
 
+    def test_sequential_playlist_without_effects_starts_lossless_mix(self) -> None:
+        renderer = _renderer()
+        controller = PreviewAudioController(renderer)
+        tracks = [_track("a.mp3"), _track("b.mp3")]
+        with TemporaryDirectory(prefix="gapless-preview-") as directory:
+            target = Path(directory) / "playlist.flac"
+            ready = []
+            controller.audio_ready.connect(lambda path, plan: ready.append((path, plan)))
+            with patch.object(_PreviewAudioWorker, "start", lambda worker: worker.run()), \
+                 patch.object(renderer, "prepare_playlist_audio", return_value=target) as prepare:
+                controller.start(tracks, Path(directory), "none", 3.0)
+            self.assertEqual(len(ready), 1)
+            self.assertEqual(ready[0][0], str(target))
+            self.assertEqual(ready[0][1].duration_seconds, 60.0)
+            self.assertEqual(prepare.call_args.kwargs["audio_codec"], "flac")
+            self.assertEqual(prepare.call_args.kwargs["transition_mode"], "none")
+            controller.shutdown()
+
+    def test_explicit_placement_without_effects_keeps_raw_playback(self) -> None:
+        controller = PreviewAudioController(_renderer())
+        tracks = [_track("a.mp3"), _track("b.mp3")]
+        tracks[1].start_time_seconds = 35.0
+        controller.start(tracks, Path("."), "none", 3.0)
+        self.assertIsNone(controller._worker)
+
     def test_start_with_no_tracks_creates_no_worker(self) -> None:
         controller = PreviewAudioController(_renderer())
         controller.start([], Path("."), "automix", 3.0)
