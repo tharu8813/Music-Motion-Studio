@@ -213,6 +213,13 @@ class ExportPreviewDialog(QDialog):
         )
         self._blended_audio_temp_dir: TemporaryDirectory | None = blended_audio_temp_dir
         self._blended_audio_controller: PreviewAudioController | None = None
+        # Ordinary sequential albums must not start on raw per-track playback
+        # while the single continuous preview soundtrack is being prepared.
+        self._gapless_preview_pending = (
+            transition_mode == "none" and uses_gapless_playlist(tracks)
+            and preloaded_blended_audio is None
+            and (blended_audio_controller is not None or self._preview_proxy_ffmpeg is not None)
+        )
         # Progressive AutoMix (ProgressiveAutoMixController): a partial mix only
         # covers the timeline up to _blended_audio_until; per-track audio plays
         # after it at _per_track_gain so the level matches the mix. New mixes
@@ -477,6 +484,7 @@ class ExportPreviewDialog(QDialog):
         self.play_button = QPushButton()
         self.play_button.setObjectName("previewPlayButton")
         self.play_button.setCheckable(True)
+        self.play_button.setEnabled(not self._gapless_preview_pending)
         self.previous_button = QPushButton()
         self.rewind_button = QPushButton()
         self.forward_button = QPushButton("+5s")
@@ -3366,6 +3374,13 @@ class ExportPreviewDialog(QDialog):
         self._schedule_refresh()
 
     def _toggle_playback(self, playing: bool) -> None:
+        if playing and getattr(self, "_gapless_preview_pending", False):
+            # Keyboard shortcuts and programmatic seeks can toggle a disabled
+            # QPushButton; guard transport as well as the visible control.
+            previous = self.play_button.blockSignals(True)
+            self.play_button.setChecked(False)
+            self.play_button.blockSignals(previous)
+            return
         if playing and self.timeline.value() >= self.timeline.maximum():
             self.timeline.setValue(self.timeline.minimum())
         self._playing = playing
@@ -4057,6 +4072,9 @@ class ExportPreviewDialog(QDialog):
 
     def _set_play_text(self) -> None:
         korean = self.translator.is_korean
+        if getattr(self, "_gapless_preview_pending", False):
+            self.play_button.setText("오디오 준비 중…" if korean else "Preparing audio…")
+            return
         self.play_button.setText(
             "Ⅱ  일시정지" if self._playing and korean else
             "Ⅱ  Pause" if self._playing else
@@ -4152,6 +4170,16 @@ class ExportPreviewDialog(QDialog):
             self._try_apply_pending_swap()
             return
         self._apply_blended_audio(Path(path_str), plan)
+        self._finish_gapless_preview_preparation()
+
+    def _finish_gapless_preview_preparation(self) -> bool:
+        if not getattr(self, "_gapless_preview_pending", False):
+            return False
+        self._gapless_preview_pending = False
+        if hasattr(self, "play_button"):
+            self.play_button.setEnabled(True)
+            self._set_play_text()
+        return True
 
     def _on_playback_level(self, gain: float) -> None:
         """The mix's level is known: per-track audio plays at it from now on."""
@@ -4260,6 +4288,14 @@ class ExportPreviewDialog(QDialog):
 
     def _on_blended_audio_failed(self, message: str) -> None:
         LOGGER.warning("Preview blended-audio render failed, falling back to per-track playback: %s", message)
+        if self._finish_gapless_preview_preparation() and not self._closing and hasattr(self, "error_banner"):
+            korean = self.translator.is_korean
+            self._show_preview_error(
+                "무간격 오디오 준비 실패" if korean else "Gapless audio preparation failed",
+                ("개별 곡 재생으로 전환합니다. 곡 사이에 공백이 생길 수 있습니다.\n" if korean else
+                 "Using per-track playback; gaps may occur between tracks.\n") + str(message),
+                warning=True,
+            )
         panel = getattr(self, "automix_details", None)
         if panel is not None and not self._closing:
             panel.set_failed()
