@@ -22,7 +22,7 @@ from PySide6.QtCore import QEventLoop, QObject, QThread, Signal
 
 from app.models.audio_effects import AudioEffectSettings, has_audio_effects
 from app.models.playlist import PlaylistTrack
-from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderCancelledError, RenderError
+from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderCancelledError, RenderError, uses_gapless_playlist
 from app.timeline.compiler import compile_playlist
 from app.utils.qt_worker_lifecycle import stop_qthread_now
 from app.utils.subprocess_utils import background_work
@@ -151,7 +151,8 @@ class PreviewAudioController(QObject):
             return
         self.cancel()
         if not tracks or (transition_mode == "none" and not (
-            has_audio_effects(audio_effects) or any(track.audio_filter for track in tracks)
+            uses_gapless_playlist(tracks) or has_audio_effects(audio_effects)
+            or any(track.audio_filter for track in tracks)
         )):
             return
         if self._worker is not None:
