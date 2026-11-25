@@ -14,15 +14,15 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.14'
       - name: Install verified FFmpeg
         run: python -m scripts.setup_ci_ffmpeg
       - name: Compare decoder workers and FLAC encoder threads
         run: python tools/gapless_preview_audio_benchmark.py --seconds 60 --rounds 3 --report gapless-preview-benchmark.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: gapless-preview-windows-benchmark
