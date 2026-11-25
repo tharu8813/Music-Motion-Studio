@@ -16,7 +16,8 @@ import re
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from contextlib import ExitStack
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from fractions import Fraction
 from pathlib import Path
 from tempfile import TemporaryDirectory, mkstemp
 
@@ -36,6 +37,7 @@ from app.renderer import loudness
 from app.renderer.ffmpeg import filter_graph
 from app.renderer.python_visualizer import PythonVisualizerError, PythonVisualizerRenderer
 from app.utils.subprocess_utils import hidden_process_kwargs
+from app.utils.cancellable_subprocess import run_probe
 from app.services.export_validation_service import ExportValidationResult
 from app.services.export_policy import ExportPolicy
 from app.services.video_encoder_service import DEFAULT_NATIVE_NVENC_PRESET
@@ -301,6 +303,11 @@ class VideoFileInput:
     loop_input: bool = False
 
 
+def uses_gapless_playlist(tracks: list[PlaylistTrack]) -> bool:
+    """Automatic sequential placement only; explicit starts retain their contract."""
+    return len(tracks) > 1 and all(track.start_time_seconds is None for track in tracks)
+
+
 class FFmpegRenderer:
     """Normalizes tracks, concatenates them with FFmpeg, then renders an MP4."""
 
@@ -542,7 +549,7 @@ class FFmpegRenderer:
             if storage_path_callback:
                 storage_path_callback("render", temporary)
             resolved_plans = []
-            if prepared_audio_path is None and transition_mode != "none":
+            if prepared_audio_path is None and (transition_mode != "none" or uses_gapless_playlist(active_tracks)):
                 prepared_audio_path = self.prepare_playlist_audio(
                     active_tracks, temporary, selected_settings,
                     transition_mode=transition_mode, crossfade_seconds=crossfade_seconds,
@@ -1602,6 +1609,7 @@ class FFmpegRenderer:
         automix_settings: "AutoMixTransitionSettings | None" = None,
         audio_codec: str = "aac",
         audio_effects: AudioEffectSettings | None = None,
+        *, sample_accurate: bool = True,
     ) -> Path:
         """Prepare audio and report the exact plan actually rendered, including fallback.
 
@@ -1640,7 +1648,20 @@ class FFmpegRenderer:
                 active_tracks, output_directory, total_duration, crossfade_seconds,
                 progress_callback, cancel_event, accept_plan,
             )
-        if blended_segments is not None:
+        gapless = sample_accurate and transition_mode == "none" and uses_gapless_playlist(active_tracks)
+        if gapless:
+            segments = self._normalize_audio(
+                active_tracks, output_directory, settings, progress_callback, cancel_event,
+                sample_accurate=True,
+            )
+            joined, durations = self._join_gapless_pcm(segments, cancel_event)
+            resolved_plan = compile_playlist([
+                replace(track, duration_seconds=duration)
+                for track, duration in zip(active_tracks, durations, strict=True)
+            ])
+            segments = [joined]
+            segment_durations = durations
+        elif blended_segments is not None:
             segments, segment_durations = blended_segments
         else:
             segments = self._normalize_audio(
@@ -1651,7 +1672,8 @@ class FFmpegRenderer:
             )
         total_duration = resolved_plan.duration_seconds
         concat_path = output_directory / "playlist.ffconcat"
-        self._write_concat_file(concat_path, segments, segment_durations)
+        if not gapless:
+            self._write_concat_file(concat_path, segments, segment_durations)
         self._report(
             progress_callback, "Combining audio", 0.53,
             f"Measuring loudness 0.0s / {total_duration:.1f}s · 0%",
@@ -1672,7 +1694,10 @@ class FFmpegRenderer:
                 ),
             )
 
-        combining_input_args = ["-f", "concat", "-safe", "0", "-i", str(concat_path)]
+        combining_input_args = (
+            ["-f", "f32le", "-ar", "48000", "-ac", "2", "-i", str(segments[0])]
+            if gapless else ["-f", "concat", "-safe", "0", "-i", str(concat_path)]
+        )
         combining_output_args = [
             *codec_args, "-ar", "48000", "-ac", "2",
             "-progress", "pipe:1", "-nostats",
@@ -2022,11 +2047,73 @@ class FFmpegRenderer:
             plan_callback(compiled)
         return [prepared.path], [compiled.duration_seconds]
 
+    def _aac_presentation_samples(self, track: PlaylistTrack, cancel_event: threading.Event) -> int | None:
+        """Use an MP4 AAC stream's presentation length, not its padded final AAC frame.
+
+        Raw AAC and containers without an exact zero-based stream duration have
+        no reliable end-padding information; never guess from silence.
+        """
+        if Path(track.file_path).suffix.lower() not in {".m4a", ".mp4", ".m4b", ".mov", ".m4v", ".3gp"}:
+            return None
+        probe = self.executable.with_name("ffprobe.exe" if self.executable.suffix.lower() == ".exe" else "ffprobe")
+        if not probe.is_file():
+            found = shutil.which("ffprobe")
+            if not found:
+                return None
+            probe = Path(found)
+        try:
+            result = run_probe([
+                str(probe), "-v", "error", "-select_streams", "a:0",
+                "-show_entries", "stream=codec_name,start_pts,duration_ts,time_base,sample_rate:format=format_name",
+                "-of", "json", track.file_path,
+            ], cancel_event=cancel_event, timeout=15)
+            if result.returncode != 0:
+                return None
+            data = json.loads(result.stdout)
+            stream = data["streams"][0]
+            if (stream.get("codec_name") != "aac" or int(stream["start_pts"]) != 0
+                    or "mp4" not in data["format"]["format_name"].split(",")):
+                return None
+            samples = int(stream["duration_ts"]) * Fraction(stream["time_base"]) * int(stream["sample_rate"])
+            return int(samples) if samples > 0 and samples.denominator == 1 else None
+        except CancelledError as error:
+            raise RenderCancelledError("Rendering was cancelled.") from error
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError, IndexError, TypeError, ZeroDivisionError):
+            LOGGER.debug("AAC presentation sample count unavailable for %s", track.file_path, exc_info=True)
+            return None
+
+    @staticmethod
+    def _join_gapless_pcm(segments: list[Path], cancel_event: threading.Event) -> tuple[Path, list[float]]:
+        """Append interleaved stereo float PCM without timestamp rounding or silence."""
+        if not segments:
+            raise RenderError("No decoded playlist audio.")
+        durations = []
+        for segment in segments:
+            size = segment.stat().st_size
+            if size == 0 or size % 8:
+                raise RenderError("Invalid decoded stereo PCM segment.")
+            durations.append((size // 8) / 48000)
+        # Reuse the first file so the full playlist is never duplicated on disk.
+        with segments[0].open("ab") as destination:
+            for segment in segments[1:]:
+                with segment.open("rb") as source:
+                    while True:
+                        if cancel_event.is_set():
+                            raise RenderCancelledError("Rendering was cancelled.")
+                        block = source.read(1024 * 1024)
+                        if not block:
+                            break
+                        destination.write(block)
+                segment.unlink()
+        if cancel_event.is_set():
+            raise RenderCancelledError("Rendering was cancelled.")
+        return segments[0], durations
+
     def _normalize_audio(self, tracks: list[PlaylistTrack], directory: Path,
                          settings: RenderSettings,
                          progress_callback: Callable[[str, float, str], None] | None,
-                         cancel_event: threading.Event) -> list[Path]:
-        """Normalize every track to an exact-duration lossless segment."""
+                         cancel_event: threading.Event, *, sample_accurate: bool = False) -> list[Path]:
+        """Decode natural sample length, or preserve legacy explicit timeline lengths."""
         segments: list[Path | None] = [None] * len(tracks)
         completed = 0
         progress_lock = threading.Lock()
@@ -2038,9 +2125,17 @@ class FFmpegRenderer:
         )
 
         def normalize(index: int, track: PlaylistTrack) -> tuple[int, Path]:
-            output = directory / f"track_{index:04d}.nut"
+            output = directory / f"track_{index:04d}.{'f32' if sample_accurate else 'nut'}"
             duration = f"{track.duration_seconds:.6f}"
             pad = f"apad=whole_dur={duration}"
+            if sample_accurate:
+                samples = self._aac_presentation_samples(track, cancel_event)
+                filters = [f"atrim=end_sample={samples}"] if samples is not None else []
+                if track.audio_filter:
+                    filters.append(track.audio_filter)
+                timing_args = ["-af", ",".join(filters)] if filters else []
+            else:
+                timing_args = ["-af", f"{track.audio_filter},{pad}" if track.audio_filter else pad, "-t", duration]
 
             def normalization_progress(line: str) -> None:
                 seconds = self._parse_progress_seconds(line)
@@ -2068,10 +2163,10 @@ class FFmpegRenderer:
                 # audio decode gets one FFmpeg worker instead of oversubscribing
                 # every CPU core. PCM output and ordering remain unchanged.
                 "-threads", "1", "-i", track.file_path, "-vn", "-map", "0:a:0",
-                "-af", f"{track.audio_filter},{pad}" if track.audio_filter else pad, "-t", duration,
+                *timing_args,
                 # Float: a track's volume/EQ boost may pass full scale, which
                 # loudness normalization brings back down only if nothing clipped.
-                "-c:a", "pcm_f32le", "-ar", "48000", "-ac", "2", "-f", "nut",
+                "-c:a", "pcm_f32le", "-ar", "48000", "-ac", "2", "-f", "f32le" if sample_accurate else "nut",
                 "-progress", "pipe:1", "-nostats", "-y", str(output),
             ], progress_parser=normalization_progress, cancel_event=cancel_event)
             return index, output
