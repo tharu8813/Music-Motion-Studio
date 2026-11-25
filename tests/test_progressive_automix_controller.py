@@ -121,10 +121,15 @@ class ProgressiveControllerTests(unittest.TestCase):
         self.assertEqual(len(self.finals), 1)
 
     def test_given_settings_plan_the_partial_mixes_and_reach_the_final_export_pipeline(self) -> None:
+        from app.automix.renderer import _DSP_REQUIRED_FILTERS
         from app.automix.settings import AutoMixTransitionSettings
 
         energetic = AutoMixTransitionSettings(enabled=True, preferred_bars=4, max_transition_seconds=12.0)
-        self.controller.start(self.tracks, Path("unused"), "automix", 3.0, automix_settings=energetic)
+        # This is a controller unit test with a dummy executable, not a probe
+        # of whatever FFmpeg happens to be on the Windows runner's PATH.
+        with patch("app.automix.renderer.ffmpeg_filter_names",
+                   return_value=frozenset(_DSP_REQUIRED_FILTERS) | {"rubberband"}):
+            self.controller.start(self.tracks, Path("unused"), "automix", 3.0, automix_settings=energetic)
         self.controller.report_playhead(0.0, True)
         self.analyze("t0", "t1")
         self.settle()
@@ -133,6 +138,25 @@ class ProgressiveControllerTests(unittest.TestCase):
         self.analyze(*(t.id for t in self.tracks[2:]))
         self.partials[-1].ready.emit(self.partials[-1]._generation, "mix.flac", self.partials[-1]._plan, 1.0, 1.0)
         self.assertIs(self.finals[-1][2]["automix_settings"], energetic)  # Preview final == Export settings
+
+    def test_missing_ffmpeg_filters_keep_resolved_settings_for_final_mix(self) -> None:
+        from dataclasses import replace
+        from app.automix.settings import AutoMixTransitionSettings
+
+        requested = AutoMixTransitionSettings(enabled=True, preferred_bars=4, max_transition_seconds=12.0)
+        with patch("app.automix.renderer.ffmpeg_filter_names", return_value=frozenset()):
+            self.controller.start(self.tracks, Path("unused"), "automix", 3.0, automix_settings=requested)
+        expected = replace(requested, allow_pitch_shift=False, allow_tape_stop=False)
+        self.assertEqual(self.controller._settings, expected)
+        self.controller.report_playhead(0.0, True)
+        self.analyze("t0", "t1")
+        self.settle()
+        worker = self.partials[-1]
+        self.assertAlmostEqual(worker._plan.audio.transitions[0].duration, 8.0)
+        self.analyze(*(t.id for t in self.tracks[2:]))
+        worker.ready.emit(worker._generation, "mix.flac", worker._plan, 1.0, 1.0)
+        self.assertIs(self.finals[-1][2]["automix_settings"], self.controller._settings)
+        self.assertEqual(self.finals[-1][2]["automix_settings"], expected)
 
     def test_the_playlist_level_reaches_preview_before_any_mix(self) -> None:
         levels = []
