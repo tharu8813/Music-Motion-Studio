@@ -55,6 +55,7 @@ from app.dialogs.export_complete_dialog import ExportCompleteDialog
 from app.dialogs.export_progress_dialog import ExportProgressDialog
 from app.dialogs.export_settings_dialog import ExportSettingsDialog
 from app.renderer.ffmpeg_renderer import (
+    uses_gapless_playlist,
     EncoderUnavailableError,
     ExportMetadata,
     FFmpegNotFoundError,
@@ -219,7 +220,8 @@ class ExportOrchestrator:
         window = self.window
         mode = window.project_settings.transition_mode
         effects = window.project_settings.audio_effects
-        if mode == "none" and not has_audio_effects(effects):
+        if (mode == "none" and not has_audio_effects(effects)
+                and not uses_gapless_playlist(active_tracks)):
             self.clear_audio_staging()
             return None, None
 
@@ -980,7 +982,9 @@ class ExportOrchestrator:
             kind=str(export_options.export_type_combo.currentData() or "video"),
             file_format=export_options.output_format,
         )
-        if is_subtitle_export(output) and window.project_settings.transition_mode == "none":
+        sequential_subtitles = is_subtitle_export(output) and window.project_settings.transition_mode == "none"
+        if sequential_subtitles and (not uses_gapless_playlist(active_tracks)
+                                     or not all(Path(track.file_path).is_file() for track in active_tracks)):
             self.export_subtitles(active_tracks, output)
             return
         try:
@@ -990,6 +994,11 @@ class ExportOrchestrator:
             # dialog closes. Never replace that new file silently.
             renderer.prevent_output_overwrite = True
         except FFmpegNotFoundError:
+            if sequential_subtitles:
+                # Keep metadata-only subtitle export available offline. Exact
+                # sample boundaries are optional when no decoder is installed.
+                self.export_subtitles(active_tracks, output)
+                return
             answer = QMessageBox.warning(
                 window, "FFmpeg 필요" if korean else "FFmpeg required",
                 (

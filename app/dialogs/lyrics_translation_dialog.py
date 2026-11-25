@@ -279,19 +279,46 @@ class LyricsTranslationDialog(QDialog):
             else:
                 verified = s.verified_connection()
                 if verified is None:
-                    message = self.tr_text("필수 설정 입력됨 · 연결과 모델 실행은 미확인입니다. 서비스 설정에서 연결을 테스트할 수 있습니다.",
-                        "Required settings entered · connection and execution unverified. Test connection in service settings.")
+                    message = self.tr_text(
+                        "연결 미확인 · 설정은 입력됐지만 서버와 모델은 아직 확인하지 않았습니다. 서비스 및 모델 설정에서 연결을 확인하세요.",
+                        "Connection unverified · settings are entered, but the server and model have not been checked. Check in service and model settings.")
                 elif not verified[0]:
-                    message = self.tr_text("최근 연결 확인 실패 · 서비스 설정에서 다시 테스트하세요.",
-                                           "Recent connection check failed · retest in service settings.")
+                    message = self.tr_text(
+                        "연결 실패 · 서버 주소, 로그인 또는 API 키를 확인한 뒤 다시 시도하세요.",
+                        "Connection failed · check the server address, sign-in or API key, then retry.")
+                elif not verified[1]:
+                    message = (self.tr_text(
+                        "모델 미설치 · 로컬 서버에는 사용할 모델이 없습니다. 모델 관리·설치에서 준비하세요.",
+                        "No model installed · install a model from Manage and install models.")
+                        if config.provider in LOCAL_LLM_PROVIDERS else self.tr_text(
+                        "모델 목록 비어 있음 · 서버 연결은 확인됐지만 사용 가능한 모델이 조회되지 않았습니다. 서비스 권한을 확인하세요.",
+                        "Empty model list · the server responded but did not list usable models. Check service permissions."))
                 elif config.model not in verified[1]:
-                    message = self.tr_text("최근 서버 연결 확인됨 · 선택 모델은 조회 목록에 없습니다. 모델 ID와 권한을 확인하세요.",
-                                           "Server checked recently · selected model was not listed. Check model ID and access.")
+                    message = (self.tr_text(
+                        "선택 모델 미설치 · 로컬 서버에서 선택한 모델을 찾지 못했습니다. 설치하거나 다른 모델을 선택하세요.",
+                        "Selected model missing · install it on the local server or choose another model.")
+                        if config.provider in LOCAL_LLM_PROVIDERS else self.tr_text(
+                        "선택 모델 확인 필요 · 조회 목록에 없습니다. 모델 ID와 사용 권한을 확인하세요.",
+                        "Selected model not listed · check its ID and your access permissions."))
                 else:
-                    message = self.tr_text("최근 연결·모델 확인됨(5분 이내) · 실행 시 사용 한도와 메모리 상태는 달라질 수 있습니다.",
-                                           "Connection/model checked within 5 minutes · limits and memory can still change.")
+                    message = self.tr_text(
+                        "연결·모델 확인됨(5분 이내) · 실제 번역 시 서버 상태와 사용 한도는 달라질 수 있습니다.",
+                        "Connection and model checked within 5 minutes · server status and limits may change before translation.")
         except TranslationError as error:
-            message = str(error)
+            verified = s.verified_connection() if config.provider in LOCAL_LLM_PROVIDERS else None
+            if (config.provider in LOCAL_LLM_PROVIDERS and not config.same_language
+                    and not config.model and verified is not None and verified[0] and not verified[1]):
+                message = self.tr_text(
+                    "모델 미설치 · 로컬 서버에는 사용할 모델이 없습니다. 모델 관리·설치에서 준비하세요.",
+                    "No model installed · install a model from Manage and install models.")
+            elif (config.provider == "local_nmt" and not config.same_language
+                    and not config.model and config.source not in ("", "auto")
+                    and not s.local_models.for_pair(config.source, config.target)):
+                message = self.tr_text(
+                    f"모델 미설치 · {config.source} → {config.target} 언어 모델을 설치하세요.",
+                    f"Model not installed · install a model for {config.source} → {config.target}.")
+            else:
+                message = self.tr_text("설정 확인 필요 · ", "Check settings · ") + str(error)
         self.readiness_label.setText(message)
         local = s._provider not in CLOUD_LLM_PROVIDERS
         self.privacy_note.setText(self.tr_text("이 컴퓨터에서 번역합니다.", "Translation runs on this computer.") if local else
@@ -308,11 +335,19 @@ class LyricsTranslationDialog(QDialog):
                                                     "Close model management before translating."))
         if not self.review_panel._editable_rows:
             self.readiness_label.setText(self.tr_text("번역할 가사가 없습니다. 원문 가사를 먼저 추가하세요.", "Add original lyrics before translating."))
+        # Publish the final readiness message after all higher-priority UI
+        # overrides; otherwise setup and editor can disagree while managing
+        # models or when there are no editable lyrics.
+        s.connection_hint.setText(self.readiness_label.text())
 
     def _status_changed(self, text):
         for window in (self, self.service_dialog):
             window.status_label.setText(text)
             window.status_label.setVisible(bool(text))
+        # A finished model lookup or connection test updates the verification
+        # cache without editing the controls. Refresh immediately instead of
+        # waiting for the periodic readiness timer.
+        self._refresh_summary()
 
     def _progress(self, value, total):
         for window in (self, self.service_dialog):

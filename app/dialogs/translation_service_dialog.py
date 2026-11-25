@@ -9,7 +9,7 @@ from app.dialogs.help_dialog import install_help_shortcut
 from app.services.local_translation_service import LocalTranslationModels
 from app.services.local_llm_service import LOCAL_LLM_PROVIDERS, CLOUD_LLM_PROVIDERS
 from app.ui.design_system import COLORS
-from app.services.lyrics_translation_service import LLM_PROVIDERS, PROVIDERS, TranslationConfig, TranslationError
+from app.services.lyrics_translation_service import PROVIDERS, TranslationConfig, TranslationError
 from app.services.translation_credentials import TranslationCredentials
 
 
@@ -68,7 +68,7 @@ class TranslationServiceDialog(QDialog):
         self.local_models_button = QPushButton(self.tr_text("이 언어 모델 자동 설치", "Install model for these languages"))
         self.import_local_button = QPushButton(self.tr_text("모델 파일 직접 가져오기…", "Import a model file…"))
         self.llm_manager_button = QPushButton(self.tr_text(
-            "가사 번역용 LLM 추천·다운로드…", "Recommend and download a lyric translation LLM…"))
+            "모델 관리·설치…", "Manage and install models…"))
         self.local_pair_note = QLabel()
         self.local_pair_note.setWordWrap(True)
         self.local_pair_note.setTextFormat(Qt.TextFormat.PlainText)
@@ -106,6 +106,14 @@ class TranslationServiceDialog(QDialog):
         scroll.setWidget(panel)
         root.addWidget(scroll, 1)
         self._settings_panel = panel
+        # Keep the currently actionable readiness hint visible in the settings
+        # window. The parent editor computes it once for both windows so that
+        # connection state, missing models and required settings cannot diverge.
+        self.connection_hint = QLabel()
+        self.connection_hint.setObjectName("translationServiceConnectionHint")
+        self.connection_hint.setWordWrap(True)
+        self.connection_hint.setTextFormat(Qt.TextFormat.PlainText)
+        root.addWidget(self.connection_hint)
         self.status_label = QLabel()
         self.status_label.setWordWrap(True)
         self.status_label.setTextFormat(Qt.TextFormat.PlainText)
@@ -213,6 +221,9 @@ class TranslationServiceDialog(QDialog):
                         self.provider_combo.findData(self._provider))
                 self.status_label.setText(str(error))
                 return
+        # A connection error for the previous provider must not look like
+        # a failure of the newly selected service.
+        self.status_label.clear()
         self._provider = provider
         self._changing_provider = True
         self.settings.setValue("translation/provider", provider)
@@ -241,8 +252,18 @@ class TranslationServiceDialog(QDialog):
                 widget.setVisible(visible)
         for widget in (self.account_button, self.account_label):
             widget.setVisible(provider == "chatgpt")
-        self.models_button.setVisible(provider in LLM_PROVIDERS)
-        self.models_button.setText(self.tr_text("설치된 모델 새로고침", "Refresh installed models") if provider in LOCAL_LLM_PROVIDERS else self.tr_text("모델 불러오기", "Load models"))
+        # The footer verification action already performs model discovery for
+        # ChatGPT/local LLMs and connection checks for the other services.
+        # Keep the legacy widget wired but hide the duplicate visible action.
+        self.models_button.hide()
+        if provider in LOCAL_LLM_PROVIDERS:
+            self.test_button.setText(self.tr_text("설치 모델 새로고침", "Refresh installed models"))
+        elif provider == "chatgpt":
+            self.test_button.setText(self.tr_text("모델 목록 확인", "Check model list"))
+        elif provider == "local_nmt":
+            self.test_button.setText(self.tr_text("언어 모델 확인", "Check language model"))
+        else:
+            self.test_button.setText(self.tr_text("연결 확인", "Check connection"))
         self.llm_manager_button.setVisible(provider in LOCAL_LLM_PROVIDERS)
         for widget in (self.local_models_button, self.import_local_button, self.local_pair_note, self.local_accuracy_warning):
             widget.setVisible(provider == "local_nmt")
@@ -253,8 +274,8 @@ class TranslationServiceDialog(QDialog):
             "chatgpt": self.tr_text("계정 관리에서 로그인하면 앱 종료 후에도 연결을 유지합니다. 계정·구독 한도를 따릅니다.", "Manage sign-in separately; your session is kept after restart. Account and plan limits apply."),
             "claude": self.tr_text("Claude 구독 로그인 대신 Console API 키를 사용합니다.", "Uses a Console API key, separate from a Claude subscription."),
             "local_nmt": self.tr_text("별도 프로그램을 설치할 필요가 없습니다. 실행 구성요소는 앱에 포함되어 있으며 선택한 언어 모델만 자동으로 내려받아 설치합니다.", "No separate program is required. The runtime is included; install only the model for your selected languages."),
-            "ollama": self.tr_text("설치된 LLM을 선택하세요. 처음 사용하는 경우 로컬 LLM 관리자에서 실행 구성요소와 모델을 준비할 수 있습니다.", "Choose an installed LLM. The local LLM manager can set up the runtime and download models."),
-            "lmstudio": self.tr_text("LM Studio의 Developer 서버에서 LLM을 로드하세요.", "Load an LLM in LM Studio's Developer server."),
+            "ollama": self.tr_text("모델이 없다면 ‘모델 관리·설치…’에서 준비하세요.", "No model yet? Use Manage and install models."),
+            "lmstudio": self.tr_text("LM Studio에서 서버를 시작하고 모델을 선택하세요.", "Start the LM Studio server and select a model."),
         }
         self.provider_note.setText(notes.get(provider, self.tr_text("서비스의 사용량·지원 언어 조건을 따릅니다.", "Provider usage limits and supported languages apply.")))
         self._changing_provider = False
@@ -332,9 +353,11 @@ class TranslationServiceDialog(QDialog):
         key = self.credentials.load("chatgpt").get("access_token", "") if config.provider == "chatgpt" else config.key
         return (config.provider, config.endpoint, hashlib.sha256(key.encode()).hexdigest())
 
-    def record_connection(self, connected, models=()):
+    def record_connection(self, connected, models=(), *, signature=None, checked_at=None):
         from time import monotonic
-        self.connection = (self.connection_signature(), connected, frozenset(models), monotonic())
+        self.connection = (self.connection_signature() if signature is None else signature,
+                           connected, frozenset(models),
+                           monotonic() if checked_at is None else checked_at)
 
     def verified_connection(self):
         from time import monotonic
@@ -406,19 +429,28 @@ class TranslationServiceDialog(QDialog):
         provider = self._provider
         signature = self.connection_signature()
         def finished(_result):
-            self._installed_llms[provider] = dialog.models
-            if self._provider == provider:
-                if dialog._discovered:
+            # The manager can outlive changes to provider, endpoint, or API key.
+            # Never import its previous server's results into a new connection.
+            current = self._provider == provider and signature == self.connection_signature()
+            if current:
+                if dialog._discovered and dialog.models_verified_at is not None:
+                    self._installed_llms[provider] = dialog.models
                     self._populate_llm_models(dialog.models, dialog.selected_model or self._model_value())
                     if not self._model_value():
                         self.settings.remove("translation/config/" + provider + "/model")
-                    if signature == self.connection_signature():
-                        self.record_connection(True, [model["id"] for model in dialog.models])
+                    # Retain the actual probe time, not the time this dialog
+                    # happened to close. A five-minute-old result stays stale.
+                    self.record_connection(True, [model["id"] for model in dialog.models],
+                                           signature=signature, checked_at=dialog.models_verified_at)
+                else:
+                    # Failed and cancelled refreshes make connection unknown,
+                    # not "connected" merely because a prior lookup succeeded.
+                    self.connection = None
                 try:
                     self._save_settings()
                 except TranslationError as error:
                     self.status_label.setText(str(error))
-                self.changed.emit()
+            self.changed.emit()
         self.manager.finished.connect(finished)
         self.manager.busy_changed.connect(self.changed)
         self.manager.show()

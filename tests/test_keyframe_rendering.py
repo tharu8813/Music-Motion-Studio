@@ -71,6 +71,32 @@ class KeyframeFfmpegTests(TestCase):
                 expected = 255 * evaluate_curve(points, index / 10, 0)
                 self.assertAlmostEqual(float(frame[0, 0, 0]), expected, delta=2, msg=f"{easing} frame {index}")
 
+    def test_dynamic_odd_dimensions_rotate_on_fixed_transparent_envelope(self):
+        source = Source(SourceType.SHAPE, "Rectangle", x=20, y=30,
+                        width=17, height=11, fill_color="#FFFFFF")
+        source.keyframes.global_curves = {
+            "scale": [Keyframe(0, .8), Keyframe(1, 1.8)],
+            "rotation": [Keyframe(0, -20), Keyframe(1, 65)],
+            "opacity": [Keyframe(0, .5), Keyframe(1, .5)],
+        }
+        track = PlaylistTrack("", "Track", duration_seconds=1)
+        binding = KeyframeRenderBinding.build(source, compile_playlist([track]))
+        graph = []
+        layer, x, y = ffmpeg_transform(graph, "[1:v]", binding, 17, 11, "fixed")
+        graph.append(f"[0:v]{layer}overlay=x='{x}':y='{y}':format=rgb[out]")
+        frames = self.ffmpeg(
+            ["color=black:s=96x96:r=10:d=1", "color=white:s=17x11:r=10:d=1,format=rgba"],
+            ";".join(graph), width=96, height=96,
+        )
+        self.assertEqual(len(frames), 10)
+        for frame in frames:
+            ys, xs = np.nonzero(frame[:, :, 0] > 20)
+            self.assertGreater(len(xs), 0)
+            self.assertAlmostEqual(float(xs.mean()), 28, delta=1.5)
+            self.assertAlmostEqual(float(ys.mean()), 35, delta=1.5)
+            self.assertAlmostEqual(float(frame[:, :, 0].max()), 127.5, delta=4)
+            self.assertEqual(int(frame[0, 0].max()), 0)
+
     def test_ffmpeg_geometry_and_alpha_match_canvas_keyframe_poses(self):
         self._check_geometry_and_alpha("linear")
 

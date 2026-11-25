@@ -398,6 +398,327 @@ class TranslationSetupUITests(unittest.TestCase):
         self.assertTrue(review.isVisible())
         self.assertFalse(review.isWindow())
 
+    def test_manager_failed_refresh_discards_previous_connection_proof(self):
+        self.settings.setValue("translation/provider", "ollama")
+        local = Mock(provider="ollama", base="http://localhost:11434")
+        local.discover.return_value = [installed_row()]
+        dialog = self.dialog(local_llm_factory=lambda *args: local)
+        services = dialog.service_dialog
+        self.until(lambda: dialog.worker is None and services.verified_connection() is not None)
+        self.assertTrue(services.verified_connection()[0])
+
+        services._open_llm_manager()
+        manager = services.manager
+        self.until(lambda: manager.worker is None and manager.models_verified_at is not None)
+        local.discover.side_effect = TranslationError("server disconnected")
+        manager._refresh()
+        self.until(lambda: manager.worker is None and "server disconnected" in manager.status.text())
+        self.assertIsNone(manager.models_verified_at)
+        self.assertIn("연결 실패", manager.engine_state.text())
+        manager.close()
+        self.app.processEvents()
+        self.assertIsNone(services.connection)
+        self.assertIsNone(services.verified_connection())
+
+    def test_manager_cancelled_refresh_discards_previous_connection_proof(self):
+        self.settings.setValue("translation/provider", "ollama")
+        local = Mock(provider="ollama", base="http://localhost:11434")
+        local.discover.return_value = [installed_row()]
+        dialog = self.dialog(local_llm_factory=lambda *args: local)
+        services = dialog.service_dialog
+        self.until(lambda: dialog.worker is None and services.verified_connection() is not None)
+        services._open_llm_manager()
+        manager = services.manager
+        self.until(lambda: manager.worker is None and manager.models_verified_at is not None)
+
+        entered, release = Event(), Event()
+        def delayed(cancel):
+            entered.set()
+            release.wait(3)
+            return [installed_row()]
+        local.discover.side_effect = delayed
+        manager._refresh()
+        self.until(entered.is_set)
+        self.assertIsNone(manager.models_verified_at)
+        manager._cancel()
+        release.set()
+        self.until(lambda: manager.worker is None)
+        self.assertIsNone(manager.models_verified_at)
+        self.assertIn("미확인", manager.engine_state.text())
+        manager.close()
+        self.app.processEvents()
+        self.assertIsNone(services.connection)
+
+    def test_manager_failed_model_operation_invalidates_previous_listing(self):
+        self.settings.setValue("translation/provider", "ollama")
+        local = Mock(provider="ollama", base="http://localhost:11434")
+        local.discover.return_value = [installed_row()]
+        dialog = self.dialog(local_llm_factory=lambda *args: local)
+        services = dialog.service_dialog
+        self.until(lambda: dialog.worker is None and services.verified_connection() is not None)
+        services._open_llm_manager()
+        manager = services.manager
+        self.until(lambda: manager.worker is None and manager.models_verified_at is not None)
+        self.assertIsNotNone(manager._selected())
+        local.memory.side_effect = TranslationError("memory operation failed")
+        manager._memory(True)
+        self.until(lambda: manager.worker is None and "memory operation failed" in manager.status.text())
+        self.assertIsNone(manager.models_verified_at)
+        self.assertIn("미확인", manager.engine_state.text())
+        manager.close()
+        self.app.processEvents()
+        self.assertIsNone(services.verified_connection())
+
+
+    def test_manager_cancel_drops_late_download_progress_and_activity(self):
+        local = Mock(provider="ollama", base="http://localhost:11434")
+        local.discover.return_value = [installed_row()]
+        manager = LocalLLMManagerDialog(Translator(), service=local)
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None and manager.models_verified_at is not None)
+        entered, release = Event(), Event()
+
+        def work(cancel, progress):
+            entered.set()
+            release.wait(3)
+            progress(75, 100)
+            manager.worker.activity.emit({
+                "status": "pulling manifest", "completed": 75, "total": 100})
+            return [installed_row()]
+
+        manager._start("download", work)
+        self.until(entered.is_set)
+        manager._cancel()
+        release.set()
+        self.until(lambda: manager.worker is None)
+        self.assertEqual(manager.download_detail.text(), "")
+        self.assertIn("취소", manager.status.text())
+        self.assertEqual(manager.operation, "")
+        manager._progress(99, 100)
+        manager._download_activity({"status": "late download", "completed": 99, "total": 100})
+        self.assertEqual(manager.download_detail.text(), "")
+
+    def test_manager_closing_disallows_new_worker_and_late_activity(self):
+        local = Mock(provider="ollama", base="http://localhost:11434")
+        local.discover.return_value = [installed_row()]
+        manager = LocalLLMManagerDialog(Translator(), service=local)
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None and manager.models_verified_at is not None)
+        entered, release = Event(), Event()
+        replacement = Mock()
+
+        def work(cancel, progress):
+            entered.set()
+            release.wait(3)
+            manager.worker.activity.emit({
+                "status": "pulling manifest", "completed": 1, "total": 2})
+            return [installed_row()]
+
+        manager._start("download", work)
+        self.until(entered.is_set)
+        original_worker = manager.worker
+        manager.reject()
+        self.assertTrue(manager._closing)
+        self.assertTrue(original_worker.cancel.is_set())
+        manager._start("refresh", replacement)
+        self.assertIs(manager.worker, original_worker)
+        release.set()
+        self.until(lambda: manager.worker is None)
+        replacement.assert_not_called()
+        self.assertEqual(manager.download_detail.text(), "")
+        self.assertEqual(manager.operation, "")
+
+    def test_manager_close_keeps_original_probe_age(self):
+        self.settings.setValue("translation/provider", "ollama")
+        local = Mock(provider="ollama", base="http://localhost:11434")
+        local.discover.return_value = [installed_row()]
+        dialog = self.dialog(local_llm_factory=lambda *args: local)
+        services = dialog.service_dialog
+        self.until(lambda: dialog.worker is None and services.verified_connection() is not None)
+        services._open_llm_manager()
+        manager = services.manager
+        self.until(lambda: manager.worker is None and manager.models_verified_at is not None)
+        old_timestamp = time.monotonic() - 400
+        manager.models_verified_at = old_timestamp
+        manager.close()
+        self.app.processEvents()
+        self.assertEqual(services.connection[3], old_timestamp)
+        self.assertIsNone(services.verified_connection())
+
+    def test_manager_close_ignores_results_after_server_setting_changes(self):
+        self.settings.setValue("translation/provider", "ollama")
+        local = Mock(provider="ollama", base="http://localhost:11434")
+        local.discover.return_value = [installed_row()]
+        dialog = self.dialog(local_llm_factory=lambda *args: local)
+        services = dialog.service_dialog
+        self.until(lambda: dialog.worker is None and services.verified_connection() is not None)
+        services._open_llm_manager()
+        manager = services.manager
+        self.until(lambda: manager.worker is None and manager.models_verified_at is not None)
+        previous_connection = services.connection
+        services.endpoint_edit.setText("http://localhost:11435/v1")
+        manager.close()
+        self.app.processEvents()
+        self.assertEqual(services.connection, previous_connection)
+        self.assertIsNone(services.verified_connection())
+
+
+    def test_catalog_filter_with_no_matches_clears_stale_model_choice(self):
+        service = Mock(provider="ollama")
+        service.discover.return_value = [installed_row()]
+        manager = LocalLLMManagerDialog(Translator(), service=service)
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None)
+        manager.tabs.setCurrentIndex(1)
+        self.assertTrue(manager.download_name.text())
+        self.assertTrue(manager.source_link.text())
+        manager.catalog_search.setText("not-an-existing-model-000")
+        self.assertIn("0개", manager.catalog_count.text())
+        self.assertEqual(manager.download_name.text(), "")
+        self.assertEqual(manager.source_link.text(), "")
+        self.assertIn("검색 결과가 없습니다", manager.description.toPlainText())
+        self.assertFalse(manager.download_button.isEnabled())
+        manager._download()
+        self.assertIn("추천 목록", manager.status.text())
+        service.download.assert_not_called()
+        manager.catalog_search.clear()
+        self.assertTrue(manager.download_name.text())
+        self.assertTrue(manager.download_button.isEnabled())
+        self.assertTrue(manager.source_link.text())
+
+    def test_manual_model_entry_works_without_visible_recommendations(self):
+        service = Mock(provider="ollama")
+        service.discover.return_value = []
+        service.download.return_value = [installed_row("custom-model:3b")]
+        manager = LocalLLMManagerDialog(Translator(), service=service)
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None)
+        manager.tabs.setCurrentIndex(1)
+        manager.catalog_search.setText("no-results-000")
+        manager.manual_toggle.setChecked(True)
+        self.assertFalse(manager.download_button.isEnabled())
+        manager.download_name.setText("custom-model:3b")
+        self.assertTrue(manager.download_button.isEnabled())
+        self.assertIn("입력한 모델", manager.download_button.text())
+        self.assertIn("직접 입력한 모델", manager.description.toPlainText())
+        self.assertEqual(manager.source_link.text(), "")
+        manager._download()
+        self.until(lambda: manager.worker is None)
+        service.download.assert_called_once()
+        self.assertEqual(service.download.call_args.args[0], "custom-model:3b")
+        self.assertEqual(manager._selected()["id"], "custom-model:3b")
+
+    def test_catalog_and_installed_filters_do_not_leave_old_model_details(self):
+        service = Mock(provider="ollama")
+        service.discover.return_value = [installed_row()]
+        manager = LocalLLMManagerDialog(Translator(), service=service)
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None and manager.table.rowCount() == 1)
+        manager.tabs.setCurrentIndex(1)
+        catalog_model = manager.download_name.text()
+        self.assertTrue(manager.source_link.text())
+        manager.manual_toggle.setChecked(True)
+        manager.download_name.setText("special:3b")
+        self.assertIn("직접 입력한 모델", manager.description.toPlainText())
+        manager.manual_toggle.setChecked(False)
+        self.assertEqual(manager.download_name.text(), catalog_model)
+        self.assertTrue(manager.source_link.text())
+
+        manager.tabs.setCurrentIndex(0)
+        manager.table.selectRow(0)
+        self.assertIn("qwen3:4b", manager.description.toPlainText())
+        manager.search.setText("no-installed-result-000")
+        self.assertIsNone(manager._selected())
+        self.assertFalse(manager.use_button.isEnabled())
+        self.assertEqual(manager.description.toPlainText(), "")
+        self.assertEqual(manager.source_link.text(), "")
+
+    def test_manager_download_shows_distinct_transfer_validation_and_installation(self):
+        service = Mock(provider="ollama")
+        service.discover.return_value = []
+        manager = LocalLLMManagerDialog(Translator(), service=service)
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None)
+        entered, release = Event(), Event()
+
+        def work(cancel, progress):
+            entered.set()
+            release.wait(3)
+            raise TranslationCancelled()
+
+        manager._start("download", work)
+        self.until(entered.is_set)
+        self.assertIn("모델 정보를 확인", manager.status.text())
+
+        manager._download_activity({"status": "pulling manifest", "completed": 0, "total": 0})
+        self.assertIn("모델 정보를 확인", manager.status.text())
+        manager._download_activity({"status": "pulling 61aa...", "completed": 512 * 1024 ** 2,
+                                    "total": 1024 ** 3})
+        self.assertIn("다운로드 중", manager.status.text())
+        self.assertIn("512.0 MiB / 1.0 GiB", manager.download_detail.text())
+        manager._progress(50, 100)
+        self.assertEqual(manager.progress.maximum(), 100)
+
+        manager._download_activity({"status": "verifying sha256 digest", "completed": 0, "total": 0})
+        self.assertIn("파일 검증 중", manager.status.text())
+        self.assertEqual(manager.download_detail.text(), "")
+        self.assertEqual(manager.progress.maximum(), 0)
+        manager._progress(100, 100)
+        self.assertEqual(manager.progress.maximum(), 0)
+        manager._download_activity({"status": "writing manifest", "completed": 0, "total": 0})
+        self.assertIn("설치 마무리", manager.status.text())
+        manager._download_activity({"status": "success", "completed": 0, "total": 0})
+        self.assertIn("설치된 모델 목록 확인 중", manager.status.text())
+        self.assertEqual(manager.progress.maximum(), 0)
+
+        manager._download_activity({"status": "Bearer secret-should-not-render",
+                                    "completed": 0, "total": 0})
+        self.assertIn("작업 진행 중", manager.status.text())
+        self.assertNotIn("secret-should-not-render", manager.status.text())
+        manager._cancel()
+        release.set()
+        self.until(lambda: manager.worker is None)
+        self.assertIn("취소", manager.status.text())
+
+    def test_manager_download_error_offers_retry_and_success_requires_listing(self):
+        service = Mock(provider="ollama")
+        service.discover.return_value = []
+        service.download.side_effect = TranslationError("disk full")
+        manager = LocalLLMManagerDialog(Translator(), service=service)
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None)
+        target = manager.download_name.text()
+        self.assertEqual(target, "qwen3.5:9b")
+
+        manager._download()
+        self.until(lambda: manager.worker is None)
+        self.assertIn("다운로드·설치 실패", manager.status.text())
+        self.assertIn("disk full", manager.status.text())
+        self.assertIn("재시도", manager.status.text())
+        self.assertEqual(manager.download_name.text(), target)
+
+        service.download.side_effect = None
+        service.download.return_value = [installed_row(target)]
+        manager._download()
+        self.until(lambda: manager.worker is None)
+        self.assertIn("설치 확인 완료", manager.status.text())
+        self.assertEqual(manager._selected()["id"], target)
+        self.assertEqual(service.download.call_count, 2)
+
+    def test_manager_download_unlisted_result_does_not_claim_installed(self):
+        service = Mock(provider="ollama")
+        service.discover.return_value = []
+        service.download.return_value = []
+        manager = LocalLLMManagerDialog(Translator(), service=service)
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None)
+        manager._download()
+        self.until(lambda: manager.worker is None)
+        self.assertIsNone(manager._selected())
+        self.assertIn("설치 모델을 목록에서 확인하지 못했습니다", manager.status.text())
+        self.assertNotIn("설치 확인 완료", manager.status.text())
+
+
     def test_manager_can_use_already_installed_catalog_model_without_redownloading(self):
         service = Mock(provider="ollama")
         service.discover.return_value = [installed_row("qwen2.5-coder:7b")]

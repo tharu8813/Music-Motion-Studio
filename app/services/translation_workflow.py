@@ -114,7 +114,9 @@ class TranslationWorkflow(QObject):
         self._previous_result = self.draft.has_result
         self.worker = TranslationWorker(work, self)
         self.worker.finished.connect(self._finished)
-        self.worker.progress.connect(self.progress_changed)
+        # Route signals through guarded slots: queued progress/activity from a
+        # cancelled or previous worker must never update the current editor.
+        self.worker.progress.connect(self._progress)
         self.worker.activity.connect(self._activity)
         self.review._set_review_busy(True)
         self.review.apply_button.setEnabled(False)
@@ -137,8 +139,19 @@ class TranslationWorkflow(QObject):
             self.set_status(self.tr_text("취소 중… 현재 요청이 끝나면 중단합니다.",
                                         "Cancelling… waiting for the current request to finish."))
 
+    def _progress(self, value, total):
+        worker = self.worker
+        sender = self.sender()
+        if worker is None or worker.cancel.is_set() or (sender is not None and sender is not worker):
+            return
+        self.progress_changed.emit(value, total)
+
     def _activity(self, event):
-        if self.operation != "translate":
+        worker = self.worker
+        sender = self.sender()
+        if (worker is None or worker.cancel.is_set()
+                or (sender is not None and sender is not worker)
+                or self.operation != "translate" or not isinstance(event, dict)):
             return
         stage = event.get("stage")
         if stage == "complete":
@@ -156,6 +169,9 @@ class TranslationWorkflow(QObject):
             self.review._activity(event)
 
     def _finished(self):
+        # Ignore a late completion from an already-disposed worker.
+        if self.worker is None or (self.sender() is not None and self.sender() is not self.worker):
+            return
         worker, self.worker = self.worker, None
         review, services = self.review, self.services
         requested_connection = self._connection_request
@@ -278,9 +294,13 @@ class TranslationWorkflow(QObject):
         if save_error:
             self.set_status(self.status + "\n" + save_error)
         review._update_selection()
+        completed_translation = (
+            self.operation == "translate" and not worker.error
+            and not worker.cancel.is_set() and worker.value is not None)
+        self.operation = ""
         worker.deleteLater()
         self.busy_changed.emit(False)
-        if self.operation == "translate" and not worker.error and not worker.cancel.is_set() and worker.value is not None:
+        if completed_translation:
             self.completed.emit()
 
     def _save_draft(self):

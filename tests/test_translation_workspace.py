@@ -131,6 +131,142 @@ class TranslationWorkspaceTests(unittest.TestCase):
         self.assertEqual(dialog.selected_cues[2], self.cues[2])
         self.assertTrue(self.settings.contains(dialog.draft.key))
 
+    def test_service_settings_exposes_one_contextual_check_action_per_provider(self):
+        local = Mock(provider="ollama", base="http://localhost:11434")
+        local.discover.return_value = []
+        dialog = self.dialog(local_llm_factory=lambda *args: local)
+        services = dialog.service_dialog
+
+        self.assertEqual(services._provider, "openai")
+        self.assertTrue(services.models_button.isHidden())
+        self.assertEqual(services.test_button.text(), "연결 확인")
+        services.provider_combo.setCurrentIndex(services.provider_combo.findData("claude"))
+        self.assertEqual(services.test_button.text(), "연결 확인")
+        self.assertTrue(services.models_button.isHidden())
+        services.provider_combo.setCurrentIndex(services.provider_combo.findData("chatgpt"))
+        self.assertEqual(services.test_button.text(), "모델 목록 확인")
+        self.assertTrue(services.models_button.isHidden())
+
+        dialog.mode_combo.setCurrentIndex(dialog.mode_combo.findData("local_llm"))
+        self.until(lambda: dialog.worker is None)
+        self.assertEqual(services.test_button.text(), "설치 모델 새로고침")
+        self.assertTrue(services.models_button.isHidden())
+        self.assertFalse(services.llm_manager_button.isHidden())
+        self.assertEqual(services.llm_manager_button.text(), "모델 관리·설치…")
+
+        dialog.mode_combo.setCurrentIndex(dialog.mode_combo.findData("local"))
+        self.assertEqual(services.test_button.text(), "언어 모델 확인")
+        self.assertTrue(services.models_button.isHidden())
+        self.assertTrue(services.llm_manager_button.isHidden())
+
+    def test_service_contextual_check_button_preserves_existing_operations(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        with patch.object(services, "_start") as start:
+            services.test_button.click()
+            self.assertEqual(start.call_args.args[0], "connection")
+        services.provider_combo.setCurrentIndex(services.provider_combo.findData("chatgpt"))
+        with patch.object(services, "_load_models") as load_models:
+            services.test_button.click()
+            load_models.assert_called_once_with()
+        dialog.mode_combo.setCurrentIndex(dialog.mode_combo.findData("local"))
+        services.local_pair_note.setText("No model installed")
+        with patch.object(services, "_refresh_local_models") as refresh:
+            services.test_button.click()
+            refresh.assert_called_once()
+        self.assertEqual(services.status_label.text(), "No model installed")
+
+    def test_service_readiness_hint_matches_editor_and_updates_after_key_changes(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        self.assertIn("연결 미확인", services.connection_hint.text())
+        self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
+        self.assertEqual(services.connection_hint.textFormat(), Qt.TextFormat.PlainText)
+
+        services.record_connection(True, ["chosen-model"])
+        dialog._refresh_summary()
+        self.assertIn("연결·모델 확인됨", services.connection_hint.text())
+        self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
+
+        services.key_edit.setText("rotated-test-credential")
+        self.assertIn("연결 미확인", services.connection_hint.text())
+        services.record_connection(False)
+        dialog._refresh_summary()
+        self.assertIn("연결 실패", services.connection_hint.text())
+        self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
+
+    def test_service_readiness_refreshes_immediately_after_model_lookup(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        self.assertIn("연결 미확인", services.connection_hint.text())
+        dialog.workflow.start("models", lambda cancel, progress: [
+            ("chosen-model", "Chosen model")])
+        self.until(lambda: dialog.worker is None)
+        self.assertEqual(services.verified_connection(),
+                         (True, frozenset({"chosen-model"})))
+        self.assertIn("연결·모델 확인됨", services.connection_hint.text())
+        self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
+
+    def test_service_readiness_shows_missing_local_llm_without_failed_connection(self):
+        self.settings.setValue("translation/provider", "ollama")
+        self.settings.setValue("translation/config/ollama/model", "missing:3b")
+        service = Mock(provider="ollama", base="http://localhost:11434")
+        service.discover.return_value = []
+        dialog = self.dialog(local_llm_factory=lambda *args: service)
+        self.until(lambda: dialog.worker is None and service.discover.called)
+        services = dialog.service_dialog
+        services.record_connection(True, [])
+        dialog._refresh_summary()
+        self.assertIn("모델 미설치", services.connection_hint.text())
+        self.assertNotIn("연결 실패", services.connection_hint.text())
+        self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
+
+    def test_service_readiness_matches_editor_during_model_management(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        with patch.object(services, "manager", create=True) as manager:
+            manager.isVisible.return_value = True
+            dialog._refresh_summary()
+            self.assertIn("모델 관리를 마친 뒤", dialog.readiness_label.text())
+            self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
+            self.assertFalse(dialog.translate_button.isEnabled())
+            manager.isVisible.return_value = False
+            dialog._refresh_summary()
+            self.assertIn("연결 미확인", services.connection_hint.text())
+            self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
+
+    def test_service_readiness_matches_editor_without_editable_lyrics(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        with patch.object(dialog.review_panel, "_editable_rows", set()):
+            dialog._refresh_summary()
+            self.assertIn("번역할 가사가 없습니다", dialog.readiness_label.text())
+            self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
+            self.assertFalse(dialog.translate_button.isEnabled())
+        dialog._refresh_summary()
+        self.assertIn("연결 미확인", services.connection_hint.text())
+        self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
+
+    def test_empty_lyrics_state_has_priority_over_open_model_manager(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        with patch.object(services, "manager", create=True) as manager, \
+                patch.object(dialog.review_panel, "_editable_rows", set()):
+            manager.isVisible.return_value = True
+            dialog._refresh_summary()
+            self.assertIn("번역할 가사가 없습니다", dialog.readiness_label.text())
+            self.assertEqual(services.connection_hint.text(), dialog.readiness_label.text())
+
+
+    def test_switching_provider_clears_unrelated_connection_error(self):
+        dialog = self.dialog()
+        services = dialog.service_dialog
+        services.status_label.setText("Old provider connection failed")
+        services.provider_combo.setCurrentIndex(services.provider_combo.findData("claude"))
+        self.assertEqual(services._provider, "claude")
+        self.assertEqual(services.status_label.text(), "")
+        self.assertEqual(services.provider_combo.currentData(), "claude")
+
     def test_provider_switch_save_failure_restores_selection_and_preserves_values(self):
         dialog = self.dialog()
         services = dialog.service_dialog
@@ -360,6 +496,47 @@ class TranslationWorkspaceTests(unittest.TestCase):
         dialog.cancel_request_button.click()
         self.until(lambda: dialog.worker is None)
         self.assertEqual([(row.text, row.checked, row.status, row.edited) for row in dialog.draft.rows], before)
+
+    def test_cancelled_translation_ignores_delayed_activity_and_progress(self):
+        dialog = self.dialog()
+        entered, release = Event(), Event()
+        progress_seen = []
+        dialog.workflow.progress_changed.connect(lambda value, total: progress_seen.append((value, total)))
+        initial = [(row.text, row.checked, row.status) for row in dialog.draft.rows]
+
+        def work(cancel, progress):
+            entered.set()
+            release.wait(3)
+            # Simulate callbacks already queued by an API request during cancel.
+            progress(1, 3)
+            dialog.worker.activity.emit({"stage": "complete", "row": 0, "text": "late result"})
+            dialog.worker.activity.emit({"stage": "diagnostic", "raw": "late response"})
+            return None
+
+        dialog.workflow._rows = [0]
+        dialog.workflow.start("translate", work)
+        self.until(entered.is_set)
+        dialog.workflow.cancel()
+        release.set()
+        self.until(lambda: dialog.worker is None)
+        self.assertEqual(progress_seen, [])
+        self.assertEqual(dialog.workflow._received, {})
+        self.assertEqual(dialog.workflow.diagnostics, [])
+        self.assertEqual([(row.text, row.checked, row.status) for row in dialog.draft.rows], initial)
+        self.assertEqual(dialog.workflow.operation, "")
+        self.assertIn("취소", dialog.workflow.status)
+
+    def test_finished_translation_drops_delayed_callbacks(self):
+        dialog = self.dialog()
+        progress_seen = []
+        dialog.workflow.progress_changed.connect(lambda value, total: progress_seen.append((value, total)))
+        dialog.workflow.start("translate", lambda cancel, progress: None)
+        self.until(lambda: dialog.worker is None)
+        dialog.workflow._activity({"stage": "complete", "row": 0, "text": "orphaned result"})
+        dialog.workflow._progress(1, 3)
+        self.assertEqual(dialog.workflow._received, {})
+        self.assertEqual(progress_seen, [])
+        self.assertEqual(dialog.workflow.operation, "")
 
     def test_main_close_waits_for_model_manager_worker(self):
         entered = Event()
