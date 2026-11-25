@@ -99,18 +99,16 @@ class AutoMixDetailsPanelTests(unittest.TestCase):
         self.assertTrue(failed.status_label.text().startswith("! Could not prepare the mix"))
         self.assertIn("Preview keeps playing", failed.status_label.accessibleDescription())
 
-    def test_back_to_back_junctions_are_counted_and_explained_in_automix_mode(self) -> None:
-        # c has no analysis: it cannot be blended with b.
+    def test_missing_analysis_crossfade_is_counted_and_explained(self) -> None:
         analyses = {key: value for key, value in self.analyses.items() if key != "c"}
         plan = compile_automix(self.tracks, analyses, ENABLED)
         panel = AutoMixDetailsPanel(self.translator, automix=True)
         panel.set_plan(plan, self.tracks, state="final")
-        self.assertEqual(panel._style(panel.rows[1]), "Back to back")
-        self.assertTrue(panel.status_label.text().endswith("· 1 back to back"), panel.status_label.text())
-        self.assertIn("without analysis", panel.status_label.toolTip())
-        self.assertIn("starts right after its last sound", panel.detail_text(1, korean=False))
-        # The provisional plan's unanalyzed tail is back to back too, but not yet planned.
-        panel.set_plan(plan, self.tracks, state="provisional", ready_through=2)
+        self.assertEqual(panel._style(panel.rows[1]), "Crossfade")
+        self.assertIn("1 as plain crossfade", panel.status_label.text())
+        self.assertIn("analysis was missing", panel.detail_text(1, korean=False))
+        pending = compile_automix(self.tracks, analyses, ENABLED, pending_analysis={"c"})
+        panel.set_plan(pending, self.tracks, state="provisional", ready_through=2)
         self.assertNotIn("back to back", panel.status_label.text())
 
     def test_details_name_the_analyzer_without_alarming_the_status(self) -> None:

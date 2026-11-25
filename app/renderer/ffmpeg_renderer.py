@@ -16,7 +16,7 @@ import re
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from contextlib import ExitStack
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory, mkstemp
 
@@ -1635,7 +1635,7 @@ class FFmpegRenderer:
                 if plan_callback is not None:
                     plan_callback(resolved_plan)
                 return audio_path
-        elif transition_mode == "crossfade":
+        if transition_mode in {"automix", "crossfade"}:
             blended_segments = self._render_fixed_crossfade_audio_segments(
                 active_tracks, output_directory, total_duration, crossfade_seconds,
                 progress_callback, cancel_event, accept_plan,
@@ -1874,7 +1874,7 @@ class FFmpegRenderer:
         try:
             from app.automix.analysis.registry import create_analysis_provider
             from app.automix.planner import compile_automix
-            from app.automix.renderer import AutoMixAudioPipeline, AutoMixRenderError, render_workers
+            from app.automix.renderer import AutoMixAudioPipeline, AutoMixRenderError, render_workers, settings_for_ffmpeg
             from app.automix.settings import AutoMixTransitionSettings
             from app.automix.workflow import AutoMixWorkflow
             from app.automix.structure.service import StructureAnalysisService
@@ -1927,14 +1927,19 @@ class FFmpegRenderer:
                 )
                 structures = structure_result.analyses
 
+            transition_settings = settings_for_ffmpeg(automix_settings or AutoMixTransitionSettings(enabled=True), self.executable)
             plan = compile_automix(
-                active_tracks, analysis_result.analyses, automix_settings or AutoMixTransitionSettings(enabled=True),
+                active_tracks, analysis_result.analyses, transition_settings,
                 structures=structures,
             )
             if not plan.audio.clips:
                 return None
             self._report(progress_callback, "Preparing audio", 0.2, "Rendering AutoMix transitions")
             from app.automix.parallel_mix import render_parts
+
+            def record_rendered(audio):
+                nonlocal plan
+                plan = replace(plan, audio=audio)
 
             parts = render_parts(
                 AutoMixAudioPipeline(self.executable),
@@ -1947,11 +1952,12 @@ class FFmpegRenderer:
                     progress_callback, "Preparing audio", 0.2 + fraction * 0.3, message,
                 ),
                 track_filters={track.id: track.audio_filter for track in active_tracks},
+                plan_callback=record_rendered,
             )
         except AutoMixRenderError as error:
             if cancel_event.is_set():
                 raise RenderCancelledError("Rendering was cancelled.") from error
-            LOGGER.warning("AutoMix export failed, falling back to sequential audio: %s", error)
+            LOGGER.warning("AutoMix export failed, trying a basic crossfade: %s", error)
             return None
         if plan_callback is not None:
             plan_callback(plan)

@@ -103,8 +103,8 @@ class _PeaksWorker(QThread):
 
 
 class _WindowWorker(QThread):
-    ready = Signal(int, object, str, float, float, float, float)
-    """generation, cache key, path, file origin, window start, window end (timeline seconds), gain."""
+    ready = Signal(int, object, str, float, float, float, float, str)
+    """generation, cache key, path, origin, start, end, gain, applied fallback codes."""
     failed = Signal(int, str)
 
     def __init__(self, executable: Path, plan, index: int, tracks: list[PlaylistTrack], key: object,
@@ -141,8 +141,12 @@ class _WindowWorker(QThread):
                 self.failed.emit(self._generation, str(error))
             return
         if not self._cancel.is_set():
+            transition = prepared.audio_plan.transitions[0] if prepared.audio_plan and prepared.audio_plan.transitions else None
+            fallback = {key for key, value in transition.details if value is True} if transition is not None else set()
+            detail = ",".join(key for key in ("dsp_fallback", "tape_stop_unavailable", "pitch_unavailable")
+                              if key in fallback)
             self.ready.emit(self._generation, self._key, str(prepared.path), window.origin, window.start,
-                            window.end, gain)
+                            window.end, gain, detail)
 
 
 class TransitionAuditionController(QObject):
@@ -166,7 +170,7 @@ class TransitionAuditionController(QObject):
         self._peaks_cancel = threading.Event()
         self._workers: set[QThread] = set()
         self._pending: tuple[object, object, int, list[PlaylistTrack]] | None = None
-        self._cache: OrderedDict[object, tuple[str, float, float, float]] = OrderedDict()
+        self._cache: OrderedDict[object, tuple[str, float, float, float, str]] = OrderedDict()
         self._gain: float | None = None
         self._loaded_peaks: set[str] = set()
         self._closed = False
@@ -190,15 +194,17 @@ class TransitionAuditionController(QObject):
             self._set_state(UNAVAILABLE)
             return
         window = render_window(plan, index, 1.0)
-        paths = {track.id: track.file_path for track in tracks}
-        key = (repr(window), tuple(file_identity(paths.get(clip.track_id, "")) for clip in window.plan.clips))
+        by_id = {track.id: track for track in tracks}
+        sources = [by_id.get(clip.track_id) for clip in window.plan.clips]
+        key = (repr(window), tuple((file_identity(track.file_path), track.audio_filter) if track else None
+                                  for track in sources))
         cached = self._cache.get(key)
         if cached is not None and Path(cached[0]).is_file():
             self._cache.move_to_end(key)
             self._supersede()
             self._pending = None
-            self._set_state(READY)
-            self.audio_ready.emit(*cached)
+            self._set_state(READY, cached[-1])
+            self.audio_ready.emit(*cached[:-1])
             return
         self._supersede()
         self._pending = (key, plan, index, list(tracks))
@@ -280,18 +286,18 @@ class TransitionAuditionController(QObject):
         self._run(worker)
 
     def _on_ready(self, generation: int, key: object, path: str, origin: float, start: float, end: float,
-                  gain: float) -> None:
+                  gain: float, detail: str) -> None:
         if self._closed:
             return
         self._gain = gain
-        self._cache[key] = (path, origin, start, end)  # valid for its key even when stale
+        self._cache[key] = (path, origin, start, end, detail)  # valid for its key even when stale
         while len(self._cache) > CACHE_WINDOWS:
             _key, (old_path, *_times) = self._cache.popitem(last=False)
             shutil.rmtree(Path(old_path).parent, ignore_errors=True)
         if generation != self._generation:
             return
         self._pending = None
-        self._set_state(READY)
+        self._set_state(READY, detail)
         self.audio_ready.emit(path, origin, start, end)
 
     def _on_failed(self, generation: int, message: str) -> None:

@@ -81,9 +81,6 @@ VOCAL_EDGE_TOLERANCE_SECONDS = 0.1
 """Vocal spans are measured in 100 ms frames (app/automix/analysis/vocals.py):
 a downbeat within one frame of the last word counts as "right after" it."""
 
-MID_PHRASE_SECONDS = 0.5
-"""An incoming cue this far into a sung span enters the line mid-phrase."""
-
 WEIGHT_INSTRUMENTAL_OVERLAP = 0.12
 """Bonus when both sides are measured not to sing anywhere in the overlap: the
 outgoing outro under the incoming intro, the most natural blend there is. It
@@ -238,6 +235,7 @@ class TransitionCandidate:
 
     strategy: TransitionStrategy
     reasons: tuple[str, ...]
+    refined_duration: bool = False
 
 
 def select_best_candidate(candidates: list[TransitionCandidate]) -> TransitionCandidate | None:
@@ -630,12 +628,9 @@ def _beat_based_candidate(
             return None
     if over_intro and not _instrumental(incoming, incoming_source_time, incoming_source_time + incoming_source_span):
         return None  # the snapped window reaches the incoming singer
-    if incoming_naive_override is not None and any(
-            a + MID_PHRASE_SECONDS < incoming_source_time < b for a, b in sung_spans(incoming)):
-        # A cue a structure anchor moved into the song would enter mid-phrase,
-        # cutting the line's first words. Not applied to the regular cue near
-        # the start: its first downbeat can sit inside a quiet sung pickup, and
-        # refusing it left a -45 LUFS hole between a decayed tail and the pickup.
+    if any(max(a, audible_start(incoming)) + VOCAL_EDGE_TOLERANCE_SECONDS < min(b, incoming_source_time)
+           for a, b in sung_spans(incoming)):
+        # Snapping to a beat must not drop a sung pickup or an entire earlier line.
         return None
     # Otherwise the incoming track may already sing here: the outgoing one no longer does.
 
@@ -1008,8 +1003,16 @@ def _fallback_candidates(
     """Without shared tempo, measured music still gets a choice of handoff lengths."""
     lengths = ((settings.fallback_crossfade_seconds, 1.0, 2.0, 4.0, 6.0, 8.0)
                if outgoing.rms_curve and incoming.rms_curve else (settings.fallback_crossfade_seconds,))
+    refinements = ()
+    if outgoing.band_power_curve and incoming.band_power_curve:
+        # Halfway lengths let the measured envelopes avoid immediate kick or
+        # vocal entries between the usual whole-second handoffs.
+        ordered = sorted(set(lengths))
+        refinements = tuple((left + right) / 2 for left, right in zip(ordered, ordered[1:])
+                            if settings.min_transition_seconds <= left < right <= settings.max_transition_seconds)
     candidates = _deduplicate_candidates([
-        candidate for length in lengths
+        replace(candidate, refined_duration=True) if length in refinements else candidate
+        for length in (*lengths, *refinements)
         for handoff in ((False, True) if outgoing.rms_curve and incoming.rms_curve else (False,))
         for candidate in _fixed_candidates(outgoing, incoming, replace(settings, fallback_crossfade_seconds=length),
                                             reasons, outgoing_playback_rate, handoff=handoff)

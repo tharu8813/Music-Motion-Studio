@@ -30,7 +30,7 @@ scoring. Presentation and chapter ownership still follow transition starts.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import replace
 
 from app.automix.candidates import (
@@ -49,7 +49,8 @@ from app.automix.candidates import (
 )
 from app.automix.analysis.key import shift_key
 from app.automix.compatibility import evaluate_compatibility
-from app.automix.exits import CUT_SECONDS, plan_phrase_exit
+from app.automix.eq_response import track_band_gains
+from app.automix.exits import CUT_SECONDS, phrase_exits
 from app.automix.intelligence import choose_transition, optimize_handoff
 from app.automix.models import TrackAnalysis
 from app.automix.overrides import (
@@ -91,7 +92,7 @@ def compile_automix(
     analyses: Mapping[str, TrackAnalysis],
     settings: AutoMixTransitionSettings,
     structures: Mapping[str, TrackStructureAnalysis] | None = None,
-    *, log_diagnostics: bool = True,
+    *, log_diagnostics: bool = True, pending_analysis: Collection[str] = (),
 ) -> CompiledRenderPlan:
     """Compile enabled ``tracks`` into a CompiledRenderPlan with AutoMix overlaps.
 
@@ -102,7 +103,9 @@ def compile_automix(
     v1, preserving explicit requested gaps ... is a reasonable conservative
     policy"). Missing or incompatible analysis on any one pair only
     degrades that pair -- it never prevents earlier or later pairs from
-    getting a full AutoMix transition.
+    getting a full AutoMix transition. Completed analysis without a result
+    uses a bounded crossfade. A progressive render may leave pending pairs
+    sequential until both tracks finish analysis.
 
     ``structures`` is optional (defaults to ``None``, meaning "no structure
     data at all") and independent per track: a track missing from it, or
@@ -134,7 +137,7 @@ def compile_automix(
                 bass_curve=structure.bass_curve or analysis.bass_curve,
                 brightness_curve=structure.brightness_curve or analysis.brightness_curve,
                 percussive_curve=structure.percussive_curve or analysis.percussive_curve)
-    clips, transitions = _place_tracks(selected, analyses, structures, settings, log_diagnostics)
+    clips, transitions = _place_tracks(selected, analyses, structures, settings, log_diagnostics, pending_analysis)
     presentation, metadata, duration = build_presentation_and_metadata(clips)
     plan = CompiledRenderPlan(
         audio=AudioRenderPlan(clips=clips, transitions=transitions),
@@ -166,7 +169,13 @@ def _with_lyric_vocals(track: PlaylistTrack, analysis: TrackAnalysis) -> TrackAn
         end = min(analysis.duration_seconds, float(cue["end"]) - offset, start + LYRIC_LINE_MAX_SECONDS)
         if end > start:
             spans.append((start, end))
-    return replace(analysis, lyric_vocal_spans=tuple(spans)) if spans else analysis
+    if not spans:
+        return analysis
+    return replace(
+        analysis, lyric_vocal_spans=tuple(spans),
+        audible_start_seconds=min(audible_start(analysis), min(a for a, _ in spans)),
+        audible_end_seconds=max(audible_end(analysis), max(b for _, b in spans)),
+    )
 
 
 def _place_tracks(
@@ -175,6 +184,7 @@ def _place_tracks(
     structures: Mapping[str, TrackStructureAnalysis],
     settings: AutoMixTransitionSettings,
     log_diagnostics: bool = True,
+    pending_analysis: Collection[str] = (),
 ) -> tuple[tuple[AudioRenderClip, ...], tuple[AudioRenderTransition, ...]]:
     clips: list[AudioRenderClip] = []
     transitions: list[AudioRenderTransition] = []
@@ -204,6 +214,7 @@ def _place_tracks(
             outgoing_clip, timeline_start, source_in, transition = _plan_overlap(
                 previous, tracks[index - 1], track, analyses, structures, settings, ramp_floor, log_diagnostics,
                 previous_style=into_previous.dsp if into_previous is not None else None,
+                analysis_pending=previous.track_id in pending_analysis or track.id in pending_analysis,
             )
             # AudioRenderClip is immutable: the outgoing clip's trimmed tail
             # (and tempo ramp) replaces the one appended last iteration.
@@ -262,13 +273,14 @@ def _plan_overlap(
     ramp_floor: float,
     log_diagnostics: bool = True,
     previous_style: TransitionDsp | None = None,
+    analysis_pending: bool = False,
 ) -> tuple[AudioRenderClip, float, float, AudioRenderTransition | None]:
     """Decide how ``track`` follows ``previous_clip`` with no explicit gap.
 
     Returns (outgoing clip -- ``previous_clip`` with its tail trimmed and,
     for BEAT_MATCH, its tempo ramp --, incoming timeline_start, incoming
     source_in, transition_or_none). The incoming clip always plays at its
-    own tempo. Without a transition (missing analysis, CUT) the two tracks
+    own tempo. Without a transition (pending analysis, CUT) the two tracks
     butt together with the silence between their sounds removed.
     """
     outgoing_analysis = analyses.get(previous_track.id)
@@ -290,8 +302,26 @@ def _plan_overlap(
 
     if override is not None and not override.recommend:
         return manual()
-    if outgoing_analysis is None or incoming_analysis is None or not settings.enabled:
-        return fallback if override is None else manual((("recommendation", "no_analysis"),))
+    if not settings.enabled:
+        return fallback
+    if outgoing_analysis is None or incoming_analysis is None:
+        if override is not None:
+            return manual((("recommendation", "no_analysis"),))
+        if analysis_pending:
+            return fallback
+        outgoing, end, source_in, _ = fallback
+        available_out = outgoing.timeline_end - outgoing.timeline_at(max(ramp_floor, outgoing.source_in))
+        incoming_end = min(track.duration_seconds, audible_end(incoming_analysis)) if incoming_analysis else track.duration_seconds
+        overlap = min(settings.fallback_crossfade_seconds, available_out, outgoing.duration / 2,
+                      (incoming_end - source_in) / 2)
+        if overlap <= _GAP_EPSILON:
+            return fallback
+        start = end - overlap
+        transition = AudioRenderTransition(
+            outgoing.clip_id, f"automix:{track.id}", start, overlap, TransitionType.EQUAL_POWER,
+            details=(("mode", "auto"), ("strategy", "fixed_crossfade"), ("missing_analysis", True)),
+        )
+        return outgoing, start, source_in, transition
 
     compatibility = evaluate_compatibility(outgoing_analysis, incoming_analysis, settings)
     candidates = generate_candidates(
@@ -306,23 +336,36 @@ def _plan_overlap(
     # Never rank a window that collides with the preceding junction. A later,
     # shorter candidate can still fit even when the preferred long one cannot.
     candidates = [c for c in candidates if c.outgoing_source_time >= max(ramp_floor, previous_clip.source_in) - _GAP_EPSILON]
+    band_gains = (track_band_gains(previous_track), track_band_gains(track))
     best, planned_decision = choose_transition(
         candidates, compatibility, outgoing_analysis, incoming_analysis,
-        structures.get(previous_track.id), structures.get(track.id), previous_style=previous_style)
+        structures.get(previous_track.id), structures.get(track.id), previous_style=previous_style,
+        band_gains=band_gains, allow_pitch_shift=settings.allow_pitch_shift)
     phrase_exit = None
     if best is None or best.strategy in (TransitionStrategy.FIXED_CROSSFADE, TransitionStrategy.CUT):
-        # No shared tempo: leave on a phrase boundary instead of the same end fade every time.
-        phrase_exit = plan_phrase_exit(
+        # An effect must beat the safe fade on the same acoustic scale.
+        fixed_score = max((c.score for c in candidates if c.strategy is TransitionStrategy.FIXED_CROSSFADE), default=0.3)
+        for exit_option in phrase_exits(
             outgoing_analysis, incoming_analysis,
             structures.get(previous_track.id), structures.get(track.id),
             outgoing_rate=previous_clip.playback_rate, earliest=ramp_floor, previous_style=previous_style,
-        )
-        if phrase_exit is not None and override is not None:
-            unlocked = unlocked or phrase_exit.candidate
-            held = _honour_locks([phrase_exit.candidate], override, outgoing_analysis, incoming_analysis)
-            phrase_exit = replace(phrase_exit, candidate=held[0]) if held else None
-        if phrase_exit is not None:
-            best = phrase_exit.candidate
+            allow_tape_stop=settings.allow_tape_stop,
+        ):
+            candidate = replace(exit_option.candidate, score=fixed_score)
+            if override is not None:
+                unlocked = unlocked or candidate
+                held = _honour_locks([candidate], override, outgoing_analysis, incoming_analysis)
+                if not held or any(abs(getattr(held[0], name) - getattr(candidate, name)) > _GAP_EPSILON
+                                   for name in ("outgoing_source_time", "incoming_source_time", "duration_seconds")):
+                    continue
+            candidate, decision = optimize_handoff(
+                candidate, exit_option.decision, outgoing_analysis, incoming_analysis, structures.get(track.id),
+                previous_style=previous_style, band_gains=band_gains,
+                exit_beat=exit_option.beat_seconds,
+            )
+            if any(name == "acoustic_cost" for name, _ in decision.metrics) and (best is None or candidate.score > best.score):
+                best = candidate
+                phrase_exit = replace(exit_option, candidate=candidate, decision=decision)
     if override is not None and (best is None or best.duration_seconds <= 0.0):
         # Nothing analysis would pick keeps the locked values: play the stored ones, and say so.
         nearest = (() if unlocked is None else
@@ -341,7 +384,7 @@ def _plan_overlap(
     ramp_seconds = 0.0
     key_shift = None
     selector_outgoing = outgoing_analysis
-    if abs(best.outgoing_rate - 1.0) > 1e-9:
+    if best.strategy is TransitionStrategy.BEAT_MATCH and abs(best.outgoing_rate - 1.0) > 1e-9:
         # Walk the outgoing track onto the incoming tempo over its last bars
         # before the cue, then hold that rate through the overlap: its beats
         # land on the incoming ones, and the incoming track never changes speed.
@@ -351,7 +394,7 @@ def _plan_overlap(
         bar = (outgoing_analysis.meter_numerator or 4) * 60.0 / outgoing_analysis.bpm
         ramp_start = min(cue, max(cue - bars * bar, ramp_floor, previous_clip.source_in))
         ramp_seconds = cue - ramp_start
-        key_shift = _key_shift(outgoing_analysis, incoming_analysis)
+        key_shift = _key_shift(outgoing_analysis, incoming_analysis) if settings.allow_pitch_shift else None
         end_pitch = 2.0 ** (key_shift / 12.0) if key_shift else 1.0
         if key_shift:
             # The selector hears the tail as it will play: in the shifted, compatible key.
@@ -550,7 +593,7 @@ def _plan_manual(
     key_shift = override.key_shift
     if key_shift is None:
         key_shift = (_key_shift(outgoing_analysis, incoming_analysis)
-                     if abs(rate - 1.0) > 1e-9 and outgoing_analysis is not None and incoming_analysis is not None
+                     if settings.allow_pitch_shift and abs(rate - 1.0) > 1e-9 and bpms_known
                      else None)
     end_pitch = 2.0 ** (key_shift / 12.0) if key_shift else 1.0
     if abs(rate - 1.0) > 1e-9 or end_pitch != 1.0:
@@ -594,13 +637,14 @@ def _plan_manual(
             )
             compatibility = evaluate_compatibility(outgoing_analysis, incoming_analysis, settings)
             heard = (replace(outgoing_analysis, key=shift_key(outgoing_analysis.key, key_shift))
-                     if key_shift and outgoing_analysis.key else outgoing_analysis)
+                     if key_shift and outgoing_analysis.key and settings.allow_pitch_shift else outgoing_analysis)
             decision = select_transition_dsp(
                 candidate, compatibility, heard, incoming_analysis,
                 outgoing_structure, incoming_structure,
             )
             if override.vocal_handoff is None:
-                _, decision = optimize_handoff(candidate, decision, heard, incoming_analysis, incoming_structure)
+                _, decision = optimize_handoff(candidate, decision, heard, incoming_analysis, incoming_structure,
+                                               band_gains=(track_band_gains(previous_track), track_band_gains(track)))
                 band_windows = decision.band_windows
             dsp, reasons, metrics = decision.dsp, decision.reasons, decision.metrics
             handoff = handoff if handoff is not None else decision.vocal_handoff

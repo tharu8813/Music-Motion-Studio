@@ -6,6 +6,7 @@ import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import numpy as np
 
@@ -108,6 +109,19 @@ class RealPartsTests(unittest.TestCase):
         self.assertLessEqual(peak, -1.4)
         self.assertEqual(len(self._decode(output)), len(whole))
         self.assertFalse(any(part.path.exists() for part in parts))  # intermediates are gone
+
+    def test_export_parts_report_the_crossfade_when_effect_filters_are_unavailable(self) -> None:
+        rendered = []
+        plan = _plan()
+        with patch("app.automix.parallel_mix.ffmpeg_supports_transition_dsp", return_value=False):
+            parts = render_parts(self.pipeline, plan, self.paths, self.directory / "fallback", workers=2,
+                                 plan_callback=rendered.append)
+        self.assertEqual(sum(part.count for part in parts), round(199.0 * SAMPLE_RATE))
+        self.assertEqual(rendered[0].clips, plan.clips)
+        for original, actual in zip(plan.transitions, rendered[0].transitions, strict=True):
+            self.assertEqual((actual.timeline_start, actual.duration), (original.timeline_start, original.duration))
+            self.assertIsNone(actual.dsp)
+            self.assertTrue(dict(actual.details)["dsp_fallback"])
 
 
 if __name__ == "__main__":

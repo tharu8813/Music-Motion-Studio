@@ -142,9 +142,9 @@ class BeatThisOnnxAnalysisProvider(BeatThisAnalysisProvider):
     Open-Unmix (also ONNX) instead of Demucs for vocal activity."""
 
     provider_id = "beat_this_onnx"
-    ONNX_VERSION = "5"
+    ONNX_VERSION = "6"
     """2: basic version 6 (decay start). 3: vocal_coverage. 4: YAMNet genre/mood tags.
-    5: basic version 8 (acoustic curves)."""
+    5: basic version 8 (acoustic curves). 6: basic version 9 (100 ms band power)."""
 
     def __init__(self, ffmpeg_executable: Path | None) -> None:
         super().__init__(ffmpeg_executable)

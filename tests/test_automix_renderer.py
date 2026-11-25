@@ -23,9 +23,10 @@ from app.automix.renderer import (
     build_filter_graph,
     ffmpeg_filter_names,
     ffmpeg_supports_transition_dsp,
+    PreparedAudio,
 )
 from app.timeline.models import TransitionType
-from app.timeline.render_plan import AudioRenderClip, AudioRenderPlan, AudioRenderTransition, TransitionDsp
+from app.timeline.render_plan import AudioRenderClip, AudioRenderPlan, AudioRenderTransition, TempoRamp, TransitionDsp
 from app.utils.subprocess_utils import hidden_process_kwargs
 
 
@@ -396,13 +397,13 @@ class BassSwapFallbackTests(unittest.TestCase):
             transitions=(_beat_match("a", "b", 12.0, 8.0),),
         )
 
-    def _render(self, pipeline: AutoMixAudioPipeline, fake_run, *, supported: bool = True) -> None:
+    def _render(self, pipeline: AutoMixAudioPipeline, fake_run, *, supported: bool = True) -> PreparedAudio:
         with (
             patch("app.automix.renderer.ffmpeg_supports_transition_dsp", return_value=supported),
             patch.object(pipeline, "_run", fake_run),
             patch.object(pipeline, "_probe_duration", return_value=32.0),
         ):
-            pipeline.render(self.plan, self.paths, self.directory / "out")
+            return pipeline.render(self.plan, self.paths, self.directory / "out")
 
     def test_missing_filters_render_beat_match_as_qsin(self) -> None:
         pipeline = AutoMixAudioPipeline(Path("ffmpeg"))
@@ -425,11 +426,29 @@ class BassSwapFallbackTests(unittest.TestCase):
                 raise AutoMixRenderError("No such filter: 'acrossover'")
             self.assertFalse(output_path.exists())  # partial DSP output removed before retry
 
-        self._render(pipeline, fake_run)
+        rendered = self._render(pipeline, fake_run)
         self.assertEqual(len(graphs), 2)
         self.assertIn("acrossover", graphs[0])
         self.assertNotIn("acrossover", graphs[1])
         self.assertIn("acrossfade=d=8.000000:curve1=qsin", graphs[1])
+        transition = rendered.audio_plan.transitions[0]
+        self.assertIsNone(transition.dsp)
+        self.assertIs(transition.type, TransitionType.EQUAL_POWER)
+        self.assertTrue(dict(transition.details)["dsp_fallback"])
+        self.assertEqual((transition.timeline_start, transition.duration), (12.0, 8.0))
+
+    def test_missing_rubberband_records_the_actual_pitch_and_tape_fallback(self) -> None:
+        edited = replace(self.plan.clips[0], tempo_ramp=TempoRamp(2.0, 12.0, 1.0, end_pitch=0.94))
+        transition = replace(self.plan.transitions[0], dsp=TransitionDsp.TAPE_STOP,
+                             details=(("key_shift_semitones", -1),))
+        self.plan = AudioRenderPlan((edited, self.plan.clips[1]), (transition,))
+        with patch("app.automix.renderer.ffmpeg_filter_names", return_value=frozenset()):
+            rendered = self._render(AutoMixAudioPipeline(Path("ffmpeg")), lambda *_: None)
+        self.assertEqual(rendered.audio_plan.clips[0].tempo_ramp.end_pitch, 1.0)
+        transition = rendered.audio_plan.transitions[0]
+        self.assertIs(transition.dsp, TransitionDsp.SHORT_FADE)
+        self.assertIsNone(dict(transition.details)["key_shift_semitones"])
+        self.assertTrue(dict(transition.details)["pitch_unavailable"])
 
     def test_cancellation_is_not_retried(self) -> None:
         pipeline = AutoMixAudioPipeline(Path("ffmpeg"))

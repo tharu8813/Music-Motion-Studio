@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import numpy as np
 
-from app.automix.beatgrid import fit_beat_grid
+from app.automix.beatgrid import compare_overlap_beats, fit_beat_grid
 from app.automix.candidates import TransitionStrategy, generate_candidates, select_best_candidate
 from app.automix.compatibility import evaluate_compatibility
 from app.automix.planner import compile_automix
@@ -25,6 +25,21 @@ def _candidates(outgoing, incoming, **kwargs):
 
 
 class RhythmAwareTransitionTests(unittest.TestCase):
+    def test_overlap_measures_phase_even_when_bpm_matches(self):
+        grid = tuple(np.arange(0.0, 20.0, 0.5))
+        shifted = tuple(t + 0.25 for t in grid)
+        _, errors, period = compare_overlap_beats(grid, shifted, 4.0, cues=(8.0, 4.0), rates=(1.0, 1.0))
+        self.assertAlmostEqual(period, 0.5)
+        np.testing.assert_allclose(errors, 0.25)
+
+    def test_overlap_uses_timeline_rates_and_half_time_grid(self):
+        outgoing = tuple(np.arange(0.0, 20.0, 1.0))
+        incoming = tuple(np.arange(0.0, 20.0, 0.4))
+        _, errors, period = compare_overlap_beats(outgoing, incoming, 4.0, cues=(8.0, 4.0), rates=(1.25, 1.0))
+        self.assertAlmostEqual(period, 0.4)
+        np.testing.assert_allclose(errors, 0.0, atol=1e-12)
+        self.assertIsNone(compare_overlap_beats(outgoing, incoming, 0.5, cues=(8.0, 4.0), rates=(1.25, 1.0)))
+
     def test_unsteady_late_intro_shortens_the_blend_without_losing_the_ending(self):
         outgoing = _analysis("a", 120.0, 192.0)
         incoming = _analysis("b", 120.0, 180.0)

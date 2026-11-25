@@ -12,6 +12,7 @@ from app.automix.settings import AutoMixTransitionSettings
 from app.automix.structure.models import TrackSection, TrackStructureAnalysis
 from app.models.playlist import PlaylistTrack
 from app.timeline.compiler import compile_playlist
+from app.timeline.crossfade import compile_crossfade
 from app.timeline.models import TransitionType
 from app.timeline.render_plan import TransitionDsp, validate_compiled_render_plan
 
@@ -70,16 +71,16 @@ class CompileAutomixTwoTrackTests(unittest.TestCase):
         self.assertLess(plan.duration_seconds, 120.0)
         self.assertEqual(plan.duration_seconds, clip_b.timeline_end)
 
-    def test_no_analysis_at_all_matches_sequential_compiler(self) -> None:
+    def test_no_analysis_at_all_matches_basic_crossfade(self) -> None:
         tracks = [_track("a", 60.0), _track("b", 60.0)]
         plan = compile_automix(tracks, {}, ENABLED)
-        sequential = compile_playlist(tracks)
+        crossfade = compile_crossfade(tracks, ENABLED.fallback_crossfade_seconds)
         self.assertEqual(
             [(c.track_id, c.timeline_start, c.timeline_end) for c in plan.audio.clips],
-            [(c.track_id, c.timeline_start, c.timeline_end) for c in sequential.audio.clips],
+            [(c.track_id, c.timeline_start, c.timeline_end) for c in crossfade.audio.clips],
         )
-        self.assertEqual(plan.audio.transitions, ())
-        self.assertEqual(plan.duration_seconds, sequential.duration_seconds)
+        self.assertEqual(plan.audio.transitions[0].type, TransitionType.EQUAL_POWER)
+        self.assertEqual(plan.duration_seconds, crossfade.duration_seconds)
 
     def test_settings_disabled_never_overlaps(self) -> None:
         tracks = [_track("a", 60.0), _track("b", 60.0)]
@@ -119,13 +120,20 @@ class CompileAutomixTwoTrackTests(unittest.TestCase):
             incoming_beat = clip_b.timeline_at(clip_b.source_in + k * 60.0 / 124.0)
             self.assertAlmostEqual(outgoing_beat, incoming_beat, delta=1e-4)
 
-    def test_missing_analysis_on_one_track_falls_back_to_sequential_adjacency(self) -> None:
+    def test_missing_analysis_on_one_track_keeps_a_basic_crossfade(self) -> None:
         tracks = [_track("a", 60.0), _track("b", 60.0)]
         analyses = {"a": _analysis("a", 120.0, 60.0)}  # b has no analysis
         plan = compile_automix(tracks, analyses, ENABLED)
         clip_a, clip_b = plan.audio.clips
-        self.assertEqual(clip_b.timeline_start, clip_a.timeline_end)
-        self.assertEqual(plan.audio.transitions, ())
+        self.assertEqual(clip_a.timeline_end - clip_b.timeline_start, 3.0)
+        self.assertTrue(dict(plan.audio.transitions[0].details)["missing_analysis"])
+
+    def test_missing_analysis_caps_fades_on_short_tracks_and_preserves_gaps(self) -> None:
+        tracks = [_track("a", 60.0), _track("b", 2.0), _track("c", 60.0), _track("d", 60.0, start=130.0)]
+        plan = compile_automix(tracks, {}, ENABLED)
+        validate_compiled_render_plan(plan)
+        self.assertEqual([t.duration for t in plan.audio.transitions], [1.0, 1.0])
+        self.assertEqual(plan.audio.clips[3].timeline_start - plan.audio.clips[2].timeline_end, 8.0)
 
     def test_disabled_track_is_skipped_cleanly(self) -> None:
         tracks = [_track("a", 60.0), _track("b", 30.0, enabled=False), _track("c", 60.0)]
@@ -209,9 +217,9 @@ class CompileAutomixThreeTrackTests(unittest.TestCase):
         }
         plan = compile_automix(tracks, analyses, ENABLED)
         clip_a, clip_b, clip_c = plan.audio.clips
-        self.assertEqual(clip_b.timeline_start, clip_a.timeline_end)
-        self.assertEqual(clip_c.timeline_start, clip_b.timeline_end)
-        self.assertEqual(plan.audio.transitions, ())
+        self.assertEqual(clip_a.timeline_end - clip_b.timeline_start, 3.0)
+        self.assertEqual(clip_b.timeline_end - clip_c.timeline_start, 3.0)
+        self.assertTrue(all(dict(t.details)["missing_analysis"] for t in plan.audio.transitions))
 
     def test_one_bad_pair_does_not_invalidate_a_good_neighboring_pair(self) -> None:
         tracks = [_track("a", 60.0), _track("b", 60.0), _track("c", 60.0)]
@@ -223,10 +231,9 @@ class CompileAutomixThreeTrackTests(unittest.TestCase):
         plan = compile_automix(tracks, analyses, ENABLED)
         clip_a, clip_b, clip_c = plan.audio.clips
         self.assertEqual(len(plan.audio.transitions), 2)
-        # a->b is tempo-incompatible: never beat-matched; with a bar grid it
-        # leaves a on a phrase boundary with a short echo instead.
+        # The first pair can fade safely without beat matching or cutting an unmeasured tail.
         self.assertNotEqual(plan.audio.transitions[0].type, TransitionType.BEAT_MATCH)
-        self.assertIs(plan.audio.transitions[0].dsp, TransitionDsp.ECHO_OUT)
+        self.assertIs(plan.audio.transitions[0].dsp, TransitionDsp.SHORT_FADE)
         self.assertLessEqual(plan.audio.transitions[0].duration, 6.0)
         # b->c is fully compatible and still gets a real (larger) overlap.
         self.assertEqual(plan.audio.transitions[1].type, TransitionType.BEAT_MATCH)
@@ -341,9 +348,8 @@ class CompileAutomixStructureTests(unittest.TestCase):
         analyses = {"a": _analysis("a", 120.0, 60.0)}  # "b" has no rhythm analysis
         structures = {"b": _structure("b", 60.0, intro_end=5.0)}
         plan = compile_automix(tracks, analyses, ENABLED, structures=structures)
-        clip_a, clip_b = plan.audio.clips
-        self.assertEqual(clip_b.timeline_start, clip_a.timeline_end)
-        self.assertEqual(plan.audio.transitions, ())
+        self.assertEqual(plan, compile_automix(tracks, analyses, ENABLED))
+        self.assertTrue(dict(plan.audio.transitions[0].details)["missing_analysis"])
 
     def test_incompatible_tempo_still_falls_back_regardless_of_structure(self) -> None:
         """Structure-aware scoring must never resurrect a pair that

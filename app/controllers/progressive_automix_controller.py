@@ -24,6 +24,7 @@ import os
 import re
 import subprocess
 import threading
+from dataclasses import replace
 from pathlib import Path
 from time import monotonic
 
@@ -306,7 +307,16 @@ class _PartialRenderWorker(QThread):
             self.failed.emit(self._generation, str(error))
             return
         if not self._cancel_event.is_set():
-            self.ready.emit(self._generation, str(prepared.path), self._plan, covered_until, gain)
+            plan = self._plan
+            if prepared.audio_plan is not None and prepared.audio_plan != render:
+                ramps = {clip.clip_id: clip.tempo_ramp for clip in prepared.audio_plan.clips}
+                transitions = {(t.clip_a, t.clip_b): t for t in prepared.audio_plan.transitions}
+                plan = replace(plan, audio=replace(
+                    plan.audio,
+                    clips=tuple(replace(c, tempo_ramp=ramps.get(c.clip_id, c.tempo_ramp)) for c in plan.audio.clips),
+                    transitions=tuple(transitions.get((t.clip_a, t.clip_b), t) for t in plan.audio.transitions),
+                ))
+            self.ready.emit(self._generation, str(prepared.path), plan, covered_until, gain)
 
 
 class ProgressiveAutoMixController(QObject):
@@ -374,6 +384,7 @@ class ProgressiveAutoMixController(QObject):
         if self._shutting_down or not tracks:
             return
         self.cancel()
+        from app.automix.renderer import settings_for_ffmpeg
         from app.automix.structure.sonara import sonara_available
 
         self._generation += 1
@@ -385,7 +396,8 @@ class ProgressiveAutoMixController(QObject):
         self._audio_effects = audio_effects
         # The same resolved preset plans the partial mixes and the final
         # (export-pipeline) mix, so the final Preview plan is the Export plan.
-        self._settings = automix_settings or AutoMixTransitionSettings(enabled=True)
+        self._settings = settings_for_ffmpeg(automix_settings or AutoMixTransitionSettings(enabled=True),
+                                             self._renderer.executable)
         self._state = ProgressiveAnalysis(self._tracks, structure_enabled=sonara_available())
         self._scheduler = RenderScheduler()
         self._frontier = -1

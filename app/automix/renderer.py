@@ -40,6 +40,8 @@ from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 
+from app.automix.models import HIGH_CROSSOVER_HZ, LOW_CROSSOVER_HZ
+from app.automix.settings import AutoMixTransitionSettings
 from app.timeline.models import TransitionType
 from app.timeline.render_plan import AudioRenderClip, AudioRenderPlan, AudioRenderTransition, TransitionDsp
 from app.utils.subprocess_utils import hidden_process_kwargs, lower_thread_if_background
@@ -87,12 +89,6 @@ the fallback when the bass-swap DSP below is unavailable."""
 # junction. Magnitude response stays flat (+/-0.5 dB measured), but the phase is
 # altered. Restricting the crossover to the transition window instead would
 # splice raw audio against its phase-shifted recombination and click.
-LOW_CROSSOVER_HZ = 200
-"""Below ~200 Hz sit kick fundamentals and bass lines, the part that muddies
-when two tracks play at once; above it are kick click and bass harmonics."""
-HIGH_CROSSOVER_HZ = 2500
-"""Splits body/vocal mids from presence/hats so VOCAL_SAFE_EQ and
-FILTER_BLEND can move them separately."""
 _CROSSOVER_ORDER = "4th"
 _FULL_WINDOW = (0.0, 1.0)
 BAND_ENVELOPES: Mapping[TransitionDsp, Mapping[str, tuple[tuple[float, float], tuple[float, float]]]] = {
@@ -203,6 +199,7 @@ class PreparedAudio:
 
     path: Path
     duration_seconds: float
+    audio_plan: AudioRenderPlan | None = None
 
 
 def build_filter_graph(
@@ -785,6 +782,48 @@ def ffmpeg_supports_transition_dsp(executable: str) -> bool:
     return _DSP_REQUIRED_FILTERS <= ffmpeg_filter_names(executable)
 
 
+def settings_for_ffmpeg(settings: AutoMixTransitionSettings, executable: Path) -> AutoMixTransitionSettings:
+    filters = ffmpeg_filter_names(str(executable))
+    pitch = settings.allow_pitch_shift and "rubberband" in filters
+    tape = settings.allow_tape_stop and "rubberband" in filters and _DSP_REQUIRED_FILTERS <= filters
+    if (pitch, tape) == (settings.allow_pitch_shift, settings.allow_tape_stop):
+        return settings
+    return replace(settings, allow_pitch_shift=pitch, allow_tape_stop=tape)
+
+
+def supported_tape_stop(plan: AudioRenderPlan, ramp_filter: str | None) -> AudioRenderPlan:
+    if ramp_filter is not None:
+        return plan
+    return replace(plan, transitions=tuple(
+        replace(t, dsp=TransitionDsp.SHORT_FADE, tape_entry=None,
+                dsp_reasons=("FFmpeg lacks Rubber Band; a short fade was applied.",),
+                details=(*t.details, ("tape_stop_unavailable", True)))
+        if t.dsp is TransitionDsp.TAPE_STOP else t for t in plan.transitions
+    ))
+
+
+def rendered_audio_plan(plan: AudioRenderPlan, *, dsp: bool, ramp_filter: str | None) -> AudioRenderPlan:
+    """Describe the filters that ran, keeping the rendered source and timeline geometry."""
+    pitch_omitted = {c.clip_id for c in plan.clips
+                     if ramp_filter is None and c.tempo_ramp is not None and c.tempo_ramp.end_pitch != 1.0}
+    clips = tuple(replace(c, tempo_ramp=replace(c.tempo_ramp, end_pitch=1.0)) if c.clip_id in pitch_omitted else c
+                  for c in plan.clips)
+    transitions = []
+    for transition in plan.transitions:
+        if not dsp and transition_dsp_style(transition) is not None:
+            transition = replace(
+                transition, dsp=None, band_windows=None, vocal_handoff=None,
+                type=TransitionType.EQUAL_POWER if transition.type is TransitionType.BEAT_MATCH else transition.type,
+                dsp_reasons=("A basic crossfade was applied because transition effects were unavailable.",),
+                details=(*transition.details, ("dsp_fallback", True)),
+            )
+        if transition.clip_a in pitch_omitted:
+            details = tuple((key, value) for key, value in transition.details if key != "key_shift_semitones")
+            transition = replace(transition, details=(*details, ("key_shift_semitones", None), ("pitch_unavailable", True)))
+        transitions.append(transition)
+    return replace(plan, clips=clips, transitions=tuple(transitions))
+
+
 def _atempo_filters(rate: float) -> list[str]:
     """Decompose ``rate`` into a chain of filters each within atempo's supported range."""
     if abs(rate - 1.0) < 1e-9:
@@ -889,6 +928,7 @@ class AutoMixAudioPipeline:
             transition_dsp_style(t) is TransitionDsp.TAPE_STOP for t in plan.transitions)
         ramp_filter = "rubberband" if needs_stretcher and (
             "rubberband" in ffmpeg_filter_names(str(self.ffmpeg_executable))) else None
+        plan = supported_tape_stop(plan, ramp_filter)
 
         def command(inputs: Sequence[str], filter_complex: str, output_label: str, output: Path,
                     output_codec: Sequence[str], output_format: str, name: str) -> list[str]:
@@ -980,6 +1020,7 @@ class AutoMixAudioPipeline:
                 # Same plan, same geometry -- only the transition mixing DSP degrades.
                 LOGGER.warning("Transition DSP render failed (%s); retrying with legacy crossfades.", error)
                 output_path.unlink(missing_ok=True)  # never let a partial DSP file survive into the retry
+                use_dsp = False
                 mix(False)
         except AutoMixRenderCancelled:
             output_path.unlink(missing_ok=True)
@@ -994,7 +1035,8 @@ class AutoMixAudioPipeline:
                 f"the compiled plan ({expected_duration:.3f}s)."
             )
         report("Validating mixed audio", 1.0, "AutoMix audio ready")
-        return PreparedAudio(path=output_path, duration_seconds=actual_duration)
+        return PreparedAudio(path=output_path, duration_seconds=actual_duration,
+                             audio_plan=rendered_audio_plan(plan, dsp=use_dsp, ramp_filter=ramp_filter))
 
     def _run(
         self, arguments: list[str], cancel_event: threading.Event,
