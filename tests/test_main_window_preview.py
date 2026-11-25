@@ -1915,6 +1915,50 @@ class MainWindowPreviewTests(MainWindowTestCase):
                         preview._stop_preview()
                         preview.deleteLater()
 
+    def test_gapless_preview_defers_reaction_analysis_until_ready_or_fallback(self) -> None:
+        from app.preview.audio_analysis_worker import AudioAnalysisWorker
+
+        with TemporaryDirectory(prefix="gapless-reaction-gate-") as directory:
+            executable = Path(directory) / "ffmpeg.exe"
+            executable.touch()
+            tracks = [PlaylistTrack("a.wav", "A", duration_seconds=3.0),
+                      PlaylistTrack("b.wav", "B", duration_seconds=3.0)]
+            for success in (True, False):
+                with self.subTest(success=success), patch(
+                    "app.dialogs.export_preview_dialog.PreviewAudioController.start"
+                ):
+                    preview = ExportPreviewDialog(
+                        self.window.canvas.scene_model, tracks, self.window.translator,
+                        ffmpeg_executable=executable, parent=self.window,
+                        preferred_backend="cpu", transition_mode="none",
+                    )
+                    try:
+                        self.assertTrue(preview._gapless_preview_pending)
+                        with (
+                            patch.object(preview, "visualizer_renderer", object()),
+                            patch.object(preview, "_tempo_sync", True),
+                            patch.object(AudioAnalysisWorker, "start") as analysis_start,
+                            patch.object(preview, "_schedule_refresh") as refresh,
+                        ):
+                            preview._ensure_track_analysis(tracks[0], 24)
+                            analysis_start.assert_not_called()
+                            self.assertIsNone(preview._analysis_worker)
+                            if success:
+                                preview._on_blended_audio_ready(
+                                    str(Path(directory) / "continuous.flac"), preview._compiled_plan)
+                            else:
+                                preview._on_blended_audio_failed("decode failed")
+                            self.assertFalse(preview._gapless_preview_pending)
+                            refresh.assert_called()
+                            preview._ensure_track_analysis(tracks[0], 24)
+                            preview._ensure_track_analysis(tracks[0], 24)
+                            analysis_start.assert_called_once()
+                            self.assertIsNotNone(preview._analysis_worker)
+                            self.assertTrue(preview._analysis_worker.needs_tempo)
+                    finally:
+                        preview._stop_preview()
+                        preview.deleteLater()
+
     def test_blended_audio_ready_swaps_source_and_defers_seek_until_seekable(self) -> None:
         """A source swap must not seek/play until the new source is actually
         ready -- QMediaPlayer.setSource() returns before loading finishes, so
