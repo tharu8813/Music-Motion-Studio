@@ -16,7 +16,7 @@ import numpy as np
 
 from app.models.playlist import PlaylistTrack
 from app.renderer.ffmpeg_renderer import (
-    FFmpegRenderer, RenderCancelledError, RenderSettings, uses_gapless_playlist,
+    FFmpegRenderer, RenderCancelledError, RenderError, RenderSettings, uses_gapless_playlist,
 )
 
 
@@ -31,6 +31,21 @@ class GaplessPCMTests(unittest.TestCase):
             self.assertEqual(result.read_bytes(), b"".join(payloads))
             self.assertEqual(durations, [1001 / 48000, 2003 / 48000])
             self.assertFalse(paths[1].exists())
+
+    def test_virtual_input_falls_back_when_protocol_is_unavailable(self):
+        renderer = FFmpegRenderer.__new__(FFmpegRenderer)
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            segments = [root / "a.f32", root / "b.f32"]
+            for part in segments:
+                part.write_bytes(b"\x00" * 8)
+            with patch.object(renderer, "_run", side_effect=RenderError("Unsupported protocol")):
+                self.assertIsNone(renderer._virtual_gapless_pcm_input(
+                    segments, root / "playlist.pcm-list", Event()))
+            self.assertTrue(all(part.exists() for part in segments))
+            joined, durations = renderer._join_gapless_pcm(segments, Event())
+            self.assertEqual(joined.stat().st_size, 16)
+            self.assertEqual(durations, [1 / 48000, 1 / 48000])
 
     def test_explicit_starts_keep_legacy_timeline(self):
         tracks = [PlaylistTrack("a.mp3", "A", duration_seconds=1),
@@ -54,6 +69,31 @@ FFMPEG = os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG", "").strip() or shutil.whi
 
 @unittest.skipUnless(FFMPEG, "FFmpeg is required for sample-accurate integration checks.")
 class GaplessFFmpegTests(unittest.TestCase):
+    def test_virtual_pcm_reads_exact_bytes_across_odd_sample_boundaries(self):
+        renderer = FFmpegRenderer(FFMPEG)
+        # Include spaces and apostrophes in generated path to exercise FFmpeg
+        # token escaping on Windows and Linux.
+        with TemporaryDirectory(prefix="gapless ' pcm ") as directory:
+            root = Path(directory)
+            parts = [root / "one.f32", root / "two.f32", root / "three.f32"]
+            payloads = [np.full((n, 2), level, dtype="<f4").tobytes()
+                        for n, level in ((1001, .25), (2003, -.125), (97, .5))]
+            for part, payload in zip(parts, payloads, strict=True):
+                part.write_bytes(payload)
+            args = renderer._virtual_gapless_pcm_input(
+                parts, root / "playlist.pcm-list", Event())
+            protocols = subprocess.run([str(FFMPEG), "-v", "error", "-protocols"],
+                                       capture_output=True, check=True, timeout=30).stdout
+            if b"concatf" not in protocols:
+                self.assertIsNone(args)
+                return
+            self.assertIsNotNone(args, "A supported concatf protocol must open local PCM paths")
+            result = subprocess.run([str(FFMPEG), "-v", "error", *args,
+                                     "-c:a", "copy", "-f", "f32le", "-"],
+                                    capture_output=True, check=True, timeout=30)
+            self.assertEqual(result.stdout, b"".join(payloads))
+            self.assertTrue(all(part.exists() for part in parts))
+
     def test_no_padding_or_truncation_and_plan_matches_audio(self):
         renderer = FFmpegRenderer(FFMPEG)
 
