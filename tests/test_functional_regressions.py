@@ -1078,7 +1078,10 @@ class FunctionalRegressionTests(unittest.TestCase):
 
         def fake_run(arguments: list[str], **_kwargs: object) -> None:
             output = Path(arguments[-1])
-            if output.suffix.lower() in {".nut", ".m4a", ".mp4"}:
+            if output.suffix.lower() == ".f32":
+                # Simulate one second of decoded 48 kHz stereo float PCM.
+                output.write_bytes(b"\x00" * (48000 * 8))
+            elif output.suffix.lower() in {".nut", ".m4a", ".mp4"}:
                 output.touch()
 
         renderer._run = fake_run  # type: ignore[method-assign]
