@@ -723,6 +723,7 @@ class ExportPreviewDialog(QDialog):
         self._cover_worker.ready.connect(self._store_track_cover)
         QTimer.singleShot(0, self, self._start_cover_loading)
         self._waveform_worker: TimelineWaveformWorker | None = None
+        self._waveform_loading_started = False
         if self._preview_proxy_ffmpeg is not None:
             waveform_tracks = [(index, str(track.file_path)) for index, track in enumerate(self.tracks)]
             if waveform_tracks:
@@ -964,7 +965,12 @@ class ExportPreviewDialog(QDialog):
             self._cover_worker.start()
 
     def _start_waveform_loading(self) -> None:
-        if not self._closing and self._waveform_worker is not None:
+        # Waveforms are display-only and independently decode every track.
+        # Avoid competing for CPU/disk with the soundtrack required to play.
+        if (not self._closing and self._waveform_worker is not None
+                and not self._waveform_loading_started
+                and not self._gapless_preview_pending):
+            self._waveform_loading_started = True
             self._waveform_worker.start()
 
     def _store_timeline_waveform(self, index: int, peaks: np.ndarray) -> None:
@@ -4179,6 +4185,8 @@ class ExportPreviewDialog(QDialog):
         if hasattr(self, "play_button"):
             self.play_button.setEnabled(True)
             self._set_play_text()
+        if not self._closing and hasattr(self, "_waveform_worker"):
+            QTimer.singleShot(0, self, self._start_waveform_loading)
         return True
 
     def _on_playback_level(self, gain: float) -> None:

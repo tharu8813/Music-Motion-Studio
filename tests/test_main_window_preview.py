@@ -1885,6 +1885,10 @@ class MainWindowPreviewTests(MainWindowTestCase):
                     try:
                         start.assert_called_once()
                         self.assertFalse(preview.play_button.isEnabled())
+                        self.assertIsNotNone(preview._waveform_worker)
+                        with patch.object(preview._waveform_worker, "start") as waveform_start:
+                            preview._start_waveform_loading()
+                            waveform_start.assert_not_called()
                         with patch.object(preview, "_start_audio_at_playhead") as play:
                             # Programmatic/shortcut toggles cannot bypass the disabled button.
                             preview.play_button.setChecked(True)
@@ -1900,6 +1904,10 @@ class MainWindowPreviewTests(MainWindowTestCase):
                                 self.assertIsNone(preview._blended_audio_path)
                                 self.assertIn("decode failed", preview._last_preview_error_detail)
                             self.assertTrue(preview.play_button.isEnabled())
+                            with patch.object(preview._waveform_worker, "start") as waveform_start:
+                                preview._start_waveform_loading()
+                                preview._start_waveform_loading()
+                                waveform_start.assert_called_once()
                             preview.play_button.setChecked(True)
                             self.assertTrue(preview._playing)
                             play.assert_called_once()
