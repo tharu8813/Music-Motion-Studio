@@ -1649,17 +1649,27 @@ class FFmpegRenderer:
                 progress_callback, cancel_event, accept_plan,
             )
         gapless = sample_accurate and transition_mode == "none" and uses_gapless_playlist(active_tracks)
+        virtual_pcm = None
+        pcm_manifest = output_directory / "playlist.pcm-list"
         if gapless:
             segments = self._normalize_audio(
                 active_tracks, output_directory, settings, progress_callback, cancel_event,
                 sample_accurate=True,
             )
-            joined, durations = self._join_gapless_pcm(segments, cancel_event)
+            # The lossless preview can read the raw byte stream in order
+            # without appending nearly a gigabyte for a long album. Keep the
+            # physical join as the compatibility fallback (and AAC export path).
+            if flac:
+                virtual_pcm = self._virtual_gapless_pcm_input(segments, pcm_manifest, cancel_event)
+            if virtual_pcm is None:
+                joined, durations = self._join_gapless_pcm(segments, cancel_event)
+                segments = [joined]
+            else:
+                durations = self._gapless_pcm_durations(segments, cancel_event)
             resolved_plan = compile_playlist([
                 replace(track, duration_seconds=duration)
                 for track, duration in zip(active_tracks, durations, strict=True)
             ])
-            segments = [joined]
             segment_durations = durations
         elif blended_segments is not None:
             segments, segment_durations = blended_segments
@@ -1695,7 +1705,7 @@ class FFmpegRenderer:
             )
 
         combining_input_args = (
-            ["-f", "f32le", "-ar", "48000", "-ac", "2", "-i", str(segments[0])]
+            (virtual_pcm or ["-f", "f32le", "-ar", "48000", "-ac", "2", "-i", str(segments[0])])
             if gapless else ["-f", "concat", "-safe", "0", "-i", str(concat_path)]
         )
         combining_output_args = [
@@ -1758,7 +1768,7 @@ class FFmpegRenderer:
         # The PCM/float intermediates (~11-23 MB per minute, one file per track in
         # sequential mode) are never read again; free them now instead of holding
         # them until the whole temp folder goes at the end of the export.
-        for segment in (*segments, concat_path):
+        for segment in (*segments, concat_path, pcm_manifest):
             segment.unlink(missing_ok=True)
         if plan_callback is not None:
             plan_callback(resolved_plan)
@@ -2089,16 +2099,50 @@ class FFmpegRenderer:
             return None
 
     @staticmethod
-    def _join_gapless_pcm(segments: list[Path], cancel_event: threading.Event) -> tuple[Path, list[float]]:
-        """Append interleaved stereo float PCM without timestamp rounding or silence."""
+    def _gapless_pcm_durations(segments: list[Path], cancel_event: threading.Event) -> list[float]:
         if not segments:
             raise RenderError("No decoded playlist audio.")
         durations = []
         for segment in segments:
+            if cancel_event.is_set():
+                raise RenderCancelledError("Rendering was cancelled.")
             size = segment.stat().st_size
             if size == 0 or size % 8:
                 raise RenderError("Invalid decoded stereo PCM segment.")
             durations.append((size // 8) / 48000)
+        return durations
+
+    def _virtual_gapless_pcm_input(self, segments: list[Path], manifest: Path,
+                                  cancel_event: threading.Event) -> list[str] | None:
+        """Open a byte-concatenation protocol, not the timestamp concat demuxer."""
+        self._gapless_pcm_durations(segments, cancel_event)
+        # concatf opens absolute file URLs, with FFmpeg token escaping; no
+        # user-supplied URLs or non-file protocols are allowed. A manifest
+        # avoids the Windows command line limit for large playlists.
+        paths = [segment.resolve().as_posix() for segment in segments]
+        if any("\n" in path or "\r" in path for path in paths):
+            return None
+        try:
+            manifest.write_text("".join(
+                "\u0027" + ("file:" + path).replace("\u0027", "\u0027\\\u0027\u0027") + "\u0027\n"
+                for path in paths
+            ), encoding="utf-8", newline="\n")
+            args = ["-protocol_whitelist", "file,concatf", "-f", "f32le",
+                    "-ar", "48000", "-ac", "2", "-i", "concatf:file:" + manifest.resolve().as_posix()]
+            # Opening the protocol checks all segment URLs and support before
+            # the expensive measurement/encode. Read one frame only.
+            self._run(args + ["-frames:a", "1", "-f", "null", "-"], cancel_event=cancel_event)
+            return args
+        except RenderCancelledError:
+            raise
+        except (OSError, RenderError) as error:
+            LOGGER.info("Virtual gapless PCM unavailable; joining files: %s", error)
+            return None
+
+    @staticmethod
+    def _join_gapless_pcm(segments: list[Path], cancel_event: threading.Event) -> tuple[Path, list[float]]:
+        """Append interleaved stereo float PCM without timestamp rounding or silence."""
+        durations = FFmpegRenderer._gapless_pcm_durations(segments, cancel_event)
         # Reuse the first file so the full playlist is never duplicated on disk.
         with segments[0].open("ab") as destination:
             for segment in segments[1:]:
