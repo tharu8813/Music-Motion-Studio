@@ -127,7 +127,7 @@ class _PreviewAudioWorker(QThread):
                 audio_codec=self._audio_codec,
                 audio_effects=self._audio_effects,
             )
-            # Do not publish a stale or cancelled result if an input changed
+            # Do not cache a cancelled result or one whose inputs changed
             # while the audio was being prepared.
             if (key is not None and not self._cancel_event.is_set()
                     and key == gapless_preview_key(self._renderer.executable, self._tracks, self._audio_effects)):
