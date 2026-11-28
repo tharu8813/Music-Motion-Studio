@@ -18,6 +18,7 @@ from app.preview.gpu_texture_surface import (
     GPU_TEXTURE_SURFACE_AVAILABLE,
     GpuBackendInfo, GpuPreviewLayer,
     GpuTexturePreviewSurface, _TextureEntry, _cached_plane_indices, _plane_indices,
+    _presentation_layer, _video_shader_parameters,
 )
 
 
@@ -311,6 +312,57 @@ class GpuTextureSurfaceTests(unittest.TestCase):
         self.assertTrue(queued.video_frame.isValid())
         self.assertEqual(queued.native_serial, 7)
         surface.deleteLater()
+
+    @unittest.skipUnless(GPU_TEXTURE_SURFACE_AVAILABLE, "Qt OpenGL unavailable")
+    def test_activated_scene_releases_uploaded_video_payload_and_keeps_draw_metadata(self):
+        surface = GpuTexturePreviewSurface()
+        self.addCleanup(surface.deleteLater)
+        frame_format = QVideoFrameFormat(QSize(16, 8), QVideoFrameFormat.PixelFormat.Format_NV12)
+        frame_format.setColorRange(QVideoFrameFormat.ColorRange.ColorRange_Full)
+        frame_format.setColorSpace(QVideoFrameFormat.ColorSpace.ColorSpace_BT709)
+        frame = QVideoFrame(frame_format)
+        self.assertTrue(frame.isValid())
+        rgba = QImage(16, 8, QImage.Format.Format_RGBA8888)
+        surface.set_layers(QSize(16, 8), (
+            GpuPreviewLayer("yuv", QImage(), QRectF(1, 2, 14, 6), opacity=.65,
+                            rotation=13, video_frame=frame, native_serial=17),
+            GpuPreviewLayer("rgb", QImage(), QRectF(0, 0, 16, 8),
+                            video_frame=QVideoFrame(rgba), native_serial=18),
+            GpuPreviewLayer("image", rgba, QRectF(0, 0, 16, 8)),
+        ))
+        self.assertIsNotNone(surface._pending_layers[0].video_frame)
+        with patch.object(surface, "_upload_layer") as upload, patch.object(surface, "_evict_texture_cache"):
+            surface._activate_pending_layers()
+            self.assertEqual(upload.call_count, 3)
+            self.assertTrue(upload.call_args_list[0].args[0].video_frame.isValid())
+        self.assertEqual(surface._pending_layers, ())
+        self.assertFalse(surface.frame_pending)
+        self.assertTrue(all(layer.video_frame is None and layer.image.isNull()
+                            for layer in surface._active_layers))
+        active = surface._active_layers[0]
+        self.assertEqual(active._video_shader_params, (0, 1))
+        self.assertEqual(active.target, QRectF(1, 2, 14, 6))
+        self.assertEqual((active.opacity, active.rotation, active.native_serial), (.65, 13, 17))
+        self.assertIsNone(surface._active_layers[1]._video_shader_params)
+        # Recompacting a paused/repaint scene preserves metadata.
+        self.assertIs(_presentation_layer(active), active)
+
+    def test_shader_parameters_preserve_gpu_color_range_and_matrix(self):
+        from unittest.mock import MagicMock
+        frame = MagicMock()
+        frame.handleType.return_value = QVideoFrame.HandleType.RhiTextureHandle
+        fmt = frame.surfaceFormat.return_value
+        for color_range, color_space, expected in (
+            ("ColorRange_Full", "ColorSpace_BT709", (1, 0)),
+            ("ColorRange_Video", "ColorSpace_BT601", (0, 1)),
+            ("ColorRange_Full", "ColorSpace_BT2020", (1, 2)),
+            ("ColorRange_Unknown", "ColorSpace_Undefined", (0, 0)),
+        ):
+            fmt.colorRange.return_value.name = color_range
+            fmt.colorSpace.return_value.name = color_space
+            self.assertEqual(_video_shader_parameters(frame), expected)
+        frame.handleType.return_value = QVideoFrame.HandleType.NoHandle
+        self.assertEqual(_video_shader_parameters(frame), (0, 1))
 
     @unittest.skipUnless(
         GPU_TEXTURE_SURFACE_AVAILABLE, "Qt OpenGL widgets are unavailable",

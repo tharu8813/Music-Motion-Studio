@@ -155,7 +155,19 @@ A2의 준비 대기 약 94.8% 감소. 동일 A의 decoded PCM SHA-256과 480초 
 | 3840×2160 | 343.529 | 205.671 | 331,811,206 | 7,313,334 |
 
 흑백 360p/1080p/4K 중앙값 9.749/86.350/343.891→5.770/51.449/205.502ms. 합성 이미지 CPU color stage만 측정; Qt/native allocation, 전체 RSS, VRAM, 실제 디코더 FPS는 별도.
-- [ ] mapped YUV plane 축소 gather의 추가 bytes 복사 제거 및 제한된 read-only 좌표 캐시. 원본 매핑 해제 이후 독립 소유권·패딩/홀수 크기·UV 순서 검증, 동일 입력 CPU packing ABBA. 실제 GL upload 성능 및 RTX 출력 검수 별도.
+- [x] [#274](https://github.com/tharu8813/Music-Motion-Studio/pull/274) CI 10/10, main `b521e86`: mapped YUV plane 축소 gather의 추가 bytes 복사 제거, 제한된 read-only 좌표 캐시. [Windows ABBA 로그](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46170383011/job/141057216289): 6조건 × 10회/방법, 동일 payload 해시 및 원본 변경 후 독립 소유권 확인.
+
+| 축소 조건 | plane | 기존 중앙값 ms | 개선 중앙값 ms | 기존 traced peak bytes | 개선 traced peak bytes |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 1920×1080→1056×594 | Y | 1.824 | 1.595 | 1,268,889 | 749,824 |
+| 1920×1080→1056×594 | UV | 0.392 | 0.366 | 635,025 | 444,640 |
+| 3840×2160→1920×1080 | Y | 5.567 | 5.177 | 4,172,361 | 2,200,768 |
+| 3840×2160→1920×1080 | UV | 1.776 | 1.493 | 2,086,641 | 1,163,968 |
+| 1919×1079→1055×593 | Y | 1.569 | 1.575 | 1,265,455 | 748,063 |
+| 1919×1079→1055×593 | UV | 0.393 | 0.367 | 634,905 | 444,640 |
+
+warm index cache 기준 CPU packing만 측정. 홀수 Y 중앙값 약 0.4% 증가. traced peak는 기존 캐시의 상주 메모리와 Qt/GL 할당을 포함하지 않는다.
+- [ ] 업로드 완료된 scene에서 QVideoFrame 참조를 제거하고 YUV range/matrix uniform 값만 유지. 대기 scene의 최신 프레임과 SourceItem 원본 소유권은 유지. 실제 GPU 메모리·장기 재생·pause/repaint 검수 별도.
 
 경계: `app/dialogs/export_preview_dialog.py`, `app/controllers/preview_controller.py`, `app/preview/`, `app/video/`. 세부 단계와 기준은 [#159](https://github.com/tharu8813/Music-Motion-Studio/issues/159)를 따른다.
 

@@ -97,6 +97,35 @@ class GpuPreviewLayer:
     video_frame: QVideoFrame | None = None
     native_serial: int = 0
     native_scale: float = 1.0
+    # Private presentation metadata. After upload no decoder buffer is needed
+    # for a repaint, but the shader must retain its exact YUV interpretation.
+    _video_shader_params: tuple[int, int] | None = None
+
+
+def _video_shader_parameters(frame: QVideoFrame) -> tuple[int, int]:
+    """Preserve the existing CPU/GPU range and matrix selection."""
+    surface_format = frame.surfaceFormat()
+    range_name = getattr(surface_format.colorRange(), "name", "")
+    space_name = getattr(surface_format.colorSpace(), "name", "")
+    cpu_backed = frame.handleType() == QVideoFrame.HandleType.NoHandle
+    full_range = int(not cpu_backed and range_name == "ColorRange_Full")
+    color_matrix = (
+        1 if cpu_backed or space_name == "ColorSpace_BT601" else
+        2 if space_name == "ColorSpace_BT2020" else 0
+    )
+    return full_range, color_matrix
+
+
+def _presentation_layer(layer: GpuPreviewLayer) -> GpuPreviewLayer:
+    """Drop uploaded CPU images and decoder handles, retaining draw metadata."""
+    frame = layer.video_frame
+    params = layer._video_shader_params
+    if frame is not None and frame.isValid():
+        if getattr(frame.pixelFormat(), "name", "") in MAPPED_YUV420_FORMATS:
+            params = _video_shader_parameters(frame)
+    if frame is None and layer.image.isNull():
+        return layer
+    return replace(layer, image=QImage(), video_frame=None, _video_shader_params=params)
 
 
 @dataclass(frozen=True, slots=True)
@@ -436,11 +465,10 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
             for layer in layers:
                 self._upload_layer(layer)
             self._evict_texture_cache(active_keys)
-            # Subsequent paints read the textures, not the uploaded raster.
-            self._active_layers = tuple(
-                replace(layer, image=QImage()) if not layer.image.isNull() else layer
-                for layer in layers
-            )
+            # Subsequent paints read textures. Retain the YUV shader metadata
+            # rather than pinning an already-uploaded decoder surface until
+            # another scene arrives (including indefinitely paused scenes).
+            self._active_layers = tuple(_presentation_layer(layer) for layer in layers)
             self._active_canvas_size = canvas_size
             self._pending_image = QImage()
 
@@ -1025,12 +1053,13 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                 program.setAttributeBuffer(0, 0x1406, 0, 2, stride)
                 program.setAttributeBuffer(1, 0x1406, 2 * 4, 2, stride)
                 color_filter = layer.color_filter or GpuColorFilter()
-                surface_format = (
-                    layer.video_frame.surfaceFormat()
-                    if layer.video_frame is not None else QVideoFrameFormat()
-                )
-                range_name = getattr(surface_format.colorRange(), "name", "")
-                space_name = getattr(surface_format.colorSpace(), "name", "")
+                params = layer._video_shader_params
+                if params is None:
+                    # Direct callers can still draw a not-yet-compacted layer.
+                    if layer.video_frame is None:
+                        raise RuntimeError("GPU video layer is missing color metadata.")
+                    params = _video_shader_parameters(layer.video_frame)
+                full_range, color_matrix = params
                 # Explicit GL scalar calls avoid PySide's ambiguous scalar/
                 # matrix setUniformValue overloads (which can leave zeros).
                 self._functions.glUniform1i(program.uniformLocation(b"yTexture"), 0)
@@ -1043,15 +1072,9 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                     0.0 if color_filter.grayscale else
                     max(0.0, min(3.0, color_filter.saturation)),
                 )
-                # Match the established Qt toImage() appearance for these
-                # 8-bit CPU frames (limited range BT.601 in Qt 6.12).
-                cpu_backed = layer.video_frame.handleType() == QVideoFrame.HandleType.NoHandle
+                # CPU-backed 8-bit Qt frames retain limited-range BT.601.
                 self._functions.glUniform1i(
-                    program.uniformLocation(b"fullRange"), int(not cpu_backed and range_name == "ColorRange_Full"),
-                )
-                color_matrix = (
-                    1 if cpu_backed or space_name == "ColorSpace_BT601" else
-                    2 if space_name == "ColorSpace_BT2020" else 0
+                    program.uniformLocation(b"fullRange"), full_range,
                 )
                 self._functions.glUniform1i(program.uniformLocation(b"colorMatrix"), color_matrix)
                 self._functions.glUniform1i(program.uniformLocation(b"swapUv"), int(entry.video_format == "Format_NV21"))
