@@ -1,7 +1,7 @@
 """Install the verified FFmpeg used by Windows CI integration tests.
 
-Shared by the packaging and isolated Python test jobs. The retry policy and
-GITHUB_ENV handoff are kept in one place so the two jobs use identical FFmpeg.
+Shared by Windows deployment, isolated Python, native export and media
+benchmark jobs. Keep retry, version and environment handoff in one place.
 """
 
 from __future__ import annotations
@@ -58,6 +58,10 @@ def main() -> int:
     print(f"Verified CI FFmpeg {installation.version} ({CI_FFMPEG_TAG})", flush=True)
     with environment_file.open("a", encoding="utf-8") as environment:
         environment.write(f"PLAYLIST_CANVAS_TEST_FFMPEG={installation.executable}\n")
+    # Some native diagnostic tools discover FFmpeg through PATH instead.
+    if github_path := os.environ.get("GITHUB_PATH"):
+        with Path(github_path).open("a", encoding="utf-8") as paths:
+            paths.write(f"{installation.executable.parent}\n")
     return 0
 
 

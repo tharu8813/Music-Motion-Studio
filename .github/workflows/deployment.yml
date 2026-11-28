@@ -33,10 +33,20 @@ jobs:
       - name: Install locked dependencies
         run: python -m pip install -r requirements-lock.txt
 
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust dependencies and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            native/export_analysis
+            native/gpu_export_core
+          shared-key: windows-py314-deployment
+          cache-on-failure: false
+          cache-targets: true
+          key: ${{ hashFiles('.python-version', 'requirements-lock.txt') }}
       - name: Build mandatory Rust export native module
         shell: pwsh
         run: |
-          rustup default stable
           python -m pip install "maturin>=1.9.4,<2"
           maturin build --release --manifest-path native/export_analysis/Cargo.toml --interpreter python
           if ($LASTEXITCODE -ne 0) { throw 'Rust export build failed.' }
@@ -462,10 +472,19 @@ jobs:
       - name: Install locked dependencies
         run: python -m pip install -r requirements-lock.txt
 
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust dependencies and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            native/export_analysis
+          shared-key: windows-py314-analysis
+          cache-on-failure: false
+          cache-targets: true
+          key: ${{ hashFiles('.python-version', 'requirements-lock.txt') }}
       - name: Build mandatory Rust export native module
         shell: pwsh
         run: |
-          rustup default stable
           python -m pip install "maturin>=1.9.4,<2"
           maturin build --release --manifest-path native/export_analysis/Cargo.toml --interpreter python
           if ($LASTEXITCODE -ne 0) { throw 'Rust export build failed.' }
