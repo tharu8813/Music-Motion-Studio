@@ -7,7 +7,9 @@ deterministically, and match the specific timing math both call sites
 relied on before the extraction."""
 
 import unittest
+from unittest.mock import patch
 
+from app.services.lyrics_service import LyricsService
 from app.models.playlist import PlaylistTrack
 from app.models.source import Source, SourceType
 from app.preview.frame_state import (
@@ -136,6 +138,75 @@ class FrameStateTests(unittest.TestCase):
         self.assertEqual(state.cue_index, 0)
         self.assertTrue(state.transitioning)
         self.assertAlmostEqual(state.transition_progress, 0.0)
+
+
+class LyricSearchTests(unittest.TestCase):
+    def test_shared_lookup_matches_reference_at_boundaries_and_reverse_seeks(self):
+        cues = [
+            {"start": 1.0, "end": 5.0, "format": "ttml", "text": "Long"},
+            {"start": 2.0, "end": 2.1, "format": "ttml", "text": "Short"},
+            {"start": 2.0, "end": 5.0, "format": "ttml", "text": "Overlap"},
+            {"start": 7.0, "end": 8.0, "format": "ttml", "text": "Next"},
+        ]
+        times = [-1.0, 0.9994, 0.9995, 1.0, 1.9994, 1.9995, 2.0995, 4.9994,
+                 4.9995, 5.0, 6.0, 6.9995, 7.9995, 8.0, 99.0]
+        for clock in times + list(reversed(times)):
+            started = [i for i, cue in enumerate(cues)
+                       if float(cue["start"]) <= clock + 0.0005]
+            index = started[-1] if started else None
+            display = 0 if index is None else index
+            active = index if index is not None and (
+                float(cues[index]["start"]) - 0.0005 <= clock
+                < float(cues[index]["end"]) - 0.0005
+            ) else None
+            all_active = tuple(i for i in started if clock < float(cues[i]["end"]) - 0.0005)
+            held_end = max(float(cue["end"]) for cue in cues[:display + 1])
+            held = tuple(i for i in range(display + 1) if float(cues[i]["end"]) == held_end)
+            self.assertEqual(LyricsService.cue_indices(cues, clock), (active, display))
+            self.assertEqual(LyricsService.current_cue_index(cues, clock), active)
+            self.assertEqual(LyricsService.display_cue_index(cues, clock), display)
+            self.assertEqual(LyricsService.active_cue_indices(cues, clock), all_active)
+            self.assertEqual(LyricsService.active_cue_indices(cues, clock, latest_started=display), all_active)
+            self.assertEqual(LyricsService.last_ending_cue_indices(cues, clock), held)
+            self.assertEqual(LyricsService.last_ending_cue_indices(cues, clock, latest_started=display), held)
+        self.assertEqual(LyricsService.cue_indices([], 0), (None, None))
+        self.assertEqual(LyricsService.active_cue_indices([{"start": 1.0}], 2), (0,))
+        self.assertEqual(LyricsService.active_cue_indices([{"start": 1.0}], 9), ())
+
+    def test_frame_resolver_searches_once_and_sees_timing_edits(self):
+        track = _track([
+            {"start": 0.0, "end": 5.0, "format": "ttml", "text": "Long"},
+            {"start": 1.0, "end": 2.0, "format": "ttml", "text": "Short"},
+            {"start": 7.0, "end": 8.0, "format": "ttml", "text": "Next"},
+        ])
+        for clock in (1.5, 3.0, 6.0, 7.1, 8.2, 3.0):
+            with patch.object(LyricsService, "_latest_started_index",
+                              wraps=LyricsService._latest_started_index) as search:
+                state = resolve_lyrics_cue_state(track, clock, 0, 0, "cascade", .81, whole_lines=True)
+                self.assertEqual(search.call_count, 1)
+            if clock == 3.0:
+                self.assertEqual(state.active_cue_indices, (0,))
+            if clock == 6.0:
+                self.assertEqual(state.held_cue_indices, (0,))
+            if clock == 7.1:
+                self.assertEqual(state.blur_restore_cue_indices, (0,))
+        track.lyrics[0]["end"] = 2.0
+        state = resolve_lyrics_cue_state(track, 3.0, 0, 0, "cascade", .81, whole_lines=True)
+        self.assertEqual(state.active_cue_indices, ())
+        self.assertEqual(state.held_cue_indices, (0, 1))
+
+    def test_last_ending_group_reads_each_end_once(self):
+        class CountedCue(dict):
+            reads = 0
+            def __getitem__(self, key):
+                if key == "end":
+                    self.reads += 1
+                return super().__getitem__(key)
+
+        cues = [CountedCue(end=float(i // 2)) for i in range(10000)]
+        self.assertEqual(LyricsService.last_ending_group_before(cues, 0), (None, ()))
+        self.assertEqual(LyricsService.last_ending_group_before(cues, len(cues)), (4999.0, (9998, 9999)))
+        self.assertTrue(all(cue.reads == 1 for cue in cues))
 
 
 class LyricDisplayGroupTests(unittest.TestCase):

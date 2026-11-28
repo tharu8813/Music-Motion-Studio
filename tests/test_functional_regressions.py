@@ -1954,11 +1954,12 @@ class FunctionalRegressionTests(unittest.TestCase):
             lyrics_timing_offset_seconds=0.5,
         )
         with patch.object(
-            LyricsService, "current_cue_index", return_value=0,
+            LyricsService, "cue_indices", wraps=LyricsService.cue_indices,
         ) as lookup:
             CanvasSnapshot.capture_track(
                 scene, track, 1, 1, 0.0, elapsed_seconds=1.0,
             )
+        lookup.assert_called_once()
         self.assertAlmostEqual(lookup.call_args.args[1], 1.75)
 
     def test_lyrics_preview_keeps_the_user_selected_text_color(self) -> None:
