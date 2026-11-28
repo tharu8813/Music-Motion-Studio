@@ -10,7 +10,30 @@ import os
 from pathlib import Path
 import time
 
-from app.ffmpeg.managed_installer import FFmpegInstallError, ManagedFFmpegInstaller
+from app.ffmpeg.managed_installer import (
+    FFmpegInstallError, FFmpegReleaseOption, ManagedFFmpegInstaller,
+)
+
+# CI must not float to another FFmpeg series when upstream rotates "latest".
+# This official dated 9.0 archive was selected from the release asset list
+# after 9.1 produced reproducible three-input pipe timeouts on 2026-11-28.
+# A deliberate update requires the actual media/pipe suite to pass again.
+CI_FFMPEG_TAG = "autobuild-2026-11-27-12-42"
+CI_FFMPEG_BUILD = "n9.0.2-982-g836df4e858"
+CI_FFMPEG_SERIES = "9.0"
+CI_FFMPEG_ARCHIVE = f"ffmpeg-{CI_FFMPEG_BUILD}-win64-gpl-{CI_FFMPEG_SERIES}.zip"
+CI_FFMPEG_BASE = f"https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/{CI_FFMPEG_TAG}"
+
+
+def ci_release() -> FFmpegReleaseOption:
+    return FFmpegReleaseOption(
+        series=CI_FFMPEG_SERIES, build=CI_FFMPEG_BUILD,
+        release_tag=CI_FFMPEG_TAG, release_name=CI_FFMPEG_TAG, published_at="2026-11-27",
+        archive_name=CI_FFMPEG_ARCHIVE,
+        archive_url=f"{CI_FFMPEG_BASE}/{CI_FFMPEG_ARCHIVE}",
+        checksum_url=f"{CI_FFMPEG_BASE}/checksums.sha256",
+        notes="Pinned Windows integration-test baseline", recommended=True,
+    )
 
 
 def main() -> int:
@@ -22,7 +45,7 @@ def main() -> int:
     for attempt in range(1, 4):
         try:
             destination = temporary / f"ffmpeg-tests-attempt-{attempt}"
-            installation = ManagedFFmpegInstaller(destination).install_latest()
+            installation = ManagedFFmpegInstaller(destination).install_release(ci_release())
             break
         except FFmpegInstallError as error:
             if attempt == 3:
@@ -32,6 +55,7 @@ def main() -> int:
             time.sleep(delay)
     if installation is None:
         raise RuntimeError("Verified FFmpeg installation was not created")
+    print(f"Verified CI FFmpeg {installation.version} ({CI_FFMPEG_TAG})", flush=True)
     with environment_file.open("a", encoding="utf-8") as environment:
         environment.write(f"PLAYLIST_CANVAS_TEST_FFMPEG={installation.executable}\n")
     return 0

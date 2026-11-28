@@ -20,8 +20,8 @@ class TestCiFFmpegSetupTests(unittest.TestCase):
             environment_file = root / "github-env"
             with patch.dict(os.environ, {"RUNNER_TEMP":raw, "GITHUB_ENV":str(environment_file)}), \
                     patch.object(setup_ci_ffmpeg, "ManagedFFmpegInstaller") as installer:
-                installer.return_value.install_latest.return_value = SimpleNamespace(
-                    executable=root / "ffmpeg" / "bin" / "ffmpeg.exe",
+                installer.return_value.install_release.return_value = SimpleNamespace(
+                    executable=root / "ffmpeg" / "bin" / "ffmpeg.exe", version="9.0.2",
                 )
                 self.assertEqual(setup_ci_ffmpeg.main(), 0)
             self.assertEqual(
@@ -29,6 +29,17 @@ class TestCiFFmpegSetupTests(unittest.TestCase):
                 f"PLAYLIST_CANVAS_TEST_FFMPEG={root / 'ffmpeg' / 'bin' / 'ffmpeg.exe'}\n",
             )
             installer.assert_called_once_with(root / "ffmpeg-tests-attempt-1")
+            installer.return_value.install_release.assert_called_once_with(setup_ci_ffmpeg.ci_release())
+
+    def test_ci_release_uses_one_dated_series_and_checksum_manifest(self) -> None:
+        release = setup_ci_ffmpeg.ci_release()
+        self.assertEqual(release.series, "9.0")
+        self.assertNotEqual(release.release_tag, "latest")
+        self.assertIn("/" + release.release_tag + "/", release.archive_url)
+        self.assertTrue(release.archive_url.endswith(release.archive_name))
+        self.assertEqual(release.checksum_url.rsplit("/", 1)[0],
+                         release.archive_url.rsplit("/", 1)[0])
+        self.assertTrue(release.checksum_url.endswith("/checksums.sha256"))
 
     def test_retry_uses_fresh_destination(self) -> None:
         with TemporaryDirectory() as raw:
@@ -37,9 +48,9 @@ class TestCiFFmpegSetupTests(unittest.TestCase):
             with patch.dict(os.environ, {"RUNNER_TEMP":raw, "GITHUB_ENV":str(environment_file)}), \
                     patch.object(setup_ci_ffmpeg, "ManagedFFmpegInstaller") as installer, \
                     patch.object(setup_ci_ffmpeg.time, "sleep") as sleep:
-                installer.return_value.install_latest.side_effect = [
+                installer.return_value.install_release.side_effect = [
                     FFmpegInstallError("transient"),
-                    SimpleNamespace(executable=root / "ffmpeg.exe"),
+                    SimpleNamespace(executable=root / "ffmpeg.exe", version="9.0.2"),
                 ]
                 self.assertEqual(setup_ci_ffmpeg.main(), 0)
             self.assertEqual(
@@ -47,6 +58,9 @@ class TestCiFFmpegSetupTests(unittest.TestCase):
                 [root / "ffmpeg-tests-attempt-1", root / "ffmpeg-tests-attempt-2"],
             )
             sleep.assert_called_once_with(5)
+            self.assertEqual(installer.return_value.install_release.call_count, 2)
+            self.assertTrue(all(call.args == (setup_ci_ffmpeg.ci_release(),)
+                                for call in installer.return_value.install_release.call_args_list))
 
 
 if __name__ == "__main__":

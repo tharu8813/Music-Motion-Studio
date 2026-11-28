@@ -386,7 +386,7 @@ jobs:
           python -m unittest -v tests.test_editor_workspace_layout
           python -m unittest -v tests.test_translation_workspace
 
-      # The full 235+ module suite is verified in two independent Windows
+      # The full module suite is verified in six independent Windows
       # runner jobs below. Qt registry/recovery state must NOT be shared
       # by concurrently running test modules on this same Windows host.
 
@@ -428,7 +428,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [main-window, other-modules]
+        include:
+          - group: main-window
+            family: main-window
+            shard: 0
+          - group: main-window-2
+            family: main-window
+            shard: 1
+          - group: main-window-3
+            family: main-window
+            shard: 2
+          - group: other-modules
+            family: other-modules
+            shard: 0
+          - group: other-modules-2
+            family: other-modules
+            shard: 1
+          - group: other-modules-3
+            family: other-modules
+            shard: 2
 
     steps:
       - name: Check out source
@@ -462,18 +480,18 @@ jobs:
         run: python -m scripts.setup_ci_ffmpeg
 
       - name: Run main-window GUI modules (one process per module)
-        if: matrix.group == 'main-window'
+        if: matrix.family == 'main-window'
         env:
           QT_QPA_PLATFORM: offscreen
           QT_FFMPEG_DECODING_HW_DEVICE_TYPES: ","
-        run: python scripts/run_tests.py main_window --verbose --timeout 300 --report test-results.json
+        run: python scripts/run_tests.py main_window --shard-index ${{ matrix.shard }} --shard-count 3 --verbose --timeout 300 --report test-results.json
 
       - name: Run all other modules (one process per module)
-        if: matrix.group == 'other-modules'
+        if: matrix.family == 'other-modules'
         env:
           QT_QPA_PLATFORM: offscreen
           QT_FFMPEG_DECODING_HW_DEVICE_TYPES: ","
-        run: python scripts/run_tests.py --exclude main_window --verbose --timeout 300 --report test-results.json
+        run: python scripts/run_tests.py --exclude main_window --shard-index ${{ matrix.shard }} --shard-count 3 --verbose --timeout 300 --report test-results.json
 
       - name: Upload test results
         if: always()
