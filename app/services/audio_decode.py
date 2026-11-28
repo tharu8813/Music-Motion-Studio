@@ -25,12 +25,16 @@ def _decode_windows(path: Path, start: float, duration: float | None, cancel: Ev
         from music_motion_native import decode_windows_audio
 
         is_m4a = path.suffix.lower() == ".m4a"
-        offset, length = m4a_audio_edit(path) if is_m4a else (0.0, None)
+        # Media Foundation's MP4 source exposes the presentation timeline.
+        # The edit's media offset is not an additional presentation-time seek:
+        # adding it again can discard AAC priming twice and shorten the track.
+        # Keep the edit's duration to trim trailing encoder padding.
+        _media_offset, length = m4a_audio_edit(path) if is_m4a else (0.0, None)
         if length is not None:
             remaining = max(0.0, length - start)
             duration = remaining if duration is None else min(duration, remaining)
         rate, channels, frames, pcm = decode_windows_audio(
-            path.resolve(), start + offset, duration, cancel.is_set if cancel is not None else None,
+            path.resolve(), start, duration, cancel.is_set if cancel is not None else None,
         )
         if length is not None:
             frames = round(length * rate)

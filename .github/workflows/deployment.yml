@@ -15,7 +15,27 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  classify-changes:
+    name: Classify changes and validate documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Classify exact checked-out diff
+        id: classify
+        env:
+          CI_EVENT: ${{ github.event_name }}
+          CI_PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: python scripts/classify_ci_changes.py
+      - name: Verify classification rules
+        run: python -m unittest discover -s tests -p test_classify_ci_changes.py -v
   verify-windows-build:
+    needs: classify-changes
+    if: needs.classify-changes.outputs.docs_only != 'true'
     runs-on: windows-latest
     timeout-minutes: 45
 
@@ -33,16 +53,29 @@ jobs:
       - name: Install locked dependencies
         run: python -m pip install -r requirements-lock.txt
 
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust dependencies and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            native/export_analysis
+            native/gpu_export_core
+          shared-key: windows-py314-deployment
+          cache-on-failure: false
+          cache-targets: true
+          key: ${{ hashFiles('.python-version', 'requirements-lock.txt') }}
       - name: Build mandatory Rust export native module
         shell: pwsh
         run: |
-          rustup default stable
           python -m pip install "maturin>=1.9.4,<2"
-          maturin build --release --manifest-path native/export_analysis/Cargo.toml --interpreter python
+          # Cargo caches may be reused, but never install an old wheel from target/wheels.
+          $wheelDir = Join-Path $env:RUNNER_TEMP ("mms-native-wheel-" + [guid]::NewGuid().ToString("N"))
+          New-Item -ItemType Directory -Path $wheelDir -ErrorAction Stop | Out-Null
+          maturin build --release --manifest-path native/export_analysis/Cargo.toml --interpreter python --out $wheelDir
           if ($LASTEXITCODE -ne 0) { throw 'Rust export build failed.' }
-          $wheel = Get-ChildItem native/export_analysis/target/wheels/*.whl | Select-Object -First 1
-          if (-not $wheel) { throw 'No Rust export wheel was produced.' }
-          python -m pip install $wheel.FullName
+          $wheels = @(Get-ChildItem -Path $wheelDir -Filter 'music_motion_native-*.whl' -File)
+          if ($wheels.Count -ne 1) { throw 'Expected exactly one newly built native wheel.' }
+          python -m pip install $wheels[0].FullName
           if ($LASTEXITCODE -ne 0) { throw 'Rust export installation failed.' }
           python -c "import music_motion_native; print('Native export analysis available')"
           if ($LASTEXITCODE -ne 0) { throw 'Rust extension import failed.' }
@@ -386,7 +419,7 @@ jobs:
           python -m unittest -v tests.test_editor_workspace_layout
           python -m unittest -v tests.test_translation_workspace
 
-      # The full 235+ module suite is verified in two independent Windows
+      # The full module suite is verified in six independent Windows
       # runner jobs below. Qt registry/recovery state must NOT be shared
       # by concurrently running test modules on this same Windows host.
 
@@ -422,13 +455,33 @@ jobs:
           }
 
   verify-python-tests:
+    needs: classify-changes
+    if: needs.classify-changes.outputs.docs_only != 'true'
     name: Isolated Python tests (${{ matrix.group }})
     runs-on: windows-latest
     timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
-        group: [main-window, other-modules]
+        include:
+          - group: main-window
+            family: main-window
+            shard: 0
+          - group: main-window-2
+            family: main-window
+            shard: 1
+          - group: main-window-3
+            family: main-window
+            shard: 2
+          - group: other-modules
+            family: other-modules
+            shard: 0
+          - group: other-modules-2
+            family: other-modules
+            shard: 1
+          - group: other-modules-3
+            family: other-modules
+            shard: 2
 
     steps:
       - name: Check out source
@@ -444,16 +497,28 @@ jobs:
       - name: Install locked dependencies
         run: python -m pip install -r requirements-lock.txt
 
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust dependencies and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            native/export_analysis
+          shared-key: windows-py314-analysis
+          cache-on-failure: false
+          cache-targets: true
+          key: ${{ hashFiles('.python-version', 'requirements-lock.txt') }}
       - name: Build mandatory Rust export native module
         shell: pwsh
         run: |
-          rustup default stable
           python -m pip install "maturin>=1.9.4,<2"
-          maturin build --release --manifest-path native/export_analysis/Cargo.toml --interpreter python
+          # Cargo caches may be reused, but never install an old wheel from target/wheels.
+          $wheelDir = Join-Path $env:RUNNER_TEMP ("mms-native-wheel-" + [guid]::NewGuid().ToString("N"))
+          New-Item -ItemType Directory -Path $wheelDir -ErrorAction Stop | Out-Null
+          maturin build --release --manifest-path native/export_analysis/Cargo.toml --interpreter python --out $wheelDir
           if ($LASTEXITCODE -ne 0) { throw 'Rust export build failed.' }
-          $wheel = Get-ChildItem native/export_analysis/target/wheels/*.whl | Select-Object -First 1
-          if (-not $wheel) { throw 'No Rust export wheel was produced.' }
-          python -m pip install $wheel.FullName
+          $wheels = @(Get-ChildItem -Path $wheelDir -Filter 'music_motion_native-*.whl' -File)
+          if ($wheels.Count -ne 1) { throw 'Expected exactly one newly built native wheel.' }
+          python -m pip install $wheels[0].FullName
           if ($LASTEXITCODE -ne 0) { throw 'Rust export installation failed.' }
           python scripts/rust_prerequisites.py
           if ($LASTEXITCODE -ne 0) { throw 'Rust development preflight failed.' }
@@ -462,18 +527,18 @@ jobs:
         run: python -m scripts.setup_ci_ffmpeg
 
       - name: Run main-window GUI modules (one process per module)
-        if: matrix.group == 'main-window'
+        if: matrix.family == 'main-window'
         env:
           QT_QPA_PLATFORM: offscreen
           QT_FFMPEG_DECODING_HW_DEVICE_TYPES: ","
-        run: python scripts/run_tests.py main_window --verbose --timeout 300 --report test-results.json
+        run: python scripts/run_tests.py main_window --shard-index ${{ matrix.shard }} --shard-count 3 --verbose --timeout 300 --report test-results.json
 
       - name: Run all other modules (one process per module)
-        if: matrix.group == 'other-modules'
+        if: matrix.family == 'other-modules'
         env:
           QT_QPA_PLATFORM: offscreen
           QT_FFMPEG_DECODING_HW_DEVICE_TYPES: ","
-        run: python scripts/run_tests.py --exclude main_window --verbose --timeout 300 --report test-results.json
+        run: python scripts/run_tests.py --exclude main_window --shard-index ${{ matrix.shard }} --shard-count 3 --verbose --timeout 300 --report test-results.json
 
       - name: Upload test results
         if: always()
@@ -483,3 +548,30 @@ jobs:
           path: test-results.json
           if-no-files-found: ignore
 
+
+  deployment-verification:
+    name: Deployment verification gate
+    if: always()
+    needs: [classify-changes, verify-windows-build, verify-python-tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLASSIFICATION: ${{ needs.classify-changes.result }}
+      DOCS_ONLY: ${{ needs.classify-changes.outputs.docs_only }}
+      BUILD: ${{ needs.verify-windows-build.result }}
+      TESTS: ${{ needs.verify-python-tests.result }}
+    steps:
+      - name: Require successful documentation or full deployment verification
+        shell: bash
+        run: |
+          set -eu
+          printf 'classification=%s docs_only=%s build=%s tests=%s\n' "$CLASSIFICATION" "$DOCS_ONLY" "$BUILD" "$TESTS"
+          test "$CLASSIFICATION" = success
+          if [ "$DOCS_ONLY" = true ]; then
+            test "$BUILD" = skipped
+            test "$TESTS" = skipped
+          else
+            test "$DOCS_ONLY" = false
+            test "$BUILD" = success
+            test "$TESTS" = success
+          fi

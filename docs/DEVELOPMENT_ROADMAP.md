@@ -14,7 +14,7 @@
 
 ### 열린 PR 정리 (Phase 0 / P0)
 
-2026-11-28 KST 통합 진행 기록 (확인한 main: `bb229292b4feaf0622f8aec980e18f2dceb6438b`). 변경 시 최신 HEAD와 필수 CI를 다시 조회한다.
+2026-11-28 KST 통합 진행 기록 (확인한 main: `b986548ac7224515c4ec0b06406b44e22b03a321`). 변경 시 최신 HEAD와 필수 CI를 다시 조회한다.
 
 | PR | 내용 | 현재 기록 | 후속 작업 |
 | --- | --- | --- | --- |
@@ -22,15 +22,24 @@
 | [#252](https://github.com/tharu8813/Music-Motion-Studio/pull/252) | 로드맵 및 문서 정리 | 3/3 성공, 병합 `4a1a3d6` | 진행 기록 유지 |
 | [#249](https://github.com/tharu8813/Music-Motion-Studio/pull/249) | 재생 필수 오디오 우선, 선택 분석 지연 | 3/3 성공, 병합 `a81dae5` | 반응형 장면의 실제 준비 속도 계측 |
 | [#250](https://github.com/tharu8813/Music-Motion-Studio/pull/250) | Gapless 단계 및 true-peak limiter 계측 | 4/4 성공, 병합 `bb22929` | 측정 결과를 다음 후보 선정에 활용 |
-| [#238](https://github.com/tharu8813/Music-Motion-Studio/pull/238) | 로컬 LLM 설치 확인 | 후속 HEAD `f8d3c3d`: 2/3 성공, 기타 Python 진행 중 | 최신 CI 확인 후 병합 |
-| [#239](https://github.com/tharu8813/Music-Motion-Studio/pull/239) | 로컬 NMT 모델 명시 선택 보존 | 기존 HEAD 3/3 성공 | #238 선행, 최신 main 기준 재검증 |
+| [#238](https://github.com/tharu8813/Music-Motion-Studio/pull/238) | 로컬 LLM 설치 확인 | 3/3 성공, 병합 `350fa1b` | 로컬 모델 설치·선택 후속 회귀 유지 |
+| [#239](https://github.com/tharu8813/Music-Motion-Studio/pull/239) | 로컬 NMT 모델 명시 선택 보존 | 새 main 통합 HEAD `07495db`, 검증 대기 | 정확한 HEAD의 전체 CI 확인 후 병합 |
+| [#254](https://github.com/tharu8813/Music-Motion-Studio/pull/254) | Windows CI 병렬화·캐시·FFmpeg 기준 고정·M4A 시간축 | 13/13 성공, 병합 `b986548` | 문서 전용 실제 경량 경로 확인, main CI 확인, #255/#256 추적 |
 
-#238의 [기존 실패 로그](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/44570421557/job/135723733613)에서 `test_lmstudio_unchanged_installed_list_is_not_download_success`가 기존 모델을 반환했다. 후속 변경에서 초기 조회 순서, 검증된 목록 비교 및 사용자 입력과 Qt 자동 선택의 구분을 개선했다. [후속 CI](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46145292695)의 모든 필수 검사가 끝날 때까지 해결 완료로 표시하지 않는다.
+#238의 [기존 실패 로그](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/44570421557/job/135723733613)에서 `test_lmstudio_unchanged_installed_list_is_not_download_success`가 기존 모델을 반환했다. 후속 변경에서 초기 조회 순서, 검증된 목록 비교 및 사용자 입력과 Qt 자동 선택의 구분을 개선했다. [후속 CI](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46145292695) 3/3 성공 후 병합했다.
 
 Copilot의 리뷰 한도 부족 안내는 승인으로 간주하지 않았다. 병합한 PR은 패치 자체를 검토하고 정확한 HEAD의 검사 결과 및 충돌 여부를 확인했다. 실제 사용자 Windows/RTX 수용 검수는 별개다.
 
 - [ ] 모든 열린 PR의 변경 범위·충돌·리뷰·최신 HEAD 필수 CI를 확인한다. #238 → #239 순서를 준수한다.
 - [ ] CI 실패·대기·누락 상태에서는 병합하지 않는다. 기존 main 변경을 보존하고 병합 후 결과를 확인한다.
+
+### CI 검증 최적화 기록
+
+- [x] #254: 6개 격리 Python shard, Rust 캐시 및 새 wheel 설치, FFmpeg 9.0 날짜 고정·SHA-256 검증, 문서 변경 분류와 최종 검증 게이트 구현. [최종 PR CI](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46151198844) 13/13 성공. 이전 540초 대비 190초(약 65% 감소)는 Python 테스트 자체 비교이며 전체 CI 시간이 아니다. 최종 PR 전체 Windows 검증은 13:45:32~13:52:01 UTC, 약 6분 29초.
+- [ ] 문서 전용 PR에서 분류/게이트 성공, Windows 작업 생략을 실제 확인한다. main push·수동 실행·코드 혼합 변경은 전체 검증 유지. 브랜치 보호 규칙 조회 권한이 없어 게이트가 필수 규칙으로 지정됐다고 가정하지 않는다.
+- [ ] Rust 캐시 적중 및 실제 빌드 시간 비교, 중복 빌드 제거 가능성 평가. 검증 축소 없이 실행 시간을 줄인다.
+- [ ] [#255](https://github.com/tharu8813/Music-Motion-Studio/issues/255): FFmpeg 9.1 입력 큐 옵션 호환성 해결. 고정 9.0은 CI 기준이며 9.1 해결이 아니다.
+- [ ] [#256](https://github.com/tharu8813/Music-Motion-Studio/issues/256): M4A 편집 오프셋 중복 적용 제거 후 길이·탐색 검사 성공. AAC-LC 시작 2,048샘플의 디코더 간 파형 차이는 별도 측정 대상으로 유지. 전체 PCM 길이·전체 음원 MAE·동일 디코더 부분/전체 일치 및 이후 구간 MAE 기준은 유지한다.
 
 ## 2. 단계별 계획
 
