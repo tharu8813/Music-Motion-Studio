@@ -1,0 +1,31 @@
+name: Gapless limiter ABBA benchmark
+on:
+  pull_request:
+    paths:
+      - tools/gapless_limiter_benchmark.py
+      - app/renderer/loudness.py
+      - .github/workflows/gapless-limiter-benchmark.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Install verified FFmpeg
+        run: python -m scripts.setup_ci_ffmpeg
+      - name: Compare same-filter default and single filter thread
+        run: python tools/gapless_limiter_benchmark.py --seconds 60 --rounds 2 --report gapless-limiter-abba.json
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: gapless-limiter-abba-windows
+          path: gapless-limiter-abba.json
+          if-no-files-found: ignore
