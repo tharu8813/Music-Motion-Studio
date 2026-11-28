@@ -161,8 +161,7 @@ def resolve_lyrics_cue_state(
     """Resolve shared preview/export clocks, including overlapping TTML cues."""
     effective_offset = lyrics_timing_offset_seconds + subtitle_timing_offset
     lyric_elapsed = elapsed_seconds + effective_offset
-    active_cue_index = LyricsService.current_cue_index(track.lyrics, lyric_elapsed)
-    cue_index = LyricsService.display_cue_index(track.lyrics, lyric_elapsed)
+    active_cue_index, cue_index = LyricsService.cue_indices(track.lyrics, lyric_elapsed)
     lyric_cue = track.lyrics[cue_index] if cue_index is not None else None
     before_first = lyric_cue is not None and lyric_elapsed + .0005 < float(lyric_cue.get("start", 0.0))
     latest_started = cue_index
@@ -170,14 +169,18 @@ def resolve_lyrics_cue_state(
     held_indices: tuple[int, ...] = ()
     realtime_ttml = whole_lines and lyric_cue is not None and lyric_cue.get("format") == "ttml"
     if realtime_ttml:
-        active_indices = LyricsService.active_cue_indices(track.lyrics, lyric_elapsed)
+        active_indices = LyricsService.active_cue_indices(
+            track.lyrics, lyric_elapsed, latest_started=latest_started,
+        )
         if active_indices:
             cue_index = active_cue_index = active_indices[0]
             lyric_cue = track.lyrics[cue_index]
         elif lyric_elapsed + .0005 >= float(lyric_cue["end"]):
             # Keep the last lyric that actually finished, rather than jumping
             # back to a later-starting phrase that had already ended earlier.
-            held_indices = LyricsService.last_ending_cue_indices(track.lyrics, lyric_elapsed)
+            held_indices = LyricsService.last_ending_cue_indices(
+                track.lyrics, lyric_elapsed, latest_started=latest_started,
+            )
             cue_index = held_indices[0]
             lyric_cue = track.lyrics[cue_index]
     continuous = whole_lines and lyric_cue is not None and lyric_cue.get("format") != "ttml"
@@ -242,10 +245,11 @@ def resolve_lyrics_cue_state(
         entry = float(track.lyrics[first_active]["start"])
         age = lyric_elapsed - entry
         if first_active > 0 and -.0005 <= age < duration:
-            previous_end = max(float(cue["end"]) for cue in track.lyrics[:first_active])
-            if previous_end < entry:
-                blur_restore_indices = tuple(index for index in range(first_active)
-                    if float(track.lyrics[index]["end"]) == previous_end)
+            previous_end, previous_indices = LyricsService.last_ending_group_before(
+                track.lyrics, first_active,
+            )
+            if previous_end is not None and previous_end < entry:
+                blur_restore_indices = previous_indices
                 blur_restore_progress = max(0.0, age / duration)
     return LyricsCueState(
         cue_index=cue_index,

@@ -282,81 +282,93 @@ class LyricsService:
         index = cls.current_cue_index(cues, elapsed)
         return cues[index] if index is not None else None
 
-    @classmethod
-    def current_cue_index(cls, cues: list[dict[str, object]], elapsed: float) -> int | None:
-        """Return the active cue index in O(log n) with safe frame boundaries."""
-        if not cues:
-            return None
-        precision = 0.0005
-        # Cues are normalized into start-time order by parsers and project
-        # validation. Binary search avoids scanning a long subtitle file for
-        # every preview/export frame.
-        low = 0
-        high = len(cues)
-        target = elapsed + precision
+    @staticmethod
+    def _latest_started_index(cues: list[dict[str, object]], elapsed: float) -> int:
+        """Find the last started cue, or -1, using the existing frame tolerance."""
+        low, high = 0, len(cues)
+        target = elapsed + 0.0005
         while low < high:
             middle = (low + high) // 2
             if float(cues[middle].get("start", 0.0)) <= target:
                 low = middle + 1
             else:
                 high = middle
-        index = low - 1
+        return low - 1
+
+    @classmethod
+    def cue_indices(cls, cues: list[dict[str, object]], elapsed: float) -> tuple[int | None, int | None]:
+        """Resolve (active, display) with one binary search.
+
+        The active result intentionally refers only to the latest started cue;
+        overlapping whole-line TTML callers resolve older intervals separately.
+        """
+        if not cues:
+            return None, None
+        index = cls._latest_started_index(cues, elapsed)
+        active = None
         if index >= 0:
             cue = cues[index]
             start = float(cue.get("start", 0.0))
             end = float(cue.get("end", start + 8.0))
-            if start - precision <= elapsed < end - precision:
-                return index
-        return None
+            if start - 0.0005 <= elapsed < end - 0.0005:
+                active = index
+        return active, max(0, index)
 
     @classmethod
-    def active_cue_indices(cls, cues: list[dict[str, object]], elapsed: float) -> tuple[int, ...]:
+    def current_cue_index(cls, cues: list[dict[str, object]], elapsed: float) -> int | None:
+        """Return the active cue index in O(log n) with safe frame boundaries."""
+        return cls.cue_indices(cues, elapsed)[0]
+
+    @classmethod
+    def active_cue_indices(cls, cues: list[dict[str, object]], elapsed: float, *,
+                           latest_started: int | None = None) -> tuple[int, ...]:
         """All unexpired intervals, including an older cue behind a newer one.
 
-        Only the started prefix is inspected. Keeping the original cue order
-        also keeps independent word clocks and translation styles stable.
+        A caller evaluating the same cue list and clock may reuse the display
+        index. No timing cache is retained across frames or lyric edits.
         """
         if not cues or elapsed + 0.0005 < float(cues[0].get("start", 0.0)):
             return ()
-        last = cls.display_cue_index(cues, elapsed)
-        return tuple(index for index in range(last + 1)
-                     if elapsed < float(cues[index].get("end", float(cues[index].get("start", 0.0)) + 8.0)) - 0.0005)
+        last = cls.display_cue_index(cues, elapsed) if latest_started is None else latest_started
+        active = []
+        for index in range(last + 1):
+            cue = cues[index]
+            # dict.get evaluates its default eagerly. Most normalized cues
+            # already have an end; do not parse their start again.
+            end = float(cue["end"]) if "end" in cue else float(cue.get("start", 0.0)) + 8.0
+            if elapsed < end - 0.0005:
+                active.append(index)
+        return tuple(active)
+
+    @staticmethod
+    def last_ending_group_before(cues: list[dict[str, object]], stop: int) -> tuple[float | None, tuple[int, ...]]:
+        """Maximum explicit end and tied indices in cues[:stop], without a slice
+        or a second prefix traversal. An empty prefix has no ending group.
+        """
+        latest_end = None
+        indices = []
+        for index in range(stop):
+            end = float(cues[index]["end"])
+            if latest_end is None or end > latest_end:
+                latest_end = end
+                indices = [index] if end == end else []
+            elif end == latest_end:
+                indices.append(index)
+        return latest_end, tuple(indices)
 
     @classmethod
-    def last_ending_cue_indices(cls, cues: list[dict[str, object]], elapsed: float) -> tuple[int, ...]:
+    def last_ending_cue_indices(cls, cues: list[dict[str, object]], elapsed: float, *,
+                                latest_started: int | None = None) -> tuple[int, ...]:
         """The last visible group in a gap, including cues that finished together."""
-        last = cls.display_cue_index(cues, elapsed)
+        last = cls.display_cue_index(cues, elapsed) if latest_started is None else latest_started
         if last is None:
             return ()
-        end = max(float(cues[index]["end"]) for index in range(last + 1))
-        return tuple(index for index in range(last + 1) if float(cues[index]["end"]) == end)
+        return cls.last_ending_group_before(cues, last + 1)[1]
 
     @classmethod
     def display_cue_index(cls, cues: list[dict[str, object]], elapsed: float) -> int | None:
-        """Return a lyric to display continuously whenever the track has lyrics.
-
-        Timed subtitle files can leave silence before the first cue or gaps between
-        cues.  A Lyrics source should not fall back to its editor placeholder during
-        those gaps: preview the upcoming first cue, then retain the most recent
-        cue until the next one begins. This is a layout anchor, not proof the cue
-        has started; current_cue_index supplies the active timed interval.
-        """
-        if not cues:
-            return None
-        active_index = cls.current_cue_index(cues, elapsed)
-        if active_index is not None:
-            return active_index
-        precision = 0.0005
-        low = 0
-        high = len(cues)
-        target = elapsed + precision
-        while low < high:
-            middle = (low + high) // 2
-            if float(cues[middle].get("start", 0.0)) <= target:
-                low = middle + 1
-            else:
-                high = middle
-        return max(0, low - 1)
+        """Display the latest started lyric, or the upcoming first cue before it starts."""
+        return cls.cue_indices(cues, elapsed)[1]
 
     @classmethod
     def _parse_lrc(cls, content: str) -> list[dict[str, object]]:
