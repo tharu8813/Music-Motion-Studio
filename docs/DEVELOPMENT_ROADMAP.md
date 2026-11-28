@@ -167,7 +167,8 @@ A2의 준비 대기 약 94.8% 감소. 동일 A의 decoded PCM SHA-256과 480초 
 | 1919×1079→1055×593 | UV | 0.393 | 0.367 | 634,905 | 444,640 |
 
 warm index cache 기준 CPU packing만 측정. 홀수 Y 중앙값 약 0.4% 증가. traced peak는 기존 캐시의 상주 메모리와 Qt/GL 할당을 포함하지 않는다.
-- [ ] 업로드 완료된 scene에서 QVideoFrame 참조를 제거하고 YUV range/matrix uniform 값만 유지. 대기 scene의 최신 프레임과 SourceItem 원본 소유권은 유지. 실제 GPU 메모리·장기 재생·pause/repaint 검수 별도.
+- [x] [#275](https://github.com/tharu8813/Music-Motion-Studio/pull/275) CI 10/10, main `c2c1688`: 업로드 완료된 scene의 QVideoFrame 참조 제거, YUV range/matrix uniform 보존. 대기 scene 및 SourceItem 원본 소유권 유지. 실제 GPU 메모리·장기 재생·pause/repaint 검수 별도.
+- [ ] GL texture 생성·업로드 실패 시 캐시 등록 전 자원 정리, Y/UV 두 plane의 부분 실패 무효화, 파괴된 texture 재사용 금지. 모의 예외 회귀 및 실제 드라이버 오류/CPU fallback 검수 별도.
 
 경계: `app/dialogs/export_preview_dialog.py`, `app/controllers/preview_controller.py`, `app/preview/`, `app/video/`. 세부 단계와 기준은 [#159](https://github.com/tharu8813/Music-Motion-Studio/issues/159)를 따른다.
 
