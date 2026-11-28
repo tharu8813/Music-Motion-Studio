@@ -135,7 +135,7 @@ class MainWindowProjectTests(MainWindowTestCase):
                 return QDialog.DialogCode.Accepted
 
             with (
-                patch.object(ProjectCrashReportDialog, "exec", autospec=True, side_effect=choose),
+                patch.object(ProjectCrashReportDialog, "exec", new=choose),
                 patch.object(QFileDialog, "getExistingDirectory", return_value=str(root)),
                 patch.object(controller, "show_salvage_result") as show_result,
             ):

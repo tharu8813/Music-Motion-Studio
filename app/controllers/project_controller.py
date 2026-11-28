@@ -858,15 +858,19 @@ class ProjectController:
 
         progress.canceled.connect(request_cancel)
         worker.finished.connect(loop.quit, Qt.ConnectionType.QueuedConnection)
+        poll = QTimer()
+        poll.timeout.connect(lambda: loop.quit() if worker.isFinished() else None)
         window.activity_progress.update("project_load", detail=title)
         try:
             progress.show()
             worker.start()
+            poll.start(50)
             if not worker.isFinished():
                 loop.exec()
             worker.wait()
             result, failure = worker.result, worker.error
         finally:
+            poll.stop()
             if worker.isRunning():
                 worker.cancel_event.set()
                 wait_for_qthread(worker)
