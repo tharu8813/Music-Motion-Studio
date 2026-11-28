@@ -169,7 +169,8 @@ A2의 준비 대기 약 94.8% 감소. 동일 A의 decoded PCM SHA-256과 480초 
 warm index cache 기준 CPU packing만 측정. 홀수 Y 중앙값 약 0.4% 증가. traced peak는 기존 캐시의 상주 메모리와 Qt/GL 할당을 포함하지 않는다.
 - [x] [#275](https://github.com/tharu8813/Music-Motion-Studio/pull/275) CI 10/10, main `c2c1688`: 업로드 완료된 scene의 QVideoFrame 참조 제거, YUV range/matrix uniform 보존. 대기 scene 및 SourceItem 원본 소유권 유지. 실제 GPU 메모리·장기 재생·pause/repaint 검수 별도.
 - [x] [#276](https://github.com/tharu8813/Music-Motion-Studio/pull/276) CI 10/10, main `38d4f5c`: GL texture 생성·업로드 실패 시 캐시 등록 전 자원 정리, Y/UV 두 plane 부분 실패 무효화, 파괴된 texture 재사용 금지. 실제 드라이버 오류/CPU fallback 검수 별도.
-- [ ] 모의 GL 3개 session × 180회 scene 전환, RGB/NV12·크기·key 변경 및 texture 재사용/eviction, close 시 pending/active 해제 및 accounting 검증. 기존 opt-in 실제 MP4 soak를 Windows 전용 CI에서 CPU 20초(별도 warmup) 및 open/pause/seek/resume/close 5회로 실행. 실제 GPU 컨텍스트, RTX 장시간 시험은 별도.
+- [x] [#277](https://github.com/tharu8813/Music-Motion-Studio/pull/277) CI 10/10, main `9088f0a`: 모의 GL 3 session × 180 scene, texture 405개 생성/405개 해제, 실제 MP4 CPU 20초(별도 warmup)·590 accepted frames·pressure drop 0·loop 4회·seek 5회 및 embedded open/pause/seek/resume/close 5회 성공. [Windows 로그](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46175404540/job/141072826169). RSS peak 증가 6,299,648 bytes(soak), 7,966,720 bytes(5회 반복); 실제 GPU/VRAM 측정 아님. 모의 GL의 in-place upload 횟수는 0으로 후속 보강 필요.
+- [ ] 동일 key/크기/format의 동일 scene 재사용 후 변경 RGB 1 plane 및 NV12 2 plane in-place 업로드를 3 session × 180 scene에 포함한다. 기존 texture identity·allocation 유지, payload 크기, 최소 270회 갱신, reuse 및 최종 해제 검증. 실제 GPU 컨텍스트·RTX 장시간 시험은 별도.
 
 경계: `app/dialogs/export_preview_dialog.py`, `app/controllers/preview_controller.py`, `app/preview/`, `app/video/`. 세부 단계와 기준은 [#159](https://github.com/tharu8813/Music-Motion-Studio/issues/159)를 따른다.
 

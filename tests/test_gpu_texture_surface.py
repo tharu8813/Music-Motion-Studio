@@ -46,9 +46,11 @@ class GpuTextureSurfaceTests(unittest.TestCase):
             def isCreated(self):
                 return self.alive
 
-            def setData(self, *_args):
+            def setData(self, _format, _type, data, *_args):
                 if not self.alive:
                     raise AssertionError("Updated a destroyed texture")
+                if len(memoryview(data).cast("B")) != self.size:
+                    raise AssertionError("In-place upload does not match allocation")
                 counts["updates"] += 1
 
             def destroy(self):
@@ -73,35 +75,57 @@ class GpuTextureSurfaceTests(unittest.TestCase):
             try:
                 with patch.object(surface, "_new_raw_texture", side_effect=allocate):
                     for index in range(180):
-                        # Reuse each scene twice, then switch source identity,
-                        # pixel format or size. Force inactive-cache eviction.
-                        group = index // 2
+                        # Each group submits new content, an identical repaint,
+                        # then changed content of the same size and format.
+                        # Exercise reuse AND in-place RGB/YUV updates before
+                        # switching identity, format or size and evicting.
+                        group, phase = divmod(index, 3)
                         key = ("video", group % 11)
                         width, height = (320, 180) if group % 3 else (640, 360)
-                        if group % 2:
-                            fmt = QVideoFrameFormat(
-                                QSize(width, height), QVideoFrameFormat.PixelFormat.Format_NV12,
-                            )
-                            frame = QVideoFrame(fmt)
-                            self.assertTrue(frame.map(QVideoFrame.MapMode.WriteOnly))
-                            try:
-                                for plane in range(2):
-                                    bits = memoryview(frame.bits(plane)).cast("B")
-                                    bits[:] = bytes([64 + group % 128]) * len(bits)
-                            finally:
-                                frame.unmap()
-                            layer = GpuPreviewLayer(key, QImage(), QRectF(0, 0, width, height),
-                                                    video_frame=frame, native_serial=group + 1)
-                        else:
-                            image = QImage(width, height, QImage.Format.Format_RGBA8888)
-                            image.fill(QColor(20, group % 256, 80))
-                            layer = GpuPreviewLayer(key, image, QRectF(0, 0, width, height))
-                        if index % 2:
-                            # Repaint same scene without a new upload.
+                        changed = int(phase == 2)
+                        if phase != 1:
+                            if group % 2:
+                                fmt = QVideoFrameFormat(
+                                    QSize(width, height), QVideoFrameFormat.PixelFormat.Format_NV12,
+                                )
+                                frame = QVideoFrame(fmt)
+                                self.assertTrue(frame.map(QVideoFrame.MapMode.WriteOnly))
+                                try:
+                                    for plane in range(2):
+                                        bits = memoryview(frame.bits(plane)).cast("B")
+                                        bits[:] = bytes([64 + (group * 2 + changed) % 128]) * len(bits)
+                                finally:
+                                    frame.unmap()
+                                layer = GpuPreviewLayer(
+                                    key, QImage(), QRectF(0, 0, width, height),
+                                    video_frame=frame, native_serial=group * 2 + changed + 1,
+                                )
+                            else:
+                                image = QImage(width, height, QImage.Format.Format_RGBA8888)
+                                image.fill(QColor(20, (group * 2 + changed) % 256, 80))
+                                layer = GpuPreviewLayer(key, image, QRectF(0, 0, width, height))
+                        if phase:
                             self.assertFalse(surface.frame_pending)
                             surface._on_frame_swapped()
+                            previous = surface._textures[key]
+                            before_updates = counts["updates"]
+                            before_created = counts["created"]
+                            before_reuses = surface.upload_stats.texture_reuses
                         surface.set_layers(QSize(width, height), (layer,))
                         surface._activate_pending_layers()
+                        if phase:
+                            current = surface._textures[key]
+                            self.assertIs(current.texture, previous.texture)
+                            self.assertIs(current.aux_texture, previous.aux_texture)
+                            self.assertEqual(counts["created"], before_created)
+                            self.assertEqual(
+                                counts["updates"] - before_updates,
+                                (2 if group % 2 else 1) if changed else 0,
+                            )
+                            self.assertEqual(
+                                surface.upload_stats.texture_reuses - before_reuses,
+                                0 if changed else 1,
+                            )
                         stats = surface.upload_stats
                         self.assertEqual(stats.allocated_bytes, sum(v.size for v in live.values()))
                         self.assertLessEqual(stats.allocated_bytes, stats.texture_budget_bytes)
@@ -126,6 +150,8 @@ class GpuTextureSurfaceTests(unittest.TestCase):
                 surface.deleteLater()
         self.assertEqual(counts["created"], counts["destroyed"])
         self.assertGreater(counts["created"], 100)
+        # Three sessions, each with 30 RGB and 30 NV12 changed scenes.
+        self.assertGreaterEqual(counts["updates"], 3 * (30 + 2 * 30))
         print("TEXTURE_LIFECYCLE_STRESS", counts, flush=True)
 
     def test_backend_label_keeps_api_version_and_renderer(self) -> None:
