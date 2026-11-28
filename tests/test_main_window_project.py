@@ -115,6 +115,55 @@ class MainWindowProjectTests(MainWindowTestCase):
         self.assertTrue(self.window.isEnabled())
         self.assertNotIn("project_load", self.window.activity_progress.active_keys)
 
+    def test_load_failure_offers_partial_recovery_without_replacing_workspace(self) -> None:
+        with TemporaryDirectory(prefix="pvs-salvage-ui-") as raw:
+            root = Path(raw)
+            source = root / "broken.pvsproj"
+            with zipfile.ZipFile(source, "w") as archive:
+                archive.writestr("project.json", b"{")
+                archive.writestr("assets/good.wav", b"recoverable media")
+            original = source.read_bytes()
+            marker = Source(SourceType.TEXT, "KEEP_EDITING")
+            self.window.store.add(marker)
+            self.window.project_session.mark_changed()
+            before = self.window._project_document().to_dict()
+            controller = self.window.project_controller
+
+            def choose(dialog):
+                self.assertFalse(dialog.salvage_button.isHidden())
+                dialog.salvage_button.click()
+                return QDialog.DialogCode.Accepted
+
+            with (
+                patch.object(ProjectCrashReportDialog, "exec", autospec=True, side_effect=choose),
+                patch.object(QFileDialog, "getExistingDirectory", return_value=str(root)),
+                patch.object(controller, "show_salvage_result") as show_result,
+            ):
+                self.assertFalse(self.window._load_project_path(source))
+            show_result.assert_called_once()
+            result = show_result.call_args.args[0]
+            self.assertIsNone(result.project_path)
+            self.assertEqual(len(result.recovered_assets), 1)
+            self.assertEqual(result.recovered_assets[0].read_bytes(), b"recoverable media")
+            self.assertTrue((result.directory / "recovery-report.json").exists())
+            self.assertEqual(source.read_bytes(), original)
+            self.assertEqual(self.window._project_document().to_dict(), before)
+            self.assertTrue(self.window.project_session.dirty)
+            self.assertFalse(controller.loading)
+
+    def test_cancel_recovery_destination_does_not_create_output(self) -> None:
+        with TemporaryDirectory(prefix="pvs-salvage-cancel-") as raw:
+            root = Path(raw)
+            source = root / "broken.pvsproj"
+            source.write_bytes(b"broken")
+            with (
+                patch.object(QFileDialog, "getExistingDirectory", return_value=""),
+                patch("app.controllers.project_controller.ProjectSalvageWorker") as worker,
+            ):
+                self.window.project_controller.attempt_salvage(source)
+            worker.assert_not_called()
+            self.assertEqual(list(root.iterdir()), [source])
+
     def test_project_apply_failure_rolls_back_partial_workspace_changes(self) -> None:
         marker = Source(SourceType.TEXT, "ROLLBACK_MARKER")
         self.window.canvas.set_zoom(1.3)

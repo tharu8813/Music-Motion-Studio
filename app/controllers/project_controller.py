@@ -10,9 +10,10 @@ import logging
 import traceback as traceback_module
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
-from PySide6.QtCore import QEventLoop, QSize, QSizeF, Qt, QTimer
-from PySide6.QtGui import QImage
+from PySide6.QtCore import QEventLoop, QSize, QSizeF, Qt, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices, QImage
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QProgressDialog, QPushButton
 
 from app.dialogs.missing_media_dialog import MissingMediaDialog
@@ -26,6 +27,8 @@ from app.services.project_persistence_service import PROJECT_FILE_FILTER, PROJEC
 from app.services.export_storage_service import format_bytes
 from app.services.project_load_worker import ProjectLoadWorker
 from app.services.project_save_worker import ProjectSaveWorker
+from app.services.project_salvage_service import ProjectSalvageResult
+from app.services.project_salvage_worker import ProjectSalvageWorker
 from app.services.project_service import (
     ProjectError, ProjectLoadCancelled, ProjectRevision, ProjectSaveConflict, ProjectService,
 )
@@ -798,12 +801,129 @@ class ProjectController:
             report_path=report_path,
             repeat_count=repeat_count,
             workspace_restored=rollback_error is None,
+            allow_salvage=(
+                stage in {"프로젝트 파일 읽기", "Reading project file"}
+                and isinstance(error, ProjectError)
+                and not isinstance(error, ProjectSaveConflict)
+                and rollback_error is None
+                and is_project_path(resolved_path) and resolved_path.is_file()
+            ),
             korean=korean,
             parent=window,
         )
-        dialog.exec()
-        if dialog.exit_choice:
-            self._pending_crash_exit_choice = dialog.exit_choice
+        try:
+            dialog.exec()
+            if dialog.exit_choice:
+                self._pending_crash_exit_choice = dialog.exit_choice
+            elif dialog.salvage_requested:
+                self.attempt_salvage(resolved_path)
+        finally:
+            dialog.deleteLater()
+
+    def attempt_salvage(self, source: Path) -> None:
+        """Extract a separate copy; the failed load never replaces this workspace."""
+        window = self.window
+        korean = window.translator.is_korean
+        parent = QFileDialog.getExistingDirectory(
+            window,
+            "복구 폴더를 만들 위치 선택" if korean else "Choose where to create a recovery folder",
+            str(source.parent),
+        )
+        if not parent:
+            return
+        # Use a bounded unique child directory. The service rejects any
+        # existing directory rather than merging with user files.
+        directory = Path(parent) / f"MMS-recovery-{uuid4().hex[:12]}"
+        worker = ProjectSalvageWorker(source, directory)
+        loop = QEventLoop()
+        title = "프로젝트 부분 복구" if korean else "Partial project recovery"
+        progress = QProgressDialog(
+            ("정상 데이터를 별도 폴더에 복구하는 중입니다. 원본은 변경하지 않습니다."
+             if korean else "Recovering readable data into a separate folder. The original is unchanged."),
+            "", 0, 0, window,
+        )
+        progress.setWindowTitle(title)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
+        progress.setMinimumDuration(0)
+        cancel = QPushButton("취소" if korean else "Cancel")
+        progress.setCancelButton(cancel)
+
+        def request_cancel() -> None:
+            worker.cancel_event.set()
+            cancel.setEnabled(False)
+            progress.setLabelText("복구 취소 중..." if korean else "Cancelling recovery...")
+            progress.show()
+
+        progress.canceled.connect(request_cancel)
+        worker.finished.connect(loop.quit, Qt.ConnectionType.QueuedConnection)
+        window.activity_progress.update("project_load", detail=title)
+        try:
+            progress.show()
+            worker.start()
+            if not worker.isFinished():
+                loop.exec()
+            worker.wait()
+            result, failure = worker.result, worker.error
+        finally:
+            if worker.isRunning():
+                worker.cancel_event.set()
+                wait_for_qthread(worker)
+            progress.canceled.disconnect(request_cancel)
+            progress.hide()
+            progress.deleteLater()
+            worker.deleteLater()
+
+        if isinstance(failure, ProjectLoadCancelled):
+            window.statusBar().showMessage("복구를 취소했습니다." if korean else "Recovery cancelled.", 5000)
+        elif failure is not None:
+            window._show_project_error(ProjectError(str(failure)))
+        elif result is not None:
+            # Do not auto-open or discard the current workspace. The result
+            # remains available for the user to open through the usual workflow.
+            self.show_salvage_result(result)
+
+    def show_salvage_result(self, result: ProjectSalvageResult) -> None:
+        window = self.window
+        korean = window.translator.is_korean
+        dialog = QMessageBox(window)
+        dialog.setIcon(QMessageBox.Icon.Information)
+        dialog.setTextFormat(Qt.TextFormat.PlainText)
+        dialog.setWindowTitle("부분 복구 결과" if korean else "Partial recovery results")
+        summary = (
+            f"미디어 {len(result.recovered_assets)}개 복구 · 문제 {len(result.problems)}건"
+            if korean else
+            f"{len(result.recovered_assets)} media file(s) recovered; {len(result.problems)} issue(s)"
+        )
+        if result.project_path is not None:
+            description = (
+                "복구된 프로젝트는 외부 미디어를 참조합니다. 복구 폴더를 함께 보관하고, "
+                "현재 작업을 저장한 후 복구된 프로젝트를 여세요."
+                if korean else
+                "The recovered project references external media. Keep the entire recovery folder "
+                "and save your current work before opening the recovered project."
+            )
+            description += f"\n{result.project_path}"
+        else:
+            description = (
+                "프로젝트 설정을 복원하지 못했습니다. 추출된 미디어와 보고서를 확인하세요."
+                if korean else "The project manifest could not be restored. Inspect the extracted media and report."
+            )
+        dialog.setText(summary)
+        dialog.setInformativeText(f"{description}\n\n{result.directory}")
+        details = "\n".join(f"{item.entry}: {item.reason[:500]}" for item in result.problems[:20])
+        dialog.setDetailedText(f"{result.directory / 'recovery-report.json'}\n{details}")
+        dialog.setStandardButtons(QMessageBox.StandardButton.Close)
+        folder = dialog.addButton(
+            "복구 폴더 열기" if korean else "Open recovery folder", QMessageBox.ButtonRole.ActionRole,
+        )
+        try:
+            dialog.exec()
+            if dialog.clickedButton() is folder:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(result.directory)))
+        finally:
+            dialog.deleteLater()
 
     @staticmethod
     def load_guidance(error: BaseException, korean: bool) -> str:
