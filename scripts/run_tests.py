@@ -4,7 +4,7 @@ Qt multimedia and worker-thread state can outlive a unittest module. Running
 each module in a fresh process prevents that state from affecting later
 modules and gives every module an explicit timeout.
 
-Modules run one at a time on each worker. Parallel CI shards run on separate
+Modules run one at a time on each worker. Deterministic CI shards run on separate
 Windows runners, because main-window tests share Qt recovery files and
 registry-backed QSettings. Do not run those modules concurrently on one host.
 The default command remains a full serial run for local reproducibility.
@@ -14,7 +14,8 @@ The default command remains a full serial run for local reproducibility.
     python scripts/run_tests.py test_x --repeat 20   # hunt an order/race-dependent failure
     python scripts/run_tests.py --report times.json  # per-module timing for CI artifacts
     python scripts/run_tests.py main_window           # CI shard: main-window GUI
-    python scripts/run_tests.py --exclude main_window # CI shard: remaining modules
+    python scripts/run_tests.py --exclude main_window # remaining modules
+    python scripts/run_tests.py --exclude main_window --shard-index 0 --shard-count 3
 """
 
 from __future__ import annotations
@@ -43,6 +44,13 @@ def discover_modules(tests_directory: Path, filters: list[str], excluded: list[s
         if (not filters or any(name in path.stem for name in filters))
         and not any(name in path.stem for name in excluded)
     )
+
+
+def partition_modules(modules: list[str], index: int, count: int) -> list[str]:
+    """Divide a deterministic module list without dropping or duplicating tests."""
+    if count < 1 or not 0 <= index < count:
+        raise ValueError("Shard index must be in [0, shard count).")
+    return modules[index::count]
 
 
 def parse_unittest_slowest_tests(output: str) -> list[dict[str, object]]:
@@ -75,10 +83,16 @@ def main() -> int:
     parser.add_argument("--repeat", type=int, default=1, help="run each selected module this many times")
     parser.add_argument("--exclude", action="append", default=[], metavar="NAME",
                         help="exclude modules whose filename contains NAME (repeatable)")
+    parser.add_argument("--shard-index", type=int, default=0,
+                        help="zero-based shard index")
+    parser.add_argument("--shard-count", type=int, default=1,
+                        help="number of independent shards")
     parser.add_argument("--verbose", action="store_true",
                         help="include the active test name in captured timeout diagnostics")
     parser.add_argument("--report", type=Path, help="write per-run status and seconds as JSON")
     args = parser.parse_args()
+    if args.shard_count < 1 or not 0 <= args.shard_index < args.shard_count:
+        parser.error("Shard index must be in [0, shard count).")
 
     root = Path(__file__).resolve().parents[1]
     # Run the repository test/debug harness only with a working Rust toolchain
@@ -97,6 +111,11 @@ def main() -> int:
     if not modules:
         print("No test modules match the given filters.")
         return 1
+    modules = partition_modules(modules, args.shard_index, args.shard_count)
+    if not modules:
+        print("This test shard is empty; check the CI matrix.")
+        return 1
+    print(f"Shard {args.shard_index + 1}/{args.shard_count}: {len(modules)} modules", flush=True)
     environment = os.environ.copy()
     environment.setdefault("QT_QPA_PLATFORM", "offscreen")
     # Korean log lines otherwise hit the locale codec (cp949) and kill the
