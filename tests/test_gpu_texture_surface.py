@@ -27,6 +27,107 @@ class GpuTextureSurfaceTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.application = QApplication.instance() or QApplication([])
 
+    @unittest.skipUnless(GPU_TEXTURE_SURFACE_AVAILABLE, "Qt OpenGL unavailable")
+    def test_texture_lifecycle_stress_switch_resize_reuse_and_release(self):
+        # Real Qt images, decoder frames, queue and cache logic. Stub only GL
+        # allocation/upload; this is not a physical GPU memory measurement.
+        from PySide6.QtOpenGL import QOpenGLTexture
+
+        live = {}
+        counts = {"created": 0, "destroyed": 0, "updates": 0}
+
+        class Texture:
+            def __init__(self, size):
+                self.size = size
+                self.alive = True
+                counts["created"] += 1
+                live[id(self)] = self
+
+            def isCreated(self):
+                return self.alive
+
+            def setData(self, *_args):
+                if not self.alive:
+                    raise AssertionError("Updated a destroyed texture")
+                counts["updates"] += 1
+
+            def destroy(self):
+                if not self.alive:
+                    raise AssertionError("Double destruction")
+                self.alive = False
+                counts["destroyed"] += 1
+                del live[id(self)]
+
+        def allocate(width, height, texture_format, _pixel_format, data):
+            channels = {
+                QOpenGLTexture.TextureFormat.R8_UNorm: 1,
+                QOpenGLTexture.TextureFormat.RG8_UNorm: 2,
+                QOpenGLTexture.TextureFormat.RGBA8_UNorm: 4,
+            }[texture_format]
+            size = width * height * channels
+            self.assertEqual(len(memoryview(data).cast("B")), size)
+            return Texture(size)
+
+        for cycle in range(3):
+            surface = GpuTexturePreviewSurface(texture_budget_bytes=1024 * 1024)
+            try:
+                with patch.object(surface, "_new_raw_texture", side_effect=allocate):
+                    for index in range(180):
+                        # Reuse each scene twice, then switch source identity,
+                        # pixel format or size. Force inactive-cache eviction.
+                        group = index // 2
+                        key = ("video", group % 11)
+                        width, height = (320, 180) if group % 3 else (640, 360)
+                        if group % 2:
+                            fmt = QVideoFrameFormat(
+                                QSize(width, height), QVideoFrameFormat.PixelFormat.Format_NV12,
+                            )
+                            frame = QVideoFrame(fmt)
+                            self.assertTrue(frame.map(QVideoFrame.MapMode.WriteOnly))
+                            try:
+                                for plane in range(2):
+                                    bits = memoryview(frame.bits(plane)).cast("B")
+                                    bits[:] = bytes([64 + group % 128]) * len(bits)
+                            finally:
+                                frame.unmap()
+                            layer = GpuPreviewLayer(key, QImage(), QRectF(0, 0, width, height),
+                                                    video_frame=frame, native_serial=group + 1)
+                        else:
+                            image = QImage(width, height, QImage.Format.Format_RGBA8888)
+                            image.fill(QColor(20, group % 256, 80))
+                            layer = GpuPreviewLayer(key, image, QRectF(0, 0, width, height))
+                        if index % 2:
+                            # Repaint same scene without a new upload.
+                            self.assertFalse(surface.frame_pending)
+                            surface._on_frame_swapped()
+                        surface.set_layers(QSize(width, height), (layer,))
+                        surface._activate_pending_layers()
+                        stats = surface.upload_stats
+                        self.assertEqual(stats.allocated_bytes, sum(v.size for v in live.values()))
+                        self.assertLessEqual(stats.allocated_bytes, stats.texture_budget_bytes)
+                        self.assertEqual(counts["created"] - counts["destroyed"], len(live))
+                        self.assertEqual(len(surface._active_layers), 1)
+                        self.assertIsNone(surface._active_layers[0].video_frame)
+                        self.assertTrue(surface._active_layers[0].image.isNull())
+                    self.assertGreater(surface.upload_stats.texture_evictions, 0)
+                    self.assertGreater(surface.upload_stats.texture_reuses, 0)
+                    # Release also while a new scene is pending (close/stop).
+                    surface.set_layers(QSize(width, height), (layer,))
+                    surface._release_gl_resources()
+                    self.assertEqual(surface.upload_stats.allocated_bytes, 0)
+                    self.assertEqual(surface._textures, {})
+                    self.assertEqual(surface._active_layers, ())
+                    self.assertEqual(surface._pending_layers, ())
+                    self.assertFalse(surface.frame_pending)
+                    self.assertEqual(live, {})
+                    surface._release_gl_resources()  # idempotent
+            finally:
+                surface._release_gl_resources()
+                surface.deleteLater()
+        self.assertEqual(counts["created"], counts["destroyed"])
+        self.assertGreater(counts["created"], 100)
+        print("TEXTURE_LIFECYCLE_STRESS", counts, flush=True)
+
     def test_backend_label_keeps_api_version_and_renderer(self) -> None:
         info = GpuBackendInfo(
             api="OpenGL", version="4.6", vendor="Vendor", renderer="Renderer",
