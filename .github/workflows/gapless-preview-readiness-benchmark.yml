@@ -38,10 +38,16 @@ jobs:
       - name: Install verified FFmpeg
         run: python -m scripts.setup_ci_ffmpeg
       - name: Measure real embedded preview readiness
-        run: python tools/gapless_preview_readiness_benchmark.py --seconds 60 --rounds 3 --report gapless-preview-readiness.json
+        run: |
+          python tools/gapless_preview_readiness_benchmark.py --seconds 60 --rounds 3 --fixture pink --report gapless-preview-readiness.json
+          if ($LASTEXITCODE -ne 0) { throw 'Pink fixture benchmark failed.' }
+          python tools/gapless_preview_readiness_benchmark.py --seconds 60 --rounds 3 --fixture peaky --report gapless-preview-peaky-readiness.json
+          if ($LASTEXITCODE -ne 0) { throw 'Peaky fixture benchmark failed.' }
       - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: gapless-preview-readiness-windows
-          path: gapless-preview-readiness.json
+          path: |
+            gapless-preview-readiness.json
+            gapless-preview-peaky-readiness.json
           if-no-files-found: ignore
