@@ -518,6 +518,33 @@ class MainWindowProjectTests(MainWindowTestCase):
         finally:
             dialog.close()
 
+    def test_recovered_project_keeps_its_base_revision_and_blocks_external_overwrite(self) -> None:
+        with TemporaryDirectory(prefix="pvs-recovery-revision-") as raw:
+            root = Path(raw)
+            self.window.autosave = AutosaveService(root)
+            for changed in (False, True):
+                with self.subTest(changed=changed):
+                    target = ProjectService.save(root / f"work-{changed}.pvsproj", ProjectDocument())
+                    revision = ProjectService.revision(target)
+                    recovered = ProjectDocument(settings=ProjectSettings(title="Recovered edits"))
+                    snapshot = self.window.autosave.save(recovered, target, base_revision=revision)
+                    if changed:
+                        ProjectService.save(target, ProjectDocument(settings=ProjectSettings(title="Other editor")))
+                    original = target.read_bytes()
+                    self.assertTrue(self.window.autosave_controller.offer_recovery(
+                        snapshot_path=snapshot.path, confirm=False,
+                    ))
+                    self.assertEqual(self.window.project_controller.loaded_revision, revision)
+                    self.assertEqual(self.window.autosave.latest_recovery().base_revision, revision)
+                    if changed:
+                        with patch.object(self.window.project_controller, "offer_conflict_copy", return_value=False):
+                            self.assertFalse(self.window._save_project(wait_for_completion=True))
+                        self.assertEqual(target.read_bytes(), original)
+                        self.assertTrue(self.window.project_session.dirty)
+                    else:
+                        self.assertTrue(self.window._save_project(wait_for_completion=True))
+                        self.assertEqual(ProjectService.inspect(target).title, "Recovered edits")
+
     def test_older_recovery_is_offered_even_when_another_window_saved_the_project(self) -> None:
         with TemporaryDirectory(prefix="pvs-stale-recovery-") as raw_directory:
             project_path = Path(raw_directory) / "newer.pvsproj"

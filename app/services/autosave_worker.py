@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from PySide6.QtCore import QThread, Signal
 
 from app.services.autosave_service import AutosaveService, AutosaveSuperseded
-from app.services.project_service import ProjectError
+from app.services.project_service import ProjectError, ProjectRevision
 
 
 class AutosaveWorker(QThread):
@@ -27,12 +27,14 @@ class AutosaveWorker(QThread):
         self,
         service: AutosaveService,
         document_data: dict[str, object],
-        project_path: Path | None,
+        project_path: Path | None, *,
+        base_revision: ProjectRevision | None = None,
     ) -> None:
         super().__init__()
         self._service = service
         self._document_data = document_data
         self._project_path = project_path
+        self._base_revision = base_revision
         self._saved_at = datetime.now(UTC)
         self._generation = service.generation
 
@@ -40,7 +42,7 @@ class AutosaveWorker(QThread):
         try:
             path = self._service.write_document_data(
                 self._document_data, self._project_path, self._saved_at,
-                expected_generation=self._generation,
+                expected_generation=self._generation, base_revision=self._base_revision,
             )
         except AutosaveSuperseded:
             # A save/clear or project switch already superseded this work.

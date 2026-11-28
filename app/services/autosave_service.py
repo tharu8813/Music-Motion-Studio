@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 import json
@@ -13,7 +13,7 @@ import threading
 from uuid import uuid4
 
 from app.models.project import ProjectDocument
-from app.services.project_service import ProjectError
+from app.services.project_service import ProjectError, ProjectRevision
 
 
 class AutosaveSuperseded(ProjectError):
@@ -29,12 +29,16 @@ class RecoverySnapshot:
     project_path: Path | None
     saved_at: datetime
     dirty: bool = True
+    base_revision: ProjectRevision | None = None
 
 
 class AutosaveService:
     """Maintain separate, atomic crash-recovery snapshots for each project."""
 
     schema_version = 1
+    # The project manifest is capped at 16 MiB. Allow extra headroom for
+    # recovery's enclosing object and pretty-printed indentation.
+    MAX_SNAPSHOT_BYTES = 32 * 1024 * 1024
 
     def __init__(self, directory: Path) -> None:
         self.directory = directory.resolve() / "recoveries"
@@ -42,7 +46,10 @@ class AutosaveService:
         self.generation = 0
         self._write_lock = threading.Lock()
 
-    def save(self, document: ProjectDocument, project_path: Path | None, *, dirty: bool = True) -> RecoverySnapshot:
+    def save(
+        self, document: ProjectDocument, project_path: Path | None, *, dirty: bool = True,
+        base_revision: ProjectRevision | None = None,
+    ) -> RecoverySnapshot:
         """Atomically store a snapshot without changing the user's project file.
 
         ``document.to_dict()`` reads the live models, so this call must stay on
@@ -51,9 +58,10 @@ class AutosaveService:
         """
         saved_at = datetime.now(UTC)
         target = self.write_document_data(
-            document.to_dict(), project_path, saved_at, dirty=dirty,
+            document.to_dict(), project_path, saved_at, dirty=dirty, base_revision=base_revision,
         )
-        return RecoverySnapshot(target, document, project_path, saved_at, dirty)
+        return RecoverySnapshot(target, document, project_path, saved_at, dirty,
+                                base_revision if project_path is not None else None)
 
     def write_document_data(
         self,
@@ -61,6 +69,7 @@ class AutosaveService:
         project_path: Path | None,
         saved_at: datetime | None = None,
         *, dirty: bool = True, expected_generation: int | None = None,
+        base_revision: ProjectRevision | None = None,
     ) -> Path:
         """Atomically write a recovery snapshot from an already-serialized dict.
 
@@ -76,17 +85,24 @@ class AutosaveService:
             "project_path": str(project_path.resolve()) if project_path else None,
             "document": document_data,
             "dirty": dirty,
+            "base_revision": asdict(base_revision) if project_path is not None and base_revision is not None else None,
         }
         temporary_path: Path | None = None
         try:
             ProjectDocument.from_dict(document_data)
             self.directory.mkdir(parents=True, exist_ok=True)
             with NamedTemporaryFile(
-                mode="w", encoding="utf-8", suffix=".tmp", dir=self.directory,
-                delete=False,
+                mode="wb", suffix=".tmp", dir=self.directory, delete=False,
             ) as temporary:
                 temporary_path = Path(temporary.name)
-                json.dump(payload, temporary, ensure_ascii=False, indent=2)
+                encoder = json.JSONEncoder(ensure_ascii=False, indent=2, allow_nan=False)
+                written = 0
+                for chunk in encoder.iterencode(payload):
+                    encoded = chunk.encode("utf-8")
+                    written += len(encoded)
+                    if written > self.MAX_SNAPSHOT_BYTES:
+                        raise ProjectError("Recovery snapshot exceeds the size limit.")
+                    temporary.write(encoded)
                 temporary.flush()
                 # Keep the existing generation check and atomic replace, but
                 # ensure the new snapshot is synced before it can replace the
@@ -99,7 +115,7 @@ class AutosaveService:
                     raise AutosaveSuperseded("Recovery write superseded by a newer project state.")
                 temporary_path.replace(target)
             return target
-        except (OSError, TypeError, ValueError) as error:
+        except (OSError, TypeError, ValueError, RecursionError, OverflowError) as error:
             raise ProjectError(f"Could not save recovery snapshot: {error}") from error
         finally:
             if temporary_path is not None:
@@ -146,18 +162,45 @@ class AutosaveService:
         return self.directory / f"{digest}-{self._session_id}.recovery.json"
 
     @staticmethod
-    def load_snapshot(path: Path) -> RecoverySnapshot:
-        """Read a specific validated snapshot, including an update handoff."""
+    def _reject_nonfinite_constant(value: str):
+        raise ValueError(f"Invalid JSON number: {value}")
+
+    @staticmethod
+    def _parse_base_revision(value: object) -> ProjectRevision | None:
+        # Legacy or malformed optional revision metadata cannot authorize an
+        # overwrite. Keep the recoverable document rather than discarding it.
+        fields = ("device", "inode", "size", "modified_ns", "changed_ns")
+        if not isinstance(value, dict) or set(value) != set(fields):
+            return None
+        if any(type(value[name]) is not int for name in fields):
+            return None
+        if any(value[name] < 0 for name in fields[:3]):
+            return None
+        return ProjectRevision(**value)
+
+    @classmethod
+    def load_snapshot(cls, path: Path) -> RecoverySnapshot:
+        """Read a bounded validated snapshot, including an update handoff."""
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            with path.open("rb") as source:
+                # The bounded read also handles a file that grows after stat.
+                if os.fstat(source.fileno()).st_size > cls.MAX_SNAPSHOT_BYTES:
+                    raise ValueError("Recovery snapshot exceeds the size limit.")
+                raw = source.read(cls.MAX_SNAPSHOT_BYTES + 1)
+            if len(raw) > cls.MAX_SNAPSHOT_BYTES:
+                raise ValueError("Recovery snapshot exceeds the size limit.")
+            data = json.loads(raw.decode("utf-8"), parse_constant=cls._reject_nonfinite_constant)
             if not isinstance(data, dict):
                 raise ValueError("Recovery root must be an object")
-            if data.get("schema_version") != AutosaveService.schema_version:
+            version = data.get("schema_version")
+            if type(version) is not int or version != cls.schema_version:
                 raise ValueError("Unsupported recovery schema")
             saved_at = datetime.fromisoformat(data["saved_at"])
             if saved_at.tzinfo is None:
                 saved_at = saved_at.replace(tzinfo=UTC)
             project_value = data.get("project_path")
+            if project_value is not None and not isinstance(project_value, str):
+                raise ValueError("Invalid recovery project path")
             project_path = Path(project_value) if project_value else None
             dirty = data.get("dirty", True)
             if not isinstance(dirty, bool):
@@ -168,6 +211,7 @@ class AutosaveService:
                 project_path=project_path,
                 saved_at=saved_at,
                 dirty=dirty,
+                base_revision=cls._parse_base_revision(data.get("base_revision")) if project_path else None,
             )
-        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        except (OSError, KeyError, TypeError, ValueError, RecursionError, OverflowError) as error:
             raise ProjectError(f"Could not open recovery snapshot: {error}") from error
