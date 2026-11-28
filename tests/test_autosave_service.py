@@ -5,6 +5,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 import json
+import os
+from unittest.mock import patch
 
 from app.models.project import ProjectDocument
 from app.models.playlist import PlaylistTrack
@@ -21,6 +23,44 @@ def _document() -> ProjectDocument:
 
 
 class AutosaveServiceTests(unittest.TestCase):
+    def test_recovery_syncs_before_replacing_previous_snapshot(self) -> None:
+        with TemporaryDirectory(prefix="pvs-autosave-") as directory:
+            service = AutosaveService(Path(directory))
+            existing = service.save(_document(), None)
+            previous = existing.path.read_bytes()
+            updated = _document()
+            updated.playlist[0].title = "Updated"
+            actual_sync = os.fsync
+            def sync_complete_snapshot(fd):
+                self.assertEqual(existing.path.read_bytes(), previous)
+                temporary, = service.directory.glob("*.tmp")
+                payload = json.loads(temporary.read_text(encoding="utf-8"))
+                self.assertEqual(ProjectDocument.from_dict(payload["document"]).playlist[0].title, "Updated")
+                actual_sync(fd)
+            with patch("app.services.autosave_service.os.fsync", side_effect=sync_complete_snapshot) as sync:
+                service.save(updated, None)
+                sync.assert_called_once()
+            self.assertEqual(service.latest_recovery().document.playlist[0].title, "Updated")
+            self.assertEqual(list(service.directory.glob("*.tmp")), [])
+
+    def test_failed_sync_or_replace_keeps_last_good_snapshot(self) -> None:
+        with TemporaryDirectory(prefix="pvs-autosave-") as directory:
+            service = AutosaveService(Path(directory))
+            existing = service.save(_document(), None)
+            previous = existing.path.read_bytes()
+            updated = _document()
+            updated.playlist[0].title = "Not saved"
+            for operation in ("fsync", "replace"):
+                with self.subTest(operation=operation):
+                    mock = (patch("app.services.autosave_service.os.fsync", side_effect=OSError("disk sync failed"))
+                            if operation == "fsync" else
+                            patch.object(Path, "replace", side_effect=PermissionError("target locked")))
+                    with mock, self.assertRaises(ProjectError):
+                        service.save(updated, None)
+                    self.assertEqual(existing.path.read_bytes(), previous)
+                    self.assertEqual(service.latest_recovery().document.playlist[0].title, "A")
+                    self.assertEqual(list(service.directory.glob("*.tmp")), [])
+
     def test_malformed_recovery_does_not_hide_valid_snapshots(self) -> None:
         with TemporaryDirectory(prefix="pvs-autosave-") as directory:
             service = AutosaveService(Path(directory))

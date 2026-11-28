@@ -22,6 +22,107 @@ from app.services.project_media_service import ProjectMediaService
 
 
 class ProjectServiceTests(unittest.TestCase):
+    def test_save_syncs_complete_package_before_replacing_existing_project(self):
+        with TemporaryDirectory() as raw:
+            root = Path(raw)
+            target = ProjectService.save(root / "work.pvsproj", ProjectDocument())
+            previous = target.read_bytes()
+            document = ProjectDocument(settings=ProjectSettings(title="Synced project"))
+            actual_sync = os.fsync
+            def sync_complete_package(fd):
+                self.assertEqual(target.read_bytes(), previous)
+                temporary, = root.glob("*.tmp")
+                with zipfile.ZipFile(temporary) as archive:
+                    self.assertIsNone(archive.testzip())
+                    payload = json.loads(archive.read(ProjectService.MANIFEST_NAME))
+                    self.assertEqual(payload["settings"]["title"], "Synced project")
+                actual_sync(fd)
+            with patch("app.services.project_service.os.fsync", side_effect=sync_complete_package) as sync:
+                ProjectService.save(target, document)
+                sync.assert_called_once()
+            self.assertEqual(ProjectService.load(target).settings.title, "Synced project")
+            self.assertEqual(list(root.glob("*.tmp")), [])
+
+    def test_failed_sync_or_replace_keeps_last_good_project(self):
+        with TemporaryDirectory() as raw:
+            root = Path(raw)
+            target = ProjectService.save(root / "work.pvsproj", ProjectDocument())
+            previous = target.read_bytes()
+            replacement = ProjectDocument(settings=ProjectSettings(title="Not saved"))
+            for operation in ("fsync", "replace"):
+                with self.subTest(operation=operation):
+                    mock = (patch("app.services.project_service.os.fsync", side_effect=OSError("disk sync failed"))
+                            if operation == "fsync" else
+                            patch.object(Path, "replace", side_effect=PermissionError("target locked")))
+                    with mock, self.assertRaises(ProjectError):
+                        ProjectService.save(target, replacement)
+                    self.assertEqual(target.read_bytes(), previous)
+                    self.assertEqual(list(root.glob("*.tmp")), [])
+                    self.assertNotEqual(ProjectService.load(target).settings.title, "Not saved")
+
+    def test_embedded_media_changes_during_copy_preserve_last_good_package(self):
+        with TemporaryDirectory() as raw:
+            root = Path(raw)
+            target = ProjectService.save(root / "work.pvsproj", ProjectDocument())
+            previous = target.read_bytes()
+            media = root / "track.wav"
+            document = ProjectDocument(
+                settings=ProjectSettings(content_mode="embed"),
+                playlist=[PlaylistTrack(str(media), "Track")],
+            )
+            original_write = zipfile.ZipFile.write
+            for change in ("grow", "same-size", "replace", "delete"):
+                with self.subTest(change=change):
+                    media.write_bytes(b"original audio")
+                    before = media.stat()
+                    def copy_and_change(archive, filename, *args, **kwargs):
+                        result = original_write(archive, filename, *args, **kwargs)
+                        if Path(filename) == media.resolve():
+                            if change == "grow":
+                                media.write_bytes(b"longer audio content")
+                            elif change == "same-size":
+                                media.write_bytes(b"changed! audio")
+                                os.utime(media, ns=(before.st_atime_ns, before.st_mtime_ns + 2_000_000_000))
+                            elif change == "replace":
+                                replacement = root / "replacement.wav"
+                                replacement.write_bytes(b"original audio")
+                                replacement.replace(media)
+                            else:
+                                media.unlink()
+                        return result
+                    with patch.object(zipfile.ZipFile, "write", copy_and_change):
+                        with self.assertRaisesRegex(ProjectError, "Media changed|Media disappeared"):
+                            ProjectService.save(target, document)
+                    self.assertEqual(target.read_bytes(), previous)
+                    self.assertEqual(list(root.glob("*.tmp")), [])
+
+            media.write_bytes(b"stable audio")
+            ProjectService.save(target, document)
+            with zipfile.ZipFile(target) as archive:
+                asset, = [name for name in archive.namelist() if name.startswith("assets/")]
+                self.assertEqual(archive.read(asset), b"stable audio")
+
+    def test_embedded_media_change_after_archive_sync_prevents_publication(self):
+        with TemporaryDirectory() as raw:
+            root = Path(raw)
+            target = ProjectService.save(root / "work.pvsproj", ProjectDocument())
+            previous = target.read_bytes()
+            media = root / "track.wav"
+            media.write_bytes(b"audio")
+            document = ProjectDocument(
+                settings=ProjectSettings(content_mode="embed"),
+                playlist=[PlaylistTrack(str(media), "Track")],
+            )
+            original_sync = os.fsync
+            def sync_then_change(fd):
+                original_sync(fd)
+                media.write_bytes(b"updated audio")
+            with patch("app.services.project_service.os.fsync", side_effect=sync_then_change):
+                with self.assertRaisesRegex(ProjectError, "Media changed"):
+                    ProjectService.save(target, document)
+            self.assertEqual(target.read_bytes(), previous)
+            self.assertEqual(list(root.glob("*.tmp")), [])
+
     def test_non_package_input_is_rejected_and_save_does_not_overwrite_it(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "notes.json"

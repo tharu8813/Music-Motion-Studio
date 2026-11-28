@@ -12,6 +12,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
+import stat
 from tempfile import NamedTemporaryFile, gettempdir
 import threading
 import time
@@ -163,6 +164,24 @@ class ProjectService:
             raise ValueError("Choose a .pvsproj project file.")
         return target
 
+    @staticmethod
+    def _asset_save_signature(path: Path) -> tuple[int, int, int, int, int]:
+        """Capture observable file identity and content-change metadata."""
+        try:
+            info = path.stat()
+            if not stat.S_ISREG(info.st_mode):
+                raise OSError("Media is no longer a regular file.")
+        except OSError as error:
+            raise ProjectError(f"Media disappeared or became inaccessible during save: {path}") from error
+        return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+    @classmethod
+    def _check_asset_save_signature(
+        cls, path: Path, expected: tuple[int, int, int, int, int],
+    ) -> None:
+        if cls._asset_save_signature(path) != expected:
+            raise ProjectError(f"Media changed during project save: {path}. Retry after the file is stable.")
+
     @classmethod
     def _save_package(
         cls, target: Path, document: ProjectDocument, thumbnail: QImage | None,
@@ -217,7 +236,10 @@ class ProjectService:
         thumbnail_bytes = cls._thumbnail_bytes(thumbnail)
         if len(thumbnail_bytes) > cls.MAX_THUMBNAIL_BYTES:
             raise ProjectError("Project thumbnail is unexpectedly large.")
-        required_bytes = sum(path.stat().st_size for path in assets)
+        # Snapshot each unique embedded asset before the disk-space check. A
+        # changed size, identity or timestamp invalidates that save attempt.
+        asset_signatures = {path: cls._asset_save_signature(path) for path in assets}
+        required_bytes = sum(signature[2] for signature in asset_signatures.values())
         available_bytes = shutil.disk_usage(target.parent).free
         if required_bytes + len(payload) + len(thumbnail_bytes) > max(0, available_bytes - 512 * 1024 * 1024):
             raise OSError("Not enough free disk space to package project content safely.")
@@ -231,11 +253,26 @@ class ProjectService:
                 for source_path, archive_path in assets.items():
                     # Most media is already compressed. Storing it directly avoids a
                     # long UI-blocking recompression pass and preserves byte quality.
+                    expected = asset_signatures[source_path]
+                    cls._check_asset_save_signature(source_path, expected)
                     archive.write(
                         source_path, archive_path, compress_type=zipfile.ZIP_STORED
                     )
+                    cls._check_asset_save_signature(source_path, expected)
+                    if archive.getinfo(archive_path).file_size != expected[2]:
+                        raise ProjectError(f"Media size changed during project save: {source_path}")
                 if thumbnail_bytes:
                     archive.writestr(cls.THUMBNAIL_NAME, thumbnail_bytes)
+            # Closing ZipFile writes its central directory, but does not guarantee
+            # that the OS has flushed the package to storage. Sync the complete
+            # temporary file before replacing the last good project. Opening with
+            # write access also supports Windows FlushFileBuffers via os.fsync.
+            with temporary_path.open("r+b") as completed:
+                os.fsync(completed.fileno())
+            # An earlier asset may have changed while another was copied or
+            # while the package was flushed. Refuse to publish that snapshot.
+            for source_path, expected in asset_signatures.items():
+                cls._check_asset_save_signature(source_path, expected)
             temporary_path.replace(target)
         finally:
             temporary_path.unlink(missing_ok=True)
