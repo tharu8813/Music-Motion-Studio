@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QApplication
 from app.preview.gpu_texture_surface import (
     GPU_TEXTURE_SURFACE_AVAILABLE,
     GpuBackendInfo, GpuPreviewLayer,
-    GpuTexturePreviewSurface, _TextureEntry,
+    GpuTexturePreviewSurface, _TextureEntry, _cached_plane_indices, _plane_indices,
 )
 
 
@@ -135,9 +135,32 @@ class GpuTextureSurfaceTests(unittest.TestCase):
                         frame, 0, width, rows, target_width, target_rows, channels=channels,
                     )
                     self.assertEqual(actual, expected)
+                    if (target_width, target_rows) != (width, rows):
+                        self.assertIsInstance(actual, memoryview)
+                        self.assertTrue(actual.readonly)
+                        self.assertTrue(actual.c_contiguous)
+                        self.assertEqual(actual.format, "B")
+                        self.assertEqual(actual.nbytes, target_width * target_rows * channels)
+                        self.assertTrue(actual.obj.flags.owndata)
                     frame.raw[:] = bytes(len(frame.raw))
                     self.assertEqual(actual, expected)  # pixels outlive mapped storage
                     frame.raw[:] = original
+
+    def test_plane_index_cache_is_bounded_read_only_and_geometry_specific(self):
+        _cached_plane_indices.cache_clear()
+        self.addCleanup(_cached_plane_indices.cache_clear)
+        first = _plane_indices(1920, 1056)
+        self.assertIs(first, _plane_indices(1920, 1056))
+        self.assertFalse(first.flags.writeable)
+        self.assertTrue(np.array_equal(first, np.linspace(0, 1919, 1056).astype(np.intp)))
+        self.assertIsNot(first, _plane_indices(1921, 1056))
+        before = _cached_plane_indices.cache_info().currsize
+        huge = _plane_indices(9000, 9000)
+        self.assertEqual(_cached_plane_indices.cache_info().currsize, before)
+        self.assertEqual(len(huge), 9000)
+        for width in range(100, 200):
+            _plane_indices(width, 80)
+        self.assertEqual(_cached_plane_indices.cache_info().currsize, 64)
 
     @unittest.skipUnless(
         GPU_TEXTURE_SURFACE_AVAILABLE, "Qt OpenGL widgets are unavailable",
