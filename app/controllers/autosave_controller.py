@@ -142,6 +142,9 @@ class AutosaveController:
             with self.session.suspend_changes():
                 window._apply_project(snapshot.document)
                 window.current_project_path = project_path
+                # Older recovery snapshots contain no trustworthy base revision.
+                # Never silently adopt the current on-disk project's revision.
+                window.project_controller.loaded_revision = None
                 window.history.reset(window._project_document().to_dict())
             self.session.dirty = (
                 snapshot.dirty or window.project_controller.media_relinked

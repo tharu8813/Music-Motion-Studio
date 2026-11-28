@@ -127,6 +127,16 @@ class ProjectService:
         revision at save entry, so they are protected during the write but must
         opt into stale-editor detection using a revision captured when opening.
         """
+        saved, _ = cls.save_with_revision(path, document, thumbnail, expected_revision=expected_revision)
+        return saved
+
+    @classmethod
+    def save_with_revision(
+        cls, path: str | Path, document: ProjectDocument,
+        thumbnail: QImage | None = None, *,
+        expected_revision: ProjectRevision | None | object = _CURRENT_REVISION,
+    ) -> tuple[Path, ProjectRevision | None]:
+        """Return the published revision while the cooperating writer lock is held."""
         target = Path(path).expanduser()
         if not target.suffix:
             target = target.with_suffix(PROJECT_SUFFIX)
@@ -266,7 +276,7 @@ class ProjectService:
     def _save_package(
         cls, target: Path, document: ProjectDocument, thumbnail: QImage | None,
         expected_revision: ProjectRevision | None,
-    ) -> Path:
+    ) -> tuple[Path, ProjectRevision | None]:
         packaged = ProjectDocument.from_dict(document.to_dict())
         packaged.settings.modified_at = datetime.now(timezone.utc).isoformat()
         assets: dict[Path, str] = {}
@@ -359,10 +369,22 @@ class ProjectService:
                     f"Project changed during save: {target}. "
                     "Reopen it or save under a different name."
                 )
+            prepared = temporary_path.stat()
             temporary_path.replace(target)
+            # Do not read a revision after releasing the writer lock: another
+            # cooperating editor might already have published a newer file.
+            # If an external writer intervenes, fail closed on the next save.
+            try:
+                published = cls.revision(target)
+            except ProjectError:
+                published = None
+            if published is not None and (
+                published.device, published.inode, published.size, published.modified_ns
+            ) != (prepared.st_dev, prepared.st_ino, prepared.st_size, prepared.st_mtime_ns):
+                published = None
         finally:
             temporary_path.unlink(missing_ok=True)
-        return target
+        return target, published
 
     @classmethod
     def _lease_cache_root(cls, root: Path) -> Path:

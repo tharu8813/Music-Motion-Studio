@@ -682,6 +682,37 @@ class MainWindowProjectTests(MainWindowTestCase):
         self.assertFalse(self.window._close_after_update_check)
         self.assertIsNone(self.window._update_check_worker)
 
+    def test_external_project_save_conflict_can_preserve_edits_in_a_copy(self) -> None:
+        with TemporaryDirectory(prefix="pvs-save-conflict-") as raw:
+            root = Path(raw)
+            target = ProjectService.save(root / "work.pvsproj", ProjectDocument())
+            self.assertTrue(self.window._load_project_path(target))
+            controller = self.window.project_controller
+            opened = controller.loaded_revision
+            self.assertIsNotNone(opened)
+            marker = Source(SourceType.TEXT, "MY_UNSAVED_EDIT")
+            self.window.store.add(marker)
+            self.window.project_session.mark_changed()
+            ProjectService.save(target, ProjectDocument(settings=ProjectSettings(title="Other editor")))
+            external = target.read_bytes()
+            with patch.object(QMessageBox, "warning", return_value=QMessageBox.StandardButton.Cancel):
+                self.assertFalse(self.window._save_project(wait_for_completion=True))
+            self.assertEqual(target.read_bytes(), external)
+            self.assertTrue(self.window.project_session.dirty)
+            self.assertIsNotNone(self.window.store.get(marker.id))
+            self.assertEqual(controller.loaded_revision, opened)
+            copy = root / "copy.pvsproj"
+            with (
+                patch.object(QMessageBox, "warning", return_value=QMessageBox.StandardButton.SaveAs),
+                patch.object(QFileDialog, "getSaveFileName", return_value=(str(copy), "")),
+            ):
+                self.assertTrue(self.window._save_project(wait_for_completion=True))
+            self.assertEqual(target.read_bytes(), external)
+            self.assertEqual(self.window.current_project_path, copy.resolve())
+            self.assertEqual(controller.loaded_revision, ProjectService.revision(copy))
+            self.assertFalse(self.window.project_session.dirty)
+            self.assertIn(marker.id, [source.id for source in ProjectService.load(copy).sources])
+
     def test_project_save_runs_in_background_and_preserves_newer_edits(self) -> None:
         with TemporaryDirectory(prefix="pvs-background-save-") as raw_directory:
             target = Path(raw_directory) / "many-tracks.pvsproj"
@@ -690,12 +721,12 @@ class MainWindowProjectTests(MainWindowTestCase):
             started = threading.Event()
             release = threading.Event()
 
-            def delayed_save(path, _document, _thumbnail):
+            def delayed_save(path, _document, _thumbnail, **_options):
                 started.set()
                 release.wait(3)
-                return Path(path).resolve()
+                return Path(path).resolve(), None
 
-            with patch.object(ProjectService, "save", side_effect=delayed_save):
+            with patch.object(ProjectService, "save_with_revision", side_effect=delayed_save):
                 self.assertTrue(self.window._save_project())
                 self.assertTrue(started.wait(1))
                 worker = self.window.project_controller.save_worker
@@ -730,7 +761,7 @@ class MainWindowProjectTests(MainWindowTestCase):
             self.window.current_project_path = target
             self.window.project_session.dirty = True
             with patch.object(
-                ProjectService, "save", return_value=target.resolve(),
+                ProjectService, "save_with_revision", return_value=(target.resolve(), None),
             ):
                 saved = self.window._save_project(wait_for_completion=True)
 
@@ -745,7 +776,7 @@ class MainWindowProjectTests(MainWindowTestCase):
             self.window.project_session.dirty = True
             with (
                 patch.object(
-                    ProjectService, "save",
+                    ProjectService, "save_with_revision",
                     side_effect=ProjectError("simulated save failure"),
                 ),
                 patch.object(self.window, "_show_project_error") as show_error,

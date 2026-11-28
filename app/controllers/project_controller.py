@@ -22,11 +22,13 @@ from app.dialogs.project_crash_report_dialog import ProjectCrashReportDialog
 from app.models.project import CanvasSettings, ProjectDocument, clamp_canvas_zoom
 from app.preview.canvas_snapshot import CanvasSnapshot
 from app.services.project_media_service import ProjectMediaService
-from app.services.project_persistence_service import PROJECT_FILE_FILTER, default_project_path, is_project_path
+from app.services.project_persistence_service import PROJECT_FILE_FILTER, PROJECT_SUFFIX, default_project_path, is_project_path
 from app.services.export_storage_service import format_bytes
 from app.services.project_load_worker import ProjectLoadWorker
 from app.services.project_save_worker import ProjectSaveWorker
-from app.services.project_service import ProjectError, ProjectLoadCancelled, ProjectService
+from app.services.project_service import (
+    ProjectError, ProjectLoadCancelled, ProjectRevision, ProjectSaveConflict, ProjectService,
+)
 from app.utils.logging_setup import (
     log_directory, record_crash_occurrence, handle_crash_exit_choice,
 )
@@ -53,6 +55,7 @@ class ProjectController:
         self.save_worker: ProjectSaveWorker | None = None
         self.save_context: tuple[int, Path | None] | None = None
         self.save_succeeded: bool | None = None
+        self.loaded_revision: ProjectRevision | None = None
         self.media_relinked = False
         self.loading = False
         self._pending_crash_exit_choice: str | None = None
@@ -196,6 +199,7 @@ class ProjectController:
         previous_project_path = window.current_project_path
         with self.session.suspend_changes():
             window.current_project_path = None
+            self.loaded_revision = None
             window.project_settings = project_settings
             window._project_theme_metadata = window.theme_service.preference.value
             window._project_language_metadata = window.translator.language.value
@@ -302,16 +306,42 @@ class ProjectController:
                 return False
             target = Path(selected)
         try:
+            target = Path(target).expanduser()
+            if not target.suffix:
+                target = target.with_suffix(PROJECT_SUFFIX)
+            target = target.resolve()
+            current = window.current_project_path
+            same_project = current is not None and target == current.expanduser().resolve()
+            observed = ProjectService.revision(target)
+            expected = self.loaded_revision if same_project else observed
+            if same_project and observed != expected:
+                korean = window.translator.is_korean
+                answer = QMessageBox.warning(
+                    window,
+                    "프로젝트 저장 충돌" if korean else "Project save conflict",
+                    ("다른 창이나 프로그램이 프로젝트를 변경했거나 이전 파일 상태를 확인할 수 없습니다. "
+                     "기존 파일과 현재 편집 내용은 유지됩니다. 다른 이름으로 저장하거나 취소 후 "
+                     "프로젝트를 다시 불러오세요."
+                     if korean else
+                     "The project changed elsewhere, or its original revision is unknown. "
+                     "Your edits and the existing file are preserved. Save under another name, "
+                     "or cancel and reopen the project."),
+                    QMessageBox.StandardButton.SaveAs | QMessageBox.StandardButton.Cancel,
+                    QMessageBox.StandardButton.Cancel,
+                )
+                if answer == QMessageBox.StandardButton.SaveAs and not force_choose:
+                    return self.save(True, wait_for_completion=wait_for_completion)
+                return False
             document_data = window._project_document().to_dict()
             thumbnail = QImage(window._project_thumbnail_image())
-        except (TypeError, ValueError) as error:
+        except (ProjectError, OSError, TypeError, ValueError) as error:
             window._show_project_error(
                 ProjectError(f"Could not prepare project save: {error}")
             )
             return False
 
         previous_project_path = window.current_project_path
-        worker = ProjectSaveWorker(target, document_data, thumbnail)
+        worker = ProjectSaveWorker(target, document_data, thumbnail, expected_revision=expected)
         self.save_worker = worker
         self.save_context = (
             self.session.change_serial, previous_project_path,
@@ -353,6 +383,7 @@ class ProjectController:
         saved_serial, previous_project_path = context
         try:
             window.current_project_path = Path(saved_path)
+            self.loaded_revision = self.save_worker.saved_revision if self.save_worker is not None else None
             window.recent_projects.add(window.current_project_path)
             unchanged_since_snapshot = self.session.mark_saved(saved_serial)
             if unchanged_since_snapshot:
@@ -381,6 +412,11 @@ class ProjectController:
         self.save_succeeded = False
         if self.session.dirty:
             window._autosave_debounce_timer.start()
+        if self.save_worker is not None and self.save_worker.conflict:
+            if window.translator.is_korean:
+                message = ("다른 곳에서 프로젝트가 변경되었거나 저장 중입니다. "
+                           "현재 편집 내용은 유지됩니다. 다른 이름으로 저장하거나 다시 불러오세요.\n\n"
+                           + message)
         window._show_project_error(ProjectError(message))
 
     def save_thread_finished(self, worker: ProjectSaveWorker) -> None:
@@ -495,12 +531,16 @@ class ProjectController:
         previous_document: ProjectDocument | None = None
         previous_open = getattr(window, "_project_open", True)
         previous_path = window.current_project_path
+        previous_revision = self.loaded_revision
         previous_dirty = self.session.dirty
         previous_selection = window.store.selected_ids
         previous_active = window.store.selected.id if window.store.selected is not None else None
         try:
             path = path.expanduser().resolve()
+            revision = ProjectService.revision(path)
             document = self._load_document_off_gui_thread(path)
+            if ProjectService.revision(path) != revision:
+                raise ProjectSaveConflict(f"Project changed during loading: {path}. Reopen it.")
             if document.app_version and document.app_version != __version__:
                 korean = window.translator.is_korean
                 QMessageBox.warning(
@@ -535,6 +575,7 @@ class ProjectController:
                 loaded_snapshot = window._project_document().to_dict()
                 loaded_snapshot["canvas"]["zoom"] = document.canvas.zoom
             window.current_project_path = path
+            self.loaded_revision = revision
             window.recent_projects.add(window.current_project_path)
             self.session.dirty = self.media_relinked
             window.set_project_open(True)
@@ -569,6 +610,7 @@ class ProjectController:
                     rollback_error = restore_error
                     LOGGER.exception("Failed to restore the workspace after project load failure")
             window.current_project_path = previous_path
+            self.loaded_revision = previous_revision
             self.session.dirty = previous_dirty
             if getattr(window, "_project_open", True) != previous_open:
                 window.set_project_open(previous_open)
