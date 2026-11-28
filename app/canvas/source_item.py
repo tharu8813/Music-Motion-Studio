@@ -748,6 +748,13 @@ class SourceItem(QGraphicsObject):
             return
         frame, generation = self._video_pending_frame
         self._video_pending_frame = None
+        # A slow running task can leave a queued frame behind the current
+        # playhead or settings. Reject it before allocating/converting pixels,
+        # using exactly the same freshness policy as result publication.
+        if not self._video_filter_is_current(generation):
+            self._video_dropped_frames += 1
+            self._video_pressure_drops += 1
+            return
         settings = self._video_filter_settings(generation)
         self._video_filter_busy = True
         QThreadPool.globalInstance().start(VideoFrameFilterTask(
@@ -767,14 +774,18 @@ class SourceItem(QGraphicsObject):
             blur=float(generation[8]),
         )
 
-    def _video_filter_finished(self, generation: object, image: QImage, raw: QImage | None = None) -> None:
-        self._video_filter_busy = False
+    def _video_filter_is_current(self, generation: object) -> bool:
+        """The same eligibility check before dispatch and after worker completion."""
         base = generation[:10] if isinstance(generation, tuple) else generation
         current = self._video_last_requested_target_ms
         fresh = not (self._video_validate_timestamps and isinstance(generation, tuple) and len(generation) > 10
                      and current is not None and abs(generation[10]/1000-current) > video_seek_tolerance_ms(self._video_preview_fps))
-        if (base != self._video_filter_key() or not fresh
-                or self._video_preview_suppressed or not self.isVisible()):
+        return (base == self._video_filter_key() and fresh
+                and not self._video_preview_suppressed and self.isVisible())
+
+    def _video_filter_finished(self, generation: object, image: QImage, raw: QImage | None = None) -> None:
+        self._video_filter_busy = False
+        if not self._video_filter_is_current(generation):
             self._start_next_video_filter()
             return
         if raw is not None:

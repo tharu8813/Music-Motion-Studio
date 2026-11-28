@@ -132,7 +132,16 @@ A2의 준비 대기 약 94.8% 감소. 동일 A의 decoded PCM SHA-256과 480초 
 - [#268](https://github.com/tharu8813/Music-Motion-Studio/pull/268) CI 9/9, main `e7fb88d`: 중첩 그룹 표시 순서를 필요한 행만 계산하는 지연 sequence로 구성. 기존 표시 매핑 회귀 통과.
 - [#269](https://github.com/tharu8813/Music-Motion-Studio/pull/269) CI 9/9, main `36e6462`: 프레임별 검색 공유 및 종료 그룹 단일 순회. 중첩 검색은 여전히 선형이며 실시간 가사 편집을 위해 프레임 간 인덱스 캐시는 사용하지 않음.
 - [#270](https://github.com/tharu8813/Music-Motion-Studio/pull/270) CI 10/10, main `f8269fd`: 글로우/블러 공통 LRU 96개 및 소스별 예상 32MiB 제한, 정확한 소수점 크기 키. 실제 RAM/VRAM 제한은 아니며 기존 잘못된 크기 재사용이 제거되어 일부 픽셀이 달라질 수 있음.
-- [ ] 동일 runner에서 이전 `b8f3baf`, 검색/그룹 개선 `36e6462`, 래스터 개선 버전의 정방향/역방향 순서 비교. 2,000 TTML cue의 순차/중첩 장면, 0.55/1.0 출력 배율, 프레임 시간 중앙값/P95·상태/paint·픽셀 해시·캐시 예상 용량 기록. 검색 개선은 픽셀 일치 필수, 래스터 변경 프레임은 별도 검토. 실제 FPS와 전역 메모리 수용 검수는 별도.
+- [x] [#271](https://github.com/tharu8813/Music-Motion-Studio/pull/271), CI 10/10, main `e1f626b`. 동일 Windows runner 3개 revision, 2,000 TTML cue, 48 frame × 4 조건 × 2회. [측정 로그](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46167658527/job/141048674028). 모든 조건의 192개 프레임 해시가 revision 간 및 반복 실행 간 일치.
+
+| 조건 | 기존 capture 중앙값 ms | 검색 개선 ms | 래스터 개선 ms | 최신 P95 ms (기존) |
+| --- | ---: | ---: | ---: | ---: |
+| 순차 0.55 | 3.680 | 2.867 | 3.264 | 12.112 (13.419) |
+| 순차 1.0 | 4.402 | 4.376 | 4.474 | 14.553 (15.852) |
+| 중첩 0.55 | 3.332 | 3.097 | 3.077 | 11.400 (11.847) |
+| 중첩 1.0 | 6.191 | 5.983 | 5.985 | 14.048 (14.081) |
+
+중첩 1.0 state setup 0.455→0.262ms, 순차 ghost cache 최대 41,976,640→33,481,088 bytes (약 20.2% 감소, 32MiB 예산 이내). 순차 1.0 전체 중앙값 약 1.6% 증가: 모든 조건의 개선을 주장하지 않는다. 실제 GPU 화면 FPS, 첫 소리, 전역 RAM/VRAM 및 장시간 수용 검수는 별도.
 
 경계: `app/dialogs/export_preview_dialog.py`, `app/controllers/preview_controller.py`, `app/preview/`, `app/video/`. 세부 단계와 기준은 [#159](https://github.com/tharu8813/Music-Motion-Studio/issues/159)를 따른다.
 

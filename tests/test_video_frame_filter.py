@@ -215,6 +215,63 @@ class VideoFrameFilterTests(unittest.TestCase):
         self.assertEqual(pending.toImage().pixelColor(4, 4), QColor(0, 0, 255))
         self.assertGreaterEqual(item.video_decoder_stats().dropped_frames, 1)
 
+    def test_pending_filter_drops_stale_timestamp_before_starting_worker(self) -> None:
+        item = SourceItem(Source(SourceType.TEXT, "Queue"))
+        item._video_validate_timestamps = True
+        item._video_last_requested_target_ms = 1000
+        item._video_filter_busy = True
+        image = QImage(16, 16, QImage.Format.Format_RGBA8888)
+        generation = item._video_filter_key() + (1_000_000,)
+        item._video_pending_frame = (image, generation)
+        # Playback advanced while the preceding filter was running. No
+        # generation change: only the presentation clock is now stale.
+        item._video_last_requested_target_ms = 2000
+        with patch("app.canvas.source_item.VideoFrameFilterTask") as task:
+            item._video_filter_finished(generation, image)
+            task.assert_not_called()
+        self.assertFalse(item._video_filter_busy)
+        self.assertIsNone(item._video_pending_frame)
+        self.assertEqual(item.video_decoder_stats().pressure_drops, 1)
+
+    def test_pending_filter_drops_obsolete_settings_and_hidden_items(self) -> None:
+        for reason in ("settings", "hidden", "suppressed"):
+            with self.subTest(reason=reason):
+                item = SourceItem(Source(SourceType.TEXT, "Queue"))
+                image = QImage(16, 16, QImage.Format.Format_RGBA8888)
+                item._video_pending_frame = (image, item._video_filter_key())
+                if reason == "settings":
+                    item.source.brightness = 20
+                elif reason == "hidden":
+                    item.setVisible(False)
+                else:
+                    item._video_preview_suppressed = True
+                with patch("app.canvas.source_item.VideoFrameFilterTask") as task:
+                    item._start_next_video_filter()
+                    task.assert_not_called()
+                self.assertIsNone(item._video_pending_frame)
+                self.assertFalse(item._video_filter_busy)
+                self.assertEqual(item.video_decoder_stats().pressure_drops, 1)
+
+    def test_fresh_pending_filter_still_dispatches_after_stale_completion(self) -> None:
+        item = SourceItem(Source(SourceType.TEXT, "Queue"))
+        item._video_validate_timestamps = True
+        item._video_last_requested_target_ms = 2000
+        item._video_filter_busy = True
+        image = QImage(16, 16, QImage.Format.Format_RGBA8888)
+        key = item._video_filter_key()
+        fresh = key + (2_000_000,)
+        item._video_pending_frame = (image, fresh)
+        with (
+            patch("app.canvas.source_item.VideoFrameFilterTask") as task,
+            patch("app.canvas.source_item.QThreadPool") as pool,
+        ):
+            item._video_filter_finished(key + (1_000_000,), image)
+            task.assert_called_once()
+            self.assertEqual(task.call_args.args[2], fresh)
+            pool.globalInstance.return_value.start.assert_called_once_with(task.return_value)
+        self.assertTrue(item._video_filter_busy)
+        self.assertIsNone(item._video_pending_frame)
+
     def test_cpu_decoder_frame_is_converted_on_worker_while_gui_remains_responsive(self) -> None:
         from app.video import frame_filter
 
