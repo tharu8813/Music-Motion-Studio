@@ -1350,18 +1350,50 @@ class SourceItem(QGraphicsObject):
         pixmap.setDevicePixelRatio(pixel_ratio)
         return pixmap, margin / pixel_ratio
 
+    _LYRIC_GHOST_MAX_ENTRIES = 96
+    _LYRIC_GHOST_MAX_BYTES = 32 * 1024 * 1024
+
+    @staticmethod
+    def _lyric_ghost_bytes(entry: tuple[QPixmap, float]) -> int:
+        pixmap, _margin = entry
+        # Logical estimate of raster storage, not driver allocation. Qt
+        # pixmap width/height are device pixels, including high-DPI scaling.
+        return pixmap.width() * pixmap.height() * max(4, (pixmap.depth() + 7) // 8)
+
+    def _get_lyric_ghost(self, key: tuple) -> tuple[QPixmap, float] | None:
+        cached = self._lyric_ghost_cache.pop(key, None)
+        if cached is not None:
+            self._lyric_ghost_cache[key] = cached
+        return cached
+
+    def _remember_lyric_ghost(self, key: tuple, entry: tuple[QPixmap, float]) -> None:
+        """Bound both shared lyric raster types by count and estimated bytes.
+
+        An oversized raster is still painted for this frame, but never kept.
+        Do not evict useful existing entries just to reject an oversized one.
+        """
+        size = self._lyric_ghost_bytes(entry)
+        if not 0 < size <= self._LYRIC_GHOST_MAX_BYTES or self._LYRIC_GHOST_MAX_ENTRIES <= 0:
+            return
+        cache = self._lyric_ghost_cache
+        cache.pop(key, None)
+        total = sum(self._lyric_ghost_bytes(value) for value in cache.values())
+        while cache and (len(cache) >= self._LYRIC_GHOST_MAX_ENTRIES
+                         or total + size > self._LYRIC_GHOST_MAX_BYTES):
+            oldest = cache.pop(next(iter(cache)))
+            total -= self._lyric_ghost_bytes(oldest)
+        cache[key] = entry
+
     def _lyric_blur_pixmap(self, line: str, color: QColor, radius: float,
                            content_width: float, line_height: float,
                            pixel_ratio: float, flags: int,
                            font: QFont | None = None) -> tuple[QPixmap, float]:
         """Return a Gaussian-blurred lyric row and its logical margin."""
         font = font or self._lyric_fonts["current"]
-        key = (line, color.rgba(), round(radius * pixel_ratio, 2), round(content_width),
-               round(line_height), pixel_ratio, int(flags), font.toString())
-        cached = self._lyric_ghost_cache.pop(key, None)
+        key = (line, color.rgba(), round(radius * pixel_ratio, 2), content_width,
+               line_height, pixel_ratio, int(flags), font.toString())
+        cached = self._get_lyric_ghost(key)
         if cached is None:
-            if len(self._lyric_ghost_cache) >= 96:
-                self._lyric_ghost_cache.pop(next(iter(self._lyric_ghost_cache)))
 
             def paint(blur_painter: QPainter) -> None:
                 blur_painter.setPen(color)
@@ -1376,7 +1408,7 @@ class SourceItem(QGraphicsObject):
                 coverage_key=(line, color.alpha(), round(radius * pixel_ratio, 2),
                               content_width, line_height, pixel_ratio, int(flags), font.toString()),
             )
-        self._lyric_ghost_cache[key] = cached
+            self._remember_lyric_ghost(key, cached)
         return cached
 
     def _lyric_line_height(self) -> float:

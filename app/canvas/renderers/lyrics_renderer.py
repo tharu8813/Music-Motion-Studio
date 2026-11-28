@@ -889,10 +889,8 @@ def _paint_lyric_halo(item, painter, row, key, path, color, ratio, radius, left,
     if right - left <= 0.01:
         return
     glow_key = ("karaoke glow", key, left, right, color.rgba(), radius, ratio)
-    cached = item._lyric_ghost_cache.pop(glow_key, None)
+    cached = item._get_lyric_ghost(glow_key)
     if cached is None:
-        if len(item._lyric_ghost_cache) >= 96:
-            item._lyric_ghost_cache.pop(next(iter(item._lyric_ghost_cache)))
 
         def paint_glyph(raster):
             raster.translate(-left, 0)
@@ -902,7 +900,7 @@ def _paint_lyric_halo(item, painter, row, key, path, color, ratio, radius, left,
         cached = item._blurred_raster(
             paint_glyph, QSizeF(right - left, row.height()), radius, ratio, solid_color=color,
         )
-    item._lyric_ghost_cache[glow_key] = cached
+        item._remember_lyric_ghost(glow_key, cached)
     pixmap, margin = cached
     painter.setOpacity(opacity)
     painter.drawPixmap(QPointF(row.left() + left - margin, row.top() - margin - lift), pixmap)

@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QFontMetricsF, QImage, QPainter
+from PySide6.QtGui import QColor, QFontMetricsF, QImage, QPainter, QPixmap
 from app.canvas.renderers import lyrics_renderer
 from app.canvas.live_canvas import CanvasScene
 from app.canvas.source_item import SourceItem
@@ -108,6 +108,56 @@ class LyricsRenderCacheTests(unittest.TestCase):
             snapshots.append(bytes(image.constBits()))
             self.assertTrue(item._lyric_reveal_cache)
         self.assertEqual(snapshots[0], snapshots[1])
+
+    def test_shared_ghost_cache_byte_limit_and_recency(self):
+        item = SourceItem(Source(SourceType.LYRICS, "Lyrics"))
+        item._LYRIC_GHOST_MAX_BYTES = 2 * 32 * 32 * 4
+        item._LYRIC_GHOST_MAX_ENTRIES = 96
+        def raster(width=32, height=32):
+            pixmap = QPixmap(width, height)
+            pixmap.fill(Qt.GlobalColor.transparent)
+            return pixmap, 0.0
+        first, second, third = raster(), raster(), raster()
+        item._remember_lyric_ghost(("blur", 1), first)
+        item._remember_lyric_ghost(("karaoke glow", 1), second)
+        self.assertIs(item._get_lyric_ghost(("blur", 1)), first)
+        item._remember_lyric_ghost(("blur", 2), third)
+        self.assertIsNone(item._get_lyric_ghost(("karaoke glow", 1)))
+        self.assertIs(item._get_lyric_ghost(("blur", 1)), first)
+        item._remember_lyric_ghost(("large",), raster(128, 128))
+        self.assertNotIn(("large",), item._lyric_ghost_cache)
+        self.assertEqual(len(item._lyric_ghost_cache), 2)
+        self.assertLessEqual(sum(item._lyric_ghost_bytes(value)
+                                 for value in item._lyric_ghost_cache.values()),
+                             item._LYRIC_GHOST_MAX_BYTES)
+        item.source.font_size += 1
+        item.apply_source()
+        self.assertEqual(item._lyric_ghost_cache, {})
+
+    def test_fractional_blur_geometry_does_not_reuse_wrong_raster(self):
+        item = SourceItem(Source(SourceType.LYRICS, "Lyrics", font_size=22))
+        flags = int(Qt.AlignmentFlag.AlignHCenter | Qt.TextFlag.TextSingleLine)
+        color = QColor("#ffffff")
+        # Equal rounded widths/heights formerly aliased, despite different
+        # device-pixel dimensions at 2x output scale.
+        first, _ = item._lyric_blur_pixmap("Text", color, 3, 100.1, 40.1, 2.0, flags)
+        second, _ = item._lyric_blur_pixmap("Text", color, 3, 99.9, 39.9, 2.0, flags)
+        self.assertNotEqual(first.size(), second.size())
+        self.assertEqual(len(item._lyric_ghost_cache), 2)
+        again, _ = item._lyric_blur_pixmap("Text", color, 3, 100.1, 40.1, 2.0, flags)
+        self.assertEqual(again.cacheKey(), first.cacheKey())
+
+    def test_oversized_blur_is_painted_without_retaining_it(self):
+        item = SourceItem(Source(SourceType.LYRICS, "Lyrics", font_size=22))
+        flags = int(Qt.AlignmentFlag.AlignHCenter | Qt.TextFlag.TextSingleLine)
+        color = QColor("#ffffff")
+        first, margin = item._lyric_blur_pixmap("Text", color, 3, 100, 40, 1.0, flags)
+        item._lyric_ghost_cache.clear()
+        item._LYRIC_GHOST_MAX_BYTES = 1
+        second, second_margin = item._lyric_blur_pixmap("Text", color, 3, 100, 40, 1.0, flags)
+        self.assertEqual(margin, second_margin)
+        self.assertEqual(first.toImage(), second.toImage())
+        self.assertEqual(item._lyric_ghost_cache, {})
 
     def test_metrics_are_reused_and_property_changes_invalidate_resources(self):
         item = SourceItem(Source(SourceType.LYRICS, 'Lyrics'))
