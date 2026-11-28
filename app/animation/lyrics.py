@@ -1,6 +1,6 @@
 """Lyric motion and role defaults shared by the renderer and its editor."""
 
-from math import pi, sin
+from math import ceil, pi, sin
 from typing import NamedTuple
 from app.animation.curves import clamp_progress, ease_in_out_cubic, ease_out_quint
 from app.models.source import Source
@@ -103,9 +103,23 @@ def role_style(source: Source, role: str) -> dict[str, object]:
                        if key in {"scale", "opacity", "blur"}}
 
 
+def cascade_slot_count(source: Source, axis: float, line_height: float) -> int:
+    """Use configured/viewport capacity, never the number of remaining cues."""
+    if source.subtitle_next_lines >= 0:
+        return max(1, int(source.subtitle_next_lines))
+    if source.subtitle_flow_direction in {"left", "right"}:
+        return 1
+    fraction = source.subtitle_anchor if source.subtitle_flow_direction == "down" else 1 - source.subtitle_anchor
+    # One extra slot covers the partially visible row at the edge. Keep this
+    # independent of the current cue's wrapped height and the virtual window.
+    return max(1, ceil(axis * fraction / max(1.0, line_height)) + 1)
+
+
 def stagger_progress(source: Source, raw: float, slot: int, first: int, last: int) -> float:
+    count = max(1, last - first + 1)
     rank = last - slot if source.subtitle_stagger_order == "far_first" else slot - first
-    delay = source.subtitle_stagger * (rank + 1) / max(1, last - first + 1)
+    rank = max(0, min(count - 1, rank))
+    delay = min(.999, source.subtitle_stagger * (rank + 1) / count)
     return lyric_progress(source, (raw - delay) / (1.0 - delay))
 
 

@@ -190,6 +190,26 @@ def resolve_lyrics_cue_state(
         and len(active_indices) <= 1
     )
     duration = max(0.05, subtitle_animation_duration)
+    motion_duration = duration
+    if subtitle_animation == "cascade" and lyric_cue is not None and cue_index is not None:
+        start = float(lyric_cue.get("start", lyric_elapsed))
+        if cue_index + 1 < len(track.lyrics):
+            next_start = float(track.lyrics[cue_index + 1]["start"])
+            if next_start > start:
+                # Finish this scroll before a newer cue takes over (including
+                # the lyric resolver's half-millisecond boundary tolerance).
+                motion_duration = min(duration, max(.0005, next_start - start - .0005))
+        if (not transitioning and active_cue_index is None and not before_first
+                and cue_index > 0 and cue_index == latest_started
+                and len(held_indices) <= 1
+                and start <= lyric_elapsed < start + motion_duration
+                and lyric_elapsed + .0005 >= float(lyric_cue.get("end", start + 8.0))
+                and all(float(cue.get("end", float(cue["start"]) + 8.0)) <= start
+                        for cue in track.lyrics[:cue_index])):
+            # A short isolated cue can stop singing before its scroll ends.
+            # Continue the same visual clock without keeping the cue active
+            # or changing any word timing. Do not restart overlapping groups.
+            transitioning = True
     transition_progress = 1.0
     cue_start_seconds: float | None = None
     release_progress: float | None = None
@@ -199,14 +219,14 @@ def resolve_lyrics_cue_state(
         if continuous and cue_index == 0 and cue_start_seconds <= 0:
             cue_start_seconds = -duration  # Cues already started at track entry remain fully visible.
         transition_progress = max(0.0, min(1.0, (
-            (elapsed_seconds - cue_start_seconds) / duration
+            (elapsed_seconds - cue_start_seconds) / motion_duration
         )))
         if cue_index > 0 and not continuous:
             previous = track.lyrics[cue_index - 1]
             previous_start = float(previous.get("start", 0.0))
             gap = float(lyric_cue.get("start", 0.0)) - float(previous.get("end", previous_start + 8.0))
             previous_emphasis = 1.0 - ease_in_out_cubic(gap / duration)
-    elif (
+    if (
         lyric_cue is not None and active_cue_index is None
         and subtitle_animation != "none"
     ):
