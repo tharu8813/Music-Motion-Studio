@@ -32,6 +32,14 @@ class RecoverySnapshot:
     base_revision: ProjectRevision | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class RecoveryProblem:
+    """A recovery file that could not be validated; it remains on disk."""
+
+    path: Path
+    reason: str
+
+
 class AutosaveService:
     """Maintain separate, atomic crash-recovery snapshots for each project."""
 
@@ -127,16 +135,25 @@ class AutosaveService:
 
     def recoveries(self) -> list[RecoverySnapshot]:
         """Return every valid recovery snapshot from newest to oldest."""
-        if not self.directory.is_dir():
-            return []
+        snapshots, _ = self.scan_recoveries()
+        return snapshots
+
+    def scan_recoveries(self) -> tuple[list[RecoverySnapshot], list[RecoveryProblem]]:
+        """Return valid snapshots and unreadable-file diagnostics in one scan.
+
+        No recovery file is removed or modified, including malformed ones.
+        """
         snapshots: list[RecoverySnapshot] = []
-        for path in self.directory.glob("*.recovery.json"):
+        problems: list[RecoveryProblem] = []
+        if not self.directory.is_dir():
+            return snapshots, problems
+        for path in sorted(self.directory.glob("*.recovery.json")):
             try:
                 snapshots.append(self.load_snapshot(path))
-            except ProjectError:
-                # A damaged recovery must not block valid snapshots from other projects.
-                continue
-        return sorted(snapshots, key=lambda snapshot: snapshot.saved_at, reverse=True)
+            except ProjectError as error:
+                problems.append(RecoveryProblem(path, str(error)))
+        snapshots.sort(key=lambda snapshot: snapshot.saved_at, reverse=True)
+        return snapshots, problems
 
     def clear(self, project_path: Path | None) -> None:
         """Discard only the snapshot belonging to the specified workspace."""

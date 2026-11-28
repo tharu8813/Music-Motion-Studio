@@ -385,6 +385,31 @@ class MainWindowProjectTests(MainWindowTestCase):
             finally:
                 self.window.autosave = original
 
+    def test_unreadable_recovery_is_reported_without_blocking_valid_workspace(self) -> None:
+        with TemporaryDirectory(prefix="pvs-recovery-diagnostics-") as raw:
+            original = self.window.autosave
+            self.window.autosave = AutosaveService(Path(raw))
+            try:
+                service = self.window.autosave
+                service.directory.mkdir(parents=True)
+                broken = service.directory / "broken.recovery.json"
+                broken.write_bytes(b"{")
+                controller = self.window.autosave_controller
+                with patch.object(controller, "show_recovery_problems") as report:
+                    self.assertFalse(self.window._offer_recovery(confirm=False))
+                    report.assert_called_once()
+                    self.assertEqual(report.call_args.args[0][0].path, broken)
+                self.assertEqual(broken.read_bytes(), b"{")
+
+                service.save(ProjectDocument(settings=ProjectSettings(title="Valid workspace")), None)
+                with patch.object(controller, "show_recovery_problems") as report:
+                    self.assertTrue(self.window._offer_recovery(confirm=False))
+                    report.assert_called_once()
+                self.assertEqual(self.window.project_settings.title, "Valid workspace")
+                self.assertEqual(broken.read_bytes(), b"{")
+            finally:
+                self.window.autosave = original
+
     def test_declining_single_recovery_keeps_original_snapshot(self) -> None:
         with TemporaryDirectory(prefix="pvs-decline-recovery-") as raw:
             original = self.window.autosave
@@ -618,7 +643,7 @@ class MainWindowProjectTests(MainWindowTestCase):
                 saved_at=datetime.now(UTC) - timedelta(minutes=5),
             )
             with patch.object(
-                self.window.autosave, "recoveries", return_value=[snapshot]
+                self.window.autosave, "scan_recoveries", return_value=([snapshot], [])
             ), patch.object(
                 self.window.autosave, "clear_snapshot"
             ) as clear_snapshot, patch.object(

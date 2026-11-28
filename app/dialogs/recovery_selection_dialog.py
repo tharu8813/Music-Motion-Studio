@@ -37,7 +37,11 @@ class RecoverySelectionDialog(QDialog):
             location = str(snapshot.project_path) if snapshot.project_path else (
                 "저장되지 않은 프로젝트" if korean else "Unsaved project"
             )
-            timestamp = snapshot.saved_at.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+            try:
+                timestamp = snapshot.saved_at.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+            except (OverflowError, OSError, ValueError):
+                # A representable ISO timestamp may overflow the local timezone.
+                timestamp = snapshot.saved_at.isoformat()
             state = ("편집 내용 있음" if korean else "Unsaved edits") if snapshot.dirty else (
                 "저장 상태" if korean else "Saved workspace"
             )
