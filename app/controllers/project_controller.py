@@ -315,21 +315,7 @@ class ProjectController:
             observed = ProjectService.revision(target)
             expected = self.loaded_revision if same_project else observed
             if same_project and observed != expected:
-                korean = window.translator.is_korean
-                answer = QMessageBox.warning(
-                    window,
-                    "프로젝트 저장 충돌" if korean else "Project save conflict",
-                    ("다른 창이나 프로그램이 프로젝트를 변경했거나 이전 파일 상태를 확인할 수 없습니다. "
-                     "기존 파일과 현재 편집 내용은 유지됩니다. 다른 이름으로 저장하거나 취소 후 "
-                     "프로젝트를 다시 불러오세요."
-                     if korean else
-                     "The project changed elsewhere, or its original revision is unknown. "
-                     "Your edits and the existing file are preserved. Save under another name, "
-                     "or cancel and reopen the project."),
-                    QMessageBox.StandardButton.SaveAs | QMessageBox.StandardButton.Cancel,
-                    QMessageBox.StandardButton.Cancel,
-                )
-                if answer == QMessageBox.StandardButton.SaveAs and not force_choose:
+                if self.offer_conflict_copy() and not force_choose:
                     return self.save(True, wait_for_completion=wait_for_completion)
                 return False
             document_data = window._project_document().to_dict()
@@ -368,6 +354,35 @@ class ProjectController:
             window._wait_for_project_save(worker)
             return self.save_succeeded is True
         return True
+
+    def offer_conflict_copy(self) -> bool:
+        """Offer a safe copy; closing or cancelling never authorizes overwrite."""
+        window = self.window
+        korean = window.translator.is_korean
+        dialog = QMessageBox(
+            QMessageBox.Icon.Warning,
+            "프로젝트 저장 충돌" if korean else "Project save conflict",
+            ("다른 창이나 프로그램이 프로젝트를 변경했거나 이전 파일 상태를 확인할 수 없습니다. "
+             "기존 파일과 현재 편집 내용은 유지됩니다. 다른 이름으로 저장하거나 취소 후 "
+             "프로젝트를 다시 불러오세요."
+             if korean else
+             "The project changed elsewhere, or its original revision is unknown. "
+             "Your edits and the existing file are preserved. Save under another name, "
+             "or cancel and reopen the project."),
+            QMessageBox.StandardButton.Cancel, window,
+        )
+        copy_button = dialog.addButton(
+            "다른 이름으로 저장" if korean else "Save As",
+            QMessageBox.ButtonRole.AcceptRole,
+        )
+        cancel_button = dialog.button(QMessageBox.StandardButton.Cancel)
+        dialog.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        dialog.setEscapeButton(cancel_button)
+        try:
+            dialog.exec()
+            return dialog.clickedButton() is copy_button
+        finally:
+            dialog.deleteLater()
 
     def wait_for_save(self, worker: ProjectSaveWorker) -> None:
         """Wait for a required save while continuing to process Qt events."""

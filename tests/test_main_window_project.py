@@ -32,7 +32,7 @@ from app.dialogs.missing_media_dialog import MissingMediaDialog
 from app.dialogs.lrc_generator_dialog import LrcGeneratorDialog
 from app.dialogs.track_details_dialog import TrackDetailsDialog
 from app.services.autosave_service import AutosaveService, RecoverySnapshot
-from app.services.project_service import ProjectError, ProjectService
+from app.services.project_service import ProjectError, ProjectRevision, ProjectService
 from app.services.project_media_service import MissingMedia
 from app.services.update_service import ReleaseInfo
 from app.services.playlist_service import AudioImportCandidate, PlaylistService
@@ -695,7 +695,7 @@ class MainWindowProjectTests(MainWindowTestCase):
             self.window.project_session.mark_changed()
             ProjectService.save(target, ProjectDocument(settings=ProjectSettings(title="Other editor")))
             external = target.read_bytes()
-            with patch.object(QMessageBox, "warning", return_value=QMessageBox.StandardButton.Cancel):
+            with patch.object(controller, "offer_conflict_copy", return_value=False):
                 self.assertFalse(self.window._save_project(wait_for_completion=True))
             self.assertEqual(target.read_bytes(), external)
             self.assertTrue(self.window.project_session.dirty)
@@ -703,7 +703,7 @@ class MainWindowProjectTests(MainWindowTestCase):
             self.assertEqual(controller.loaded_revision, opened)
             copy = root / "copy.pvsproj"
             with (
-                patch.object(QMessageBox, "warning", return_value=QMessageBox.StandardButton.SaveAs),
+                patch.object(controller, "offer_conflict_copy", return_value=True),
                 patch.object(QFileDialog, "getSaveFileName", return_value=(str(copy), "")),
             ):
                 self.assertTrue(self.window._save_project(wait_for_completion=True))
@@ -712,6 +712,47 @@ class MainWindowProjectTests(MainWindowTestCase):
             self.assertEqual(controller.loaded_revision, ProjectService.revision(copy))
             self.assertFalse(self.window.project_session.dirty)
             self.assertIn(marker.id, [source.id for source in ProjectService.load(copy).sources])
+            self.window.store.update(marker.id, x=123)
+            self.window.project_session.mark_changed()
+            self.assertTrue(self.window._save_project(wait_for_completion=True))
+            self.assertEqual(controller.loaded_revision, ProjectService.revision(copy))
+            self.assertEqual(target.read_bytes(), external)
+
+    def test_conflict_dialog_has_real_save_as_and_cancel_buttons(self) -> None:
+        controller = self.window.project_controller
+        for accept in (False, True):
+            seen = []
+            def choose():
+                dialog = QApplication.activeModalWidget()
+                if not isinstance(dialog, QMessageBox):
+                    if dialog is not None:
+                        dialog.close()
+                    return
+                copy = next((button for button in dialog.buttons()
+                             if dialog.buttonRole(button) == QMessageBox.ButtonRole.AcceptRole), None)
+                cancel = dialog.button(QMessageBox.StandardButton.Cancel)
+                seen.append((copy is not None, dialog.defaultButton() is cancel))
+                (copy if accept and copy is not None else cancel).click()
+            QTimer.singleShot(0, choose)
+            self.assertEqual(controller.offer_conflict_copy(), accept)
+            self.assertEqual(seen, [(True, True)])
+
+    def test_unverified_published_revision_retains_dirty_workspace_and_recovery(self) -> None:
+        with TemporaryDirectory(prefix="pvs-unverified-save-") as raw:
+            root = Path(raw)
+            target = root / "work.pvsproj"
+            self.window.current_project_path = target
+            self.window.project_session.dirty = True
+            with (
+                patch.object(ProjectService, "save_with_revision", return_value=(target, None)),
+                patch.object(self.window.autosave, "clear") as clear,
+                patch.object(self.window, "_show_project_error") as show_error,
+            ):
+                self.assertFalse(self.window._save_project(wait_for_completion=True))
+                clear.assert_not_called()
+                show_error.assert_called_once()
+            self.assertTrue(self.window.project_session.dirty)
+            self.assertTrue(self.window._autosave_debounce_timer.isActive())
 
     def test_project_save_runs_in_background_and_preserves_newer_edits(self) -> None:
         with TemporaryDirectory(prefix="pvs-background-save-") as raw_directory:
@@ -724,7 +765,7 @@ class MainWindowProjectTests(MainWindowTestCase):
             def delayed_save(path, _document, _thumbnail, **_options):
                 started.set()
                 release.wait(3)
-                return Path(path).resolve(), None
+                return Path(path).resolve(), ProjectRevision(1, 2, 3, 4, 5)
 
             with patch.object(ProjectService, "save_with_revision", side_effect=delayed_save):
                 self.assertTrue(self.window._save_project())
@@ -761,7 +802,8 @@ class MainWindowProjectTests(MainWindowTestCase):
             self.window.current_project_path = target
             self.window.project_session.dirty = True
             with patch.object(
-                ProjectService, "save_with_revision", return_value=(target.resolve(), None),
+                ProjectService, "save_with_revision",
+                return_value=(target.resolve(), ProjectRevision(1, 2, 3, 4, 5)),
             ):
                 saved = self.window._save_project(wait_for_completion=True)
 

@@ -41,6 +41,11 @@ class ProjectSaveWorker(QThread):
             saved, self.saved_revision = ProjectService.save_with_revision(
                 self.target, document, self.thumbnail, expected_revision=self.expected_revision,
             )
+            if self.saved_revision is None:
+                raise ProjectSaveConflict(
+                    "The published project revision could not be verified. "
+                    "Your edits and recovery snapshot are retained. Save under a different name."
+                )
         except ProjectSaveConflict as error:
             self.conflict = True
             self.failed.emit(str(error))
