@@ -11,8 +11,8 @@ import unittest
 from app.models.playlist import PlaylistTrack
 from app.models.source import Source, SourceType
 from app.preview.frame_state import (
-    resolve_lyrics_cue_state, resolve_now_playing_exit_state,
-    resolve_timeline_window_phase,
+    LyricsCueState, lyrics_display_groups, resolve_lyrics_cue_state,
+    resolve_now_playing_exit_state, resolve_timeline_window_phase,
 )
 
 
@@ -136,6 +136,62 @@ class FrameStateTests(unittest.TestCase):
         self.assertEqual(state.cue_index, 0)
         self.assertTrue(state.transitioning)
         self.assertAlmostEqual(state.transition_progress, 0.0)
+
+
+class LyricDisplayGroupTests(unittest.TestCase):
+    def test_lazy_groups_match_previous_eager_mapping(self):
+        from itertools import combinations
+
+        cues = [{"start": float(i), "end": float(i + 1), "text": f"Line {i}",
+                 "format": "ttml"} for i in range(8)]
+        track = _track(cues)
+        for last in range(len(cues)):
+            for count in range(1, last + 2):
+                for displayed in combinations(range(last + 1), count):
+                    if displayed == (last,):
+                        continue
+                    previous = [(i,) for i in range(last + 1) if i not in displayed]
+                    expected = previous + [displayed] + [(i,) for i in range(last + 1, len(cues))]
+                    for held in (False, True):
+                        state = LyricsCueState(
+                            displayed[0], None if held else displayed[0], False, 1.0, None,
+                            active_cue_indices=() if held else displayed,
+                            held_cue_indices=displayed if held else (),
+                            latest_started_cue_index=last,
+                        )
+                        groups, anchor = lyrics_display_groups(track, state)
+                        self.assertEqual(anchor, len(previous))
+                        self.assertEqual(len(groups), len(expected))
+                        self.assertEqual([group["display_cue_indices"] for group in groups], expected)
+                        self.assertEqual(groups[-1]["display_cue_indices"], expected[-1])
+                        self.assertEqual([group["display_cue_indices"] for group in groups[::2]], expected[::2])
+                        self.assertEqual(groups[anchor]["text"],
+                                         "\n".join(f"Line {i}" for i in displayed))
+                        for position, indices in enumerate(expected):
+                            for index in indices:
+                                self.assertEqual(groups.index_for_cue(index), position)
+                        with self.assertRaises(IndexError):
+                            _ = groups[len(groups)]
+
+    def test_long_overlap_only_prepares_requested_rows(self):
+        cues = [{"start": float(i), "end": float(i + 1), "text": str(i),
+                 "format": "ttml"} for i in range(10000)]
+        track = _track(cues)
+        displayed = (2, 4999, 5000)
+        state = LyricsCueState(
+            2, 2, False, 1.0, None, active_cue_indices=displayed,
+            latest_started_cue_index=5000,
+        )
+        groups, anchor = lyrics_display_groups(track, state)
+        self.assertEqual(len(groups), 9998)
+        self.assertEqual(len(groups.prepared), 0)
+        self.assertEqual(len(groups._removed_ranks), len(displayed))
+        visible = groups[anchor - 2:anchor + 3]
+        self.assertEqual(len(visible), 5)
+        self.assertEqual(visible[2]["display_cue_indices"], displayed)
+        self.assertEqual(len(groups.prepared), 5)
+        self.assertEqual(groups.index_for_cue(2), anchor)
+        self.assertEqual(groups.index_for_cue(9999), len(groups) - 1)
 
 
 class NowPlayingExitStateTests(unittest.TestCase):
