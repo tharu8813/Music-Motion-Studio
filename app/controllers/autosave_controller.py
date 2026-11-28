@@ -9,10 +9,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from pathlib import Path
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QMessageBox
 
 from app.dialogs.recovery_selection_dialog import RecoverySelectionDialog
 
+from app.services.autosave_service import RecoveryProblem
 from app.services.autosave_worker import AutosaveWorker
 from app.services.project_service import ProjectError, ProjectLoadCancelled, ProjectService
 from app.services.project_persistence_service import is_project_path
@@ -103,6 +105,37 @@ class AutosaveController:
         self.worker = None
         worker.deleteLater()
 
+    def show_recovery_problems(self, problems: list[RecoveryProblem]) -> None:
+        """Explain unreadable backups without asking the user to delete them."""
+        window = self.window
+        korean = window.translator.is_korean
+        dialog = QMessageBox(window)
+        dialog.setIcon(QMessageBox.Icon.Warning)
+        dialog.setWindowTitle("자동 복구 파일 확인" if korean else "Recovery file diagnostics")
+        dialog.setTextFormat(Qt.TextFormat.PlainText)
+        dialog.setText(
+            f"복구 파일 {len(problems)}개를 읽을 수 없습니다. 원본은 삭제하지 않았습니다."
+            if korean else
+            f"{len(problems)} recovery file(s) could not be read. The originals have not been deleted."
+        )
+        dialog.setInformativeText(
+            f"정상 복구 파일은 계속 사용할 수 있습니다. 복구 파일 폴더:\n{window.autosave.directory}"
+            if korean else
+            f"Valid recovery files remain available. Recovery folder:\n{window.autosave.directory}"
+        )
+        # Bound dialog content even if a directory contains many bad files or
+        # an exception includes a large malformed field.
+        details = "\n\n".join(f"{problem.path}\n{problem.reason[:500]}" for problem in problems[:20])
+        if len(problems) > 20:
+            details += (f"\n\n그 외 {len(problems) - 20}개" if korean
+                        else f"\n\n{len(problems) - 20} more file(s)")
+        dialog.setDetailedText(details)
+        dialog.setStandardButtons(QMessageBox.StandardButton.Ok)
+        try:
+            dialog.exec()
+        finally:
+            dialog.deleteLater()
+
     def offer_recovery(self, *, snapshot_path: Path | None = None, confirm: bool = True) -> bool:
         """Offer recovery of the most recently autosaved workspace on startup."""
         window = self.window
@@ -111,7 +144,9 @@ class AutosaveController:
             if snapshot_path is not None:
                 snapshot = window.autosave.load_snapshot(snapshot_path)
             else:
-                snapshots = window.autosave.recoveries()
+                snapshots, problems = window.autosave.scan_recoveries()
+                if problems:
+                    self.show_recovery_problems(problems)
                 if len(snapshots) > 1:
                     dialog = RecoverySelectionDialog(snapshots, window.translator.is_korean, window)
                     try:

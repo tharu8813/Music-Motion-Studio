@@ -23,6 +23,28 @@ def _document() -> ProjectDocument:
 
 
 class AutosaveServiceTests(unittest.TestCase):
+    def test_scan_reports_unreadable_files_and_preserves_all_originals(self) -> None:
+        with TemporaryDirectory(prefix="pvs-recovery-diagnostics-") as raw:
+            service = AutosaveService(Path(raw))
+            valid = service.save(_document(), None)
+            invalid = {
+                service.directory / "broken.recovery.json": b"{",
+                service.directory / "encoding.recovery.json": bytes((0xff, 0xfe)),
+                service.directory / "oversize.recovery.json": b"x" * 65537,
+            }
+            for path, content in invalid.items():
+                path.write_bytes(content)
+            with patch.object(AutosaveService, "MAX_SNAPSHOT_BYTES", 65536):
+                snapshots, problems = service.scan_recoveries()
+                self.assertEqual([snap.path for snap in snapshots], [valid.path])
+                self.assertEqual({problem.path for problem in problems}, set(invalid))
+                self.assertTrue(all(problem.reason for problem in problems))
+                oversized = next(problem for problem in problems if problem.path.name.startswith("oversize"))
+                self.assertIn("size limit", oversized.reason)
+                self.assertEqual([snap.path for snap in service.recoveries()], [valid.path])
+            for path, content in invalid.items():
+                self.assertEqual(path.read_bytes(), content)
+
     def test_recovery_worker_preserves_original_revision_and_legacy_metadata_is_safe(self):
         with TemporaryDirectory(prefix="pvs-autosave-") as directory:
             root = Path(directory)
@@ -79,7 +101,7 @@ class AutosaveServiceTests(unittest.TestCase):
             payload = json.loads(valid.path.read_text(encoding="utf-8"))
             invalid = [
                 b"x" * (limit + 1),
-                b"\\xff\\xfe",
+                bytes((0xff, 0xfe)),
                 b"[" * 1500 + b"0" + b"]" * 1500,
                 b'{"schema_version":NaN}',
                 json.dumps(dict(payload, schema_version=True)).encode("utf-8"),
