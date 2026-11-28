@@ -83,6 +83,55 @@ class PreviewAudioWorkerTests(unittest.TestCase):
                         self.assertEqual(Path(ready[0][0]).read_bytes(), b"continuous audio")
                 self.assertEqual(prepare.call_count, 1)
 
+    def test_gapless_worker_reuses_first_playlist_after_intervening_playlist(self) -> None:
+        from app.preview.gapless_audio_cache import GaplessPreviewCache
+        from app.timeline.compiler import compile_playlist
+
+        renderer = _renderer()
+        with TemporaryDirectory(prefix="gapless-switch-") as directory:
+            root = Path(directory)
+            renderer.executable = root / "ffmpeg.exe"
+            renderer.executable.write_bytes(b"ffmpeg")
+            (root / "ffprobe.exe").write_bytes(b"ffprobe")
+            tracks = []
+            for name in ("a.mp3", "b.mp3"):
+                source = root / name
+                source.write_bytes(b"audio")
+                tracks.append(_track(str(source)))
+            reversed_tracks = list(reversed(tracks))
+
+            def render(active, output_directory, _settings, **kwargs):
+                output = output_directory / "playlist_audio.flac"
+                output.write_bytes("|".join(track.title for track in active).encode())
+                kwargs["plan_callback"](compile_playlist(active))
+                return output
+
+            for capacity, expected_renders in ((1, 3), (3, 2)):
+                with self.subTest(capacity=capacity):
+                    cache = GaplessPreviewCache(max_entries=capacity)
+                    try:
+                        with (
+                            patch("app.controllers.preview_audio_controller.GAPLESS_PREVIEW_CACHE", cache),
+                            patch.object(renderer, "prepare_playlist_audio", side_effect=render) as prepare,
+                        ):
+                            results = []
+                            for active in (tracks, reversed_tracks, tracks):
+                                with TemporaryDirectory(dir=root) as output:
+                                    worker = _PreviewAudioWorker(
+                                        renderer, active, Path(output), "none", 3.0,
+                                        audio_codec="flac", background=True,
+                                    )
+                                    ready = []
+                                    worker.ready.connect(lambda path, plan: ready.append((path, plan)))
+                                    worker.run()
+                                    self.assertEqual(len(ready), 1)
+                                    results.append((Path(ready[0][0]).read_bytes(), ready[0][1]))
+                            self.assertEqual(prepare.call_count, expected_renders)
+                            self.assertEqual(results[0], results[2])
+                            self.assertNotEqual(results[0][0], results[1][0])
+                    finally:
+                        cache.clear()
+
     def test_render_failure_emits_failed_not_an_exception(self) -> None:
         with TemporaryDirectory(prefix="preview-audio-") as directory:
             renderer = _renderer()
