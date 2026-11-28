@@ -43,6 +43,8 @@ from app.automix.renderer import (
     ffmpeg_filter_names,
     ffmpeg_supports_transition_dsp,
     graph_parts,
+    rendered_audio_plan,
+    supported_tape_stop,
     transition_dsp_style,
 )
 from app.ffmpeg.audio_effects import audio_effect_graph
@@ -149,6 +151,7 @@ def render_parts(
     cancel_event: threading.Event | None = None,
     progress: ProgressCallback | None = None,
     track_filters: Mapping[str, str] | None = None,
+    plan_callback: Callable[[AudioRenderPlan], None] | None = None,
 ) -> list[MixPart]:
     """``AutoMixAudioPipeline.render``'s mix, as parts rendered on ``workers`` FFmpegs at once."""
     cancel_event = cancel_event or threading.Event()
@@ -166,6 +169,7 @@ def render_parts(
     needs_stretcher = any(clip.tempo_ramp for clip in clips) or any(
         transition_dsp_style(t) is TransitionDsp.TAPE_STOP for t in plan.transitions)
     ramp_filter = "rubberband" if needs_stretcher and "rubberband" in ffmpeg_filter_names(str(executable)) else None
+    plan = supported_tape_stop(plan, ramp_filter)
     work = directory / "automix_parts"
     work.mkdir(parents=True, exist_ok=True)
     sources = [Path(track_paths[clip.track_id]) for clip in clips]
@@ -248,6 +252,7 @@ def render_parts(
             if not use_dsp:
                 raise
             LOGGER.warning("Transition DSP render failed (%s); retrying with legacy crossfades.", error)
+            use_dsp = False
             parts = attempt(False)
     except AutoMixRenderError:
         cleanup(directory)
@@ -255,6 +260,8 @@ def render_parts(
     for path in work.glob("clip_*"):
         path.unlink(missing_ok=True)
     report(0.9, "AutoMix audio ready")
+    if plan_callback is not None:
+        plan_callback(rendered_audio_plan(plan, dsp=use_dsp, ramp_filter=ramp_filter))
     return parts
 
 

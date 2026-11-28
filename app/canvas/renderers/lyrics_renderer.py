@@ -10,7 +10,7 @@ from PySide6.QtCore import QPointF, QRectF, QSizeF, QTextBoundaryFinder, Qt
 from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QTextLayout, QTextOption
 
 from app.animation.lyrics import (
-    context_style_at_distance, cue_effect_pose,
+    cascade_slot_count, context_style_at_distance, cue_effect_pose,
     intro_exit_pose, role_style, stagger_progress,
 )
 from app.animation.curves import clamp_progress, ease_in_out_cubic, ease_out_cubic, music_reactive_pose
@@ -378,10 +378,13 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         paint_intro(item, painter, intro_rect, intro_y)
         painter.restore()
 
+    # The tail may have fewer real rows, but the cascade clock must not
+    # contract with the virtual window (or the next lyric slows down).
+    cascade_last = anchor_slot + cascade_slot_count(source, axis, height)
     recorder = getattr(item, "_export_text_quads", None)
     for index, line in enumerate(lines):
         slot, inner, total = layout[index]
-        p = stagger_progress(source, item._subtitle_transition_raw, slot, anchor_slot + 1, last_slot) if (
+        p = stagger_progress(source, item._subtitle_transition_raw, slot, anchor_slot + 1, cascade_last) if (
             transitioning and effect == "cascade" and slot > anchor_slot
         ) else t
         original_index = origins[index]
@@ -438,6 +441,18 @@ def _paint_lines(item: "SourceItem", painter: QPainter, rect: QRectF) -> None:
         blur = float(start["blur"]) + (float(end["blur"]) - float(start["blur"])) * blend
         weight = round(float(start["font_weight"]) + (float(end["font_weight"]) - float(start["font_weight"])) * blend)
         italic = bool((end if blend >= 0.5 else start)["italic"])
+        if is_current and transitioning and item._subtitle_emphasis < 1.0:
+            # A held short cue can finish scrolling while its highlight
+            # releases. Blend the moving row toward history independently
+            # of the scroll clock so it does not flash at the final frame.
+            released = 1.0 - item._subtitle_emphasis
+            color = _mix(color, QColor(str(previous["color"])), released)
+            size += (float(previous["size"]) - size) * released
+            alpha += (float(previous["opacity"]) - alpha) * released
+            blur += (float(previous["blur"]) - blur) * released
+            weight = round(weight + (float(previous["font_weight"]) - weight) * released)
+            if released >= .5:
+                italic = bool(previous["italic"])
         # Gap readability is the underlying lyric state. Blend the temporary
         # row's previous/next styling AFTER it, so a held cue does not stay
         # sharp while the marker occupies the current position.

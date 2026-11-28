@@ -50,7 +50,7 @@ from app.automix.analysis.provider import (
 from app.automix.beatgrid import fit_beat_grid
 from app.automix.models import TrackAnalysis
 from app.automix.music import analyze_music
-from app.automix.structure.timbre import timbre_curves
+from app.automix.structure.timbre import band_power_curve, timbre_curves
 from app.models.playlist import PlaylistTrack
 from app.services.audio_decode import AudioDecodeError, read_pcm
 from app.utils.subprocess_utils import hidden_process_kwargs
@@ -151,13 +151,13 @@ class BasicAnalysisProvider:
     """The always-available default AnalysisProvider (see AnalysisProvider Protocol)."""
 
     provider_id = "basic"
-    version = "8"
+    version = "9"
     """Bumped from "1": Phase 7 added key/energy/vocal_activity to the
     output, which invalidates any cache entry from before those fields
     existed (see app/automix/cache.py -- analyzer_version is part of the
     cache key). "3": audible start/end bounds. "4": no voice-band vocal guess.
     "5": BPM from a fitted beat grid. "6": decay start. "7": local YAMNet genre/mood tags.
-    "8": measured one-second RMS/timbre for acoustic transition search."""
+    "8": measured one-second RMS/timbre. "9": 100 ms transition band power."""
 
     def __init__(self, ffmpeg_executable: Path | None) -> None:
         self.ffmpeg_executable = Path(ffmpeg_executable) if ffmpeg_executable is not None else None
@@ -219,6 +219,7 @@ class BasicAnalysisProvider:
         bass, brightness, percussive = timbre_curves(measured, SAMPLE_RATE)
         rms = tuple(float(np.sqrt(np.mean(np.square(measured[start:start + SAMPLE_RATE], dtype=np.float64))))
                     for start in range(0, len(measured), SAMPLE_RATE))
+        handoff_power = band_power_curve(measured, SAMPLE_RATE)
         report(0.99, STEP_KEY_ENERGY)
 
         return TrackAnalysis(
@@ -230,6 +231,7 @@ class BasicAnalysisProvider:
             decay_start_seconds=decay_start(signal, duration_seconds),
             music_tags=music_tags,
             rms_curve=rms, bass_curve=bass, brightness_curve=brightness, percussive_curve=percussive,
+            band_power_curve=handoff_power,
             analyzer_id=self.provider_id, analyzer_version=self.version,
         )
 

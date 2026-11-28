@@ -73,6 +73,51 @@ class LyricsTailScrollTests(unittest.TestCase):
         self.assertAlmostEqual(values[0][0].top() - values[-1][0].top(), item._lyric_line_height())
         self.assertLess(values[-1][0].bottom(), 400)
 
+    def test_short_final_ttml_cue_scrolls_after_its_end_and_matches_export(self):
+        scene, item, track = self.scene(next_lines=3)
+        item.source.subtitle_karaoke_enabled = True
+        item.source.subtitle_animation_duration = .81
+        item.source.subtitle_stagger = .3
+        for cue in track.lyrics:
+            cue["format"] = "ttml"
+        track.lyrics[-1]["end"] = 14.1
+        times = (14, 14.099, 14.1, 14.25, 14.5, 14.81)
+        rows = [self.observe(scene, item, track, time)[0]["Cue 7"][0].center().y()
+                for time in times]
+        self.assertTrue(all(a > b for a, b in zip(rows, rows[1:])))
+        self.assertLess(rows[1] - rows[2], item._lyric_line_height() * .01)
+        self.assertAlmostEqual(rows[0] - rows[-1], item._lyric_line_height())
+        capturer = ExportCanvasCapturer(scene, [track], 18, set(), [(None, None)],
+            lambda *args: None, lambda: None, lambda *args: None)
+        capturer.stage_frame = lambda image, duration, key: RenderFrame(image, duration)
+        frames = {}
+        for time in (*times, 14.25):
+            preview = CanvasSnapshot.capture_track(scene, track, 1, 1, 0,
+                elapsed_seconds=time, playlist_duration_seconds=18,
+                playlist_tracks=[track], timeline_seconds=time)
+            self.assertEqual(preview, capturer.capture(ExportFrameSample(track, 1, 0, .1, time, time)).image)
+            if time in frames:
+                self.assertEqual(preview, frames[time])
+            frames[time] = preview
+
+    def test_cascade_next_row_keeps_the_same_clock_as_tail_context_shrinks(self):
+        for next_lines in (3, -1):
+            for order in ("near_first", "far_first"):
+                with self.subTest(next_lines=next_lines, order=order):
+                    scene, item, track = self.scene(next_lines=next_lines)
+                    item.source.subtitle_stagger = .3
+                    item.source.subtitle_stagger_order = order
+                    positions = []
+                    for boundary in (8, 10, 12):
+                        next_text = f"Cue {int(boundary / 2) + 1}"
+                        positions.append([
+                            self.observe(scene, item, track, boundary + age)[0][next_text][0].center().y()
+                            for age in (0, .1, .2, .35, .5)
+                        ])
+                    for values in positions[1:]:
+                        for actual, expected in zip(values, positions[0]):
+                            self.assertAlmostEqual(actual, expected, delta=.001)
+
     def test_multiline_tail_moves_as_one_block(self):
         scene, item, track = self.scene(multiline=True)
         distances = []

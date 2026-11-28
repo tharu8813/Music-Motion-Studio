@@ -74,6 +74,20 @@ class WindowMetricsTests(unittest.TestCase):
     def test_no_context_is_nan(self) -> None:
         self.assertTrue(math.isnan(window_metrics(self.noise(8.0), self.RATE, 0.0, 8.0)["level_dip_db"]))
 
+    def test_short_crossfade_and_cut_both_measure_the_junction(self) -> None:
+        samples = self.noise(4.0)
+        for duration in (0.0, 0.05):
+            metrics = window_metrics(samples, self.RATE, 2.0, duration)
+            self.assertTrue(all(math.isfinite(value) for value in metrics.values()))
+
+    def test_a_loud_cut_does_not_hide_the_quiet_audio_on_either_side(self) -> None:
+        samples = self.noise(4.0)
+        samples[round(1.75 * self.RATE):round(2.0 * self.RATE)] *= 0.05
+        samples[round(2.05 * self.RATE):round(2.3 * self.RATE)] *= 0.05
+        metrics = window_metrics(samples, self.RATE, 2.0, 0.05)
+        self.assertGreater(metrics["level_dip_db"], -2.0)
+        self.assertLess(metrics["handoff_dip_db"], -6.0)
+
 
 if __name__ == "__main__":
     unittest.main()

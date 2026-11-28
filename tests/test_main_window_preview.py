@@ -1865,6 +1865,100 @@ class MainWindowPreviewTests(MainWindowTestCase):
                 preview._stop_preview()
                 preview.deleteLater()
 
+    def test_gapless_preview_waits_for_continuous_audio_and_recovers_on_failure(self) -> None:
+        with TemporaryDirectory(prefix="gapless-preview-gate-") as directory:
+            fake_ffmpeg = Path(directory) / "ffmpeg.exe"
+            fake_ffmpeg.touch()
+            tracks = [
+                PlaylistTrack("a.wav", "A", duration_seconds=3.0),
+                PlaylistTrack("b.wav", "B", duration_seconds=3.0),
+            ]
+            for success in (True, False):
+                with self.subTest(success=success), patch(
+                    "app.dialogs.export_preview_dialog.PreviewAudioController.start",
+                ) as start:
+                    preview = ExportPreviewDialog(
+                        self.window.canvas.scene_model, tracks, self.window.translator,
+                        ffmpeg_executable=fake_ffmpeg, parent=self.window,
+                        preferred_backend="cpu", transition_mode="none",
+                    )
+                    try:
+                        start.assert_called_once()
+                        self.assertFalse(preview.play_button.isEnabled())
+                        self.assertIsNotNone(preview._waveform_worker)
+                        with patch.object(preview._waveform_worker, "start") as waveform_start:
+                            preview._start_waveform_loading()
+                            waveform_start.assert_not_called()
+                        with patch.object(preview, "_start_audio_at_playhead") as play:
+                            # Programmatic/shortcut toggles cannot bypass the disabled button.
+                            preview.play_button.setChecked(True)
+                            self.assertFalse(preview.play_button.isChecked())
+                            self.assertFalse(preview._playing)
+                            play.assert_not_called()
+                            if success:
+                                target = Path(directory) / "continuous.flac"
+                                preview._on_blended_audio_ready(str(target), preview._compiled_plan)
+                                self.assertEqual(preview._blended_audio_path, target)
+                            else:
+                                preview._on_blended_audio_failed("decode failed")
+                                self.assertIsNone(preview._blended_audio_path)
+                                self.assertIn("decode failed", preview._last_preview_error_detail)
+                            self.assertTrue(preview.play_button.isEnabled())
+                            with patch.object(preview._waveform_worker, "start") as waveform_start:
+                                preview._start_waveform_loading()
+                                preview._start_waveform_loading()
+                                waveform_start.assert_called_once()
+                            preview.play_button.setChecked(True)
+                            self.assertTrue(preview._playing)
+                            play.assert_called_once()
+                    finally:
+                        preview._stop_preview()
+                        preview.deleteLater()
+
+    def test_gapless_preview_defers_reaction_analysis_until_ready_or_fallback(self) -> None:
+        from app.preview.audio_analysis_worker import AudioAnalysisWorker
+
+        with TemporaryDirectory(prefix="gapless-reaction-gate-") as directory:
+            executable = Path(directory) / "ffmpeg.exe"
+            executable.touch()
+            tracks = [PlaylistTrack("a.wav", "A", duration_seconds=3.0),
+                      PlaylistTrack("b.wav", "B", duration_seconds=3.0)]
+            for success in (True, False):
+                with self.subTest(success=success), patch(
+                    "app.dialogs.export_preview_dialog.PreviewAudioController.start"
+                ):
+                    preview = ExportPreviewDialog(
+                        self.window.canvas.scene_model, tracks, self.window.translator,
+                        ffmpeg_executable=executable, parent=self.window,
+                        preferred_backend="cpu", transition_mode="none",
+                    )
+                    try:
+                        self.assertTrue(preview._gapless_preview_pending)
+                        with (
+                            patch.object(preview, "visualizer_renderer", object()),
+                            patch.object(preview, "_tempo_sync", True),
+                            patch.object(AudioAnalysisWorker, "start") as analysis_start,
+                            patch.object(preview, "_schedule_refresh") as refresh,
+                        ):
+                            preview._ensure_track_analysis(tracks[0], 24)
+                            analysis_start.assert_not_called()
+                            self.assertIsNone(preview._analysis_worker)
+                            if success:
+                                preview._on_blended_audio_ready(
+                                    str(Path(directory) / "continuous.flac"), preview._compiled_plan)
+                            else:
+                                preview._on_blended_audio_failed("decode failed")
+                            self.assertFalse(preview._gapless_preview_pending)
+                            refresh.assert_called()
+                            preview._ensure_track_analysis(tracks[0], 24)
+                            preview._ensure_track_analysis(tracks[0], 24)
+                            analysis_start.assert_called_once()
+                            self.assertIsNotNone(preview._analysis_worker)
+                            self.assertTrue(preview._analysis_worker.needs_tempo)
+                    finally:
+                        preview._stop_preview()
+                        preview.deleteLater()
+
     def test_blended_audio_ready_swaps_source_and_defers_seek_until_seekable(self) -> None:
         """A source swap must not seek/play until the new source is actually
         ready -- QMediaPlayer.setSource() returns before loading finishes, so

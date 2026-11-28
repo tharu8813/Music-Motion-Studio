@@ -107,14 +107,16 @@ class ProgressiveAnalysis:
 def partial_plan(
     tracks: Sequence[PlaylistTrack], state: ProgressiveAnalysis, settings: AutoMixTransitionSettings,
 ) -> CompiledRenderPlan:
-    """AutoMix through the analyzed prefix, sequential after it (see module docstring)."""
-    prefix = state.track_ids[:state.frontier()]
+    """AutoMix through the resolved prefix, sequential after it (see module docstring)."""
+    frontier = state.frontier()
+    prefix = state.track_ids[:frontier]
     return compile_automix(
         tracks,
         {track_id: state.rhythm[track_id] for track_id in prefix if track_id in state.rhythm},
         settings,
         structures={track_id: state.structures[track_id] for track_id in prefix if track_id in state.structures},
         log_diagnostics=False,
+        pending_analysis=set(state.track_ids[frontier:]),
     )
 
 

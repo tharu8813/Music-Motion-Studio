@@ -42,6 +42,47 @@ class PreviewAudioWorkerTests(unittest.TestCase):
             self.assertEqual(received[0][0], str(Path(directory) / "out.m4a"))
             self.assertEqual(received[0][1].duration_seconds, 30.0)
 
+    def test_gapless_worker_reuses_completed_mix_and_plan_after_reopen(self) -> None:
+        from app.preview.gapless_audio_cache import GaplessPreviewCache
+        from app.timeline.compiler import compile_playlist
+
+        renderer = _renderer()
+        cache = GaplessPreviewCache()
+        self.addCleanup(cache.clear)
+        with TemporaryDirectory(prefix="gapless-reopen-") as directory:
+            root = Path(directory)
+            renderer.executable = root / "ffmpeg.exe"
+            renderer.executable.write_bytes(b"ffmpeg")
+            (root / "ffprobe.exe").write_bytes(b"ffprobe")
+            tracks = []
+            for name in ("a.mp3", "b.mp3"):
+                source = root / name
+                source.write_bytes(b"audio")
+                tracks.append(_track(str(source)))
+            resolved_plan = compile_playlist(tracks)
+
+            def render(_tracks, output_directory, _settings, **kwargs):
+                output = output_directory / "playlist_audio.flac"
+                output.write_bytes(b"continuous audio")
+                kwargs["plan_callback"](resolved_plan)
+                return output
+
+            with patch("app.controllers.preview_audio_controller.GAPLESS_PREVIEW_CACHE", cache), \
+                 patch.object(renderer, "prepare_playlist_audio", side_effect=render) as prepare:
+                for index in range(2):
+                    with TemporaryDirectory(dir=root) as output:
+                        worker = _PreviewAudioWorker(
+                            renderer, tracks, Path(output), "none", 3.0,
+                            audio_codec="flac", background=True,
+                        )
+                        ready = []
+                        worker.ready.connect(lambda path, plan: ready.append((path, plan)))
+                        worker.run()
+                        self.assertEqual(len(ready), 1)
+                        self.assertIs(ready[0][1], resolved_plan)
+                        self.assertEqual(Path(ready[0][0]).read_bytes(), b"continuous audio")
+                self.assertEqual(prepare.call_count, 1)
+
     def test_render_failure_emits_failed_not_an_exception(self) -> None:
         with TemporaryDirectory(prefix="preview-audio-") as directory:
             renderer = _renderer()
@@ -74,6 +115,31 @@ class PreviewAudioControllerTests(unittest.TestCase):
     def test_start_with_transition_mode_none_creates_no_worker(self) -> None:
         controller = PreviewAudioController(_renderer())
         controller.start([_track("a.mp3")], Path("."), "none", 3.0)
+        self.assertIsNone(controller._worker)
+
+    def test_sequential_playlist_without_effects_starts_lossless_mix(self) -> None:
+        renderer = _renderer()
+        controller = PreviewAudioController(renderer)
+        tracks = [_track("a.mp3"), _track("b.mp3")]
+        with TemporaryDirectory(prefix="gapless-preview-") as directory:
+            target = Path(directory) / "playlist.flac"
+            ready = []
+            controller.audio_ready.connect(lambda path, plan: ready.append((path, plan)))
+            with patch.object(_PreviewAudioWorker, "start", lambda worker: worker.run()), \
+                 patch.object(renderer, "prepare_playlist_audio", return_value=target) as prepare:
+                controller.start(tracks, Path(directory), "none", 3.0)
+            self.assertEqual(len(ready), 1)
+            self.assertEqual(ready[0][0], str(target))
+            self.assertEqual(ready[0][1].duration_seconds, 60.0)
+            self.assertEqual(prepare.call_args.kwargs["audio_codec"], "flac")
+            self.assertEqual(prepare.call_args.kwargs["transition_mode"], "none")
+            controller.shutdown()
+
+    def test_explicit_placement_without_effects_keeps_raw_playback(self) -> None:
+        controller = PreviewAudioController(_renderer())
+        tracks = [_track("a.mp3"), _track("b.mp3")]
+        tracks[1].start_time_seconds = 35.0
+        controller.start(tracks, Path("."), "none", 3.0)
         self.assertIsNone(controller._worker)
 
     def test_start_with_no_tracks_creates_no_worker(self) -> None:

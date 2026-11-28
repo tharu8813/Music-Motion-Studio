@@ -20,6 +20,7 @@ from collections.abc import Mapping
 
 import numpy as np
 
+from app.automix.models import HANDOFF_LEVEL_BLOCK_SECONDS
 from app.automix.renderer import transition_dsp_style
 from app.timeline.render_plan import CompiledRenderPlan
 
@@ -84,7 +85,7 @@ def rows_to_csv(rows: list[dict[str, object]]) -> str:
     return buffer.getvalue()
 
 
-BLOCK_SECONDS = 0.5
+BLOCK_SECONDS = HANDOFF_LEVEL_BLOCK_SECONDS
 CONTEXT_SECONDS = 8.0
 LOW_BAND_HZ = 150.0
 
@@ -96,17 +97,23 @@ def window_metrics(
     """Level/low-end of ``[start, start + duration)`` in dB relative to the solo context around it.
 
     ``samples`` is mono float PCM. ``level_dip_db``/``level_peak_db`` are the
-    quietest/loudest 0.5 s block against the context's mean power (a hole or
-    spike); ``level_mean_db`` the whole window; ``low_excess_db`` the power
+    quietest/loudest block (up to 0.5 s) against the context's mean power;
+    ``level_mean_db`` the whole window; ``low_excess_db`` the power
     below 150 Hz against the context's (positive: low-end build-up). NaN when
-    there is no context to compare with.
+    there is no context to compare with. A cut samples 25 ms on either side.
+    ``handoff_dip_db`` uses a half-second window even across a short cut.
     """
-    block = max(1, int(BLOCK_SECONDS * sample_rate))
+    if duration == 0.0:
+        start -= 0.025
+        duration = 0.05
+    first = max(0, round(start * sample_rate))
+    last = min(len(samples), round((start + duration) * sample_rate))
+    block = max(1, min(int(BLOCK_SECONDS * sample_rate), last - first))
     frequencies = np.fft.rfftfreq(block, 1.0 / sample_rate)
     low_mask = frequencies <= LOW_BAND_HZ
 
     def blocks(begin: float, end: float) -> tuple[np.ndarray, np.ndarray]:
-        first, last = max(0, int(begin * sample_rate)), min(len(samples), int(end * sample_rate))
+        first, last = max(0, round(begin * sample_rate)), min(len(samples), round(end * sample_rate))
         count = max(0, (last - first) // block)
         if count == 0:
             return np.empty(0), np.empty(0)
@@ -121,15 +128,25 @@ def window_metrics(
     context_low = np.concatenate([before[1], after[1]])
     nan = float("nan")
     if len(window_power) == 0 or len(context_power) == 0:
-        return {"level_dip_db": nan, "level_peak_db": nan, "level_mean_db": nan, "low_excess_db": nan}
+        return {"level_dip_db": nan, "level_peak_db": nan, "level_mean_db": nan, "low_excess_db": nan,
+                "handoff_dip_db": nan}
 
     def db(value: float) -> float:
         return float(10.0 * np.log10(max(value, 1e-12)))
 
     reference = db(float(np.mean(context_power)))
+    # Sliding half-second windows detect a lull even when it falls between
+    # the fixed blocks, or mostly outside a 50 ms downbeat cut.
+    padding = max(0.0, (BLOCK_SECONDS - duration) / 2)
+    handoff = samples[max(0, round((start - padding) * sample_rate)):
+                      min(len(samples), round((start + duration + padding) * sample_rate))]
+    width = min(len(handoff), max(1, round(BLOCK_SECONDS * sample_rate)))
+    prefix = np.insert(np.cumsum(np.square(handoff, dtype=np.float64)), 0, 0.0)
+    handoff_min = float(np.min((prefix[width:] - prefix[:-width]) / width))
     return {
         "level_dip_db": db(float(np.min(window_power))) - reference,
         "level_peak_db": db(float(np.max(window_power))) - reference,
         "level_mean_db": db(float(np.mean(window_power))) - reference,
         "low_excess_db": db(float(np.mean(window_low))) - db(float(np.mean(context_low))),
+        "handoff_dip_db": db(handoff_min) - reference,
     }

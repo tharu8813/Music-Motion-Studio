@@ -15,6 +15,7 @@ from threading import Event
 from app.models.source import SourceType
 from app.renderer.ffmpeg_renderer import (
     FFmpegRenderer, ExportMetadata, RenderSettings, RenderError, RenderCancelledError,
+    uses_gapless_playlist,
 )
 from app.renderer.native_gpu_stream import NativeGpuPreflightError, probe_native_gpu, render_native_gpu_playlist
 from app.renderer.native_project_frames import produce_complete_project_frames, _check_cancel
@@ -184,13 +185,35 @@ def _export_project_document(
             if preparation_progress_callback is not None:
                 preparation_progress_callback("Preparing audio", 0.0, "Preparing GPU export audio and analysis")
             audio_started = monotonic()
+            gapless = uses_gapless_playlist(tracks)
+            resolved_plans = []
             audio = renderer.prepare_playlist_audio(
                 tracks, Path(directory), settings, transition_mode="none", cancel_event=cancel,
                 progress_callback=preparation_progress_callback,
                 audio_effects=project.settings.audio_effects,
+                **({"plan_callback": resolved_plans.append} if gapless else {}),
             )
             audio_seconds = monotonic() - audio_started
             _check_cancel(cancel)
+            if gapless:
+                if len(resolved_plans) != 1:
+                    raise RenderError("Gapless native export did not receive the resolved audio plan.")
+                plan = resolved_plans[0]
+                # Both GUI and direct producers use the corrected detached track
+                # snapshot for source-local lyrics/animations as well as the plan.
+                durations = {clip.track_id: clip.source_out - clip.source_in
+                             for clip in plan.audio.clips}
+                if set(durations) != {track.id for track in tracks}:
+                    raise RenderError("Resolved native audio plan does not match playlist tracks.")
+                project.playlist = [replace(track, duration_seconds=durations[track.id])
+                                    if track.id in durations else track for track in project.playlist]
+                tracks = [t for t in project.playlist if t.enabled and t.duration_seconds > 0]
+                if video_sources:
+                    # The preflight probes file paths only; rebuild occurrences
+                    # against the actual duration without changing the GPU inputs.
+                    video_sources = prepare_native_video_sources(project, plan, scale, renderer.executable, cancel)
+                    if frame_source is not None:
+                        frame_source.video_sources = video_sources
             if preparation_progress_callback is not None:
                 preparation_progress_callback("Preparing visual frames", 1.0, "Analyzing audio for Canvas effects")
             if frames is None:
@@ -200,9 +223,11 @@ def _export_project_document(
                     raster_counters=raster_counters,
                     optimizations=optimizations,
                     video_sources=video_sources,
+                    **({"compiled_plan": plan} if gapless else {}),
                 )
             else:
-                frames.prepare(audio, str(renderer.executable))
+                frames.prepare(audio, str(renderer.executable),
+                               **({"resolved_project": project, "compiled_plan": plan} if gapless else {}))
             result = render_native_gpu_playlist(
                 renderer, frames, executable=executable, tracks=tracks,
                 compiled_plan=plan, prepared_audio_path=audio,

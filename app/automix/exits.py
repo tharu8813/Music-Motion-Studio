@@ -5,7 +5,7 @@ Two tracks too far apart in tempo cannot share their beats, and a plain
 leaves the outgoing track on a phrase boundary with a move that needs no
 shared tempo, chosen by what the music is doing there:
 
-- ECHO_OUT (the default): the track plays to its last downbeat; that final
+- ECHO_OUT: the track plays to its last downbeat; that final
   hit sounds and then only its echo rings on, under the next track's first
   downbeat -- the echo comes in as the song ends, not a phrase before it.
 - DOWNBEAT_CUT: both sides are drum-driven at about the same energy -- cut
@@ -15,12 +15,13 @@ shared tempo, chosen by what the music is doing there:
 
 A track whose own ending is natural (a final chord ringing out for
 NATURAL_ENDING_SECONDS after its decay starts) keeps it: the regular
-fade/drop-in plays that ending. Otherwise at most MAX_SKIPPED_SECONDS of the
-song is left out. Pure and deterministic, like the planner.
+fade/drop-in plays that ending. Effects require measured, unsung audio in
+any skipped source range and compete with the regular fade in the planner.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 from app.automix.beatgrid import fit_beat_grid
@@ -30,6 +31,7 @@ from app.automix.candidates import (
     audible_end,
     audible_start,
     sung_spans,
+    vocals_measured,
 )
 from app.automix.models import TrackAnalysis
 from app.automix.music import character, music_tags_at
@@ -71,12 +73,13 @@ class PhraseExit:
     """ECHO_OUT's delay: one outgoing beat on the timeline."""
 
 
-def plan_phrase_exit(
+def phrase_exits(
     outgoing: TrackAnalysis, incoming: TrackAnalysis,
     outgoing_structure: TrackStructureAnalysis | None, incoming_structure: TrackStructureAnalysis | None,
     *, outgoing_rate: float = 1.0, earliest: float = 0.0, previous_style: TransitionDsp | None = None,
-) -> PhraseExit | None:
-    """A phrase exit for this pair, or None to keep the regular fallback fade.
+    allow_tape_stop: bool = True,
+) -> Iterator[PhraseExit]:
+    """Effects with enough measured source audio to protect the head and tail.
 
     ``outgoing_rate``: the rate the outgoing clip already plays at;
     ``earliest``: the outgoing source second the window may not start before
@@ -84,17 +87,17 @@ def plan_phrase_exit(
     this one, so the same move is not made twice in a row when another fits.
     """
     if outgoing.bpm is None or outgoing.beat_alignment_quality() != "reliable" or not outgoing.downbeats:
-        return None
+        return
     end = audible_end(outgoing)
     incoming_start = audible_start(incoming)
     a = character(music_tags_at(outgoing, max(audible_start(outgoing), end - 20.0), end))
     b = character(music_tags_at(incoming, incoming_start, min(audible_end(incoming), incoming_start + 20.0)))
     if max(a[0], b[0]) > max(a[1], b[1]):
-        return None  # gentle music keeps the natural fade instead of a cut, echo or turntable brake
+        return  # gentle music keeps the natural fade instead of a cut, echo or turntable brake
     decay = outgoing.decay_start_seconds
     natural_min, natural_max = NATURAL_ENDING_SECONDS
     if decay is not None and natural_min <= end - decay <= natural_max:
-        return None  # a natural ending: let it ring out (drop-in/fade)
+        return  # a natural ending: let it ring out (drop-in/fade)
     limit = decay if decay is not None and end - decay > natural_max else end
     grid = fit_beat_grid(outgoing.beats, limit - 60.0, limit)
     beat = grid.period if grid is not None else 60.0 / outgoing.bpm
@@ -104,7 +107,9 @@ def plan_phrase_exit(
     styles = _styles(outgoing, incoming, outgoing_structure, incoming_structure, incoming_cue, limit, previous_style)
     for style, rule in styles:
         if style is TransitionDsp.ECHO_OUT and previous_style is TransitionDsp.ECHO_OUT:
-            return None  # playlist flow: only an echo fits again, so alternate with the plain end fade
+            continue
+        if style is TransitionDsp.TAPE_STOP and not allow_tape_stop:
+            continue
         duration = _window(style, bar, beat)
         if style is TransitionDsp.ECHO_OUT:
             # Not a phrase early: the echo takes the song's own last hit, as it ends.
@@ -114,31 +119,26 @@ def plan_phrase_exit(
             exit_point, duration = ending
             rule = "no shared tempo: the last downbeat echoes out as the song ends"
         else:
-            exit_point = _exit_point(outgoing, outgoing_structure, limit, duration * outgoing_rate, bar, earliest)
-        if exit_point is None and style is not TransitionDsp.DOWNBEAT_CUT:
-            # Sung to the end (a third of pop is): an echo or a brake over the
-            # voice sounds deliberate; the plain end fade cut it all the same.
-            exit_point = _exit_point(outgoing, outgoing_structure, limit, duration * outgoing_rate, bar, earliest,
-                                     over_vocals=True)
-            if exit_point is not None:
-                rule += "; the voice is still going: taken out with it"
+            # An automatic cut can tidy the last bar without jumping over a
+            # clearly audible ending to reach an earlier phrase boundary.
+            floor = max(earliest, end - bar - 1e-6) if style is TransitionDsp.DOWNBEAT_CUT else earliest
+            exit_point = _exit_point(outgoing, outgoing_structure, limit, duration * outgoing_rate, bar, floor)
         if exit_point is None:
             continue
-        if outgoing.rms_curve and incoming.rms_curve and style is not TransitionDsp.DOWNBEAT_CUT:
-            # An incompatible BPM alone is not a musical reason to interrupt
-            # the ending. Preserve words beyond an echo's sampled beat, and
-            # reserve theatrical exits for a measured, drum-driven passage.
-            dry_end = exit_point + beat if style is TransitionDsp.ECHO_OUT else exit_point
-            if any(a < end and b > dry_end + SUNG_MARGIN_SECONDS for a, b in sung_spans(outgoing)):
-                continue
-            drums = _timbre(outgoing_structure, "percussive_curve", exit_point, min(end, exit_point + bar))
-            if drums is None or drums < DRUMS:
-                continue
+        dry_end = (exit_point + min(beat, duration * outgoing_rate / 2)
+                   if style is TransitionDsp.ECHO_OUT else exit_point)
+        if not _safe_to_skip(outgoing, dry_end, end):
+            continue
+        drums = _timbre(outgoing_structure, "percussive_curve", exit_point, min(end, exit_point + bar))
+        if drums is None or drums < DRUMS:
+            continue
         source_in = incoming_cue
+        entry = source_in
         if style is TransitionDsp.TAPE_STOP:
             # The incoming downbeat lands where it enters (TAPE_STOP_ENTRY of the window).
             source_in = max(audible_start(incoming), incoming_cue - TAPE_STOP_ENTRY * duration)
-        if source_in + duration > incoming.duration_seconds:
+            entry = source_in + TAPE_STOP_ENTRY * duration
+        if source_in + duration > incoming.duration_seconds or not _safe_to_skip(incoming, incoming_start, entry):
             continue
         candidate = TransitionCandidate(
             from_track_id=outgoing.track_id, to_track_id=incoming.track_id,
@@ -150,16 +150,21 @@ def plan_phrase_exit(
             reasons=(f"+ leaves on the downbeat at {exit_point:.1f}s "
                      f"({max(0.0, end - exit_point):.1f}s before the end)",),
         )
-        metrics = (("exit_point", exit_point), ("skipped_seconds", end - exit_point),
+        metrics = (("exit_point", exit_point), ("skipped_seconds", max(0.0, end - dry_end)),
                    ("outgoing_energy", _energy(outgoing_structure, limit - LOOKAROUND_SECONDS)),
                    ("incoming_energy", _energy(incoming_structure, incoming_cue + LOOKAROUND_SECONDS)),
                    ("outgoing_percussive", _timbre(outgoing_structure, "percussive_curve",
                                                    exit_point - LOOKAROUND_SECONDS, exit_point)),
                    ("incoming_percussive", _timbre(incoming_structure, "percussive_curve",
                                                    incoming_cue, incoming_cue + LOOKAROUND_SECONDS)))
-        return PhraseExit(candidate, TransitionDspDecision(style, (f"* {style.value}: {rule}",), metrics),
-                          beat / outgoing_rate)
-    return None
+        yield PhraseExit(candidate, TransitionDspDecision(style, (f"* {style.value}: {rule}",), metrics),
+                         beat / outgoing_rate)
+
+
+def _safe_to_skip(analysis: TrackAnalysis, start: float, end: float) -> bool:
+    if end <= start + 1e-6:
+        return True
+    return vocals_measured(analysis, start, end) and not any(a < end and b > start for a, b in sung_spans(analysis))
 
 
 def _incoming_cue(incoming: TrackAnalysis) -> float:
@@ -198,13 +203,13 @@ def _echo_at_end(
 
 def _exit_point(
     outgoing: TrackAnalysis, structure: TrackStructureAnalysis | None,
-    limit: float, source_span: float, bar: float, earliest: float, *, over_vocals: bool = False,
+    limit: float, source_span: float, bar: float, earliest: float,
 ) -> float | None:
     """The latest phrase start (else downbeat) that leaves the window before ``limit``
     and (unless ``over_vocals``) does not cut a sung line; prefers one outside a peak section."""
     latest = limit - source_span
     floor = max(earliest, limit - MAX_SKIPPED_SECONDS)
-    sung = () if over_vocals else sung_spans(outgoing)
+    sung = sung_spans(outgoing)
 
     def clean(point: float) -> bool:
         return floor <= point <= latest and not any(

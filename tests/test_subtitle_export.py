@@ -242,6 +242,49 @@ class SubtitleExportUiTests(MainWindowTestCase):
             complete.assert_called_once()
             self.assertIn("a 가사", output.read_text(encoding="utf-8"))
 
+    def test_sequential_subtitles_with_local_audio_fall_back_when_ffmpeg_is_missing(self):
+        tracks, _ = overlapping_tracks()
+        self.window.project_settings.transition_mode = "none"
+        with TemporaryDirectory() as directory:
+            for index, track in enumerate(tracks):
+                source = Path(directory) / f"{index}.wav"
+                source.touch()
+                track.file_path = str(source)
+            self.window.playlist_service.replace(tracks)
+            output = Path(directory) / "mix.srt"
+            with patch.object(ExportSettingsDialog, "exec", return_value=QDialog.DialogCode.Accepted), \
+                 patch.object(ExportSettingsDialog, "output_path", new_callable=PropertyMock, return_value=output), \
+                 patch("app.controllers.export_controller.FFmpegRenderer", side_effect=FFmpegNotFoundError()) as renderer, \
+                 patch.object(self.window.export_orchestrator, "show_complete_dialog") as complete, \
+                 patch.object(QMessageBox, "warning") as warning:
+                self.window._export_video()
+            renderer.assert_called_once()
+            complete.assert_called_once()
+            warning.assert_not_called()
+            self.assertIn("a 가사", output.read_text(encoding="utf-8"))
+
+    def test_sequential_subtitles_use_resolved_sample_timing_when_available(self):
+        tracks, _ = overlapping_tracks()
+        self.window.project_settings.transition_mode = "none"
+        plan = plan_for([AudioRenderClip("a", "a", 0, 0, 9.98),
+                         AudioRenderClip("b", "b", 9.98, 0, 10)])
+        with TemporaryDirectory() as directory:
+            for index, track in enumerate(tracks):
+                source = Path(directory) / f"{index}.wav"
+                source.touch()
+                track.file_path = str(source)
+            self.window.playlist_service.replace(tracks)
+            output = Path(directory) / "mix.srt"
+            with patch.object(ExportSettingsDialog, "exec", return_value=QDialog.DialogCode.Accepted), \
+                 patch.object(ExportSettingsDialog, "output_path", new_callable=PropertyMock, return_value=output), \
+                 patch("app.controllers.export_controller.FFmpegRenderer"), \
+                 patch("app.controllers.export_controller.prepare_audio_for_ui", return_value=(Path("audio.flac"), plan)) as prepare, \
+                 patch.object(self.window.export_orchestrator, "show_complete_dialog"):
+                self.window._export_video()
+            prepare.assert_called_once()
+            self.assertIn("00:00:09,980 --> 00:00:19,980", output.read_text(encoding="utf-8"))
+            self.assertIsNone(self.window._export_preparation_cancel)
+
     def test_mixed_subtitle_export_uses_the_prepared_plan_and_unlocks_the_editor(self):
         tracks, plan = overlapping_tracks()
         self.window.playlist_service.replace(tracks)

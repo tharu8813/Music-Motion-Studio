@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from app.automix.models import BAND_POWER_HOP_SECONDS, HIGH_CROSSOVER_HZ, LOW_CROSSOVER_HZ
+
 TIMBRE_HOP_SECONDS = 1.0
 FRAME_SIZE = 2048
 FRAME_HOP = 512
@@ -28,6 +30,35 @@ PERCUSSIVE_SPAN_DB = 1.0
 """Mean onset strength (dB per frame) maps FLOOR -> 0 and FLOOR + SPAN -> 1. On 30
 real pop tracks it spans 0.3 (acoustic outros) to 1.9 (dense drum grooves)."""
 SILENCE_POWER = 1e-8
+
+
+def band_power_curve(signal: np.ndarray, sample_rate: int) -> tuple[tuple[float, float, float], ...]:
+    """Use each block's measured power and spectrum to estimate energy in the mix bands."""
+    hop = max(1, round(BAND_POWER_HOP_SECONDS * sample_rate))
+    fft_size = 1 << (hop - 1).bit_length()
+    window = np.hanning(hop).astype(np.float32)
+    frequencies = np.fft.rfftfreq(fft_size, 1 / sample_rate)
+    low, high = np.searchsorted(frequencies, (LOW_CROSSOVER_HZ, HIGH_CROSSOVER_HZ))
+    if low == high or high == len(frequencies):
+        return ()
+    blocks = []
+    batch_size = 128 * hop
+    for start in range(0, len(signal), batch_size):
+        chunk = signal[start:start + batch_size]
+        sample_count = len(chunk)
+        if sample_count % hop:
+            chunk = np.pad(chunk, (0, hop - sample_count % hop))
+        frames = chunk.reshape(-1, hop)
+        lengths = np.full(len(frames), hop)
+        lengths[-1] = sample_count - (len(frames) - 1) * hop
+        power = np.sum(np.square(frames), axis=1, dtype=np.float64) / lengths
+        spectrum = np.abs(np.fft.rfft(frames * window, n=fft_size, axis=1)) ** 2
+        spectrum[:, 0] *= 0.5
+        spectrum[:, -1] *= 0.5
+        band_energy = np.add.reduceat(spectrum, (0, low, high), axis=1)
+        band_power = band_energy * (power / np.maximum(1e-20, band_energy.sum(axis=1)))[:, None]
+        blocks.extend(tuple(row) for row in np.round(band_power, 9).tolist())
+    return tuple(blocks)
 
 
 def timbre_curves(signal: np.ndarray, sample_rate: int) -> tuple[tuple[float, ...], ...]:

@@ -150,6 +150,7 @@ from app.preview.gpu_texture_surface import (
     GPU_TEXTURE_SURFACE_AVAILABLE, GpuTexturePreviewSurface,
 )
 from app.renderer.ffmpeg_renderer import (
+    uses_gapless_playlist,
     FFmpegNotFoundError,
     FFmpegRenderer,
     RenderError,
@@ -4190,15 +4191,25 @@ class MainWindow(QMainWindow):
             overwrite = True
         try:
             compiled_plan = None
-            if self.project_settings.transition_mode != "none":
+            tracks = [track for track in self.playlist_service.tracks if track.enabled]
+            mixed_timing = self.project_settings.transition_mode != "none"
+            gapless_timing = uses_gapless_playlist(tracks) and all(Path(track.file_path).is_file() for track in tracks)
+            renderer = None
+            if mixed_timing or gapless_timing:
+                try:
+                    renderer = FFmpegRenderer(self.settings_service.current.ffmpeg_path or None)
+                except FFmpegNotFoundError:
+                    if mixed_timing:
+                        raise
+                    # Sequential timestamp files remain available from the
+                    # stored metadata without FFmpeg, just like subtitles.
+            if renderer is not None:
                 from PySide6.QtWidgets import QProgressDialog
                 from app.controllers.preview_audio_controller import prepare_audio_for_ui
                 from app.renderer.ffmpeg_renderer import RenderCancelledError
 
-                tracks = [track for track in self.playlist_service.tracks if track.enabled]
                 if not tracks:
                     raise PlaylistExportError("Select at least one playlist track before creating files.")
-                renderer = FFmpegRenderer(self.settings_service.current.ffmpeg_path or None)
                 cancel = threading.Event()
                 progress = QProgressDialog(
                     "믹스 시간 확인 중…" if korean else "Preparing mix timestamps…",
@@ -4239,7 +4250,7 @@ class MainWindow(QMainWindow):
                 overwrite=overwrite,
                 **({"compiled_plan": compiled_plan} if compiled_plan is not None else {}),
             )
-        except (PlaylistExportError, RenderError) as error:
+        except (PlaylistExportError, RenderError, FFmpegNotFoundError) as error:
             QMessageBox.warning(
                 self,
                 "타임라인 내보내기 오류" if korean else "Timeline export error",

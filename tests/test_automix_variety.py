@@ -8,7 +8,7 @@ import numpy as np
 
 from app.automix.analysis.key import camelot_compatible, harmonic_shift, shift_key
 from app.automix.candidates import TransitionStrategy
-from app.automix.exits import plan_phrase_exit
+from app.automix.exits import phrase_exits
 from app.automix.phrases import PHRASE_BARS, peak_sections, phrase_starts
 from app.automix.planner import compile_automix
 from app.automix.renderer import build_filter_graph
@@ -88,19 +88,22 @@ class TempoBridgeTests(unittest.TestCase):
 
 class PhraseExitTests(unittest.TestCase):
     def _exit(self, out_energy=0.6, in_energy=0.6, out_drums=0.9, in_drums=0.9, previous=None, **fields):
+        fields.setdefault("vocal_coverage", ((0.0, 180.0),))
         outgoing = replace(_analysis("a", 100.0, 180.0), **fields)
-        incoming = _analysis("b", 140.0, 180.0)
-        return plan_phrase_exit(
+        incoming = replace(_analysis("b", 140.0, 180.0), vocal_coverage=((0.0, 180.0),))
+        return next(phrase_exits(
             outgoing, incoming, _structure("a", 180.0, out_energy, out_drums),
             _structure("b", 180.0, in_energy, in_drums), previous_style=previous,
-        )
+        ), None)
 
     def test_drums_on_both_sides_at_the_same_energy_cut_on_the_downbeat(self) -> None:
         plan = self._exit()
         self.assertIs(plan.decision.dsp, TransitionDsp.DOWNBEAT_CUT)
         self.assertIs(plan.candidate.strategy, TransitionStrategy.PHRASE_EXIT)
         self.assertAlmostEqual(plan.candidate.duration_seconds, 0.05)
-        self.assertIn(plan.candidate.outgoing_source_time, phrase_starts(_analysis("a", 100.0, 180.0)))
+        source = _analysis("a", 100.0, 180.0)
+        self.assertIn(plan.candidate.outgoing_source_time, source.downbeats)
+        self.assertLessEqual(source.duration_seconds - plan.candidate.outgoing_source_time, 2.4 + 1e-6)
 
     def test_a_big_energy_drop_brakes_like_a_turntable(self) -> None:
         plan = self._exit(out_energy=0.9, in_energy=0.3)
@@ -108,7 +111,7 @@ class PhraseExitTests(unittest.TestCase):
         self.assertEqual(plan.candidate.incoming_source_time, 0.0)  # clamped: its downbeat is at 0
 
     def test_otherwise_the_last_beat_echoes_out(self) -> None:
-        plan = self._exit(out_drums=0.2)
+        plan = self._exit(in_drums=0.2)
         self.assertIs(plan.decision.dsp, TransitionDsp.ECHO_OUT)
         self.assertAlmostEqual(plan.beat_seconds, 0.6, places=3)
         # As the song ends: its last downbeat whose beat still sounds (the 180 s file
@@ -118,53 +121,49 @@ class PhraseExitTests(unittest.TestCase):
         self.assertIn("as the song ends", plan.decision.reasons[0])
 
     def test_the_echo_gets_two_bars_when_the_file_has_room(self) -> None:
-        plan = self._exit(out_drums=0.2, audible_end_seconds=170.0)  # 10 s of silence after the sound
+        plan = self._exit(in_drums=0.2, audible_end_seconds=170.0)  # 10 s of silence after the sound
         self.assertAlmostEqual(plan.candidate.outgoing_source_time, 168.0, places=3)  # last downbeat + beat <= 170
         self.assertAlmostEqual(plan.candidate.duration_seconds, 4.8, places=3)
 
     def test_the_same_move_twice_in_a_row_gives_way_when_another_fits(self) -> None:
         self.assertIs(self._exit(previous=TransitionDsp.DOWNBEAT_CUT).decision.dsp, TransitionDsp.ECHO_OUT)
         # Only an echo fits after an echo: the plain end fade takes this one instead.
-        self.assertIsNone(self._exit(out_drums=0.2, previous=TransitionDsp.ECHO_OUT))
+        self.assertIsNone(self._exit(in_drums=0.2, previous=TransitionDsp.ECHO_OUT))
         self.assertIs(self._exit(previous=TransitionDsp.ECHO_OUT).decision.dsp, TransitionDsp.DOWNBEAT_CUT)
 
     def test_a_short_natural_ending_keeps_the_regular_fade(self) -> None:
         self.assertIsNone(self._exit(decay_start_seconds=175.0))
-        long_fade = self._exit(decay_start_seconds=150.0)  # a 30 s radio fade: leave before it
-        self.assertLessEqual(long_fade.candidate.outgoing_source_out, 150.0 + 1e-6)
+        long_fade = self._exit(decay_start_seconds=150.0)  # echo starts with a hit before the radio fade
+        self.assertIs(long_fade.decision.dsp, TransitionDsp.ECHO_OUT)
+        self.assertLessEqual(long_fade.candidate.outgoing_source_time + long_fade.beat_seconds, 150.0 + 1e-6)
 
-    def test_prefers_not_to_leave_in_the_middle_of_a_sung_line(self) -> None:
+    def test_phrase_exits_preserve_a_sung_line_after_the_candidate_cue(self) -> None:
         clean = self._exit()
         start = clean.candidate.outgoing_source_time
         for drums in (0.9, 0.2):  # a cut and an echo
             with self.subTest(drums=drums):
-                sung = self._exit(out_drums=drums, vocal_activity=((start - 1.0, start + 3.0),),
-                                  vocal_coverage=((0.0, 180.0),))
-                point = sung.candidate.outgoing_source_time
-                self.assertFalse(start - 1.0 < point < start + 3.0, point)  # before or after the line
-                self.assertNotIn("the voice is still going", sung.decision.reasons[0])
+                sung = self._exit(in_drums=drums, vocal_activity=((start - 1.0, 180.0),))
+                self.assertIsNone(sung)
 
-    def test_sung_to_the_end_it_echoes_the_voice_out_but_never_cuts_it(self) -> None:
+    def test_sung_to_the_end_rules_out_all_exit_effects(self) -> None:
         sung = dict(vocal_activity=((100.0, 180.0),), vocal_coverage=((0.0, 180.0),))
-        plan = self._exit(**sung)  # drums and even energy would otherwise cut
-        self.assertIs(plan.decision.dsp, TransitionDsp.ECHO_OUT)
-        self.assertAlmostEqual(plan.candidate.outgoing_source_time, 177.6, places=3)  # its last hit, sung or not
-        braked = self._exit(out_energy=0.9, in_energy=0.3, **sung)
-        self.assertIs(braked.decision.dsp, TransitionDsp.TAPE_STOP)
-        self.assertIn("the voice is still going", braked.decision.reasons[0])
+        self.assertIsNone(self._exit(**sung))
+        self.assertIsNone(self._exit(out_energy=0.9, in_energy=0.3, **sung))
+
+    def test_unmeasured_tail_does_not_get_trimmed(self) -> None:
+        self.assertIsNone(self._exit(vocal_coverage=()))
 
     def test_no_bar_grid_no_phrase_exit(self) -> None:
         self.assertIsNone(self._exit(meter_confidence=0.0))
 
-    def test_the_planner_uses_it_for_tempo_incompatible_pairs(self) -> None:
+    def test_the_planner_keeps_a_fade_when_phrase_exit_cannot_be_scored(self) -> None:
         tracks = [_track("a", 180.0), _track("b", 180.0)]
         analyses = {"a": _analysis("a", 100.0, 180.0), "b": _analysis("b", 140.0, 180.0)}
         plan = compile_automix(tracks, analyses, ENABLED)
         validate_compiled_render_plan(plan)
         (transition,) = plan.audio.transitions
-        self.assertIs(transition.dsp, TransitionDsp.ECHO_OUT)  # no structure: no timbre to cut or brake on
-        self.assertAlmostEqual(transition.beat_seconds, 0.6, places=3)
-        self.assertEqual(dict(transition.details)["strategy"], "phrase_exit")
+        self.assertIs(transition.dsp, TransitionDsp.SHORT_FADE)
+        self.assertEqual(dict(transition.details)["strategy"], "fixed_crossfade")
         clip_a = plan.audio.clips[0]
         self.assertAlmostEqual(clip_a.timeline_end, transition.timeline_start + transition.duration)
 

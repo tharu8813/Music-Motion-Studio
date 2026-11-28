@@ -119,6 +119,11 @@ class AutoMixEditorDialog(QDialog):
         self.korean = bool(getattr(getattr(window, "translator", None), "is_korean", True))
         self._tracks = [track for track in window.playlist_service.tracks if track.enabled]
         self._settings = automix_settings_for(window.project_settings)
+        executable = executable if executable is not None else _executable(window)
+        if executable is not None:
+            from app.automix.renderer import settings_for_ffmpeg
+
+            self._settings = settings_for_ffmpeg(self._settings, executable)
         self._overrides = dict(self._settings.overrides)
         self._changed_keys: set[str] = set()
         self._plan = None
@@ -139,8 +144,7 @@ class AutoMixEditorDialog(QDialog):
         self._play_when_ready = False
         self._audition_state = ("idle", "")
         self.undo_stack = QUndoStack(self)
-        self.audition = TransitionAuditionController(
-            executable if executable is not None else _executable(window), self)
+        self.audition = TransitionAuditionController(executable, self)
         self.audition.state_changed.connect(self._on_audition_state)
         self.audition.audio_ready.connect(self._on_audio_ready)
         self.audition.peaks_ready.connect(self._on_peaks)
@@ -1101,6 +1105,16 @@ class AutoMixEditorDialog(QDialog):
                               f"● Up to date · {_clock(start, precise=True)}–{_clock(end, precise=True)}")
             tip = self._text("최종 내보내기와 같은 계획·DSP로 렌더한 구간입니다.",
                              "Rendered with the same plan and DSP as the final export.")
+            fallbacks = set(detail.split(","))
+            if "dsp_fallback" in fallbacks:
+                text += self._text(" · 기본 크로스페이드 적용", " · Basic crossfade applied")
+            elif "tape_stop_unavailable" in fallbacks:
+                text += self._text(" · 짧은 페이드 적용", " · Short fade applied")
+            if "pitch_unavailable" in fallbacks:
+                text += self._text(" · 음정 보정 미지원", " · Pitch shift unavailable")
+            if detail:
+                tip = self._text("FFmpeg에서 지원하는 전환 효과로 재생 중입니다.",
+                                 "Playing with the transition effects supported by FFmpeg.")
         elif state == FAILED:
             reason = detail.splitlines()[0] if detail else ""
             reason = reason if len(reason) <= 60 else reason[:59] + "…"

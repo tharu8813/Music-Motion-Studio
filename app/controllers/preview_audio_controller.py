@@ -22,7 +22,8 @@ from PySide6.QtCore import QEventLoop, QObject, QThread, Signal
 
 from app.models.audio_effects import AudioEffectSettings, has_audio_effects
 from app.models.playlist import PlaylistTrack
-from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderCancelledError, RenderError
+from app.renderer.ffmpeg_renderer import FFmpegRenderer, RenderCancelledError, RenderError, uses_gapless_playlist
+from app.preview.gapless_audio_cache import GAPLESS_PREVIEW_CACHE, gapless_preview_key
 from app.timeline.compiler import compile_playlist
 from app.utils.qt_worker_lifecycle import stop_qthread_now
 from app.utils.subprocess_utils import background_work
@@ -102,6 +103,20 @@ class _PreviewAudioWorker(QThread):
             from app.renderer.ffmpeg_renderer import RenderSettings
 
             self._output_directory.mkdir(parents=True, exist_ok=True)
+            # Only the ordinary lossless preview uses this cache. Export and
+            # transition audition/mixing retain their original pipeline.
+            key = None
+            if (self._background and self._audio_codec == "flac"
+                    and self._transition_mode == "none" and uses_gapless_playlist(self._tracks)):
+                key = gapless_preview_key(self._renderer.executable, self._tracks, self._audio_effects)
+            target = self._output_directory / "playlist_audio.flac"
+            cached_plan = GAPLESS_PREVIEW_CACHE.restore(key, target)
+            if cached_plan is not None:
+                self.plan = cached_plan
+                if not self._cancel_event.is_set():
+                    self.progress.emit("Preparing audio", 1.0, "Reusing prepared gapless audio")
+                    self.ready.emit(str(target), self.plan)
+                return
             path = self._renderer.prepare_playlist_audio(
                 self._tracks, self._output_directory, self._settings or RenderSettings(),
                 transition_mode=self._transition_mode, crossfade_seconds=self._crossfade_seconds,
@@ -112,6 +127,11 @@ class _PreviewAudioWorker(QThread):
                 audio_codec=self._audio_codec,
                 audio_effects=self._audio_effects,
             )
+            # Do not cache a cancelled result or one whose inputs changed
+            # while the audio was being prepared.
+            if (key is not None and not self._cancel_event.is_set()
+                    and key == gapless_preview_key(self._renderer.executable, self._tracks, self._audio_effects)):
+                GAPLESS_PREVIEW_CACHE.remember(key, Path(path), self.plan)
         except RenderCancelledError:
             return
         except Exception as error:
@@ -151,7 +171,8 @@ class PreviewAudioController(QObject):
             return
         self.cancel()
         if not tracks or (transition_mode == "none" and not (
-            has_audio_effects(audio_effects) or any(track.audio_filter for track in tracks)
+            uses_gapless_playlist(tracks) or has_audio_effects(audio_effects)
+            or any(track.audio_filter for track in tracks)
         )):
             return
         if self._worker is not None:

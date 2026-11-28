@@ -44,6 +44,9 @@ class AutoMixTransitionSettings:
     overrides: tuple[tuple[str, TransitionOverride], ...] = ()
     """Manually set junctions, as (``pair_key``, override) pairs; every other
     junction stays automatic. A tuple so the settings stay hashable."""
+    allow_pitch_shift: bool = True
+    allow_tape_stop: bool = True
+    """Automatic effects available to the selected FFmpeg build."""
 
     def override_for(self, outgoing_track_id: str, incoming_track_id: str) -> TransitionOverride | None:
         key = pair_key(outgoing_track_id, incoming_track_id)
