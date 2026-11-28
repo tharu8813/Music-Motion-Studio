@@ -11,17 +11,100 @@ import unittest
 import zipfile
 from unittest.mock import patch
 
+from PySide6.QtCore import QLockFile
 from PySide6.QtGui import QColor, QImage
 
 from app import __version__
 from app.models.playlist import PlaylistTrack
 from app.models.project import ProjectContent, ProjectDocument, ProjectSettings
 from app.models.source import Source, SourceType
-from app.services.project_service import ProjectError, ProjectLoadCancelled, ProjectService
+from app.services.project_service import (
+    ProjectError, ProjectLoadCancelled, ProjectSaveConflict, ProjectService,
+)
 from app.services.project_media_service import ProjectMediaService
 
 
 class ProjectServiceTests(unittest.TestCase):
+    def test_two_editors_cannot_save_stale_revision(self):
+        with TemporaryDirectory() as raw:
+            root = Path(raw)
+            target = ProjectService.save(root / "work.pvsproj", ProjectDocument())
+            document_a, revision_a = ProjectService.load_with_revision(target)
+            document_b, revision_b = ProjectService.load_with_revision(target)
+            self.assertEqual(revision_a, revision_b)
+            document_a.settings.title = "Editor A"
+            ProjectService.save(target, document_a, expected_revision=revision_a)
+            saved = target.read_bytes()
+            document_b.settings.title = "Editor B"
+            with self.assertRaises(ProjectSaveConflict):
+                ProjectService.save(target, document_b, expected_revision=revision_b)
+            self.assertEqual(target.read_bytes(), saved)
+            self.assertEqual(ProjectService.inspect(target).title, "Editor A")
+            other = root / "copy.pvsproj"
+            ProjectService.save(other, document_b, expected_revision=None)
+            self.assertEqual(ProjectService.inspect(other).title, "Editor B")
+            self.assertEqual(list(root.glob(".mms-save-*.lock")), [])
+
+    def test_explicit_missing_revision_refuses_newly_created_destination(self):
+        with TemporaryDirectory() as raw:
+            target = Path(raw) / "new.pvsproj"
+            self.assertIsNone(ProjectService.revision(target))
+            ProjectService.save(target, ProjectDocument(), expected_revision=None)
+            saved = target.read_bytes()
+            with self.assertRaises(ProjectSaveConflict):
+                ProjectService.save(target, ProjectDocument(), expected_revision=None)
+            self.assertEqual(target.read_bytes(), saved)
+            revision = ProjectService.revision(target)
+            target.unlink()
+            with self.assertRaises(ProjectSaveConflict):
+                ProjectService.save(target, ProjectDocument(), expected_revision=revision)
+            self.assertFalse(target.exists())
+
+    def test_save_lock_refuses_other_writer_and_is_released_for_retry(self):
+        with TemporaryDirectory() as raw:
+            root = Path(raw)
+            target = ProjectService.save(root / "work.pvsproj", ProjectDocument())
+            saved = target.read_bytes()
+            lease = QLockFile(str(ProjectService._save_lock_path(target)))
+            lease.setStaleLockTime(0)
+            self.assertTrue(lease.tryLock(0))
+            try:
+                with self.assertRaises(ProjectSaveConflict):
+                    ProjectService.save(target, ProjectDocument())
+                self.assertEqual(target.read_bytes(), saved)
+            finally:
+                lease.unlock()
+            ProjectService.save(target, ProjectDocument())
+            self.assertEqual(list(root.glob(".mms-save-*.lock")), [])
+
+    def test_external_destination_change_during_sync_is_not_overwritten(self):
+        with TemporaryDirectory() as raw:
+            root = Path(raw)
+            target = ProjectService.save(root / "work.pvsproj", ProjectDocument())
+            external = b"external project replacement"
+            actual_sync = os.fsync
+            def sync_then_replace(fd):
+                actual_sync(fd)
+                target.write_bytes(external)
+            with patch("app.services.project_service.os.fsync", side_effect=sync_then_replace):
+                with self.assertRaises(ProjectSaveConflict):
+                    ProjectService.save(target, ProjectDocument())
+            self.assertEqual(target.read_bytes(), external)
+            self.assertEqual(list(root.glob("*.tmp")), [])
+            self.assertEqual(list(root.glob(".mms-save-*.lock")), [])
+
+    def test_load_revision_refuses_project_changed_during_read(self):
+        with TemporaryDirectory() as raw:
+            target = ProjectService.save(Path(raw) / "work.pvsproj", ProjectDocument())
+            actual_load = ProjectService.load
+            def load_then_change(*args, **kwargs):
+                document = actual_load(*args, **kwargs)
+                target.write_bytes(b"externally changed")
+                return document
+            with patch.object(ProjectService, "load", side_effect=load_then_change):
+                with self.assertRaises(ProjectSaveConflict):
+                    ProjectService.load_with_revision(target)
+
     def test_save_syncs_complete_package_before_replacing_existing_project(self):
         with TemporaryDirectory() as raw:
             root = Path(raw)
