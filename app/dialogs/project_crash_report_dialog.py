@@ -37,11 +37,13 @@ class ProjectCrashReportDialog(QDialog):
         report_path: str | None = None,
         repeat_count: int = 1,
         workspace_restored: bool = True,
+        allow_salvage: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setModal(True)
         self.exit_choice: str | None = None
+        self.salvage_requested = False
         self._korean = korean
         self.setMinimumSize(760, 520)
         self.resize(820, 580)
@@ -106,6 +108,9 @@ class ProjectCrashReportDialog(QDialog):
         self.copy_button.clicked.connect(
             lambda: QApplication.clipboard().setText(self.details.toPlainText())
         )
+        self.salvage_button = QPushButton("복구 시도" if korean else "Attempt recovery")
+        self.salvage_button.setVisible(allow_salvage)
+        self.salvage_button.clicked.connect(self._choose_salvage)
         self.exit_button = QPushButton("종료 옵션" if korean else "Exit options")
         self.exit_button.setObjectName("crashExitOptions")
         exit_menu = QMenu(self.exit_button)
@@ -136,6 +141,7 @@ class ProjectCrashReportDialog(QDialog):
         layout.addWidget(self.details, 1)
         actions = QHBoxLayout()
         actions.addWidget(self.copy_button)
+        actions.addWidget(self.salvage_button)
         actions.addStretch()
         actions.addWidget(self.exit_button)
         layout.addLayout(actions)
@@ -152,6 +158,12 @@ class ProjectCrashReportDialog(QDialog):
             f"{count} report(s) in the last 90 seconds"
         )
         self.exit_button.setVisible(count >= 2)
+
+    def _choose_salvage(self) -> None:
+        if self.salvage_button.isHidden():
+            return
+        self.salvage_requested = True
+        self.accept()
 
     def _choose_exit(self, choice: str) -> None:
         self.exit_choice = choice
