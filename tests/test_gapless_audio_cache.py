@@ -68,6 +68,43 @@ class GaplessPreviewCacheTests(unittest.TestCase):
         Path(self.tracks[0].file_path).unlink()
         self.assertIsNone(self.key())
 
+    def test_recent_mixes_reused_and_lru_eviction_keeps_open_previews(self):
+        cache = GaplessPreviewCache(max_bytes=100, max_entries=2)
+        self.addCleanup(cache.clear)
+        keys = [self.key({"fixture": i}) for i in range(3)]
+        for key in keys[:2]:
+            cache.remember(key, self.source, self.plan)
+        active = self.root / "active.flac"
+        self.assertIs(cache.restore(keys[0], active), self.plan)
+        cache.remember(keys[2], self.source, self.plan)
+        self.assertIsNone(cache.restore(keys[1], self.root / "evicted.flac"))
+        self.assertIs(cache.restore(keys[0], self.root / "recent.flac"), self.plan)
+        self.assertIs(cache.restore(keys[2], self.root / "newest.flac"), self.plan)
+        cache.clear()
+        self.assertEqual(active.read_bytes(), b"test continuous audio")
+
+    def test_aggregate_byte_limit_and_replacement_accounting(self):
+        size = self.source.stat().st_size
+        cache = GaplessPreviewCache(max_bytes=size * 2, max_entries=3)
+        self.addCleanup(cache.clear)
+        keys = [self.key({"fixture": i}) for i in range(3)]
+        for key in keys[:2]:
+            cache.remember(key, self.source, self.plan)
+        cache.remember(keys[0], self.source, self.plan)
+        self.assertIs(cache.restore(keys[1], self.root / "still-present.flac"), self.plan)
+        cache.remember(keys[2], self.source, self.plan)
+        self.assertIsNone(cache.restore(keys[0], self.root / "over-budget.flac"))
+        self.assertIs(cache.restore(keys[1], self.root / "retained.flac"), self.plan)
+        self.assertIs(cache.restore(keys[2], self.root / "last.flac"), self.plan)
+
+    def test_missing_or_truncated_cached_audio_is_not_reused(self):
+        key = self.key()
+        self.cache.remember(key, self.source, self.plan)
+        # Hard-linked backing bytes changed: reject a wrong-size cached result.
+        self.source.write_bytes(b"truncated")
+        self.assertIsNone(self.cache.restore(key, self.root / "invalid.flac"))
+        self.assertFalse((self.root / "invalid.flac").exists())
+
     def test_cache_never_overwrites_existing_destination(self):
         key = self.key()
         self.cache.remember(key, self.source, self.plan)
