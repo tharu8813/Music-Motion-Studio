@@ -116,6 +116,17 @@ Phase 3의 독립적인 계측 및 성능 검토는 병행할 수 있다. Phase 
 
 두 fixture 각각 모든 실행의 PCM SHA-256 및 2,880,000 sample frame, LUFS/true peak 일치. limiter 출력 -32.8 LUFS/-1.4 dBTP는 기존 필터 결과이며 -1.5 dBTP 엄격 상한을 새로 검증한 것이 아니다. 단일 스레드의 limiter+FLAC 중앙값은 약 5.5% 느려 **기본값 변경 거부**. null sink와 FLAC wall time은 독립 CPU 비용으로 차감/합산하지 않는다. 실제 미리보기 준비 시간이나 RTX 실측으로 해석하지 않는다.
 
+#### #266/#267 다중 오디오 캐시 실측 (2026-11-29 KST)
+
+[#266](https://github.com/tharu8813/Music-Motion-Studio/pull/266) CI 9/9 성공, main `029ca1e`: 세션 LRU 최대 3개, 총 1 GiB 유지. [#267](https://github.com/tharu8813/Music-Motion-Studio/pull/267) CI 10/10 성공, main `b8f3baf`. [Windows 측정 로그](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46164055272/job/141037546622): 동일 8곡 × 60초, A/B(역순)/A 전환, 용량 1/3의 비교 순서를 반전한 2라운드.
+
+| 항목 | 1개 캐시 | 3개 캐시 |
+| --- | ---: | ---: |
+| A2 준비 시간 중앙값 | 7.642131초 | 0.397398초 |
+| A2 캐시 적중 (2회 중) | 0 | 2 |
+
+A2의 준비 대기 약 94.8% 감소. 동일 A의 decoded PCM SHA-256과 480초 재생 계획 일치, 적중 시 렌더 단계 재실행 없음. 일반 단일 재진입 pink 7.426/0.374초, peaky 10.098/0.366초 (cold/warm 중앙값). 합성 offscreen CPU preview의 Play 활성화까지의 시간이며 실제 첫 소리, 프로젝트 파일 전체 열기 또는 최초 cold 준비 가속을 의미하지 않는다. 활성 미리보기의 독립 하드링크는 캐시 예산 밖에 남을 수 있으며 동일 크기 외부 변경은 탐지하지 못한다.
+
 경계: `app/dialogs/export_preview_dialog.py`, `app/controllers/preview_controller.py`, `app/preview/`, `app/video/`. 세부 단계와 기준은 [#159](https://github.com/tharu8813/Music-Motion-Studio/issues/159)를 따른다.
 
 완료 조건: 같은 품질·환경 A-B-B-A, A/V와 프레임 P95·RSS 등 측정, 실제 Windows 장기 재생 및 오류 복구 성공. 미리보기 품질이 최종 출력 설정을 바꾸면 안 된다.

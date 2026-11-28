@@ -14,6 +14,7 @@ single-line/shared, not worth extracting.
 
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from collections.abc import Sequence
 
@@ -282,21 +283,44 @@ class _TranslatedCues(Sequence):
 class _LyricDisplayGroups(Sequence):
     """Prepare text only for the small context window actually being painted."""
 
-    def __init__(self, cues, groups):
-        self.cues, self.groups, self.prepared = cues, groups, {}
-        self.positions = {original: index for index, group in enumerate(groups) for original in group}
+    def __init__(self, cues, displayed, last):
+        self.cues, self.displayed, self.last = cues, displayed, last
+        self.prepared = {}
+        self.anchor = last + 1 - len(displayed)
+        # Active/held indices are sorted and unique. For each removed index,
+        # its rank among the remaining singleton rows is original - removed.
+        # Equal ranks represent adjacent removed cues.
+        self._removed_ranks = tuple(original - offset for offset, original in enumerate(displayed))
 
     def __len__(self):
-        return len(self.groups)
+        return len(self.cues) - len(self.displayed) + 1
 
     def index_for_cue(self, index):
-        return self.positions[index]
+        if not 0 <= index < len(self.cues):
+            raise KeyError(index)
+        if index > self.last:
+            return index - len(self.displayed) + 1
+        removed = bisect_left(self.displayed, index)
+        if removed < len(self.displayed) and self.displayed[removed] == index:
+            return self.anchor
+        return index - removed
+
+    def _indices(self, index):
+        if index == self.anchor:
+            return self.displayed
+        if index < self.anchor:
+            return (index + bisect_right(self._removed_ranks, index),)
+        return (index + len(self.displayed) - 1,)
 
     def __getitem__(self, index):
         if isinstance(index, slice):
             return tuple(self[position] for position in range(*index.indices(len(self))))
+        if index < 0:
+            index += len(self)
+        if not 0 <= index < len(self):
+            raise IndexError(index)
         if index not in self.prepared:
-            indices = self.groups[index]
+            indices = self._indices(index)
             parts = [self.cues[position] for position in indices]
             self.prepared[index] = {
                 "display_cue_indices": indices,
@@ -320,11 +344,11 @@ def lyrics_display_groups(track: PlaylistTrack, state: LyricsCueState, *, transl
     displayed = state.active_cue_indices or state.held_cue_indices or (state.cue_index,)
     if displayed == (state.latest_started_cue_index,):
         return cues, state.cue_index  # Most frames have one ordinary active interval.
-    active = set(displayed)
-    last = state.latest_started_cue_index
-    previous = [(index,) for index in range(last + 1) if index not in active]
-    groups = previous + [displayed] + [(index,) for index in range(last + 1, len(track.lyrics))]
-    return _LyricDisplayGroups(cues, groups), len(previous)
+    # Do not allocate singleton tuples and a reverse lookup for every cue
+    # each frame. The view stores only the active/held group's indices and
+    # calculates the small visible context on demand.
+    groups = _LyricDisplayGroups(cues, displayed, state.latest_started_cue_index)
+    return groups, groups.anchor
 
 
 def resolve_lyrics_word_reveal(
