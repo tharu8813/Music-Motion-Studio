@@ -1,6 +1,7 @@
 """Unified translation/editing, separate settings, and resumable drafts."""
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from tempfile import TemporaryDirectory
 from threading import Event
 import time
@@ -266,6 +267,55 @@ class TranslationWorkspaceTests(unittest.TestCase):
         self.assertEqual(services._provider, "claude")
         self.assertEqual(services.status_label.text(), "")
         self.assertEqual(services.provider_combo.currentData(), "claude")
+
+    def test_missing_saved_local_nmt_model_never_silently_selects_another(self):
+        self.settings.setValue("translation/provider", "local_nmt")
+        self.settings.setValue("translation/config/local_nmt/model", "removed-package")
+        local_models = Mock()
+        local_models.for_pair.return_value = [
+            SimpleNamespace(id="available-package", name="English → Korean · available")]
+        dialog = self.dialog(service=LyricsTranslationService(local_models=local_models))
+        services = dialog.service_dialog
+        self.assertEqual(services._provider, "local_nmt")
+        self.assertEqual(services.model_combo.count(), 1)
+        self.assertEqual(services.model_combo.currentIndex(), -1)
+        self.assertEqual(services._model_value(), "")
+        self.assertIn("전에 선택한", services.local_pair_note.text())
+        self.assertIn("직접 선택", services.local_pair_note.text())
+
+        services.model_combo.setCurrentIndex(0)
+        self.assertEqual(services._model_value(), "available-package")
+
+    def test_local_nmt_initial_setup_still_selects_only_available_model(self):
+        self.settings.setValue("translation/provider", "local_nmt")
+        local_models = Mock()
+        local_models.for_pair.return_value = [
+            SimpleNamespace(id="only-package", name="English → Korean · installed")]
+        dialog = self.dialog(service=LyricsTranslationService(local_models=local_models))
+        self.assertEqual(dialog.service_dialog._model_value(), "only-package")
+        self.assertIn("모델 파일 확인됨", dialog.service_dialog.local_pair_note.text())
+
+    def test_local_nmt_language_change_requires_explicit_different_model(self):
+        self.settings.setValue("translation/provider", "local_nmt")
+        self.settings.setValue("translation/config/local_nmt/model", "en-ko-package")
+        local_models = Mock()
+        def installed_for_pair(source, target):
+            if (source, target) == ("en", "ko"):
+                return [SimpleNamespace(id="en-ko-package", name="English → Korean")]
+            if (source, target) == ("en", "ja"):
+                return [SimpleNamespace(id="en-ja-package", name="English → Japanese")]
+            return []
+        local_models.for_pair.side_effect = installed_for_pair
+        dialog = self.dialog(service=LyricsTranslationService(local_models=local_models))
+        services = dialog.service_dialog
+        self.assertEqual(services._model_value(), "en-ko-package")
+        dialog.target_combo.setCurrentIndex(dialog.target_combo.findData("ja"))
+        self.assertEqual(services.model_combo.count(), 1)
+        self.assertEqual(services.model_combo.currentIndex(), -1)
+        self.assertEqual(services._model_value(), "")
+        self.assertIn("직접 선택", services.local_pair_note.text())
+        services.model_combo.setCurrentIndex(0)
+        self.assertEqual(services._model_value(), "en-ja-package")
 
     def test_provider_switch_save_failure_restores_selection_and_preserves_values(self):
         dialog = self.dialog()
