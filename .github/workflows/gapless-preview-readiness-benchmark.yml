@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - tools/gapless_preview_readiness_benchmark.py
+      - app/preview/gapless_audio_cache.py
+      - app/controllers/preview_audio_controller.py
       - .github/workflows/gapless-preview-readiness-benchmark.yml
   workflow_dispatch:
 
@@ -24,15 +26,22 @@ jobs:
           cache-dependency-path: requirements-lock.txt
       - name: Install locked dependencies
         run: python -m pip install -r requirements-lock.txt
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/export_analysis
+          shared-key: windows-py314-deployment
+          cache-on-failure: false
       - name: Build mandatory Rust export native module
         run: |
           rustup default stable
           python -m pip install "maturin>=1.9.4,<2"
-          maturin build --release --manifest-path native/export_analysis/Cargo.toml --interpreter python
+          $wheelDir = Join-Path $env:RUNNER_TEMP ("mms-readiness-wheel-" + [guid]::NewGuid().ToString("N"))
+          maturin build --release --manifest-path native/export_analysis/Cargo.toml --interpreter python --out $wheelDir
           if ($LASTEXITCODE -ne 0) { throw 'Rust export build failed.' }
-          $wheel = Get-ChildItem native/export_analysis/target/wheels/*.whl | Select-Object -First 1
-          if (-not $wheel) { throw 'No Rust export wheel was produced.' }
-          python -m pip install $wheel.FullName
+          $wheels = @(Get-ChildItem $wheelDir -Filter *.whl)
+          if ($wheels.Count -ne 1) { throw 'Expected exactly one newly built Rust export wheel.' }
+          python -m pip install $wheels[0].FullName
           if ($LASTEXITCODE -ne 0) { throw 'Rust export installation failed.' }
           python scripts/rust_prerequisites.py
       - name: Install verified FFmpeg
@@ -43,6 +52,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Pink fixture benchmark failed.' }
           python tools/gapless_preview_readiness_benchmark.py --seconds 60 --rounds 3 --fixture peaky --report gapless-preview-peaky-readiness.json
           if ($LASTEXITCODE -ne 0) { throw 'Peaky fixture benchmark failed.' }
+      - name: Compare cache capacities with A/B/A playlist switching
+        run: python tools/gapless_preview_readiness_benchmark.py --seconds 60 --rounds 2 --fixture pink --cache-switch --report gapless-preview-switch-readiness.json
       - uses: actions/upload-artifact@v6
         if: always()
         with:
@@ -50,4 +61,5 @@ jobs:
           path: |
             gapless-preview-readiness.json
             gapless-preview-peaky-readiness.json
+            gapless-preview-switch-readiness.json
           if-no-files-found: ignore
