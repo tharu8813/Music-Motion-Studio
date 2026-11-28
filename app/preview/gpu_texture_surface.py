@@ -494,6 +494,7 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                 existing is not None
                 and existing.video_format == mapped_format
                 and existing.premultiplied == premultiplied
+                and existing.texture.isCreated()
                 and existing.width == layer.image.width()
                 and existing.height == layer.image.height()
             )
@@ -648,16 +649,33 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
             pixel_format: object, data: bytes | bytearray | memoryview,
         ) -> object:
             texture = QOpenGLTexture(QOpenGLTexture.Target.Target2D)
-            texture.setSize(max(1, width), max(1, height))
-            texture.setFormat(texture_format)
-            texture.allocateStorage(pixel_format, QOpenGLTexture.PixelType.UInt8)
-            GpuTexturePreviewSurface._upload_raw_texture(
-                texture, pixel_format, data,
-            )
-            texture.setMinificationFilter(QOpenGLTexture.Filter.Linear)
-            texture.setMagnificationFilter(QOpenGLTexture.Filter.Linear)
-            texture.setWrapMode(QOpenGLTexture.WrapMode.ClampToEdge)
-            return texture
+            try:
+                texture.setSize(max(1, width), max(1, height))
+                texture.setFormat(texture_format)
+                texture.allocateStorage(pixel_format, QOpenGLTexture.PixelType.UInt8)
+                if not texture.isCreated() or not texture.isStorageAllocated():
+                    raise RuntimeError("Could not allocate the preview texture storage.")
+                GpuTexturePreviewSurface._upload_raw_texture(
+                    texture, pixel_format, data,
+                )
+                texture.setMinificationFilter(QOpenGLTexture.Filter.Linear)
+                texture.setMagnificationFilter(QOpenGLTexture.Filter.Linear)
+                texture.setWrapMode(QOpenGLTexture.WrapMode.ClampToEdge)
+                return texture
+            except Exception:
+                # A partially initialized texture has not entered the cache;
+                # release it while the caller still owns the current context.
+                GpuTexturePreviewSurface._destroy_unpublished_texture(texture)
+                raise
+
+        @staticmethod
+        def _destroy_unpublished_texture(texture: object) -> None:
+            """Best-effort cleanup without masking the original upload error."""
+            try:
+                if texture.isCreated():
+                    texture.destroy()
+            except RuntimeError:
+                pass
 
         @timed("preview.mapped_video_prepare_upload_seconds")
         def _upload_video_frame_layer(self, layer: GpuPreviewLayer) -> None:
@@ -672,6 +690,10 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                 layer.native_serial > 0
                 and existing is not None
                 and existing.cache_key == layer.native_serial
+                and existing.texture.isCreated()
+                and (format_name not in MAPPED_YUV420_FORMATS or (
+                    existing.aux_texture is not None and existing.aux_texture.isCreated()
+                ))
                 and existing.width == output_width
                 and existing.height == output_height
                 and existing.video_format == format_name
@@ -773,12 +795,21 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                 and existing.aux_texture.isCreated()
             )
             if same_size and existing is not None:
-                self._upload_raw_texture(
-                    existing.texture, QOpenGLTexture.PixelFormat.Red, y_data,
-                )
-                self._upload_raw_texture(
-                    existing.aux_texture, QOpenGLTexture.PixelFormat.RG, uv_data,
-                )
+                try:
+                    self._upload_raw_texture(
+                        existing.texture, QOpenGLTexture.PixelFormat.Red, y_data,
+                    )
+                    self._upload_raw_texture(
+                        existing.aux_texture, QOpenGLTexture.PixelFormat.RG, uv_data,
+                    )
+                except Exception:
+                    # Never reuse a pair with a newly uploaded Y plane and an
+                    # older UV plane. Remove the whole pair on either failure.
+                    try:
+                        self._destroy_texture(layer.key)
+                    except RuntimeError:
+                        pass
+                    raise
                 self._textures[layer.key] = _TextureEntry(
                     existing.texture, layer.native_serial,
                     output_width, output_height,
@@ -793,11 +824,17 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
                     QOpenGLTexture.TextureFormat.R8_UNorm,
                     QOpenGLTexture.PixelFormat.Red, y_data,
                 )
-                uv_texture = self._new_raw_texture(
-                    (output_width + 1) // 2, (output_height + 1) // 2,
-                    QOpenGLTexture.TextureFormat.RG8_UNorm,
-                    QOpenGLTexture.PixelFormat.RG, uv_data,
-                )
+                try:
+                    uv_texture = self._new_raw_texture(
+                        (output_width + 1) // 2, (output_height + 1) // 2,
+                        QOpenGLTexture.TextureFormat.RG8_UNorm,
+                        QOpenGLTexture.PixelFormat.RG, uv_data,
+                    )
+                except Exception:
+                    # The first texture is not registered yet; a failed second
+                    # allocation must not strand it outside cache accounting.
+                    self._destroy_unpublished_texture(y_texture)
+                    raise
                 self._texture_allocations += 2
                 allocation = len(y_data) + len(uv_data)
                 self._textures[layer.key] = _TextureEntry(
@@ -858,10 +895,12 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
             )
             if evicted:
                 self._texture_evictions += 1
-            if entry.texture.isCreated():
-                entry.texture.destroy()
-            if entry.aux_texture is not None and entry.aux_texture.isCreated():
-                entry.aux_texture.destroy()
+            try:
+                if entry.texture.isCreated():
+                    entry.texture.destroy()
+            finally:
+                if entry.aux_texture is not None and entry.aux_texture.isCreated():
+                    entry.aux_texture.destroy()
 
         def _release_gl_resources(self) -> None:
             self._pending_since = self._active_since = self._compose_since = None

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 
@@ -422,6 +422,96 @@ class GpuTextureSurfaceTests(unittest.TestCase):
         self.assertEqual(surface.upload_stats.texture_allocations, 2)
         surface._textures.clear()
         surface.deleteLater()
+
+    @unittest.skipUnless(GPU_TEXTURE_SURFACE_AVAILABLE, "Qt OpenGL unavailable")
+    def test_raw_texture_failure_releases_unpublished_allocation(self):
+        from PySide6.QtOpenGL import QOpenGLTexture
+
+        for failure in ("storage", "upload", "filter"):
+            with self.subTest(failure=failure):
+                texture = MagicMock()
+                texture.isCreated.return_value = True
+                texture.isStorageAllocated.return_value = failure != "storage"
+                error = RuntimeError(failure)
+                if failure == "filter":
+                    texture.setWrapMode.side_effect = error
+                with (
+                    patch("app.preview.gpu_texture_surface.QOpenGLTexture", wraps=QOpenGLTexture) as constructor,
+                    patch.object(GpuTexturePreviewSurface, "_upload_raw_texture") as upload,
+                ):
+                    constructor.Target = QOpenGLTexture.Target
+                    constructor.Filter = QOpenGLTexture.Filter
+                    constructor.WrapMode = QOpenGLTexture.WrapMode
+                    constructor.PixelType = QOpenGLTexture.PixelType
+                    constructor.return_value = texture
+                    if failure == "upload":
+                        upload.side_effect = error
+                    with self.assertRaises(RuntimeError):
+                        GpuTexturePreviewSurface._new_raw_texture(
+                            2, 2, QOpenGLTexture.TextureFormat.R8_UNorm,
+                            QOpenGLTexture.PixelFormat.Red, b"1234",
+                        )
+                    if failure == "storage":
+                        upload.assert_not_called()
+                texture.destroy.assert_called_once()
+
+    @unittest.skipUnless(GPU_TEXTURE_SURFACE_AVAILABLE, "Qt OpenGL unavailable")
+    def test_failed_second_plane_allocation_releases_first_and_keeps_accounting(self):
+        surface = GpuTexturePreviewSurface()
+        self.addCleanup(surface.deleteLater)
+        y_texture = MagicMock()
+        y_texture.isCreated.return_value = True
+        layer = GpuPreviewLayer("video", QImage(), QRectF(0, 0, 2, 2), native_serial=1)
+        with patch.object(surface, "_new_raw_texture",
+                          side_effect=[y_texture, RuntimeError("UV allocation failed")]):
+            with self.assertRaisesRegex(RuntimeError, "UV allocation failed"):
+                surface._upload_yuv_planes(layer, "Format_NV12", 2, 2, b"1234", b"56")
+        y_texture.destroy.assert_called_once()
+        self.assertNotIn("video", surface._textures)
+        self.assertEqual(surface.upload_stats.allocated_bytes, 0)
+        self.assertEqual(surface.upload_stats.texture_allocations, 0)
+        self.assertEqual(surface.upload_stats.texture_uploads, 0)
+
+    @unittest.skipUnless(GPU_TEXTURE_SURFACE_AVAILABLE, "Qt OpenGL unavailable")
+    def test_failed_existing_plane_update_invalidates_pair_and_allows_retry(self):
+        surface = GpuTexturePreviewSurface()
+        self.addCleanup(surface.deleteLater)
+        y, uv = MagicMock(), MagicMock()
+        y.isCreated.return_value = uv.isCreated.return_value = True
+        surface._textures["video"] = _TextureEntry(y, 1, 2, 2, 6, 0, uv, "Format_NV12")
+        surface._allocated_bytes = 6
+        layer = GpuPreviewLayer("video", QImage(), QRectF(0, 0, 2, 2), native_serial=2)
+        with patch.object(surface, "_upload_raw_texture",
+                          side_effect=[None, RuntimeError("UV upload failed")]):
+            with self.assertRaisesRegex(RuntimeError, "UV upload failed"):
+                surface._upload_yuv_planes(layer, "Format_NV12", 2, 2, b"1234", b"56")
+        y.destroy.assert_called_once()
+        uv.destroy.assert_called_once()
+        self.assertNotIn("video", surface._textures)
+        self.assertEqual(surface.upload_stats.allocated_bytes, 0)
+        self.assertEqual(surface.upload_stats.texture_uploads, 0)
+        with patch.object(surface, "_new_raw_texture", side_effect=[MagicMock(), MagicMock()]):
+            surface._upload_yuv_planes(layer, "Format_NV12", 2, 2, b"1234", b"56")
+        self.assertEqual(surface._textures["video"].cache_key, 2)
+        self.assertEqual(surface.upload_stats.allocated_bytes, 6)
+        self.assertEqual(surface.upload_stats.texture_allocations, 2)
+        self.assertEqual(surface.upload_stats.texture_uploads, 2)
+        surface._textures.clear()
+
+    @unittest.skipUnless(GPU_TEXTURE_SURFACE_AVAILABLE, "Qt OpenGL unavailable")
+    def test_destroy_attempts_both_planes_even_if_first_destroy_raises(self):
+        surface = GpuTexturePreviewSurface()
+        self.addCleanup(surface.deleteLater)
+        y, uv = MagicMock(), MagicMock()
+        y.isCreated.return_value = uv.isCreated.return_value = True
+        y.destroy.side_effect = RuntimeError("context lost")
+        surface._textures["video"] = _TextureEntry(y, 1, 2, 2, 6, 0, uv, "Format_NV12")
+        surface._allocated_bytes = 6
+        with self.assertRaisesRegex(RuntimeError, "context lost"):
+            surface._destroy_texture("video")
+        uv.destroy.assert_called_once()
+        self.assertEqual(surface.upload_stats.allocated_bytes, 0)
+        self.assertNotIn("video", surface._textures)
 
     @unittest.skipUnless(
         GPU_TEXTURE_SURFACE_AVAILABLE, "Qt OpenGL widgets are unavailable",
