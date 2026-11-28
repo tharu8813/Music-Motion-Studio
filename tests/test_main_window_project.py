@@ -25,6 +25,7 @@ from app.dialogs.preset_dialog import DesignPresetDialog
 from app.dialogs.audio_metadata_dialog import AudioMetadataDialog
 from app.dialogs.new_project_dialog import NewProjectDialog
 from app.dialogs.startup_dialog import StartupDialog
+from app.dialogs.recovery_selection_dialog import RecoverySelectionDialog
 from app.dialogs.project_settings_dialog import ProjectSettingsDialog
 from app.dialogs.project_audio_settings_dialog import ProjectAudioSettingsDialog
 from app.dialogs.project_crash_report_dialog import ProjectCrashReportDialog
@@ -335,6 +336,67 @@ class MainWindowProjectTests(MainWindowTestCase):
                 self.assertTrue(saved.path.is_file())
             finally:
                 self.window.autosave = original_autosave
+
+    def test_recovery_selector_lists_sessions_and_restores_only_selected_workspace(self) -> None:
+        with TemporaryDirectory(prefix="pvs-multiple-recovery-") as raw:
+            root = Path(raw)
+            original = self.window.autosave
+            self.window.autosave = AutosaveService(root)
+            try:
+                older = AutosaveService(root).save(
+                    ProjectDocument(settings=ProjectSettings(title="Older edits")), None,
+                )
+                newer = AutosaveService(root).save(
+                    ProjectDocument(settings=ProjectSettings(title="Newer edits")), None,
+                )
+                candidates = self.window.autosave.recoveries()
+                self.assertEqual(len(candidates), 2)
+                dialog = RecoverySelectionDialog(candidates, True, self.window)
+                try:
+                    self.assertEqual(dialog.entries.count(), 2)
+                    self.assertFalse(dialog.restore_button.isEnabled())
+                    self.assertIsNone(dialog.selected_snapshot)
+                    for index, snapshot in enumerate(candidates):
+                        dialog.entries.setCurrentRow(index)
+                        self.assertTrue(dialog.restore_button.isEnabled())
+                        self.assertEqual(dialog.selected_snapshot.path, snapshot.path)
+                        self.assertIn(snapshot.document.settings.title, dialog.entries.item(index).text())
+                    dialog.reject()
+                finally:
+                    dialog.deleteLater()
+
+                with patch("app.controllers.autosave_controller.RecoverySelectionDialog") as chooser:
+                    chooser.return_value.exec.return_value = QDialog.DialogCode.Rejected
+                    self.assertFalse(self.window._offer_recovery(confirm=False))
+                self.assertTrue(older.path.exists())
+                self.assertTrue(newer.path.exists())
+
+                with (
+                    patch("app.controllers.autosave_controller.RecoverySelectionDialog") as chooser,
+                    patch.object(QMessageBox, "question", side_effect=AssertionError("Duplicate confirmation")),
+                ):
+                    chooser.return_value.exec.return_value = QDialog.DialogCode.Accepted
+                    chooser.return_value.selected_snapshot = older
+                    self.assertTrue(self.window._offer_recovery(confirm=False))
+                self.assertEqual(self.window.project_settings.title, "Older edits")
+                self.assertTrue(newer.path.exists())
+                self.assertFalse(older.path.exists())
+                self.assertTrue(self.window.project_session.dirty)
+            finally:
+                self.window.autosave = original
+
+    def test_declining_single_recovery_keeps_original_snapshot(self) -> None:
+        with TemporaryDirectory(prefix="pvs-decline-recovery-") as raw:
+            original = self.window.autosave
+            self.window.autosave = AutosaveService(Path(raw))
+            try:
+                saved = self.window.autosave.save(ProjectDocument(), None)
+                before = saved.path.read_bytes()
+                with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No):
+                    self.assertFalse(self.window._offer_recovery())
+                self.assertEqual(saved.path.read_bytes(), before)
+            finally:
+                self.window.autosave = original
 
     def test_update_backs_up_and_resumes_workspace_without_confirmation(self) -> None:
         from main import open_initial_workspace

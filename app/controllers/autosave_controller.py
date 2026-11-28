@@ -9,7 +9,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from pathlib import Path
 
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QDialog, QMessageBox
+
+from app.dialogs.recovery_selection_dialog import RecoverySelectionDialog
 
 from app.services.autosave_worker import AutosaveWorker
 from app.services.project_service import ProjectError, ProjectLoadCancelled, ProjectService
@@ -106,8 +108,22 @@ class AutosaveController:
         window = self.window
         try:
             # Another editor can save the same file without saving this session's edits.
-            snapshot = (window.autosave.load_snapshot(snapshot_path) if snapshot_path is not None
-                        else window.autosave.latest_recovery())
+            if snapshot_path is not None:
+                snapshot = window.autosave.load_snapshot(snapshot_path)
+            else:
+                snapshots = window.autosave.recoveries()
+                if len(snapshots) > 1:
+                    dialog = RecoverySelectionDialog(snapshots, window.translator.is_korean, window)
+                    try:
+                        if dialog.exec() != QDialog.DialogCode.Accepted:
+                            return False
+                        snapshot = dialog.selected_snapshot
+                    finally:
+                        dialog.deleteLater()
+                    # Choosing a specific entry is already explicit consent.
+                    confirm = False
+                else:
+                    snapshot = snapshots[0] if snapshots else None
         except ProjectError as error:
             window.statusBar().showMessage(str(error), 5000)
             return False
@@ -117,8 +133,8 @@ class AutosaveController:
         answer = QMessageBox.question(
             window,
             "자동 저장 복구" if korean else "Autosave recovery",
-            "저장되지 않은 작업을 복구할까요?" if korean
-            else "Restore your most recently autosaved work?",
+            "저장되지 않은 작업을 복구할까요? 아니요를 선택해도 복구 파일은 유지됩니다." if korean
+            else "Restore your autosaved work? Choosing No keeps the recovery file.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         ) if confirm else QMessageBox.StandardButton.Yes
@@ -170,10 +186,7 @@ class AutosaveController:
             if project_path is not None:
                 window.recent_projects.add(project_path)
             return True
-        try:
-            window.autosave.clear_snapshot(snapshot)
-        except ProjectError as error:
-            window.statusBar().showMessage(str(error), 5000)
+        # Declining the restore is not consent to permanently discard edits.
         return False
 
     def clear_recovery(self) -> None:
