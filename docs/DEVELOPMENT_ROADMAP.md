@@ -14,26 +14,38 @@
 
 ### 열린 PR 정리 (Phase 0 / P0)
 
-2026-11-28 조회 결과이며 변경 시 최신 HEAD와 필수 CI를 다시 조회한다.
+2026-11-28 KST 통합 진행 기록 (확인한 main: `afb835860666ace7ec88e019c57bc7befaa331bd`). 변경 시 최신 HEAD와 필수 CI를 다시 조회한다.
 
-| PR | 내용 | 기준 시점 | 후속 작업 |
+| PR | 내용 | 현재 기록 | 후속 작업 |
 | --- | --- | --- | --- |
-| [#251](https://github.com/tharu8813/Music-Motion-Studio/pull/251) | Cascade 짧은 가사 및 후반 이동 지연 | native packet 성공, Windows/분리 Python 진행 중 | 100ms TTML, 연속 가사, tail 및 preview/export 회귀 확인 |
-| [#250](https://github.com/tharu8813/Music-Motion-Studio/pull/250) | Gapless 단계 및 true-peak limiter 계측 | 4/4 성공 | 측정 결과·리뷰 확인; 런타임 최적화로 간주하지 않음 |
-| [#249](https://github.com/tharu8813/Music-Motion-Studio/pull/249) | 재생 필수 오디오 우선, 선택 분석 지연 | 3/3 성공 | 최신 main 재검증, 실제 준비 속도 계측 |
-| [#239](https://github.com/tharu8813/Music-Motion-Studio/pull/239) | 로컬 NMT 모델 명시 선택 보존 | 3/3 성공 | #238 선행, 최신 main 반영 후 재검증 |
-| [#238](https://github.com/tharu8813/Music-Motion-Studio/pull/238) | 로컬 LLM 설치 확인 | 2/3 성공 | LM Studio 기존 모델 선택 회귀 원인 수정 |
+| [#251](https://github.com/tharu8813/Music-Motion-Studio/pull/251) | Cascade 짧은 가사 및 후반 이동 지연 | 4/4 성공, 병합 `b72c236` | 실제 Windows 재생 및 추가 시간축 경계 검증 |
+| [#252](https://github.com/tharu8813/Music-Motion-Studio/pull/252) | 로드맵 및 문서 정리 | 3/3 성공, 병합 `4a1a3d6` | 진행 기록 유지 |
+| [#249](https://github.com/tharu8813/Music-Motion-Studio/pull/249) | 재생 필수 오디오 우선, 선택 분석 지연 | 3/3 성공, 병합 `a81dae5` | 반응형 장면의 실제 준비 속도 계측 |
+| [#250](https://github.com/tharu8813/Music-Motion-Studio/pull/250) | Gapless 단계 및 true-peak limiter 계측 | 4/4 성공, 병합 `bb22929` | 측정 결과를 다음 후보 선정에 활용 |
+| [#238](https://github.com/tharu8813/Music-Motion-Studio/pull/238) | 로컬 LLM 설치 확인 | 3/3 성공, 병합 `350fa1b` | 로컬 모델 설치·선택 후속 회귀 유지 |
+| [#239](https://github.com/tharu8813/Music-Motion-Studio/pull/239) | 로컬 NMT 모델 명시 선택 보존 | 9/9 성공, 병합 `afb8358` | 모델 설치·선택·언어 방향 후속 검증 |
+| [#254](https://github.com/tharu8813/Music-Motion-Studio/pull/254) | Windows CI 병렬화·캐시·FFmpeg 기준 고정·M4A 시간축 | 13/13 성공, 병합 `b986548` | 문서 경량 경로 및 main CI 확인 완료, #255/#256 추적 |
 
-#238의 [실패 로그](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/44570421557/job/135723733613): `test_lmstudio_unchanged_installed_list_is_not_download_success`에서 선택이 없어야 하나 `old-model.gguf`가 반환됨. 테스트 실패는 확인했으나 실제 UI의 원인과 올바른 선택 정책은 수정 시 다시 검토한다.
+#238의 [기존 실패 로그](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/44570421557/job/135723733613)에서 `test_lmstudio_unchanged_installed_list_is_not_download_success`가 기존 모델을 반환했다. 후속 변경에서 초기 조회 순서, 검증된 목록 비교 및 사용자 입력과 Qt 자동 선택의 구분을 개선했다. [후속 CI](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46145292695) 3/3 성공 후 병합했다.
+
+Copilot의 리뷰 한도 부족 안내는 승인으로 간주하지 않았다. 병합한 PR은 패치 자체를 검토하고 정확한 HEAD의 검사 결과 및 충돌 여부를 확인했다. 실제 사용자 Windows/RTX 수용 검수는 별개다.
 
 - [ ] 모든 열린 PR의 변경 범위·충돌·리뷰·최신 HEAD 필수 CI를 확인한다. #238 → #239 순서를 준수한다.
 - [ ] CI 실패·대기·누락 상태에서는 병합하지 않는다. 기존 main 변경을 보존하고 병합 후 결과를 확인한다.
+
+### CI 검증 최적화 기록
+
+- [x] #254: 6개 격리 Python shard, Rust 캐시 및 새 wheel 설치, FFmpeg 9.0 날짜 고정·SHA-256 검증, 문서 변경 분류와 최종 검증 게이트 구현. [최종 PR CI](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46151198844) 13/13 성공. 이전 540초 대비 190초(약 65% 감소)는 Python 테스트 자체 비교이며 전체 CI 시간이 아니다. 최종 PR 전체 Windows 검증은 13:45:32~13:52:01 UTC, 약 6분 29초.
+- [x] [#253 문서 전용 CI](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46151893594): 분류 및 최종 게이트 성공, Windows 빌드/격리 테스트는 의도대로 생략. [#254 병합 후 main CI](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46151827098) 성공. main push·수동 실행·코드 혼합 변경은 전체 검증 유지. 브랜치 보호 규칙 조회 권한이 없어 게이트가 필수 규칙으로 지정됐다고 가정하지 않는다.
+- [ ] Rust 캐시 적중 및 실제 빌드 시간 비교, 중복 빌드 제거 가능성 평가. 검증 축소 없이 실행 시간을 줄인다.
+- [ ] [#255](https://github.com/tharu8813/Music-Motion-Studio/issues/255): FFmpeg 9.1 입력 큐 옵션 호환성 해결. 고정 9.0은 CI 기준이며 9.1 해결이 아니다.
+- [ ] [#256](https://github.com/tharu8813/Music-Motion-Studio/issues/256): M4A 편집 오프셋 중복 적용 제거 후 길이·탐색 검사 성공. AAC-LC 시작 2,048샘플의 디코더 간 파형 차이는 별도 측정 대상으로 유지. 전체 PCM 길이·전체 음원 MAE·동일 디코더 부분/전체 일치 및 이후 구간 MAE 기준은 유지한다.
 
 ## 2. 단계별 계획
 
 ### Phase 1 / P0: 가사 및 시간축 안정화
 
-- [ ] #251 검증 및 병합. 원본 타임스탬프/가사 데이터 수정 없이 해결한다.
+- [x] #251 코드·자동 검증 및 병합 ([병합 커밋](https://github.com/tharu8813/Music-Motion-Studio/commit/b72c236e903e0156d8c347fb9aa8a6f0f5c22677)). 100ms TTML, 연속 짧은 cue, 수동/자동 tail 및 preview/export 회귀 통과. 실제 사용자 프로젝트 검증은 미완료.
 - [ ] TTML/LRC/SRT/VTT, 100ms 이하 cue, 연속 짧은 cue, 반복 문구, 중첩·동일 시작/종료, 공백, 다중 줄·번역·줄바꿈을 합성 fixture로 검증한다.
 - [ ] 오디오 시간축, 가사 활성 구간, 스크롤, 강조 해제 및 단어 효과의 시계를 분리한다. 마지막 cue와 다음 곡 전환에서 갑작스러운 위치 점프가 없어야 한다.
 - [ ] seek/reverse seek, pause/resume, 품질 변경, AutoMix/Gapless 경계에서 같은 시각은 같은 상태를 반환해야 한다.
@@ -59,11 +71,23 @@
 
 ### Phase 3 / P1: 미리보기 및 오디오 준비 최적화
 
-- [ ] #249/#250와 기존 #243~#248의 오디오 준비·캐시 작업을 정리한다. 재생 필수 준비와 선택적 파형/FFT/비트 분석을 분리한다.
+- [x] #249/#250 병합. 재생 필수 준비 중 선택 분석 지연 및 준비 완료/실패 폴백 시 재개, 단계별 계측 도구 반영. 실제 성능 개선 여부는 별도.
+- [ ] 기존 #243~#248 포함 전체 오디오 준비·캐시 정확성, 실제 프로젝트 및 장기 동작 검증.
 - [ ] cold/warm 준비 시간, 첫 재생 가능 시점, 캐시 적중 및 무효화 조건을 동일 fixture로 측정한다. 정규화·오디오 샘플·Gapless 경계의 정확성을 보존한다.
 - [ ] 절전/균형/최상 품질의 정책을 유지하며 최신 프레임 우선, CPU paint/texture upload/디코더 압력과 A/V 오차를 진단한다.
 - [ ] 다중 영상/VFR·회전·프록시·탐색·전체화면/Alt+Tab·GPU 실패 후 CPU 폴백을 검증한다.
 - [ ] 60초 이상 장기 재생 및 반복 개폐에서 RSS, 작업자·프로세스, 텍스처·캐시 해제 여부를 검사한다. 단일 RSS 증가만으로 누수를 단정하지 않는다.
+
+#### #250 Windows 합성 벤치마크 (2026-11-25)
+
+[실행 로그](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/45536823520/job/138945364643): 8곡 × 60초, WAV/FLAC/MP3/M4A, 각각 cold/warm 3쌍. 실제 첫 소리가 아니라 연속 FLAC으로 Play가 활성화되는 시간의 중앙값이다.
+
+| fixture | cold 준비 | warm 준비 | loudness | FLAC encode |
+| --- | ---: | ---: | ---: | ---: |
+| Pink noise (linear) | 7.658초 | 0.379초 | 2.221초 | 1.016초 |
+| Peaky (limiter) | 10.461초 | 0.342초 | 2.063초 | 3.901초 |
+
+각 fixture의 cold/warm 디코딩 PCM SHA-256 및 재생 길이가 일치하고 warm에서 렌더가 재실행되지 않았다. limiter가 포함된 FLAC 단계의 비용이 큰 관찰값이지만 서로 다른 합성 입력이므로 limiter만의 인과 효과로 단정하지 않는다. #250은 계측 추가이며 런타임 가속이 아니다. 다음 후보는 동일 입력에서 limiter/인코딩 정책을 비교하고 정규화·true peak·PCM 정확성을 유지해야 한다.
 
 경계: `app/dialogs/export_preview_dialog.py`, `app/controllers/preview_controller.py`, `app/preview/`, `app/video/`. 세부 단계와 기준은 [#159](https://github.com/tharu8813/Music-Motion-Studio/issues/159)를 따른다.
 
