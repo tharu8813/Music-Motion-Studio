@@ -127,6 +127,13 @@ Phase 3의 독립적인 계측 및 성능 검토는 병행할 수 있다. Phase 
 
 A2의 준비 대기 약 94.8% 감소. 동일 A의 decoded PCM SHA-256과 480초 재생 계획 일치, 적중 시 렌더 단계 재실행 없음. 일반 단일 재진입 pink 7.426/0.374초, peaky 10.098/0.366초 (cold/warm 중앙값). 합성 offscreen CPU preview의 Play 활성화까지의 시간이며 실제 첫 소리, 프로젝트 파일 전체 열기 또는 최초 cold 준비 가속을 의미하지 않는다. 활성 미리보기의 독립 하드링크는 캐시 예산 밖에 남을 수 있으며 동일 크기 외부 변경은 탐지하지 못한다.
 
+#### 가사 Canvas 상태·래스터 캐시 개선 (2026-11-29 KST)
+
+- [#268](https://github.com/tharu8813/Music-Motion-Studio/pull/268) CI 9/9, main `e7fb88d`: 중첩 그룹 표시 순서를 필요한 행만 계산하는 지연 sequence로 구성. 기존 표시 매핑 회귀 통과.
+- [#269](https://github.com/tharu8813/Music-Motion-Studio/pull/269) CI 9/9, main `36e6462`: 프레임별 검색 공유 및 종료 그룹 단일 순회. 중첩 검색은 여전히 선형이며 실시간 가사 편집을 위해 프레임 간 인덱스 캐시는 사용하지 않음.
+- [#270](https://github.com/tharu8813/Music-Motion-Studio/pull/270) CI 10/10, main `f8269fd`: 글로우/블러 공통 LRU 96개 및 소스별 예상 32MiB 제한, 정확한 소수점 크기 키. 실제 RAM/VRAM 제한은 아니며 기존 잘못된 크기 재사용이 제거되어 일부 픽셀이 달라질 수 있음.
+- [ ] 동일 runner에서 이전 `b8f3baf`, 검색/그룹 개선 `36e6462`, 래스터 개선 버전의 정방향/역방향 순서 비교. 2,000 TTML cue의 순차/중첩 장면, 0.55/1.0 출력 배율, 프레임 시간 중앙값/P95·상태/paint·픽셀 해시·캐시 예상 용량 기록. 검색 개선은 픽셀 일치 필수, 래스터 변경 프레임은 별도 검토. 실제 FPS와 전역 메모리 수용 검수는 별도.
+
 경계: `app/dialogs/export_preview_dialog.py`, `app/controllers/preview_controller.py`, `app/preview/`, `app/video/`. 세부 단계와 기준은 [#159](https://github.com/tharu8813/Music-Motion-Studio/issues/159)를 따른다.
 
 완료 조건: 같은 품질·환경 A-B-B-A, A/V와 프레임 P95·RSS 등 측정, 실제 Windows 장기 재생 및 오류 복구 성공. 미리보기 품질이 최종 출력 설정을 바꾸면 안 된다.
