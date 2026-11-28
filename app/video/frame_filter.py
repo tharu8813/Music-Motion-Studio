@@ -146,6 +146,43 @@ def _brightness_contrast_lut(brightness: float, contrast: float) -> np.ndarray:
     return table
 
 
+# Limit float scratch arrays to roughly 256 Ki pixels per tile. A single
+# unusually wide row is the minimum unit; normal preview widths fit easily.
+_COLOR_TILE_PIXELS = 256 * 1024
+
+
+def _adjust_rgb_tiles(pixels: np.ndarray, brightness: float, contrast: float,
+                      saturation: float, grayscale: bool) -> None:
+    """Apply the original float32 color math in bounded row tiles.
+
+    All operations are per pixel, so splitting rows cannot introduce seams.
+    Keep alpha untouched, preserve the arithmetic order and clip only at the
+    end, as before. No frame buffers are retained between calls or workers.
+    """
+    rows = max(1, _COLOR_TILE_PIXELS // max(1, pixels.shape[1]))
+    contrast_factor = 1.0 + float(contrast) / 100.0
+    brightness_offset = float(brightness) * 2.55
+    effective_saturation = 0.0 if grayscale else max(0.0, min(3.0, saturation))
+    for first in range(0, pixels.shape[0], rows):
+        target = pixels[first:first + rows, :, :3]
+        rgb = target.astype(np.float32)
+        rgb -= 128.0
+        rgb *= contrast_factor
+        rgb += 128.0
+        rgb += brightness_offset
+        if effective_saturation != 1.0:
+            luminance = (
+                rgb[:, :, 0:1] * 0.2126
+                + rgb[:, :, 1:2] * 0.7152
+                + rgb[:, :, 2:3] * 0.0722
+            )
+            rgb -= luminance
+            rgb *= effective_saturation
+            np.add(luminance, rgb, out=rgb)
+        np.clip(rgb, 0.0, 255.0, out=rgb)
+        target[:] = rgb
+
+
 @timed("video.cpu_color_blur_seconds")
 def apply_color_filters(
     image: QImage,
@@ -177,18 +214,7 @@ def apply_color_filters(
         for channel in range(3):
             pixels[:, :, channel] = table[pixels[:, :, channel]]
     elif brightness != 0.0 or contrast != 0.0 or saturation != 1.0 or grayscale:
-        pixels = _rgb_pixels(result)
-        rgb = pixels[:, :, :3].astype(np.float32)
-        rgb = (rgb - 128.0) * (1.0 + float(contrast) / 100.0) + 128.0 + float(brightness) * 2.55
-        effective_saturation = 0.0 if grayscale else max(0.0, min(3.0, saturation))
-        if effective_saturation != 1.0:
-            luminance = (
-                rgb[:, :, 0:1] * 0.2126
-                + rgb[:, :, 1:2] * 0.7152
-                + rgb[:, :, 2:3] * 0.0722
-            )
-            rgb = luminance + (rgb - luminance) * effective_saturation
-        pixels[:, :, :3] = np.clip(rgb, 0.0, 255.0).astype(np.uint8)
+        _adjust_rgb_tiles(_rgb_pixels(result), brightness, contrast, saturation, grayscale)
 
     radius = max(0, min(40, int(ceil(blur))))
     if radius:

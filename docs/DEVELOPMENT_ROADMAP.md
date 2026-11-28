@@ -143,6 +143,11 @@ A2의 준비 대기 약 94.8% 감소. 동일 A의 decoded PCM SHA-256과 480초 
 
 중첩 1.0 state setup 0.455→0.262ms, 순차 ghost cache 최대 41,976,640→33,481,088 bytes (약 20.2% 감소, 32MiB 예산 이내). 순차 1.0 전체 중앙값 약 1.6% 증가: 모든 조건의 개선을 주장하지 않는다. 실제 GPU 화면 FPS, 첫 소리, 전역 RAM/VRAM 및 장시간 수용 검수는 별도.
 
+#### 영상 프레임 처리 개선 (2026-11-29 KST)
+
+- [#272](https://github.com/tharu8813/Music-Motion-Studio/pull/272) CI 10/10, main `ebc002f`: 대기 CPU 필터 작업의 generation/PTS/가시성 유효성을 시작 전 재확인. 이미 실행 중인 작업을 중단하지 않으며 기존 timestamp 허용 범위와 GPU 경로는 유지.
+- [ ] CPU 채도/흑백 경로의 float32 임시 배열을 행 타일 단위로 제한. 기존 계산식·RGBA 전체 바이트·원본 불변 검증 및 동일 입력 ABBA (360p/1080p/4K) wall time·tracemalloc 비교. 실제 디코더 FPS 및 RSS/VRAM 수용 검수는 별도.
+
 경계: `app/dialogs/export_preview_dialog.py`, `app/controllers/preview_controller.py`, `app/preview/`, `app/video/`. 세부 단계와 기준은 [#159](https://github.com/tharu8813/Music-Motion-Studio/issues/159)를 따른다.
 
 완료 조건: 같은 품질·환경 A-B-B-A, A/V와 프레임 P95·RSS 등 측정, 실제 Windows 장기 재생 및 오류 복구 성공. 미리보기 품질이 최종 출력 설정을 바꾸면 안 된다.

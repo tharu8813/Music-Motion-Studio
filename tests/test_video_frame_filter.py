@@ -73,6 +73,61 @@ class VideoFrameFilterTests(unittest.TestCase):
         self.assertAlmostEqual(color.green(), color.blue(), delta=1)
         self.assertEqual(color.alpha(), 123)
 
+    def test_tiled_color_math_matches_full_frame_reference(self) -> None:
+        import numpy as np
+        from app.video import frame_filter
+
+        rng = np.random.default_rng(239)
+        for width, height in ((1, 1), (17, 137), (257, 259), (1920, 1080)):
+            original = QImage(width, height, QImage.Format.Format_RGBA8888)
+            raw = frame_filter._rgb_pixels(original)
+            raw[:] = rng.integers(0, 256, raw.shape, dtype=np.uint8)
+            before = raw.copy()
+            for brightness, contrast, saturation, gray in (
+                (0.0, 0.0, .5, False), (17.5, -35.25, 2.2, False),
+                (-40.0, 75.0, 0.0, False), (10.0, 20.0, 1.0, True),
+                (-100.0, -100.0, 3.0, False), (100.0, 100.0, 4.0, False),
+                (0.0, 0.0, -0.5, False), (0.0, 0.0, 0.0, True),
+            ):
+                with self.subTest(size=(width, height), settings=(brightness, contrast, saturation, gray)):
+                    rgb = before[:, :, :3].astype(np.float32)
+                    rgb = (rgb - 128.0) * (1.0 + contrast / 100.0) + 128.0 + brightness * 2.55
+                    effective = 0.0 if gray else max(0.0, min(3.0, saturation))
+                    if effective != 1.0:
+                        luminance = (rgb[:, :, 0:1] * 0.2126
+                                     + rgb[:, :, 1:2] * 0.7152
+                                     + rgb[:, :, 2:3] * 0.0722)
+                        rgb = luminance + (rgb - luminance) * effective
+                    expected = before.copy()
+                    expected[:, :, :3] = np.clip(rgb, 0, 255).astype(np.uint8)
+                    filtered = frame_filter.apply_color_filters(
+                        original, brightness=brightness, contrast=contrast,
+                        saturation=saturation, grayscale=gray,
+                    )
+                    self.assertTrue(np.array_equal(frame_filter._rgb_pixels(filtered), expected))
+                    self.assertTrue(np.array_equal(frame_filter._rgb_pixels(original), before))
+
+    def test_tiled_color_and_blur_match_untiled_order(self) -> None:
+        import numpy as np
+        from app.video import frame_filter
+
+        original = QImage(271, 193, QImage.Format.Format_ARGB32_Premultiplied)
+        original.fill(QColor(143, 86, 219, 117))
+        original.setPixelColor(150, 100, QColor(22, 170, 35, 231))
+        rgba = original.convertToFormat(QImage.Format.Format_RGBA8888)
+        reference = rgba.copy()
+        pixels = frame_filter._rgb_pixels(reference)
+        rgb = pixels[:, :, :3].astype(np.float32)
+        rgb = (rgb - 128.0) * .85 + 128.0 + 12.5 * 2.55
+        luminance = rgb[:, :, 0:1] * .2126 + rgb[:, :, 1:2] * .7152 + rgb[:, :, 2:3] * .0722
+        pixels[:, :, :3] = np.clip(luminance + (rgb - luminance) * 1.6, 0, 255).astype(np.uint8)
+        expected = frame_filter._blurred_image(reference, 6)
+        with patch.object(frame_filter, "_COLOR_TILE_PIXELS", 1024):
+            actual = frame_filter.apply_color_filters(original, brightness=12.5,
+                                                      contrast=-15, saturation=1.6, blur=6)
+        self.assertEqual(actual, expected)
+        self.assertEqual(original.convertToFormat(QImage.Format.Format_RGBA8888), rgba)
+
     def test_box_blur_spreads_an_impulse_and_preserves_dimensions(self) -> None:
         image = QImage(9, 9, QImage.Format.Format_RGBA8888)
         image.fill(QColor(0, 0, 0, 255))
