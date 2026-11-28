@@ -54,6 +54,47 @@ class FrameStateTests(unittest.TestCase):
         self.assertTrue(finished.transitioning)
         self.assertEqual(finished.transition_progress, 1.0)
 
+    def test_short_cascade_tail_keeps_scroll_and_release_clocks_independent(self) -> None:
+        track = _track([
+            {"start": 148.11, "end": 149.79, "text": "Repeat", "format": "ttml"},
+            {"start": 149.79, "end": 151.16, "text": "Repeat", "format": "ttml"},
+            {"start": 151.16, "end": 151.26, "text": "Final", "format": "ttml"},
+        ])
+        for offset in (0.0, 1.25, -1.25):
+            def state(clock):
+                return resolve_lyrics_cue_state(track, clock - offset, offset, 0,
+                                               "cascade", .81, whole_lines=True)
+            before = state(151.259)
+            after = state(151.26)
+            middle = state(151.565)
+            self.assertTrue(before.transitioning)
+            self.assertTrue(after.transitioning)
+            self.assertIsNone(after.active_cue_index)
+            self.assertEqual(after.active_cue_indices, ())
+            self.assertEqual(after.cue_index, 2)
+            self.assertAlmostEqual(after.transition_progress, .1 / .81)
+            self.assertAlmostEqual(after.release_progress, 0)
+            self.assertAlmostEqual(middle.transition_progress, .5)
+            self.assertGreater(middle.release_progress, 0)
+            self.assertFalse(state(152).transitioning)
+            self.assertEqual(state(152).transition_progress, 1)
+            self.assertEqual(state(151.565), middle)
+
+    def test_short_cascade_completes_before_next_cue(self) -> None:
+        track = _track([
+            {"start": 0, "end": 2, "text": "First", "format": "ttml"},
+            {"start": 2, "end": 2.1, "text": "Short", "format": "ttml"},
+            {"start": 2.3, "end": 4, "text": "Next", "format": "ttml"},
+        ])
+        def state(clock):
+            return resolve_lyrics_cue_state(track, clock, 0, 0, "cascade", .81,
+                                           whole_lines=True)
+        self.assertTrue(state(2.15).transitioning)
+        self.assertIsNone(state(2.15).active_cue_index)
+        self.assertGreater(state(2.2994).transition_progress, .99)
+        self.assertEqual(state(2.3).cue_index, 2)
+        self.assertAlmostEqual(state(2.3).transition_progress, 0)
+
     def test_animation_none_never_transitions(self) -> None:
         track = _track([{"start": 0.0, "text": "line"}])
         state = resolve_lyrics_cue_state(track, 0.0, 0.0, 0.0, "none", 0.5)
