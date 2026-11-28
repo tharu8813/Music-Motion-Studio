@@ -236,6 +236,12 @@ class ProjectService:
                     )
                 if thumbnail_bytes:
                     archive.writestr(cls.THUMBNAIL_NAME, thumbnail_bytes)
+            # Closing ZipFile writes its central directory, but does not guarantee
+            # that the OS has flushed the package to storage. Sync the complete
+            # temporary file before replacing the last good project. Opening with
+            # write access also supports Windows FlushFileBuffers via os.fsync.
+            with temporary_path.open("r+b") as completed:
+                os.fsync(completed.fileno())
             temporary_path.replace(target)
         finally:
             temporary_path.unlink(missing_ok=True)

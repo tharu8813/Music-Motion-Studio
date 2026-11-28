@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 import threading
@@ -87,6 +88,10 @@ class AutosaveService:
                 temporary_path = Path(temporary.name)
                 json.dump(payload, temporary, ensure_ascii=False, indent=2)
                 temporary.flush()
+                # Keep the existing generation check and atomic replace, but
+                # ensure the new snapshot is synced before it can replace the
+                # previous recoverable version.
+                os.fsync(temporary.fileno())
             with self._write_lock:
                 if expected_generation is not None and expected_generation != self.generation:
                     # Do not claim that a stale backup was persisted.  Let the

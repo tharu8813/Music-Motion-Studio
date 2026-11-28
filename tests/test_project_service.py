@@ -22,6 +22,44 @@ from app.services.project_media_service import ProjectMediaService
 
 
 class ProjectServiceTests(unittest.TestCase):
+    def test_save_syncs_complete_package_before_replacing_existing_project(self):
+        with TemporaryDirectory() as raw:
+            root = Path(raw)
+            target = ProjectService.save(root / "work.pvsproj", ProjectDocument())
+            previous = target.read_bytes()
+            document = ProjectDocument(settings=ProjectSettings(title="Synced project"))
+            actual_sync = os.fsync
+            def sync_complete_package(fd):
+                self.assertEqual(target.read_bytes(), previous)
+                temporary, = root.glob("*.tmp")
+                with zipfile.ZipFile(temporary) as archive:
+                    self.assertIsNone(archive.testzip())
+                    payload = json.loads(archive.read(ProjectService.MANIFEST_NAME))
+                    self.assertEqual(payload["settings"]["title"], "Synced project")
+                actual_sync(fd)
+            with patch("app.services.project_service.os.fsync", side_effect=sync_complete_package) as sync:
+                ProjectService.save(target, document)
+                sync.assert_called_once()
+            self.assertEqual(ProjectService.load(target).settings.title, "Synced project")
+            self.assertEqual(list(root.glob("*.tmp")), [])
+
+    def test_failed_sync_or_replace_keeps_last_good_project(self):
+        with TemporaryDirectory() as raw:
+            root = Path(raw)
+            target = ProjectService.save(root / "work.pvsproj", ProjectDocument())
+            previous = target.read_bytes()
+            replacement = ProjectDocument(settings=ProjectSettings(title="Not saved"))
+            for operation in ("fsync", "replace"):
+                with self.subTest(operation=operation):
+                    mock = (patch("app.services.project_service.os.fsync", side_effect=OSError("disk sync failed"))
+                            if operation == "fsync" else
+                            patch.object(Path, "replace", side_effect=PermissionError("target locked")))
+                    with mock, self.assertRaises(ProjectError):
+                        ProjectService.save(target, replacement)
+                    self.assertEqual(target.read_bytes(), previous)
+                    self.assertEqual(list(root.glob("*.tmp")), [])
+                    self.assertNotEqual(ProjectService.load(target).settings.title, "Not saved")
+
     def test_non_package_input_is_rejected_and_save_does_not_overwrite_it(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "notes.json"
