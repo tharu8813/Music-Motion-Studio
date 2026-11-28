@@ -32,7 +32,7 @@ jobs:
           CI_PR_BASE: ${{ github.event.pull_request.base.sha }}
         run: python scripts/classify_ci_changes.py
       - name: Verify classification rules
-        run: python -m unittest -v tests.test_classify_ci_changes
+        run: python -m unittest discover -s tests -p test_classify_ci_changes.py -v
   verify-windows-build:
     needs: classify-changes
     if: needs.classify-changes.outputs.docs_only != 'true'
@@ -68,11 +68,14 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install "maturin>=1.9.4,<2"
-          maturin build --release --manifest-path native/export_analysis/Cargo.toml --interpreter python
+          # Cargo caches may be reused, but never install an old wheel from target/wheels.
+          $wheelDir = Join-Path $env:RUNNER_TEMP ("mms-native-wheel-" + [guid]::NewGuid().ToString("N"))
+          New-Item -ItemType Directory -Path $wheelDir -ErrorAction Stop | Out-Null
+          maturin build --release --manifest-path native/export_analysis/Cargo.toml --interpreter python --out $wheelDir
           if ($LASTEXITCODE -ne 0) { throw 'Rust export build failed.' }
-          $wheel = Get-ChildItem native/export_analysis/target/wheels/*.whl | Select-Object -First 1
-          if (-not $wheel) { throw 'No Rust export wheel was produced.' }
-          python -m pip install $wheel.FullName
+          $wheels = @(Get-ChildItem -Path $wheelDir -Filter 'music_motion_native-*.whl' -File)
+          if ($wheels.Count -ne 1) { throw 'Expected exactly one newly built native wheel.' }
+          python -m pip install $wheels[0].FullName
           if ($LASTEXITCODE -ne 0) { throw 'Rust export installation failed.' }
           python -c "import music_motion_native; print('Native export analysis available')"
           if ($LASTEXITCODE -ne 0) { throw 'Rust extension import failed.' }
@@ -508,11 +511,14 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install "maturin>=1.9.4,<2"
-          maturin build --release --manifest-path native/export_analysis/Cargo.toml --interpreter python
+          # Cargo caches may be reused, but never install an old wheel from target/wheels.
+          $wheelDir = Join-Path $env:RUNNER_TEMP ("mms-native-wheel-" + [guid]::NewGuid().ToString("N"))
+          New-Item -ItemType Directory -Path $wheelDir -ErrorAction Stop | Out-Null
+          maturin build --release --manifest-path native/export_analysis/Cargo.toml --interpreter python --out $wheelDir
           if ($LASTEXITCODE -ne 0) { throw 'Rust export build failed.' }
-          $wheel = Get-ChildItem native/export_analysis/target/wheels/*.whl | Select-Object -First 1
-          if (-not $wheel) { throw 'No Rust export wheel was produced.' }
-          python -m pip install $wheel.FullName
+          $wheels = @(Get-ChildItem -Path $wheelDir -Filter 'music_motion_native-*.whl' -File)
+          if ($wheels.Count -ne 1) { throw 'Expected exactly one newly built native wheel.' }
+          python -m pip install $wheels[0].FullName
           if ($LASTEXITCODE -ne 0) { throw 'Rust export installation failed.' }
           python scripts/rust_prerequisites.py
           if ($LASTEXITCODE -ne 0) { throw 'Rust development preflight failed.' }

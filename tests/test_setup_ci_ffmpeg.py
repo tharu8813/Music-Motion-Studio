@@ -18,7 +18,7 @@ class TestCiFFmpegSetupTests(unittest.TestCase):
         with TemporaryDirectory() as raw:
             root = Path(raw)
             environment_file = root / "github-env"
-            with patch.dict(os.environ, {"RUNNER_TEMP":raw, "GITHUB_ENV":str(environment_file)}), \
+            with patch.dict(os.environ, {"RUNNER_TEMP": raw, "GITHUB_ENV": str(environment_file), "GITHUB_PATH": ""}), \
                     patch.object(setup_ci_ffmpeg, "ManagedFFmpegInstaller") as installer:
                 installer.return_value.install_release.return_value = SimpleNamespace(
                     executable=root / "ffmpeg" / "bin" / "ffmpeg.exe", version="9.0.2",
@@ -38,7 +38,7 @@ class TestCiFFmpegSetupTests(unittest.TestCase):
             github_path = root / "github-path"
             binary = root / "bin" / "ffmpeg.exe"
             with patch.dict(os.environ, {"RUNNER_TEMP": raw, "GITHUB_ENV": str(env),
-                                         "GITHUB_PATH": str(github_path)}), \\
+                                         "GITHUB_PATH": str(github_path)}), \
                     patch.object(setup_ci_ffmpeg, "ManagedFFmpegInstaller") as installer:
                 installer.return_value.install_release.return_value = SimpleNamespace(
                     executable=binary, version="9.0.2")
@@ -59,7 +59,7 @@ class TestCiFFmpegSetupTests(unittest.TestCase):
         with TemporaryDirectory() as raw:
             root = Path(raw)
             environment_file = root / "github-env"
-            with patch.dict(os.environ, {"RUNNER_TEMP":raw, "GITHUB_ENV":str(environment_file)}), \
+            with patch.dict(os.environ, {"RUNNER_TEMP": raw, "GITHUB_ENV": str(environment_file), "GITHUB_PATH": ""}), \
                     patch.object(setup_ci_ffmpeg, "ManagedFFmpegInstaller") as installer, \
                     patch.object(setup_ci_ffmpeg.time, "sleep") as sleep:
                 installer.return_value.install_release.side_effect = [

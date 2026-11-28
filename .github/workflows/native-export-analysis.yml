@@ -69,11 +69,14 @@ jobs:
         run: |
           cargo test --manifest-path native/export_analysis/Cargo.toml
           if ($LASTEXITCODE -ne 0) { throw 'Cargo tests failed' }
-          maturin build --release --manifest-path native/export_analysis/Cargo.toml --interpreter python
+          # Cargo caches may be reused, but never install an old wheel from target/wheels.
+          $wheelDir = Join-Path $env:RUNNER_TEMP ("mms-native-wheel-" + [guid]::NewGuid().ToString("N"))
+          New-Item -ItemType Directory -Path $wheelDir -ErrorAction Stop | Out-Null
+          maturin build --release --manifest-path native/export_analysis/Cargo.toml --interpreter python --out $wheelDir
           if ($LASTEXITCODE -ne 0) { throw 'Maturin build failed' }
-          $wheel = Get-ChildItem native/export_analysis/target/wheels/*.whl | Select-Object -First 1
-          if (-not $wheel) { throw 'Rust wheel not found' }
-          python -m pip install $wheel.FullName
+          $wheels = @(Get-ChildItem -Path $wheelDir -Filter 'music_motion_native-*.whl' -File)
+          if ($wheels.Count -ne 1) { throw 'Expected exactly one newly built native wheel.' }
+          python -m pip install $wheels[0].FullName
           if ($LASTEXITCODE -ne 0) { throw 'Native wheel install failed' }
 
       - name: Verify Rust toolchain, developer gates and native parity
