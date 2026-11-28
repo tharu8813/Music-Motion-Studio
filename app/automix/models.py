@@ -17,6 +17,10 @@ from typing import Any
 RELIABLE_BPM_CONFIDENCE = 0.6
 RELIABLE_METER_CONFIDENCE = 0.5
 INSUFFICIENT_BPM_CONFIDENCE = 0.35
+LOW_CROSSOVER_HZ = 200
+HIGH_CROSSOVER_HZ = 2500
+BAND_POWER_HOP_SECONDS = 0.1
+HANDOFF_LEVEL_BLOCK_SECONDS = 0.5
 
 
 def _is_finite_number(value: object) -> bool:
@@ -122,6 +126,8 @@ class TrackAnalysis:
     percussive_curve: tuple[float, ...] = ()
     """Measured one-second audio features. RMS is linear amplitude; the other
     curves are 0..1 (structure.timbre). Empty means unavailable, never silence."""
+    band_power_curve: tuple[tuple[float, float, float], ...] = ()
+    """Linear low, mid and high power for each 100 ms source interval."""
 
     def __post_init__(self) -> None:
         if not isinstance(self.track_id, str) or not self.track_id.strip():
@@ -183,6 +189,10 @@ class TrackAnalysis:
             if len(curve) > int(self.duration_seconds) + 1 or any(
                     not _is_finite_number(v) or v < 0.0 or (name != "rms_curve" and v > 1.0) for v in curve):
                 raise ValueError(f"TrackAnalysis.{name} must contain valid one-second measurements within the track.")
+        if len(self.band_power_curve) > int(self.duration_seconds / BAND_POWER_HOP_SECONDS + 1e-6) + 1 or any(
+                len(block) != 3 or any(not _is_finite_number(power) or power < 0.0 for power in block)
+                for block in self.band_power_curve):
+            raise ValueError("TrackAnalysis.band_power_curve requires three finite powers per source interval.")
         for region in self.music_tags:
             if not isinstance(region, MusicTagRegion) or not (
                     previous_end <= region.start_seconds < region.end_seconds <= self.duration_seconds):
@@ -235,6 +245,7 @@ class TrackAnalysis:
             "analyzer_version": self.analyzer_version,
             **{name: list(getattr(self, name)) for name in
                ("rms_curve", "bass_curve", "brightness_curve", "percussive_curve")},
+            "band_power_curve": [list(block) for block in self.band_power_curve],
             "music_tags": [
                 {"start_seconds": r.start_seconds, "end_seconds": r.end_seconds,
                  "genres": [list(tag) for tag in r.genres], "moods": [list(tag) for tag in r.moods]}
@@ -269,6 +280,7 @@ class TrackAnalysis:
             analyzer_version=fields.get("analyzer_version", ""),
             **{name: tuple(fields.get(name, ())) for name in
                ("rms_curve", "bass_curve", "brightness_curve", "percussive_curve")},
+            band_power_curve=tuple(tuple(block) for block in fields.get("band_power_curve", ())),
             music_tags=tuple(MusicTagRegion(
                 start_seconds=r["start_seconds"], end_seconds=r["end_seconds"],
                 genres=tuple(tuple(tag) for tag in r.get("genres", ())),

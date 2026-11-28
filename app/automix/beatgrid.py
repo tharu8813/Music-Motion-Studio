@@ -11,6 +11,7 @@ the same timestamps fit 128.000 BPM.
 
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import lru_cache
@@ -69,6 +70,35 @@ def fit_beat_grid(beats: Sequence[float], start: float = -np.inf, end: float = n
         # (partial) plan: fit each one once.
         return _cached_fit(beats, float(start), float(end))
     return _fit(beats, start, end)
+
+
+def compare_overlap_beats(
+    outgoing: tuple[float, ...], incoming: tuple[float, ...], duration: float,
+    *, cues: tuple[float, float], rates: tuple[float, float],
+) -> tuple[np.ndarray, np.ndarray, float] | None:
+    """Positions and offsets of detected beats on the overlap clock, plus the faster beat period."""
+    local = []
+    for beats, cue, rate in zip((outgoing, incoming), cues, rates, strict=True):
+        start, end = bisect_left(beats, cue - 1e-6), bisect_right(beats, cue + duration * rate + 1e-6)
+        if end - start < 3:
+            return None
+        # The nearest beat can fall just outside the transition window. Keep
+        # one neighbour on each side and never extrapolate through a gap.
+        first = max(0, start - 1)
+        times = (np.asarray(beats[first:end + 1], dtype=float) - cue) / rate
+        local.append((float(np.median(np.diff(times))), times, times[start - first:end - first]))
+    slower, faster = sorted(local, key=lambda grid: grid[0], reverse=True)
+    period, other, _ = faster
+    if period <= 0.0:
+        return None
+    # The slower grid is the reference. A doubling of tempo can still align
+    # every slow beat, even though the faster side has interstitial beats.
+    positions = slower[2]
+    right = np.searchsorted(other, positions).clip(1, len(other) - 1)
+    errors = np.minimum(np.abs(other[right] - positions), np.abs(other[right - 1] - positions))
+    if np.any(errors > 0.75 * period):
+        return None
+    return positions, errors, period
 
 
 @lru_cache(maxsize=2048)

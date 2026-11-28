@@ -2,7 +2,7 @@
 import json
 from time import monotonic
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView, QInputDialog,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QPushButton,
     QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget, QScrollArea,
@@ -11,6 +11,27 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QHBoxLayout, QHeaderVi
 from app.dialogs.help_dialog import install_help_shortcut
 from app.services.local_llm_service import LocalLLMService, MODEL_GUIDES, model_guide
 from app.services.translation_worker import TranslationWorker
+
+
+class _InstalledModelTable(QTableWidget):
+    """Distinguish deliberate model selection from Qt restoring focus."""
+
+    user_selected = Signal()
+
+    def mousePressEvent(self, event):
+        index = self.indexAt(event.position().toPoint())
+        super().mousePressEvent(event)
+        if event.button() == Qt.MouseButton.LeftButton and index.isValid():
+            self.user_selected.emit()
+
+    def keyPressEvent(self, event):
+        super().keyPressEvent(event)
+        if event.key() in {
+            Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_Left, Qt.Key.Key_Right,
+            Qt.Key.Key_Home, Qt.Key.Key_End, Qt.Key.Key_PageUp, Qt.Key.Key_PageDown,
+            Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter,
+        }:
+            self.user_selected.emit()
 
 
 class LocalLLMManagerDialog(QDialog):
@@ -24,6 +45,7 @@ class LocalLLMManagerDialog(QDialog):
         self.preferred_model = preferred_model
         self._download_target = ""
         self._before_download = set()
+        self._before_download_verified = False
         self._deleted_name = ""
         self._download_sample = None
         self._download_speed = None
@@ -93,7 +115,7 @@ class LocalLLMManagerDialog(QDialog):
         self.search = QLineEdit()
         self.search.setPlaceholderText(self.tr_text("설치 모델 검색", "Search installed models"))
         installed_layout.addWidget(self.search)
-        self.table = QTableWidget(0, 4)
+        self.table = _InstalledModelTable(0, 4)
         self.table.setHorizontalHeaderLabels([self.tr_text("모델", "Model"), self.tr_text("파일 용량", "File size"),
             self.tr_text("매개변수", "Parameters"), self.tr_text("양자화", "Quantization")])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -226,7 +248,8 @@ class LocalLLMManagerDialog(QDialog):
         self.setup_button.clicked.connect(lambda: self._start("setup", lambda cancel, progress: self.service.ensure_running(install=True, cancel=cancel, progress=progress)))
         self.refresh_button.clicked.connect(self._refresh)
         self.add_model_button.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
-        self.table.itemSelectionChanged.connect(self._installed_selection_changed)
+        self.table.itemSelectionChanged.connect(self._selection)
+        self.table.user_selected.connect(self._installed_selection_changed)
         self.table.itemDoubleClicked.connect(lambda *_: self._use())
         self.search.textChanged.connect(self._filter)
         self.recommended.currentRowChanged.connect(self._recommendation)
@@ -249,7 +272,9 @@ class LocalLLMManagerDialog(QDialog):
         self._filter_catalog()
         self.recommended.setCurrentRow(0)
         self._selection()
-        QTimer.singleShot(0, self._refresh)
+        # Start the worker before returning, not a zero-delay timer. Otherwise
+        # an immediate download can mistake an unqueried list for an empty one.
+        self._refresh()
 
     def tr_text(self, ko, en):
         return ko if self.translator.is_korean else en
@@ -285,9 +310,12 @@ class LocalLLMManagerDialog(QDialog):
 
     def _installed_selection_changed(self):
         if (self._require_explicit_selection and not self._updating_models
-                and self.worker is None and self.operation != "download"):
-            # Only a new selection outside the download-finalization path
-            # can make an older installed model actionable again.
+                and self.worker is None and self.operation != "download"
+                and self.table.selectedItems()
+                and 0 <= self.table.currentRow() < len(self.models)
+                and not self.table.isRowHidden(self.table.currentRow())):
+            # Only a deliberate mouse/keyboard selection (or the explicit
+            # catalog action below) can release the guard.
             self._require_explicit_selection = False
         self._selection()
 
@@ -414,6 +442,7 @@ class LocalLLMManagerDialog(QDialog):
             self.search.clear()
             self.tabs.setCurrentIndex(0)
             self.table.selectRow(installed_index)
+            self._installed_selection_changed()
             self._use()
             return
         if not self.manual_toggle.isChecked():
@@ -427,7 +456,8 @@ class LocalLLMManagerDialog(QDialog):
                         QMessageBox.StandardButton.Cancel) != QMessageBox.StandardButton.Yes:
                     return
         self._download_target = name
-        self._before_download = {row["id"] for row in self.models}
+        self._before_download = {self._model_key(row["id"]) for row in self.models}
+        self._before_download_verified = self.models_verified_at is not None
         self._start("download", lambda cancel, progress: self.service.download(
             name, cancel, progress, status=lambda event: self._emit_download_status(event)))
 
@@ -649,17 +679,20 @@ class LocalLLMManagerDialog(QDialog):
                              self.preferred_model if first_discovery and self.operation in {"refresh", "setup"} and self.preferred_model
                              else (previous or {}).get("id", ""))
                 selected = self._installed_index(requested)
-                if self.operation == "download" and selected < 0 and self.service.provider == "lmstudio":
+                if (self.operation == "download" and selected < 0
+                        and self.service.provider == "lmstudio" and self._before_download_verified):
                     # LM Studio may publish a downloaded Hugging Face model
                     # under a different local file ID. Offer a unique new row
                     # for manual inspection, but never call it verified by name.
                     new_rows = [i for i, row in enumerate(self.models)
-                                if row["id"] not in self._before_download]
+                                if self._model_key(row["id"]) not in self._before_download]
                     if len(new_rows) == 1:
                         selected = new_rows[0]
                 if self.operation == "delete" and self._model_key(requested) == self._model_key(self._deleted_name):
                     selected = -1
-                if selected < 0 and not requested and self.models and self.operation not in {"delete", "download"}:
+                if (selected < 0 and not requested and self.models
+                        and not self._require_explicit_selection
+                        and self.operation not in {"delete", "download"}):
                     selected = 0
                 self.table.clearSelection()
                 if selected >= 0 and not self.table.isRowHidden(selected):
@@ -676,18 +709,21 @@ class LocalLLMManagerDialog(QDialog):
                 # Switching to Installed can restore a previously active row
                 # without a deliberate user choice. Even if Qt visually
                 # restores it, don't consider it a verified downloaded model.
-                self._require_explicit_selection = selected < 0
-                if self._require_explicit_selection:
-                    self.table.setCurrentCell(-1, -1)
-                    self.table.clearSelection()
+                self._require_explicit_selection = selected < 0 or self.table.isRowHidden(selected)
+                # Restore the intended selection after the tab switch, which
+                # may otherwise give the table a different current index.
+                self.table.clearSelection()
+                self.table.setCurrentCell(-1, -1)
+                if not self._require_explicit_selection:
+                    self.table.selectRow(selected)
                 selected_model = self._selected()
                 # A different selected or newly discovered model does not
                 # prove that the user's requested model was installed.
                 target_confirmed = (selected_model is not None
                                     and self._model_key(selected_model["id"])
                                     == self._model_key(self._download_target))
-                possible_new_model = (selected_model is not None
-                                      and selected_model["id"] not in self._before_download)
+                possible_new_model = (self._before_download_verified and selected_model is not None
+                                      and self._model_key(selected_model["id"]) not in self._before_download)
                 if target_confirmed:
                     self.status.setText(self.tr_text(
                         "모델 설치 확인 완료 · '이 모델 사용'을 눌러 적용하세요.",

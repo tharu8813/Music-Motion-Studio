@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import unittest
+from dataclasses import replace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -191,9 +192,10 @@ class ManualPlanTests(unittest.TestCase):
         tracks = _tracks()
         override = TransitionOverride(150.0, 0.0, 6.0)
         plan = compile_automix(tracks, {}, _manual(ENABLED, **{"a>b": override}))
-        (transition,) = plan.audio.transitions
-        self.assertAlmostEqual(transition.duration, 6.0)
-        self.assertEqual(dict(transition.details)["mode"], "manual")
+        manual, fallback = plan.audio.transitions
+        self.assertAlmostEqual(manual.duration, 6.0)
+        self.assertEqual(dict(manual.details)["mode"], "manual")
+        self.assertTrue(dict(fallback.details)["missing_analysis"])
 
     def test_reordered_tracks_fall_back_to_automatic(self) -> None:
         tracks = _tracks()
@@ -233,7 +235,7 @@ class EditorHelperTests(unittest.TestCase):
 
     def test_prefill_keeps_a_junction_without_overlap_as_it_is(self) -> None:
         tracks = _tracks()
-        plan = compile_automix(tracks, {}, ENABLED)  # no analysis: the songs play back to back
+        plan = compile_automix(tracks, {}, replace(ENABLED, fallback_crossfade_seconds=0.0))
         junction = plan_junctions(plan)[0]
         override = override_from_junction(junction)
         self.assertEqual(override.style, "cut")

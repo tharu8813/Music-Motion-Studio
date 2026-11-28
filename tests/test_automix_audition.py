@@ -166,6 +166,17 @@ class AuditionControllerTests(unittest.TestCase):
         self.assertEqual(self.controller.render_count, 1)
         self.assertEqual(self.controller.state, audition.READY)
 
+    def test_a_track_level_edit_invalidates_the_audition_even_with_the_same_geometry(self):
+        tracks, plan = _plan()
+        self.controller.request(plan, 0, tracks)
+        self.controller.flush()
+        self.assertTrue(self._wait(lambda: len(self.ready) == 1))
+        tracks[1].volume_db = -12.0
+        self.controller.request(plan, 0, tracks)
+        self.controller.flush()
+        self.assertTrue(self._wait(lambda: len(self.ready) == 2))
+        self.assertEqual(self.controller.render_count, 2)
+
     def test_a_newer_request_makes_a_running_render_stale(self):
         tracks, plan = _plan()
         _FakePipeline.gate = threading.Event()

@@ -16,6 +16,8 @@ EQ_BANDS_HZ = (60, 125, 250, 500, 1000, 2000, 4000, 12000)
 EQ_LIMIT_DB = 12.0
 BASS_LIMIT_DB = 12.0
 VOLUME_RANGE_DB = (-24.0, 12.0)
+EQ_WIDTH_OCTAVES = 2
+EQ_SHELF_Q = 0.5
 
 
 def expanded_eq_gains(eq_db: list[float]) -> list[float]:
@@ -30,21 +32,26 @@ def expanded_eq_gains(eq_db: list[float]) -> list[float]:
     return [float(value) for value in eq_db] + [0.0] * (len(EQ_BANDS_HZ) - len(eq_db))
 
 
-def track_audio_filter(volume_db: float, eq_db: list[float], bass_db: float = 0.0) -> str:
-    """FFmpeg filters for per-track bass, graphic EQ and relative gain."""
-    parts = []
+def track_eq_filters(eq_db: list[float], bass_db: float = 0.0) -> tuple[tuple[str, int, float], ...]:
+    """Filter type, center frequency and dB, shared by playback and AutoMix's level estimate."""
+    filters = []
     if abs(bass_db) >= 0.05:
-        parts.append(f"lowshelf=f=100:g={bass_db:.2f}")
+        filters.append(("lowshelf", 100, float(f"{bass_db:.2f}")))
     last = len(EQ_BANDS_HZ) - 1
     for index, (frequency, gain) in enumerate(zip(EQ_BANDS_HZ, expanded_eq_gains(eq_db))):
         if abs(gain) < 0.05:
             continue
-        if index == 0:
-            parts.append(f"lowshelf=f={frequency}:g={gain:.2f}")
-        elif index == last:
-            parts.append(f"highshelf=f={frequency}:g={gain:.2f}")
-        else:
-            parts.append(f"equalizer=f={frequency}:t=o:w=2:g={gain:.2f}")
+        kind = "lowshelf" if index == 0 else "highshelf" if index == last else "equalizer"
+        filters.append((kind, frequency, float(f"{gain:.2f}")))
+    return tuple(filters)
+
+
+def track_audio_filter(volume_db: float, eq_db: list[float], bass_db: float = 0.0) -> str:
+    """FFmpeg filters for per-track bass, graphic EQ and relative gain."""
+    parts = []
+    for kind, frequency, gain in track_eq_filters(eq_db, bass_db):
+        width = f":t=o:w={EQ_WIDTH_OCTAVES}" if kind == "equalizer" else ""
+        parts.append(f"{kind}=f={frequency}{width}:g={gain:.2f}")
     if abs(volume_db) >= 0.05:
         parts.append(f"volume={volume_db:.2f}dB")
     return ",".join(parts)

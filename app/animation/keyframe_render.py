@@ -139,9 +139,15 @@ def ffmpeg_transform(graph, layer_input, binding, width, height, tag):
     side = max(2, ceil(hypot(width, height) * max_scale / (source.scale or 1)) + 4)
     transformed = f"[kfgeometry{tag}]"
     angle = f"({binding.expression('rotation')})*PI/180"
+    # FFmpeg 9 can reject changing input dimensions at rotate even when
+    # its output is fixed. Pad each scaled frame into the same transparent
+    # envelope first. RGBA preserves alpha and permits odd pixel dimensions.
+    # Re-evaluate offsets for each frame and round towards the upper pixel
+    # when the source and envelope have different parity.
     # "none" disables background filling and can retain earlier rotated pixels.
     graph.append(f"{layer_input}scale=w='max(1,round({width}*{ratio}))':h='max(1,round({height}*{ratio}))':eval=frame,"
-                 f"rotate='{angle}':ow={side}:oh={side}:fillcolor=black@0{transformed}")
+                 f"format=rgba,pad=w={side}:h={side}:x='ceil((ow-iw)/2)':y='ceil((oh-ih)/2)':"
+                 f"color=black@0:eval=frame,rotate='{angle}':ow={side}:oh={side}:fillcolor=black@0{transformed}")
     color, alpha, masked, output = (f"[kf{part}{tag}]" for part in ("color", "alpha", "mask", "out"))
     graph.append(f"{transformed}format=gbrap,split=2{color}{alpha}")
     opacity = binding.expression('opacity', 'T')

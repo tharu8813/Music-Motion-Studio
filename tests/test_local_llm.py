@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 from zipfile import ZipFile
 
 from PySide6.QtCore import QSettings, QTimer, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
 from app.dialogs.lyrics_translation_dialog import LyricsTranslationDialog
@@ -760,10 +761,52 @@ class TranslationSetupUITests(unittest.TestCase):
         self.assertFalse(manager.use_button.isEnabled())
         self.assertIn("요청한 설치 모델을 목록에서 확인하지 못했습니다", manager.status.text())
         self.assertNotIn("설치 확인 완료", manager.status.text())
-        # An existing model remains usable only after explicit selection.
+        # A restored current row is not evidence of user selection.
         manager.table.selectRow(0)
+        self.app.processEvents()
+        self.assertIsNone(manager._selected())
+        self.assertFalse(manager.use_button.isEnabled())
+        manager.show()
+        self.app.processEvents()
+        QTest.mouseClick(manager.table.viewport(), Qt.MouseButton.LeftButton,
+                         pos=manager.table.visualItemRect(manager.table.item(0, 0)).center())
         self.assertEqual(manager._selected()["id"], "old-model.gguf")
         self.assertTrue(manager.use_button.isEnabled())
+        manager.close()
+
+    def test_lmstudio_initial_discovery_owns_the_worker_before_download(self):
+        service = Mock(provider="lmstudio")
+        gate = Event()
+        self.addCleanup(gate.set)
+        def discover(*_args):
+            gate.wait(2)
+            return [installed_row("old-model.gguf")]
+        service.discover.side_effect = discover
+        manager = LocalLLMManagerDialog(Translator(), service=service)
+        self.addCleanup(manager.deleteLater)
+        try:
+            self.assertIsNotNone(manager.worker)
+            manager._download()
+            service.download.assert_not_called()
+        finally:
+            gate.set()
+            self.until(lambda: manager.worker is None)
+        self.assertEqual(manager.models[0]["id"], "old-model.gguf")
+
+    def test_lmstudio_unverified_baseline_cannot_identify_a_new_model(self):
+        service = Mock(provider="lmstudio")
+        service.discover.side_effect = TranslationError("offline")
+        service.download.return_value = [installed_row("old-model.gguf")]
+        manager = LocalLLMManagerDialog(Translator(), service=service)
+        self.addCleanup(manager.deleteLater)
+        self.until(lambda: manager.worker is None)
+        self.assertIsNone(manager.models_verified_at)
+        manager._download()
+        self.until(lambda: manager.worker is None)
+        self.assertIsNone(manager._selected())
+        self.assertFalse(manager.use_button.isEnabled())
+        self.assertIn("요청한 설치 모델을 목록에서 확인하지 못했습니다", manager.status.text())
+        self.assertNotIn("설치 확인 완료", manager.status.text())
 
 
     def test_manager_can_use_already_installed_catalog_model_without_redownloading(self):
