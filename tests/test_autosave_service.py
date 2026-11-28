@@ -23,6 +23,54 @@ def _document() -> ProjectDocument:
 
 
 class AutosaveServiceTests(unittest.TestCase):
+    def test_recovery_byte_limit_is_symmetric_and_failed_save_preserves_old_snapshot(self) -> None:
+        with TemporaryDirectory(prefix="pvs-autosave-") as directory:
+            service = AutosaveService(Path(directory))
+            saved_at = datetime(2026, 11, 28, tzinfo=UTC)
+            document = _document()
+            document.playlist[0].title = "한글 가사"
+            data = document.to_dict()
+            target = service.write_document_data(data, None, saved_at)
+            previous = target.read_bytes()
+            with patch.object(AutosaveService, "MAX_SNAPSHOT_BYTES", len(previous)):
+                service.write_document_data(data, None, saved_at)
+                self.assertEqual(target.read_bytes(), previous)
+                self.assertEqual(service.load_snapshot(target).document.playlist[0].title, "한글 가사")
+                document.playlist[0].title += "가"
+                with self.assertRaisesRegex(ProjectError, "size limit"):
+                    service.write_document_data(document.to_dict(), None, saved_at)
+                self.assertEqual(target.read_bytes(), previous)
+                self.assertEqual(list(service.directory.glob("*.tmp")), [])
+            with patch.object(AutosaveService, "MAX_SNAPSHOT_BYTES", len(previous) - 1):
+                with self.assertRaisesRegex(ProjectError, "size limit"):
+                    service.load_snapshot(target)
+            self.assertEqual(target.read_bytes(), previous)
+
+    def test_oversized_and_malformed_recoveries_do_not_hide_valid_snapshot(self) -> None:
+        with TemporaryDirectory(prefix="pvs-autosave-") as directory:
+            service = AutosaveService(Path(directory))
+            valid = service.save(_document(), None)
+            limit = max(valid.path.stat().st_size, 8192)
+            broken = service.directory / "broken.recovery.json"
+            payload = json.loads(valid.path.read_text(encoding="utf-8"))
+            invalid = [
+                b"x" * (limit + 1),
+                b"\\xff\\xfe",
+                b"[" * 1500 + b"0" + b"]" * 1500,
+                b'{"schema_version":NaN}',
+                json.dumps(dict(payload, schema_version=True)).encode("utf-8"),
+                json.dumps(dict(payload, project_path=0)).encode("utf-8"),
+                json.dumps(dict(payload, project_path=[])).encode("utf-8"),
+            ]
+            with patch.object(AutosaveService, "MAX_SNAPSHOT_BYTES", limit):
+                for content in invalid:
+                    with self.subTest(prefix=content[:40]):
+                        broken.write_bytes(content)
+                        with self.assertRaises(ProjectError):
+                            service.load_snapshot(broken)
+                        self.assertEqual([snap.path for snap in service.recoveries()], [valid.path])
+                        self.assertEqual(broken.read_bytes(), content)
+
     def test_recovery_syncs_before_replacing_previous_snapshot(self) -> None:
         with TemporaryDirectory(prefix="pvs-autosave-") as directory:
             service = AutosaveService(Path(directory))
