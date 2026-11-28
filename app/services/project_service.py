@@ -30,6 +30,25 @@ class ProjectError(Exception):
     """Raised when a project document cannot be safely saved or loaded."""
 
 
+class ProjectSaveConflict(ProjectError):
+    """The destination was changed, removed or is being saved elsewhere."""
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectRevision:
+    """Observable identity of a project file, not a content hash."""
+
+    device: int
+    inode: int
+    size: int
+    modified_ns: int
+    changed_ns: int
+
+
+# Distinguish a legacy save (snapshot at entry) from an explicitly absent file.
+_CURRENT_REVISION = object()
+
+
 class ProjectLoadCancelled(ProjectError):
     """Raised when the user cancels a package load; the workspace is untouched."""
 
@@ -99,18 +118,79 @@ class ProjectService:
     @classmethod
     def save(
         cls, path: str | Path, document: ProjectDocument,
-        thumbnail: QImage | None = None,
+        thumbnail: QImage | None = None, *,
+        expected_revision: ProjectRevision | None | object = _CURRENT_REVISION,
     ) -> Path:
-        """Atomically save a portable package at a project path."""
+        """Atomically save; an explicit expected revision rejects stale edits.
+
+        None means that the destination must not exist. Legacy callers take a
+        revision at save entry, so they are protected during the write but must
+        opt into stale-editor detection using a revision captured when opening.
+        """
         target = Path(path).expanduser()
         if not target.suffix:
             target = target.with_suffix(PROJECT_SUFFIX)
         try:
             target = cls._project_file(target)
             target.parent.mkdir(parents=True, exist_ok=True)
-            return cls._save_package(target, document, thumbnail)
+            # Serialize saves from cooperating application instances. Do not
+            # wait indefinitely or expire a live editor's long-running save.
+            lease = QLockFile(str(cls._save_lock_path(target)))
+            lease.setStaleLockTime(0)
+            if not lease.tryLock(0):
+                raise ProjectSaveConflict(
+                    f"Project is being saved elsewhere or cannot be locked: {target}. "
+                    "Retry or save under a different name."
+                )
+            try:
+                revision = cls.revision(target)
+                if expected_revision is not _CURRENT_REVISION and revision != expected_revision:
+                    raise ProjectSaveConflict(
+                        f"Project changed since it was opened: {target}. "
+                        "Reopen it or save under a different name."
+                    )
+                return cls._save_package(target, document, thumbnail, revision)
+            finally:
+                lease.unlock()
         except (OSError, TypeError, ValueError, zipfile.BadZipFile) as error:
             raise ProjectError(f"Could not save project: {error}") from error
+
+    @staticmethod
+    def _save_lock_path(target: Path) -> Path:
+        # Bound the name length even for very long project filenames. The
+        # canonical parent plus case-folded basename covers normal Windows aliases.
+        identity = sha256(target.name.casefold().encode("utf-8")).hexdigest()[:24]
+        return target.parent / f".mms-save-{identity}.lock"
+
+    @classmethod
+    def revision(cls, path: str | Path) -> ProjectRevision | None:
+        """Read the destination's current revision; None only for a missing file."""
+        try:
+            target = cls._project_file(path)
+            try:
+                info = target.stat()
+            except FileNotFoundError:
+                return None
+            if not stat.S_ISREG(info.st_mode):
+                raise ValueError("Project destination is not a regular file.")
+            return ProjectRevision(info.st_dev, info.st_ino, info.st_size,
+                                   info.st_mtime_ns, info.st_ctime_ns)
+        except (OSError, ValueError) as error:
+            raise ProjectError(f"Could not inspect project revision: {error}") from error
+
+    @classmethod
+    def load_with_revision(
+        cls, path: str | Path, *,
+        progress: LoadProgress | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> tuple[ProjectDocument, ProjectRevision]:
+        """Capture the revision of a successfully read, unchanged project."""
+        target = cls._project_file(path)
+        before = cls.revision(target)
+        document = cls.load(target, progress=progress, cancel_event=cancel_event)
+        if before is None or cls.revision(target) != before:
+            raise ProjectSaveConflict(f"Project changed during loading: {target}. Reopen it.")
+        return document, before
 
     @classmethod
     def load(
@@ -185,6 +265,7 @@ class ProjectService:
     @classmethod
     def _save_package(
         cls, target: Path, document: ProjectDocument, thumbnail: QImage | None,
+        expected_revision: ProjectRevision | None,
     ) -> Path:
         packaged = ProjectDocument.from_dict(document.to_dict())
         packaged.settings.modified_at = datetime.now(timezone.utc).isoformat()
@@ -273,6 +354,11 @@ class ProjectService:
             # while the package was flushed. Refuse to publish that snapshot.
             for source_path, expected in asset_signatures.items():
                 cls._check_asset_save_signature(source_path, expected)
+            if cls.revision(target) != expected_revision:
+                raise ProjectSaveConflict(
+                    f"Project changed during save: {target}. "
+                    "Reopen it or save under a different name."
+                )
             temporary_path.replace(target)
         finally:
             temporary_path.unlink(missing_ok=True)
