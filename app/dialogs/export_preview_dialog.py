@@ -3281,6 +3281,11 @@ class ExportPreviewDialog(QDialog):
 
     def _ensure_track_analysis(self, track: PlaylistTrack, bands: int) -> None:
         """Resolve the visualizer, reaction and tempo data the scene uses."""
+        # A paused gapless preview is not playable yet. Keep existing cached
+        # values available to drawing, but do not decode/FFT another copy of
+        # the track while the required continuous soundtrack is being built.
+        if getattr(self, "_gapless_preview_pending", False):
+            return
         profiles = tuple({
             item.source.music_reaction_profile
             for item in self._cached_music_reaction_items
@@ -4185,8 +4190,14 @@ class ExportPreviewDialog(QDialog):
         if hasattr(self, "play_button"):
             self.play_button.setEnabled(True)
             self._set_play_text()
-        if not self._closing and hasattr(self, "_waveform_worker"):
-            QTimer.singleShot(0, self, self._start_waveform_loading)
+        if not self._closing:
+            if hasattr(self, "_waveform_worker"):
+                QTimer.singleShot(0, self, self._start_waveform_loading)
+            # Revisit the current scene even on a warned fallback, so paused
+            # visualizers/tempo effects deferred above do not need a seek/play
+            # event to resume their analysis.
+            self._last_composition_key = None
+            self._schedule_refresh()
         return True
 
     def _on_playback_level(self, gain: float) -> None:
