@@ -3670,6 +3670,7 @@ class MainWindow(QMainWindow):
             self.autosave_controller.wait_for_pending()
             snapshot = self.autosave.save(
                 self._project_document(), self.current_project_path, dirty=self.project_session.dirty,
+                base_revision=self.project_controller.loaded_revision,
             )
         except ProjectError as error:
             self._show_project_error(error)
@@ -3707,7 +3708,10 @@ class MainWindow(QMainWindow):
             try:
                 self.autosave_controller.wait_for_pending()
                 # The user may have kept editing while the UAC prompt was open.
-                snapshot = self.autosave.save(self._project_document(), self.current_project_path, dirty=self.project_session.dirty)
+                snapshot = self.autosave.save(
+                    self._project_document(), self.current_project_path, dirty=self.project_session.dirty,
+                    base_revision=self.project_controller.loaded_revision,
+                )
                 if snapshot.path != recovery_path:
                     snapshot.path.replace(recovery_path)
             except (ProjectError, OSError) as error:

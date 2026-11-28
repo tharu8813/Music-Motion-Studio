@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 import json
@@ -13,7 +13,7 @@ import threading
 from uuid import uuid4
 
 from app.models.project import ProjectDocument
-from app.services.project_service import ProjectError
+from app.services.project_service import ProjectError, ProjectRevision
 
 
 class AutosaveSuperseded(ProjectError):
@@ -29,6 +29,7 @@ class RecoverySnapshot:
     project_path: Path | None
     saved_at: datetime
     dirty: bool = True
+    base_revision: ProjectRevision | None = None
 
 
 class AutosaveService:
@@ -45,7 +46,10 @@ class AutosaveService:
         self.generation = 0
         self._write_lock = threading.Lock()
 
-    def save(self, document: ProjectDocument, project_path: Path | None, *, dirty: bool = True) -> RecoverySnapshot:
+    def save(
+        self, document: ProjectDocument, project_path: Path | None, *, dirty: bool = True,
+        base_revision: ProjectRevision | None = None,
+    ) -> RecoverySnapshot:
         """Atomically store a snapshot without changing the user's project file.
 
         ``document.to_dict()`` reads the live models, so this call must stay on
@@ -54,9 +58,10 @@ class AutosaveService:
         """
         saved_at = datetime.now(UTC)
         target = self.write_document_data(
-            document.to_dict(), project_path, saved_at, dirty=dirty,
+            document.to_dict(), project_path, saved_at, dirty=dirty, base_revision=base_revision,
         )
-        return RecoverySnapshot(target, document, project_path, saved_at, dirty)
+        return RecoverySnapshot(target, document, project_path, saved_at, dirty,
+                                base_revision if project_path is not None else None)
 
     def write_document_data(
         self,
@@ -64,6 +69,7 @@ class AutosaveService:
         project_path: Path | None,
         saved_at: datetime | None = None,
         *, dirty: bool = True, expected_generation: int | None = None,
+        base_revision: ProjectRevision | None = None,
     ) -> Path:
         """Atomically write a recovery snapshot from an already-serialized dict.
 
@@ -79,6 +85,7 @@ class AutosaveService:
             "project_path": str(project_path.resolve()) if project_path else None,
             "document": document_data,
             "dirty": dirty,
+            "base_revision": asdict(base_revision) if project_path is not None and base_revision is not None else None,
         }
         temporary_path: Path | None = None
         try:
@@ -158,6 +165,19 @@ class AutosaveService:
     def _reject_nonfinite_constant(value: str):
         raise ValueError(f"Invalid JSON number: {value}")
 
+    @staticmethod
+    def _parse_base_revision(value: object) -> ProjectRevision | None:
+        # Legacy or malformed optional revision metadata cannot authorize an
+        # overwrite. Keep the recoverable document rather than discarding it.
+        fields = ("device", "inode", "size", "modified_ns", "changed_ns")
+        if not isinstance(value, dict) or set(value) != set(fields):
+            return None
+        if any(type(value[name]) is not int for name in fields):
+            return None
+        if any(value[name] < 0 for name in fields[:3]):
+            return None
+        return ProjectRevision(**value)
+
     @classmethod
     def load_snapshot(cls, path: Path) -> RecoverySnapshot:
         """Read a bounded validated snapshot, including an update handoff."""
@@ -191,6 +211,7 @@ class AutosaveService:
                 project_path=project_path,
                 saved_at=saved_at,
                 dirty=dirty,
+                base_revision=cls._parse_base_revision(data.get("base_revision")) if project_path else None,
             )
         except (OSError, KeyError, TypeError, ValueError, RecursionError, OverflowError) as error:
             raise ProjectError(f"Could not open recovery snapshot: {error}") from error

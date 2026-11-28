@@ -56,6 +56,7 @@ class AutosaveController:
         )
         worker = AutosaveWorker(
             window.autosave, document_data, window.current_project_path,
+            base_revision=window.project_controller.loaded_revision,
         )
         worker.succeeded.connect(window._autosave_succeeded)
         worker.failed.connect(window._autosave_failed)
@@ -142,9 +143,11 @@ class AutosaveController:
             with self.session.suspend_changes():
                 window._apply_project(snapshot.document)
                 window.current_project_path = project_path
-                # Older recovery snapshots contain no trustworthy base revision.
-                # Never silently adopt the current on-disk project's revision.
-                window.project_controller.loaded_revision = None
+                # Carry the revision from the original editing session, never
+                # adopt the currently saved file as the base of recovered edits.
+                window.project_controller.loaded_revision = (
+                    snapshot.base_revision if project_path is not None else None
+                )
                 window.history.reset(window._project_document().to_dict())
             self.session.dirty = (
                 snapshot.dirty or window.project_controller.media_relinked
@@ -153,7 +156,10 @@ class AutosaveController:
             window.set_project_open(True)
             # Own the restored backup so saving this window cannot clear another window's work.
             try:
-                owned = window.autosave.save(window._project_document(), project_path, dirty=self.session.dirty)
+                owned = window.autosave.save(
+                    window._project_document(), project_path, dirty=self.session.dirty,
+                    base_revision=window.project_controller.loaded_revision,
+                )
                 if owned.path != snapshot.path:
                     window.autosave.clear_snapshot(snapshot)
             except ProjectError as error:

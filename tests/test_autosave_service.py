@@ -12,7 +12,7 @@ from app.models.project import ProjectDocument
 from app.models.playlist import PlaylistTrack
 from app.services.autosave_service import AutosaveService, AutosaveSuperseded
 from app.services.autosave_worker import AutosaveWorker
-from app.services.project_service import ProjectError
+from app.services.project_service import ProjectError, ProjectRevision
 
 
 def _document() -> ProjectDocument:
@@ -23,6 +23,30 @@ def _document() -> ProjectDocument:
 
 
 class AutosaveServiceTests(unittest.TestCase):
+    def test_recovery_worker_preserves_original_revision_and_legacy_metadata_is_safe(self):
+        with TemporaryDirectory(prefix="pvs-autosave-") as directory:
+            root = Path(directory)
+            service = AutosaveService(root)
+            target = root / "work.pvsproj"
+            revision = ProjectRevision(1, 2, 300, 400, 500)
+            worker = AutosaveWorker(service, _document().to_dict(), target,
+                                    base_revision=revision)
+            worker.run()
+            snapshot = service.latest_recovery()
+            self.assertEqual(snapshot.base_revision, revision)
+            self.assertEqual(snapshot.project_path, target)
+            payload = json.loads(snapshot.path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["base_revision"]["size"], 300)
+            payload.pop("base_revision")
+            snapshot.path.write_text(json.dumps(payload), encoding="utf-8")
+            self.assertIsNone(service.load_snapshot(snapshot.path).base_revision)
+            payload["base_revision"] = dict(device=1, inode=True, size=300,
+                                            modified_ns=400, changed_ns=500)
+            snapshot.path.write_text(json.dumps(payload), encoding="utf-8")
+            recovered = service.load_snapshot(snapshot.path)
+            self.assertIsNone(recovered.base_revision)
+            self.assertEqual(recovered.document.playlist[0].title, "A")
+
     def test_recovery_byte_limit_is_symmetric_and_failed_save_preserves_old_snapshot(self) -> None:
         with TemporaryDirectory(prefix="pvs-autosave-") as directory:
             service = AutosaveService(Path(directory))
