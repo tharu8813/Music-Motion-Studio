@@ -6,16 +6,33 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 from threading import Event
+from types import SimpleNamespace
 from unittest import TestCase, skipUnless
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 import soundfile
 
-from app.services.audio_decode import AudioDecodeError, read_pcm
+from app.services.audio_decode import AudioDecodeError, _decode_windows, read_pcm
 
 
 class AudioDecodeTests(TestCase):
+    def test_m4a_edit_duration_caps_presentation_window_without_second_offset(self):
+        rate = 44_100
+        decoder = Mock(return_value=(rate, 2, 133_120, b""))
+        native = SimpleNamespace(decode_windows_audio=decoder)
+        source = Path("audio.m4a")
+        with patch.dict(sys.modules, {"music_motion_native": native}), \
+                patch("app.services.audio_decode.m4a_audio_edit", return_value=(1024 / rate, 3.0)):
+            for start, requested, bounded in ((0.0, None, 3.0), (1.2, 0.8, 0.8),
+                                              (2.75, 0.5, 0.25), (3.5, None, 0.0),
+                                              (0.0, 0.0, 0.0)):
+                with self.subTest(start=start, requested=requested):
+                    decoder.reset_mock()
+                    _, _, frames, _ = _decode_windows(source, start, requested)
+                    decoder.assert_called_once_with(source.resolve(), start, bounded, None)
+                    self.assertEqual(frames, 132_300)
+
     def test_reads_only_requested_frames_and_converts_channels(self):
         rate = 8_000
         original = np.tile([[0.5, 0.25]], (rate, 1)).astype(np.float32)
@@ -102,14 +119,16 @@ class WindowsAudioDecodeTests(TestCase):
                         eq = root / "eq.flac"
                         EqPreviewAudio().render(source, eq, "volume=-3.00dB", 0, None, cancel)
 
-                    self.assertEqual(window.shape, (35_280, 2))
                     start = round(1.2 * rate)
                     frames = len(signal) if extension == "m4a" else len(expected)
-                    self.assertEqual(len(full), frames)
-                    full_error = float(np.mean(np.abs(full - expected[:frames])))
-                    window_error = float(np.mean(np.abs(window - expected[start:start + len(window)])))
-                    native_window_error = float(np.mean(np.abs(window - full[start:start + len(window)])))
-                    if max(full_error, window_error, native_window_error) >= 0.002:
+                    def common_mae(left, right):
+                        count = min(len(left), len(right))
+                        return float(np.mean(np.abs(left[:count] - right[:count]))) if count else float("inf")
+                    full_error = common_mae(full, expected[:frames])
+                    window_error = common_mae(window, expected[start:start + len(window)])
+                    native_window_error = common_mae(window, full[start:start + len(window)])
+                    if (len(full) != frames or window.shape != (35_280, 2)
+                            or max(full_error, window_error, native_window_error) >= 0.002):
                         from scipy.signal import correlate
                         from app.video.duration_probe import m4a_audio_edit
                         # Search a bounded neighborhood for displacement relative
@@ -117,6 +136,8 @@ class WindowsAudioDecodeTests(TestCase):
                         def best_alignment(reference, position, observed):
                             lo = max(0, position - rate // 4)
                             hi = min(len(reference), position + len(observed) + rate // 4)
+                            if not len(observed) or hi - lo < len(observed):
+                                return None
                             scores = correlate(reference[lo:hi, 0], observed[:, 0],
                                                mode="valid", method="fft")
                             index = lo + int(np.argmax(scores))
@@ -124,13 +145,29 @@ class WindowsAudioDecodeTests(TestCase):
                             return index - position, float(np.mean(np.abs(aligned - observed)))
                         edit = m4a_audio_edit(source) if extension == "m4a" else None
                         print(f"PCM alignment {extension}: edit={edit}, "
+                              f"frames={len(full)}/{frames}, reference_frames={len(expected)}, "
+                              f"window_frames={len(window)}, "
                               f"full_mae={full_error:.6f}, window_mae={window_error:.6f}, "
                               f"window_vs_full_mae={native_window_error:.6f}, "
                               f"reference_shift={best_alignment(expected, start, window)}, "
                               f"native_shift={best_alignment(full, start, window)}", flush=True)
+                    self.assertEqual(window.shape, (35_280, 2))
+                    self.assertEqual(len(full), frames)
                     self.assertLess(full_error, 0.002)
                     self.assertLess(window_error, 0.002)
                     self.assertLess(native_window_error, 0.002)
+                    if extension == "m4a":
+                        for seek_start, seconds in ((0.0, 0.15), (0.25, 0.1),
+                                                    (0.75, 0.2), (2.9, 0.2)):
+                            with self.subTest(seek=seek_start, duration=seconds), \
+                                    patch("subprocess.Popen", side_effect=AssertionError("unexpected external decoder")):
+                                part = read_pcm(source, cancel, sample_rate=rate, channels=2,
+                                                start=seek_start, duration=seconds)
+                                first = round(seek_start * rate)
+                                stop = min(frames, round((seek_start + seconds) * rate))
+                                self.assertEqual(part.shape, (stop - first, 2))
+                                self.assertLess(common_mae(part, full[first:stop]), 0.002)
+                                self.assertLess(common_mae(part, expected[first:stop]), 0.002)
                     self.assertGreater(analysis["levels"].max(), 0.0)
                     self.assertGreater(len(mono), 65_000)
                     self.assertEqual(soundfile.info(lyrics).frames, 12_800)
