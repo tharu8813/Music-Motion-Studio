@@ -57,13 +57,28 @@ Copilot의 리뷰 한도 부족 안내는 승인으로 간주하지 않았다. �
 
 ### Phase 2 / P0: 프로젝트 데이터 보호 및 복구
 
-현재 임시 파일 작성 후 교체, 세션별 자동 복구, 변경 serial, ZIP manifest/썸네일 제한, 여유 디스크 검사와 캐시 CRC 검증이 구현되어 있다. 다음은 보완 후보이며 기존 데이터 손실이 확인되었다는 뜻이 아니다.
+2026-11-29 KST 진행 기록 (main `01043d0848a1125788f492227fd833594e241c59`). 아래 표의 CI는 병합 전 정확한 PR HEAD 기준이다. 실기기 수용 검수는 완료되지 않았다.
 
-- [ ] 원자적 저장과 디스크 flush/fsync 내구성을 파일 시스템·Windows 동작에 맞춰 검증한다. 실패 시 마지막 정상 파일을 보존하고 오류를 사용자에게 표시한다.
-- [ ] 동일 프로젝트를 여러 창/프로세스에서 편집할 때 외부 변경과 저장 충돌을 감지하고 덮어쓰기 전에 선택권을 제공한다.
-- [ ] 복구 파일 목록/시간/프로젝트 식별 표시, 손상 복구·여러 세션·취소·복구 후 재저장 경계를 개선한다.
-- [ ] 복구 JSON 용량 한도, 디스크 부족, 읽기 전용, 잠긴 파일, 저장 도중 미디어 변경, 비정상 종료, 임시 파일 정리를 검사한다.
-- [ ] 구버전 프로젝트/프리셋/언어팩과 embed/reference, 누락 미디어 재연결, 자동 저장 세대 및 worker 수명을 유지한다.
+| PR | 구현 및 자동 검증 | 병합 상태 |
+| --- | --- | --- |
+| [#257](https://github.com/tharu8813/Music-Motion-Studio/pull/257) | 프로젝트/복구 임시 파일 fsync, 마지막 정상 파일 보존, 저장 중 미디어 변경 감지. [CI 9/9](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46153539494) | `8c2da2d` |
+| [#258](https://github.com/tharu8813/Music-Motion-Studio/pull/258) | 협력 편집기 저장 잠금, 파일 revision 비교, 충돌 시 별도 저장/취소, 편집 및 복구 데이터 보존. [CI 9/9](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46156127317) | `08dd42d` |
+| [#259](https://github.com/tharu8813/Music-Motion-Studio/pull/259) | 복구 JSON 32MiB 읽기/쓰기 한도, 손상 격리, 원본 revision 및 업데이트 handoff 보존. [CI 9/9](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46157038340) | `012ed77` |
+| [#260](https://github.com/tharu8813/Music-Motion-Studio/pull/260) | 여러 복구 세션 선택, 취소·거절 시 파일 보존, 단일 자동 복구 유지. [CI 9/9](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46157875595) | `abc5fa5` |
+| [#261](https://github.com/tharu8813/Music-Motion-Studio/pull/261) | 읽을 수 없는 복구 파일 경로 및 원인 표시, 정상 복구 지속. [CI 9/9](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46158758179) | `97d73c4` |
+| [#262](https://github.com/tharu8813/Music-Motion-Studio/pull/262) | 정상 ZIP entry의 부분 복구, reference 프로젝트 사본·보고서 생성, 원본 및 기존 폴더 보호. [CI 9/9](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46159697800) | `01043d0` |
+| [#263](https://github.com/tharu8813/Music-Motion-Studio/pull/263) | 실패 화면에서 부분 복구 작업자·취소·결과 안내 연결. 최초 CI의 Qt exec 테스트 모킹 오류 수정 및 종료 race 방어. | `53f9a06` 재검증 필요, 미병합 |
+
+- [x] 임시 파일 flush/fsync와 실패 시 이전 정상 파일 보존의 자동 검사, 저장 중 미디어 변경 검증.
+- [x] 협력 편집기 저장 잠금 및 원본 revision 비교, 충돌 후 복사 저장/취소 회귀.
+- [x] 복구 파일 크기/JSON 검증, 원본 revision 및 업데이트 인계, 복구 선택과 손상 진단, 정상 ZIP entry 부분 복구 서비스.
+- [ ] #263의 최신 HEAD CI 및 병합, 실제 대용량 복구·취소 및 복구 폴더 참조 유지 검증.
+- [ ] 실제 Windows 두 프로세스에서 동일 프로젝트 및 복구 세션을 열고 저장/복구 경쟁, 잠긴 파일·읽기 전용·디스크 부족·강제 종료·임시 파일 정리 검수. 특히 활성 복구 세션 소유권 및 복구 목록 선택 도중 파일 변경/삭제 경계는 별도 확인한다.
+- [ ] 구버전 프로젝트/프리셋/언어팩과 embed/reference, 누락 미디어 재연결, 자동 저장 세대 및 worker 수명에 대한 실제 사용자 흐름 검수.
+
+제한: fsync는 모든 파일 시스템/전원 장애에서 디렉터리 메타데이터 보존을 보장하지 않는다. revision은 메타데이터 비교이며 비협력 외부 프로그램에 대한 원자적 compare-and-swap은 아니다. 32MiB 초과 기존 복구 파일은 삭제하지 않으나 일반 복구로 열 수 없다. 부분 복구는 읽을 수 있는 ZIP 중앙 디렉터리와 CRC-valid entry를 전제로 하며 손상 manifest를 재구성하지 않는다. 복구 프로젝트는 reference 모드로 생성되어 미디어 폴더를 함께 보관해야 한다.
+
+Phase 3의 독립적인 계측 및 성능 검토는 병행할 수 있다. Phase 2 전체 완료와 실제 사용자 환경 검수는 남은 체크박스 확인 후에만 선언한다.
 
 경계: `app/services/project_service.py`, `autosave_service.py`, `project_session.py`, `app/controllers/project_controller.py`, `autosave_controller.py`.
 
