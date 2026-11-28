@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from array import array
 from dataclasses import dataclass, replace
+from functools import lru_cache
 from math import cos, radians, sin
 from sys import byteorder
 from time import perf_counter
@@ -131,6 +132,25 @@ class _TextureEntry:
     video_format: str = ""
     fingerprint: object | None = None
     premultiplied: bool = False
+
+
+def _make_plane_indices(source: int, target: int) -> np.ndarray:
+    indices = np.linspace(0, max(0, source - 1), max(1, target)).astype(np.intp)
+    indices.flags.writeable = False
+    return indices
+
+
+@lru_cache(maxsize=64)
+def _cached_plane_indices(source: int, target: int) -> np.ndarray:
+    return _make_plane_indices(source, target)
+
+
+def _plane_indices(source: int, target: int) -> np.ndarray:
+    # Limit retained arrays to 64 * 8192 * sizeof(intp) (4 MiB on x64).
+    # Extremely large source/target geometries remain supported but uncached.
+    if max(source, target) <= 8192:
+        return _cached_plane_indices(source, target)
+    return _make_plane_indices(source, target)
 
 
 if GPU_TEXTURE_SURFACE_AVAILABLE:
@@ -559,8 +579,13 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
         def _copy_scaled_video_plane(
             frame: QVideoFrame, plane: int, source_width: int, source_rows: int,
             target_width: int, target_rows: int, *, channels: int = 1,
-        ) -> bytes:
-            """Nearest-sample one mapped plane while respecting padded strides."""
+        ) -> bytes | memoryview:
+            """Nearest-sample into owned packed storage, respecting padded strides.
+
+            The scaled gather owns its pixels independently of the mapping;
+            keep that array alive through a flat read-only byte view rather
+            than copying it again into bytes before the synchronous GL upload.
+            """
             if source_width == target_width and source_rows == target_rows:
                 return GpuTexturePreviewSurface._copy_video_plane(
                     frame, plane, source_width * channels, source_rows,
@@ -572,14 +597,11 @@ if GPU_TEXTURE_SURFACE_AVAILABLE:
             ).reshape(source_rows, stride)
             # Gather packed pixels as units instead of copying each channel.
             pixels = source[:, :source_width * channels].view(np.dtype((np.void, channels)))
-            y_indices = np.linspace(
-                0, max(0, source_rows - 1), max(1, target_rows),
-            ).astype(np.intp)
-            x_indices = np.linspace(
-                0, max(0, source_width - 1), max(1, target_width),
-            ).astype(np.intp)
+            y_indices = _plane_indices(source_rows, target_rows)
+            x_indices = _plane_indices(source_width, target_width)
             scaled = pixels[y_indices[:, None], x_indices[None, :]]
-            return scaled.tobytes()
+            scaled.flags.writeable = False
+            return memoryview(scaled).cast("B")
 
         @staticmethod
         def _upload_raw_texture(
