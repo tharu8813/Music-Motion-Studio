@@ -15,7 +15,27 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  classify-changes:
+    name: Classify changes and validate documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Classify exact checked-out diff
+        id: classify
+        env:
+          CI_EVENT: ${{ github.event_name }}
+          CI_PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: python scripts/classify_ci_changes.py
+      - name: Verify classification rules
+        run: python -m unittest -v tests.test_classify_ci_changes
   verify-windows-build:
+    needs: classify-changes
+    if: needs.classify-changes.outputs.docs_only != 'true'
     runs-on: windows-latest
     timeout-minutes: 45
 
@@ -432,6 +452,8 @@ jobs:
           }
 
   verify-python-tests:
+    needs: classify-changes
+    if: needs.classify-changes.outputs.docs_only != 'true'
     name: Isolated Python tests (${{ matrix.group }})
     runs-on: windows-latest
     timeout-minutes: 35
@@ -520,3 +542,30 @@ jobs:
           path: test-results.json
           if-no-files-found: ignore
 
+
+  deployment-verification:
+    name: Deployment verification gate
+    if: always()
+    needs: [classify-changes, verify-windows-build, verify-python-tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLASSIFICATION: ${{ needs.classify-changes.result }}
+      DOCS_ONLY: ${{ needs.classify-changes.outputs.docs_only }}
+      BUILD: ${{ needs.verify-windows-build.result }}
+      TESTS: ${{ needs.verify-python-tests.result }}
+    steps:
+      - name: Require successful documentation or full deployment verification
+        shell: bash
+        run: |
+          set -eu
+          printf 'classification=%s docs_only=%s build=%s tests=%s\n' "$CLASSIFICATION" "$DOCS_ONLY" "$BUILD" "$TESTS"
+          test "$CLASSIFICATION" = success
+          if [ "$DOCS_ONLY" = true ]; then
+            test "$BUILD" = skipped
+            test "$TESTS" = skipped
+          else
+            test "$DOCS_ONLY" = false
+            test "$BUILD" = success
+            test "$TESTS" = success
+          fi

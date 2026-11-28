@@ -1,5 +1,6 @@
 from concurrent.futures import CancelledError
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import sys
@@ -55,7 +56,11 @@ class AudioDecodeTests(TestCase):
                 read_pcm(source, cancel, sample_rate=8_000, channels=1)
 
 
-@skipUnless(sys.platform == "win32" and shutil.which("ffmpeg"),
+def fixture_ffmpeg():
+    return os.environ.get("PLAYLIST_CANVAS_TEST_FFMPEG") or shutil.which("ffmpeg")
+
+
+@skipUnless(sys.platform == "win32" and fixture_ffmpeg(),
             "Requires Windows audio decoding and FFmpeg for test fixture generation.")
 class WindowsAudioDecodeTests(TestCase):
     def test_aac_and_m4a_keep_the_timeline_through_local_analysis_and_eq(self):
@@ -72,7 +77,7 @@ class WindowsAudioDecodeTests(TestCase):
         cancel = Event()
         time = np.arange(rate * 3) / rate
         signal = np.column_stack((0.15 * chirp(time, 100, 3, 2500), 0.2 * chirp(time, 2200, 3, 250)))
-        ffmpeg = shutil.which("ffmpeg")
+        ffmpeg = fixture_ffmpeg()
         with TemporaryDirectory() as directory:
             root = Path(directory)
             wav = root / "source.wav"
@@ -99,10 +104,33 @@ class WindowsAudioDecodeTests(TestCase):
 
                     self.assertEqual(window.shape, (35_280, 2))
                     start = round(1.2 * rate)
-                    self.assertLess(np.mean(np.abs(window - expected[start:start + len(window)])), 0.002)
                     frames = len(signal) if extension == "m4a" else len(expected)
                     self.assertEqual(len(full), frames)
-                    self.assertLess(np.mean(np.abs(full - expected[:frames])), 0.002)
+                    full_error = float(np.mean(np.abs(full - expected[:frames])))
+                    window_error = float(np.mean(np.abs(window - expected[start:start + len(window)])))
+                    native_window_error = float(np.mean(np.abs(window - full[start:start + len(window)])))
+                    if max(full_error, window_error, native_window_error) >= 0.002:
+                        from scipy.signal import correlate
+                        from app.video.duration_probe import m4a_audio_edit
+                        # Search a bounded neighborhood for displacement relative
+                        # to the reference and the local decoder's full output.
+                        def best_alignment(reference, position, observed):
+                            lo = max(0, position - rate // 4)
+                            hi = min(len(reference), position + len(observed) + rate // 4)
+                            scores = correlate(reference[lo:hi, 0], observed[:, 0],
+                                               mode="valid", method="fft")
+                            index = lo + int(np.argmax(scores))
+                            aligned = reference[index:index + len(observed)]
+                            return index - position, float(np.mean(np.abs(aligned - observed)))
+                        edit = m4a_audio_edit(source) if extension == "m4a" else None
+                        print(f"PCM alignment {extension}: edit={edit}, "
+                              f"full_mae={full_error:.6f}, window_mae={window_error:.6f}, "
+                              f"window_vs_full_mae={native_window_error:.6f}, "
+                              f"reference_shift={best_alignment(expected, start, window)}, "
+                              f"native_shift={best_alignment(full, start, window)}", flush=True)
+                    self.assertLess(full_error, 0.002)
+                    self.assertLess(window_error, 0.002)
+                    self.assertLess(native_window_error, 0.002)
                     self.assertGreater(analysis["levels"].max(), 0.0)
                     self.assertGreater(len(mono), 65_000)
                     self.assertEqual(soundfile.info(lyrics).frames, 12_800)

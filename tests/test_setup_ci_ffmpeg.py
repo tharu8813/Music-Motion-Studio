@@ -31,6 +31,20 @@ class TestCiFFmpegSetupTests(unittest.TestCase):
             installer.assert_called_once_with(root / "ffmpeg-tests-attempt-1")
             installer.return_value.install_release.assert_called_once_with(setup_ci_ffmpeg.ci_release())
 
+    def test_writes_verified_bin_to_optional_github_path(self) -> None:
+        with TemporaryDirectory() as raw:
+            root = Path(raw)
+            env = root / "github-env"
+            github_path = root / "github-path"
+            binary = root / "bin" / "ffmpeg.exe"
+            with patch.dict(os.environ, {"RUNNER_TEMP": raw, "GITHUB_ENV": str(env),
+                                         "GITHUB_PATH": str(github_path)}), \\
+                    patch.object(setup_ci_ffmpeg, "ManagedFFmpegInstaller") as installer:
+                installer.return_value.install_release.return_value = SimpleNamespace(
+                    executable=binary, version="9.0.2")
+                self.assertEqual(setup_ci_ffmpeg.main(), 0)
+            self.assertEqual(github_path.read_text(encoding="utf-8"), f"{binary.parent}\n")
+
     def test_ci_release_uses_one_dated_series_and_checksum_manifest(self) -> None:
         release = setup_ci_ffmpeg.ci_release()
         self.assertEqual(release.series, "9.0")
