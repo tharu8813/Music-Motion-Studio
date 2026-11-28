@@ -1,10 +1,12 @@
-"""One bounded session-local, immutable gapless preview audio cache.
+"""Bounded session-local LRU cache of immutable gapless preview soundtracks.
 
 A preview owns its own hard link, so closing it or evicting the cache cannot
 remove another preview's soundtrack. No persistent cache or source mutation.
 """
 from __future__ import annotations
 
+from collections import OrderedDict
+from dataclasses import dataclass
 import json
 import os
 import threading
@@ -14,6 +16,14 @@ from tempfile import TemporaryDirectory
 from app.timeline.render_plan import CompiledRenderPlan
 
 _MAX_BYTES = 1024 * 1024 * 1024
+_MAX_ENTRIES = 3
+
+
+@dataclass(frozen=True, slots=True)
+class _CacheEntry:
+    directory: TemporaryDirectory
+    plan: CompiledRenderPlan
+    size: int
 
 
 def _fingerprint(path) -> tuple:
@@ -48,28 +58,46 @@ def gapless_preview_key(executable, tracks, audio_effects) -> tuple | None:
 
 
 class GaplessPreviewCache:
-    def __init__(self, max_bytes: int = _MAX_BYTES):
-        self._max_bytes = max_bytes
+    """Retain recent completed mixes, bounded by aggregate bytes and count."""
+
+    def __init__(self, max_bytes: int = _MAX_BYTES, max_entries: int = _MAX_ENTRIES):
+        self._max_bytes = max(0, max_bytes)
+        self._max_entries = max(0, max_entries)
         self._lock = threading.Lock()
-        self._entry = None
+        self._entries: OrderedDict[tuple, _CacheEntry] = OrderedDict()
+        self._bytes = 0
+
+    def _remove(self, key: tuple) -> None:
+        entry = self._entries.pop(key)
+        self._bytes -= entry.size
+        entry.directory.cleanup()
 
     def restore(self, key: tuple | None, destination: Path) -> CompiledRenderPlan | None:
         if key is None:
             return None
         with self._lock:
-            if self._entry is None or self._entry[0] != key:
+            entry = self._entries.get(key)
+            if entry is None:
                 return None
-            _, directory, plan = self._entry
+            source = Path(entry.directory.name) / "audio.flac"
             try:
-                # Avoid copying potentially hundreds of MB; on a filesystem
-                # without hard links, simply render normally.
-                os.link(Path(directory.name) / "audio.flac", destination)
+                if source.stat().st_size != entry.size:
+                    self._remove(key)
+                    return None
+            except OSError:
+                self._remove(key)
+                return None
+            try:
+                # A preview owns its own hard link, even after eviction.
+                # Cross-volume and existing-destination failures are misses.
+                os.link(source, destination)
             except OSError:
                 return None
-            return plan
+            self._entries.move_to_end(key)
+            return entry.plan
 
     def remember(self, key: tuple | None, source: Path, plan: CompiledRenderPlan) -> None:
-        if key is None:
+        if key is None or not self._max_entries:
             return
         with self._lock:
             directory = None
@@ -83,15 +111,19 @@ class GaplessPreviewCache:
                 if directory is not None:
                     directory.cleanup()
                 return
-            previous, self._entry = self._entry, (key, directory, plan)
-            if previous is not None:
-                previous[1].cleanup()
+            # Publish only after linking succeeds, so a failed replacement
+            # cannot evict valid existing cache entries.
+            if key in self._entries:
+                self._remove(key)
+            self._entries[key] = _CacheEntry(directory, plan, size)
+            self._bytes += size
+            while len(self._entries) > self._max_entries or self._bytes > self._max_bytes:
+                self._remove(next(iter(self._entries)))
 
     def clear(self) -> None:
         with self._lock:
-            previous, self._entry = self._entry, None
-            if previous is not None:
-                previous[1].cleanup()
+            for key in tuple(self._entries):
+                self._remove(key)
 
 
 GAPLESS_PREVIEW_CACHE = GaplessPreviewCache()

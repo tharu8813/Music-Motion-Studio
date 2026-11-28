@@ -67,12 +67,13 @@ Copilot의 리뷰 한도 부족 안내는 승인으로 간주하지 않았다. �
 | [#260](https://github.com/tharu8813/Music-Motion-Studio/pull/260) | 여러 복구 세션 선택, 취소·거절 시 파일 보존, 단일 자동 복구 유지. [CI 9/9](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46157875595) | `abc5fa5` |
 | [#261](https://github.com/tharu8813/Music-Motion-Studio/pull/261) | 읽을 수 없는 복구 파일 경로 및 원인 표시, 정상 복구 지속. [CI 9/9](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46158758179) | `97d73c4` |
 | [#262](https://github.com/tharu8813/Music-Motion-Studio/pull/262) | 정상 ZIP entry의 부분 복구, reference 프로젝트 사본·보고서 생성, 원본 및 기존 폴더 보호. [CI 9/9](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46159697800) | `01043d0` |
-| [#263](https://github.com/tharu8813/Music-Motion-Studio/pull/263) | 실패 화면에서 부분 복구 작업자·취소·결과 안내 연결. 최초 CI의 Qt exec 테스트 모킹 오류 수정 및 종료 race 방어. | `53f9a06` 재검증 필요, 미병합 |
+| [#263](https://github.com/tharu8813/Music-Motion-Studio/pull/263) | 실패 화면에서 부분 복구 작업자·취소·결과 안내 연결. Qt exec 테스트 모킹 오류 수정 및 종료 race 방어. [CI 9/9](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46161404459) | `2e781df` |
 
 - [x] 임시 파일 flush/fsync와 실패 시 이전 정상 파일 보존의 자동 검사, 저장 중 미디어 변경 검증.
 - [x] 협력 편집기 저장 잠금 및 원본 revision 비교, 충돌 후 복사 저장/취소 회귀.
 - [x] 복구 파일 크기/JSON 검증, 원본 revision 및 업데이트 인계, 복구 선택과 손상 진단, 정상 ZIP entry 부분 복구 서비스.
-- [ ] #263의 최신 HEAD CI 및 병합, 실제 대용량 복구·취소 및 복구 폴더 참조 유지 검증.
+- [x] #263 최신 HEAD CI 및 병합.
+- [ ] 실제 대용량 복구·취소 및 복구 폴더 참조 유지 검증.
 - [ ] 실제 Windows 두 프로세스에서 동일 프로젝트 및 복구 세션을 열고 저장/복구 경쟁, 잠긴 파일·읽기 전용·디스크 부족·강제 종료·임시 파일 정리 검수. 특히 활성 복구 세션 소유권 및 복구 목록 선택 도중 파일 변경/삭제 경계는 별도 확인한다.
 - [ ] 구버전 프로젝트/프리셋/언어팩과 embed/reference, 누락 미디어 재연결, 자동 저장 세대 및 worker 수명에 대한 실제 사용자 흐름 검수.
 
@@ -103,6 +104,17 @@ Phase 3의 독립적인 계측 및 성능 검토는 병행할 수 있다. Phase 
 | Peaky (limiter) | 10.461초 | 0.342초 | 2.063초 | 3.901초 |
 
 각 fixture의 cold/warm 디코딩 PCM SHA-256 및 재생 길이가 일치하고 warm에서 렌더가 재실행되지 않았다. limiter가 포함된 FLAC 단계의 비용이 큰 관찰값이지만 서로 다른 합성 입력이므로 limiter만의 인과 효과로 단정하지 않는다. #250은 계측 추가이며 런타임 가속이 아니다. 다음 후보는 동일 입력에서 limiter/인코딩 정책을 비교하고 정규화·true peak·PCM 정확성을 유지해야 한다.
+
+#### #265 동일 입력 필터 스레드 비교 (2026-11-29 KST)
+
+[Windows 측정 로그](https://github.com/tharu8813/Music-Motion-Studio/actions/runs/46162289638/job/141032053268): 동일 60초 48kHz stereo PCM 및 production normalization filter, ABBA/BAAB 각 설정 4회. 전체 10/10 CI 성공, main `ed660fc`.
+
+| fixture | 자동 null sink | 단일 null sink | 자동 filter + FLAC | 단일 filter + FLAC |
+| --- | ---: | ---: | ---: | ---: |
+| Linear | 0.0574초 | 0.0584초 | 0.1284초 | 0.1280초 |
+| Limiter | 0.4952초 | 0.5752초 | 0.5343초 | 0.5639초 |
+
+두 fixture 각각 모든 실행의 PCM SHA-256 및 2,880,000 sample frame, LUFS/true peak 일치. limiter 출력 -32.8 LUFS/-1.4 dBTP는 기존 필터 결과이며 -1.5 dBTP 엄격 상한을 새로 검증한 것이 아니다. 단일 스레드의 limiter+FLAC 중앙값은 약 5.5% 느려 **기본값 변경 거부**. null sink와 FLAC wall time은 독립 CPU 비용으로 차감/합산하지 않는다. 실제 미리보기 준비 시간이나 RTX 실측으로 해석하지 않는다.
 
 경계: `app/dialogs/export_preview_dialog.py`, `app/controllers/preview_controller.py`, `app/preview/`, `app/video/`. 세부 단계와 기준은 [#159](https://github.com/tharu8813/Music-Motion-Studio/issues/159)를 따른다.
 
